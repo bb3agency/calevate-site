@@ -96,6 +96,8 @@ function option(over: Partial<LlmModelOption> = {}): LlmModelOption {
     // which the screen turns into a friendly heading through `providerLabel` — so this
     // fixture carries the wire token, not the label, and the test proves the mapping.
     provider: "azure_openai",
+    // The tier a client reads this model as (D-680); the operator sees both.
+    tier: "standard",
     platform_cost_inr_per_minute: DEFAULT_RATE,
     // D-455: what the CLIENT is charged extra for this model. `"0"` on the base-rate
     // model always, and on every model while the plan quotes no surcharge.
@@ -110,6 +112,7 @@ function option(over: Partial<LlmModelOption> = {}): LlmModelOption {
 const PLATFORM = option();
 const PREMIUM = option({
   model: "gpt-4.1-mini",
+  tier: "plus",
   platform_cost_inr_per_minute: PREMIUM_RATE,
   // A plan that quotes a surcharge — the state this console has to render honestly.
   client_surcharge_inr_per_minute: PREMIUM_SURCHARGE,
@@ -138,6 +141,7 @@ function inheriting(
     default_llm_model: null,
     effective_default: PLATFORM.model,
     available: [PLATFORM, PREMIUM],
+    agents: [],
     ...over,
   };
 }
@@ -148,6 +152,7 @@ function pinned(): OrganizationLlmDefaults {
     default_llm_model: PREMIUM.model,
     effective_default: PREMIUM.model,
     available: [PLATFORM, PREMIUM],
+    agents: [],
   };
 }
 

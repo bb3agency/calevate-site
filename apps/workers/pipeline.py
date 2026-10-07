@@ -29,6 +29,7 @@ SLO: lead visible in the client dashboard under 2 minutes after hangup — measu
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -59,6 +60,12 @@ from apps.api.billing.caps import (
     lock_tenant_spend_state,
     over_cap_sql,
 )
+from apps.api.billing.engine_minutes import (
+    ATTESTED_MINUTE_ENGINES,
+    MinuteCost,
+    client_voice_tier,
+    engine_minute_cost,
+)
 from apps.api.billing.lots import CallDemand
 from apps.api.billing.plans import (
     OVERAGE_RATE_SECOND_SQL,
@@ -73,6 +80,8 @@ from apps.api.billing.rates import (
     ROUNDING,
     VALUE_VOICE_TIER,
     VoiceTier,
+    client_billed_minutes,
+    client_billed_seconds,
     llm_surcharge_applies,
     llm_surcharge_billed_inr,
     prepaid_billed_inr,
@@ -119,6 +128,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
+from apps.api.engine.recording_source import EngineRecordingSource
 from apps.api.ingest.service import normalize_phone
 from apps.api.insights import detection as gap_detection
 from apps.api.insights import service as gap_service
@@ -131,13 +141,16 @@ from apps.api.reliability.service import (
     mark_inbox_failed,
     mark_inbox_processed,
 )
-from apps.api.worker.service import REMETER_DEDUPE_PREFIX
+from apps.api.worker.service import POSTCALL_DEDUPE_PREFIX, REMETER_DEDUPE_PREFIX
 from apps.workers import storage
+from apps.workers.engine_delivery import execution_truth, post_call_truth, seal_listing
 from apps.workers.extraction import MODEL_FAILURE, extract_call, model_answered
 from apps.workers.handoff import settle_handoff
 from apps.workers.moments import derive_moments, merge_moments
 from apps.workers.redaction import redact
 from apps.workers.storage import (
+    RecordingNotReadyError,
+    RecordingUnavailableError,
     StorageUnavailableError,
     archive_payload,
     copy_recording,
@@ -483,7 +496,9 @@ async def _ingest_stages(
     omits it.
     """
     engine = get_engine()
-    snapshot = await engine.get_execution(execution_id)
+    snapshot = await execution_truth(
+        engine, execution_id, payload.get("delivery"), listed=payload.get("listed")
+    )
 
     # The snapshot's ref wins over the webhook's: the fetch is the truth (D-31), and
     # the poller path has no webhook payload at all.
@@ -555,6 +570,9 @@ async def _ingest_stages(
                 "call_id": str(call_id),
                 "engine": engine_name,
                 "execution_id": execution_id,
+                # A signed delivery travels on, still sealed: for a call the engine will not
+                # serve by id it is the only record (`engine_delivery`).
+                **{key: payload[key] for key in ("delivery", "listed") if payload.get(key)},
             },
             job_id=job_id_for(POSTCALL_JOB, str(call_id)),
         )
@@ -779,7 +797,13 @@ async def run_post_call_pipeline(ctx: dict[str, Any], payload: dict[str, Any]) -
     execution_hint = str(payload.get("execution_id") or "unknown")
     try:
         tenant_id, call_id, execution_id = _post_call_target(payload)
-        return await _post_call_stages(tenant_id, call_id, execution_id)
+        return await _post_call_stages(
+            tenant_id,
+            call_id,
+            execution_id,
+            delivery=payload.get("delivery"),
+            listed=payload.get("listed"),
+        )
     except Retry:
         # A stage that already chose its own ladder — `StorageUnavailableError` is an
         # `arq.Retry` subclass with its own defer. Re-deciding it here would overwrite
@@ -831,8 +855,25 @@ async def _copy_recordings(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSn
     vendor's OWN charge for the transferred leg is a different and still-open question —
     `handoff_attempts.leg_cost_reported` and OPERATIONS §2 gate 46c.
     """
+    # An engine that serves its own recording (ThinnestAI) names the address and the rules
+    # for fetching it; for that engine the snapshot's link is not used, because a call
+    # settled from the call list carries none. Every other engine is unchanged.
+    describe = getattr(get_engine(), "recording_source", None)
+    engine_source: EngineRecordingSource | None = describe(snapshot) if callable(describe) else None
     outcomes: list[str] = []
     for leg, column in _RECORDING_LEGS:
+        if leg == "call" and callable(describe):
+            outcomes.append(
+                await _copy_recording_once(
+                    tenant_id,
+                    call_id,
+                    source_url=engine_source.url if engine_source else None,
+                    leg=leg,
+                    column=column,
+                    engine_source=engine_source,
+                )
+            )
+            continue
         source = (
             snapshot.recording_url
             if leg == "call"
@@ -855,6 +896,7 @@ async def _copy_recording_once(
     source_url: str | None,
     leg: storage.RecordingLeg,
     column: str,
+    engine_source: EngineRecordingSource | None = None,
 ) -> str:
     """Pull ONE of the engine's recordings into our bucket, ONCE per call however many
     times the pipeline runs. Returns what happened, for the stage span.
@@ -927,9 +969,38 @@ async def _copy_recording_once(
     if held:
         return "already_copied"
     try:
-        key = await copy_recording(
-            source_url=source_url, tenant_id=tenant_id, call_id=call_id, leg=leg
-        )
+        if engine_source is None:
+            key = await copy_recording(
+                source_url=source_url, tenant_id=tenant_id, call_id=call_id, leg=leg
+            )
+        else:
+            key = await copy_recording(
+                source_url=source_url,
+                tenant_id=tenant_id,
+                call_id=call_id,
+                leg=leg,
+                auth_headers=engine_source.auth_headers,
+                auth_hosts=engine_source.auth_hosts,
+                rules=engine_source.rules,
+            )
+    except RecordingUnavailableError as gone:
+        # Nothing to copy and nothing a retry would change. A call that was not recorded
+        # is an outcome; one the vendor deleted, or pointed somewhere we will not go, is
+        # a recording lost against our 90-day obligation, and an operator has to know.
+        # The rest of the pipeline still runs: metering and the lead must not wait on it.
+        if gone.reason != "not_recorded":
+            alert(
+                "WORKER_DELIVERY",
+                "recording_source_gone",
+                detail=f"the engine's recording could not be copied: {gone.reason}",
+                call_id=str(call_id),
+                leg=leg,
+            )
+        return gone.reason
+    except RecordingNotReadyError:
+        # The audio lands about a minute after the call ends; the retry carries the
+        # source's own delay. Not an alarm (`recording_copy_failed` is for failures).
+        raise
     except StorageUnavailableError as exc:
         # Re-raise so ARQ retries (it is an `arq.Retry` subclass carrying its own defer).
         alert(
@@ -941,13 +1012,25 @@ async def _copy_recording_once(
         )
         raise
     async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text(
-                f"UPDATE calls SET {column} = :key, updated_at = now() "
-                "WHERE id = :id AND tenant_id = :tid"
-            ),
-            {"key": key, "id": call_id, "tid": tenant_id},
-        )
+        stored = (
+            await session.execute(
+                text(
+                    f"UPDATE calls SET {column} = :key, updated_at = now() "
+                    f"WHERE id = :id AND tenant_id = :tid AND {column} IS NULL RETURNING id"
+                ),
+                {"key": key, "id": call_id, "tid": tenant_id},
+            )
+        ).first()
+        if stored is not None and leg == "call":
+            # Only the run that set the pointer tells the client's CRM, in the same
+            # transaction — `carrier_recordings._copy`'s rule (D-670), so a recording an
+            # ENGINE held reaches an opted-in endpoint exactly as a carrier's does.
+            await integrations.enqueue_event(
+                session,
+                tenant_id=tenant_id,
+                event=integrations.RECORDING_READY_EVENT,
+                data={"call_id": str(call_id)},
+            )
     return "copied"
 
 
@@ -1080,10 +1163,35 @@ async def _record_engine_latency(
     return "recorded"
 
 
-async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -> str:
+async def _post_call_stages(
+    tenant_id: UUID,
+    call_id: UUID,
+    execution_id: str,
+    *,
+    delivery: Mapping[str, Any] | None = None,
+    listed: Mapping[str, Any] | None = None,
+) -> str:
     started = time.perf_counter()
 
-    snapshot = await get_engine().get_execution(execution_id)
+    snapshot = await post_call_truth(
+        get_engine(),
+        tenant_id=tenant_id,
+        call_id=call_id,
+        execution_id=execution_id,
+        delivery=delivery,
+        listed=listed,
+    )
+
+    # A DELIVERED document is archived BEFORE the recording copy: for a call the engine
+    # will not serve by id it is the only record, and a recording copy that exhausts its
+    # retries must not take the one document a re-drive could rebuild from with it.
+    archived_first = delivery is not None
+    if archived_first:
+        with span("pipeline.engine_document_archive", call_id=str(call_id)) as stage:
+            set_span_attributes(
+                stage,
+                outcome=await _archive_engine_document(tenant_id, call_id, execution_id, snapshot),
+            )
 
     # STEP 1 — recording first, always. Everything else can be recomputed.
     with span("pipeline.recording_copy", call_id=str(call_id)) as stage:
@@ -1092,11 +1200,12 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
     # STEP 1b — the vendor's own document, archived under this call's prefix (D-126).
     # After the recording because the recording is the artefact a third party can take
     # away from us; this one is bytes we already hold.
-    with span("pipeline.engine_document_archive", call_id=str(call_id)) as stage:
-        set_span_attributes(
-            stage,
-            outcome=await _archive_engine_document(tenant_id, call_id, execution_id, snapshot),
-        )
+    if not archived_first:
+        with span("pipeline.engine_document_archive", call_id=str(call_id)) as stage:
+            set_span_attributes(
+                stage,
+                outcome=await _archive_engine_document(tenant_id, call_id, execution_id, snapshot),
+            )
 
     # STEP 1c — what the engine says its own pipeline cost, per turn (gate 4). Before the
     # transcript because it is a small write of numbers already in hand, and after the
@@ -1294,7 +1403,7 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         set_span_attributes(stage, lead_id=str(lead_id) if lead_id else "none")
 
     # STEP 5 — metering. Append-only, written once per (call, unit).
-    if snapshot.cost is not None:
+    if _owes_usage(snapshot):
         with span("pipeline.meter", call_id=str(call_id)) as stage:
             set_span_attributes(stage, usage_row_count=await _meter(tenant_id, call_id, snapshot))
 
@@ -2455,6 +2564,80 @@ RETURNING minutes_used, billed_inr, (SELECT cap_min FROM caps), (SELECT cap_spen
 # the inserted or updated row".)
 
 
+def _metered_by_attested_minute(snapshot: ExecutionSnapshot) -> bool:
+    """An engine that reports no cost and is priced per billed minute instead (D-678)."""
+    return snapshot.billable_ready and snapshot.engine in ATTESTED_MINUTE_ENGINES
+
+
+def _owes_usage(snapshot: ExecutionSnapshot) -> bool:
+    """Does metering owe this execution a usage row? One answer for the stage and the
+    reconciliation probe, so the two cannot disagree about which calls are metered."""
+    return snapshot.cost is not None or _metered_by_attested_minute(snapshot)
+
+
+async def _engine_minute_cost(
+    tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot
+) -> MinuteCost:
+    """The attested-minute cost, alarmed when the rate is missing.
+
+    UNPRICED IS NOT FREE: the rows are written with a NULL cost (`platform_inr` None), so
+    the minutes are on the ledger and the gap is visible, and the alarm says which rate to
+    attest. A minute without a rate should never have been sold — the publish and offer
+    seams consult `billing.engine_minutes.engine_minute_is_billable` — so reaching here
+    unpriced means a rate was never attested or an agent outlived its withdrawal.
+    """
+    at = snapshot.ended_at or datetime.now(UTC)
+    async with tenant_session(tenant_id) as session:
+        priced = await engine_minute_cost(
+            session,
+            engine=snapshot.engine,
+            tenant_id=tenant_id,
+            call_id=call_id,
+            seconds=_billable_seconds(snapshot, tenant_id=tenant_id, call_id=call_id),
+            at=at,
+        )
+    if not priced.priced:
+        alert(
+            "WORKER_TERMINAL",
+            "engine_minute_rate_unattested",
+            detail=(
+                f"engine={snapshot.engine} rate_key={priced.rate_key}: no attested per-minute "
+                "price, so this call's minutes were metered with no cost. Attest the rate in "
+                "the ops model-pricing panel; the margin on this call reads better than it is."
+            ),
+            call_id=str(call_id),
+            tenant_id=str(tenant_id),
+        )
+    return priced
+
+
+def _engine_minute_voice_tier(
+    engine: str, rate_key: str, *, tenant_id: UUID, call_id: UUID
+) -> VoiceTier:
+    """The client rung for a call on an engine priced by attested minute (D-681).
+
+    A rate key that is not sold (a band withdrawn from offer under a live agent, or the
+    workspace-keys rate) still bills — the call happened — at the CLEAR rung, the cheaper
+    one: a call we cannot place on a sold band is never charged the dearer rate. Alarmed,
+    because the agent should have been refused at publish.
+    """
+    tier = client_voice_tier(engine, rate_key)
+    if tier is not None:
+        return tier
+    alert(
+        "WORKER_TERMINAL",
+        "engine_rate_key_not_sold",
+        detail=(
+            f"engine={engine} rate_key={rate_key}: this call ran on a voice band that is not "
+            "on sale, so it was billed at the Clear rung. Republish the agent on a voice "
+            "that is on offer."
+        ),
+        call_id=str(call_id),
+        tenant_id=str(tenant_id),
+    )
+    return VALUE_VOICE_TIER
+
+
 async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> int:
     """Write the cost ledger. Append-only (hard rule 4), so the guard against a
     double-run is a pre-check, not an upsert: a compensating entry is the only fix
@@ -2495,6 +2678,10 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
     migration argues both at length.
     """
     cost = snapshot.cost
+    minute_cost: MinuteCost | None = None
+    if cost is None and _metered_by_attested_minute(snapshot):
+        minute_cost = await _engine_minute_cost(tenant_id, call_id, snapshot)
+        cost = minute_cost.cost
     if cost is None:
         # A CALL THAT COMPLETED AND CANNOT BE PRICED IS NOT A NON-EVENT (P1.2).
         #
@@ -2610,6 +2797,13 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         if settled_legs:
             # The voice the settlement priced the call on, not whatever is published now.
             voice = await settled_voice_tier(session, call_id=call_id)
+        if minute_cost is not None:
+            # An engine that speaks its own catalogue voices (D-681): the rung comes from the
+            # band publish stamped on the route row, not from `agents.tts_voice`, which names
+            # one of OUR voices and is not what this engine spoke.
+            voice = _engine_minute_voice_tier(
+                snapshot.engine, minute_cost.rate_key, tenant_id=tenant_id, call_id=call_id
+            )
         # WHICH SURCHARGE BUCKET THIS CALL'S MINUTES LAND IN (D-455). The paragraph above
         # ends "NOT PRICED HERE, deliberately ... this is the identifier the gap will be
         # closed WITH, not a charge", and that is still true of the LEG: the engine reports
@@ -2711,6 +2905,19 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 # CDR reader exists), and a later carrier reading reconciles by compensating
                 # row, never by UPDATE.
                 **({"duration_source": "worker_settlement"} if settled_legs else {}),
+                # An engine priced by attested minute (D-678): which rate, how many billed
+                # minutes after the pulse, and the figure — or `null` when it was unpriced.
+                **(
+                    {
+                        "engine_rate_key": minute_cost.rate_key,
+                        "billed_minutes": str(minute_cost.billed_minutes),
+                        "inr_per_min": str(minute_cost.inr_per_min)
+                        if minute_cost.inr_per_min is not None
+                        else None,
+                    }
+                    if minute_cost is not None
+                    else {}
+                ),
             }
         )
         # `unit_cost_paid` is a PRICE PER UNIT OF `qty`, because that is what every
@@ -2719,6 +2926,11 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # that column reported ~50x our real cost for a 95-second call and — with the
         # tts/llm rows carrying qty 0 — dropped those legs from the cost side entirely.
         minutes = duration_s / Decimal(60)
+        # WHAT THE CLIENT IS BILLED FOR, which is not the measured minute above: whole
+        # 30-second steps, rounded up (D-681). `minutes` stays the cost rows' quantity.
+        occurred_at = snapshot.ended_at or datetime.now(UTC)
+        client_seconds = client_billed_seconds(duration_s, at=occurred_at)
+        client_minutes = client_billed_minutes(duration_s, at=occurred_at)
         rows: list[tuple[str, Decimal, Decimal | None]] = [
             ("telephony_s", duration_s, _unit_price(cost.network_inr, duration_s)),
             ("platform_min", minutes, _unit_price(cost.platform_inr, minutes)),
@@ -2779,7 +2991,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                     "unit": unit_type,
                     "qty": qty,
                     "cost": unit_cost,
-                    "at": snapshot.ended_at or datetime.now(UTC),
+                    "at": occurred_at,
                     "meta": meta,
                 },
             )
@@ -2827,11 +3039,8 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
 
         # WHAT THE CLIENT OWES FOR THIS CALL, which is not what it cost us (P1.1/P1.3).
         #
-        # `cost.total_inr` is the ENGINE's charge to US. It used to be the amount debited
-        # from the prepaid wallet as well, so the balance drained at roughly ₹2/min while
-        # the runway framing on the client's own screen priced the same minute at
-        # `self_serve_inr_per_min` (₹6.00) — the platform booking zero gross margin on the
-        # entire self-serve motion, from one variable doing two jobs.
+        # `cost.total_inr` is the ENGINE's charge to US and is never the client's debit: one
+        # variable doing both jobs once drained wallets at our cost and booked zero margin.
         #
         # WHICH IST BILLING MONTH THIS CALL BELONGS TO. Resolved here rather than beside
         # the counter write, because the RATES below are a fact about this month and not
@@ -2846,23 +3055,15 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # WHAT A MINUTE COST IN *THIS CALL'S OWN* MONTH (D-492), as a PAIR — one rate per
         # voice — and it is the fallback for a wallet holding no open lot at all.
         #
-        # TWO DEFECTS MET HERE AND BOTH ARE FIXED BY THE SAME LINE. The figure was
-        # `get_settings().self_serve_inr_per_min` — the LIVE setting — while the
-        # `llm_surcharge` added to it in the same expression was resolved at `priced_at`,
-        # so a LATE-SETTLING call was debited at NEXT month's price and surcharged at its
-        # own (the reconciliation poller's window straddling midnight IST on the 1st, an
-        # ARQ retry ladder crossing it, a vendor that takes minutes to price a call).
-        # D-492 moved it to `list_rates.self_serve_rate_at`, which dated it — and left it
-        # ONE NUMBER handed to both voices. That number is the SARVAM list price, so a
-        # Studio minute on an empty or overdrawn wallet (a new tenant before their first
-        # pack, a wallet after a full reversal, a migrated negative balance) was debited at
-        # ₹5.00 against a card that sells it at ₹8.00 and a cost floor of ₹4.36: below the
-        # card and a hair above cost, on exactly the accounts nobody is watching.
+        # Resolved at the call's own month, never from the live setting: a late-settling
+        # call must be priced by the card it was spoken under, and the surcharge beside it is
+        # already resolved at `priced_at`. One rate per VOICE, because a single list price
+        # would debit a Studio minute on an empty wallet at the Clear rate.
         #
         # `RateCard.list_rates` answers BOTH voices from the card in force in this call's
         # own month — the same table, the same resolution rule and the same ops-console
         # write that `self_serve_rate_at` reads, since `list_rates.record_card` writes the
-        # legacy key and the whole card at one instant with the starter pack's Sarvam rate
+        # legacy key and the whole card at one instant with the starter pack's Clear rate
         # in both. So the dated-ness D-492 bought is kept and the second voice acquires it.
         fallback_rates = (await rate_card_at(session, at=priced_at)).list_rates()
         # THE PLAN ROW IS READ ONCE HERE and used for both halves below, rather than
@@ -3019,7 +3220,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # normally has no plan row at all, so this is ₹0.00 and the wallet drains on the
         # minutes alone.
         surcharge_inr = llm_surcharge_billed_inr(
-            minutes=minutes if llm_bucket != UNSURCHARGED_MODEL else Decimal("0"),
+            minutes=client_minutes if llm_bucket != UNSURCHARGED_MODEL else Decimal("0"),
             surcharge=llm_surcharge,
         )
         # WHAT THE WALLET WAS ACTUALLY DEBITED, which under D-547 is no longer computable
@@ -3035,7 +3236,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 tenant_id=tenant_id,
                 call_id=call_id,
                 demand=CallDemand(
-                    minutes=minutes,
+                    minutes=client_minutes,
                     voice_tier=voice,
                     # THE LIST CARD PRICES ONLY WHAT NO LOT COULD (plan §0 Q5 leaves the
                     # overdraft at the rate of the lot that ran out; this is the case
@@ -3072,8 +3273,8 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             tenant_id=tenant_id,
             plan_tier=tier,
             month=month,
-            minutes=minutes,
-            seconds=duration_s,
+            minutes=client_minutes,
+            seconds=client_seconds,
             # The rung this call's minutes attribute against — the same value stamped on
             # the row above (one voice quality, so the base rung on every call).
             rung=BASE_OVERAGE_RUNG,
@@ -3095,10 +3296,10 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 if not on_us
                 # THE SAME PAIR, RESOLVED BY THE SAME VOICE. A trial call takes no debit,
                 # so what it WOULD have cost is priced exactly as `consume` would have
-                # priced it for a wallet holding no lots — which for a Studio minute is
-                # ₹8.00 and not the Sarvam list price this used to read.
+                # priced it for a wallet holding no lots, at the month's list rate for this
+                # call's own voice.
                 else prepaid_billed_inr(
-                    minutes=minutes, self_serve_rate=fallback_rates.rate_for(voice)
+                    minutes=client_minutes, self_serve_rate=fallback_rates.rate_for(voice)
                 )
                 + surcharge_inr
             ),
@@ -3590,7 +3791,7 @@ def _expected_artifacts(
     expected: list[str] = []
     if snapshot.transcript:
         expected.append("transcript")
-    if snapshot.cost is not None:
+    if _owes_usage(snapshot):
         expected.append("usage")
     if extraction_owed:
         expected.append("extraction")
@@ -3668,6 +3869,8 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
                     "  EXISTS (SELECT 1 FROM transcript_turns t WHERE t.call_id = c.id) "
                     "    AS has_transcript, "
                     "  EXISTS (SELECT 1 FROM usage_events u WHERE u.call_id = c.id) AS has_usage, "
+                    "  EXISTS (SELECT 1 FROM usage_events u WHERE u.call_id = c.id "
+                    "    AND u.unit_type = 'telephony_s') AS has_minute, "
                     "  EXISTS (SELECT 1 FROM call_extractions e WHERE e.call_id = c.id) "
                     "    AS has_extraction, "
                     # STEP 8's artefact (P6.4), read off the call row the query already
@@ -3730,14 +3933,19 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
         ended_at,
         has_transcript,
         has_usage,
+        has_minute,
         has_extraction,
         has_crm_fanout,
         crm_fanout_owed,
         extraction_owed,
     ) = row
+    # On the owned runtime the worker's settlement writes the leg rows before the pipeline
+    # runs, so "any usage row" is true of a call the meter never reached. The meter's own
+    # artefact there is the `telephony_s` row, the client's billed minute.
+    settled_legs = snapshot.cost is not None and snapshot.cost.legs_metered_at_settlement
     present = {
         "transcript": bool(has_transcript),
-        "usage": bool(has_usage),
+        "usage": bool(has_minute if settled_legs else has_usage),
         "extraction": bool(has_extraction),
         "crm_fanout": bool(has_crm_fanout),
     }
@@ -3951,6 +4159,15 @@ CALL_ABANDONED_AFTER = timedelta(hours=2)
 # every failed dial in the last 24 hours a candidate on every sweep. Only `completed`
 # promises artefacts (TRD §5: cost, recording and transcript populate at `completed`), so
 # only `completed` can be missing them.
+#
+# A THIRD SHAPE BELONGS TO THE OWNED RUNTIME: a call whose post-call pipeline was PROMISED
+# (the `post-call:{call}` outbox key `worker/service.settle_call` and `call_finalise` claim)
+# and never metered the client's minute. Such a call already carries the worker's leg rows
+# and its turns, so the second clause cannot see it, and `PipecatEngine.list_executions` is
+# empty by design, so no listing ever re-drives it: a pipeline that ran out of retries left
+# the client never debited, unextracted and unfiled, with only an alarm behind it. The
+# meter's own claim, the `telephony_s` row, is the artefact asked for; extraction and the
+# lead precede it in `_post_call_stages`, so its absence covers them too.
 _OUTSTANDING_CALLS_SQL = (
     "SELECT c.engine_call_id, COALESCE(c.started_at, c.created_at) AS began, c.status "
     "FROM calls c "
@@ -3958,7 +4175,11 @@ _OUTSTANDING_CALLS_SQL = (
     "AND COALESCE(c.started_at, c.created_at) > now() - :horizon "
     "AND (c.status <> ALL(:terminal) OR (c.status = 'completed' "
     "  AND NOT EXISTS (SELECT 1 FROM usage_events u WHERE u.call_id = c.id) "
-    "  AND NOT EXISTS (SELECT 1 FROM transcript_turns t WHERE t.call_id = c.id))) "
+    "  AND NOT EXISTS (SELECT 1 FROM transcript_turns t WHERE t.call_id = c.id)) "
+    "  OR (c.status = 'completed' "
+    "  AND EXISTS (SELECT 1 FROM outbox_messages o WHERE o.dedupe_key = :postcall || c.id::text) "
+    "  AND NOT EXISTS (SELECT 1 FROM usage_events u WHERE u.call_id = c.id "
+    "    AND u.unit_type = 'telephony_s'))) "
     "ORDER BY began LIMIT :cap"
 )
 
@@ -3994,6 +4215,7 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
                             "after": OUTSTANDING_PROBE_AFTER,
                             "horizon": OUTSTANDING_PROBE_HORIZON,
                             "cap": OUTSTANDING_PROBE_PER_TENANT,
+                            "postcall": POSTCALL_DEDUPE_PREFIX,
                         },
                     )
                 ).all()
@@ -4200,6 +4422,9 @@ async def reconcile_executions(ctx: dict[str, Any]) -> str:
                     "raw_status": snapshot.raw_status,
                     "engine_agent_ref": snapshot.engine_agent_ref,
                     "source": "reconciliation",
+                    # The row itself, sealed, for an engine that cannot serve every call
+                    # by id (an inbound ThinnestAI call); `{}` for every other engine.
+                    **seal_listing(engine, snapshot),
                 },
                 job_id=job_id_for(INGEST_JOB, engine.name, snapshot.engine_call_id, "reconcile"),
             )

@@ -1,21 +1,19 @@
 import type { LegalDocument } from "./types";
 
 /**
- * One register row, defined once so the rendered table and the exported name inventory
- * cannot disagree.
+ * One published category of sub-processor, defined once so the rendered table, the names
+ * the page may print, and the coverage guard all read the same rows.
  *
- * `names` is the canonical IDENTITY of the vendor — the brand a counterparty knows it by
- * and the token that must never be restated in the DPA's Annex C — kept separate from
- * `vendor`, the Vendor cell as it renders (which may add the product it sells us, e.g.
- * "Microsoft — Azure OpenAI", or describe a slot for which no vendor is chosen yet). A row
- * that bundles interchangeable vendors names each; a row for a not-yet-chosen vendor has
- * no brand identity and names none. `SUBPROCESSOR_NAMES` is derived from this field, so a
- * vendor added to or removed from the register cannot fail to change the inventory the
- * tests read.
+ * `key` is the identifier `docs/legal/SUBPROCESSOR-REGISTER.md` files each named vendor
+ * under, and `scripts/check_subprocessor_coverage.py` holds the two together: every vendor
+ * the code can reach must be in that register, its category must be a `key` here, and every
+ * key here must have at least one vendor behind it. `named` is the short list of companies
+ * this page MAY print, and only those; the register marks the same rows "Named publicly".
  */
-interface RegisterRow {
-  readonly names: readonly string[];
-  readonly vendor: string;
+interface CategoryRow {
+  readonly key: string;
+  readonly category: string;
+  readonly named: readonly string[];
   readonly does: string;
   readonly receives: string;
   readonly location: string;
@@ -23,572 +21,319 @@ interface RegisterRow {
 }
 
 /**
- * The register rows, and the one place the vendor list exists.
+ * The categories, and the one place the public vendor picture exists.
  *
- * The DPA's Annex C does not restate it — it links here. Two copies of a sub-processor list
- * is exactly the drift that makes the DPA's change-notification clause unkeepable, and it is
- * what once let a removed vendor (Clerk) and a replaced one (Vertex → Microsoft/Azure)
- * linger in client-facing copy after they left the register.
+ * ## Why categories and not names (D-679)
  *
- * ## The `status` column is load-bearing and is not decoration
+ * Calevate resells a voice platform under a white-label programme and does not name its
+ * telephony or voice providers publicly. The founder chose the model a competitor already
+ * publishes (app.outpero.com/security, read 6 Oct 2026): a table of CATEGORIES, and a named
+ * list on request. The named list lives in `docs/legal/SUBPROCESSOR-REGISTER.md`, which is
+ * never rendered; the per-vendor evidence classes this header used to carry moved there with
+ * it.
  *
- * Nothing in this system is deployed to production yet. A register that listed fourteen
- * vendors with no standing would tell a reader that fourteen companies hold their callers'
- * data today, which is false; one that listed only the live ones would be an empty page,
- * which is useless to a client evaluating the product. So each row says which of four states
- * it is in — in the running path, configured but off, selected only if the client turns it
- * on, or a contingency nobody has selected. Every state traces to a config field or an
- * adapter in the tree, cited in `docs/LEGAL-SURFACE.md`.
+ * ## What moving to categories must NOT do
  *
- * ## Evidence classes, per vendor
+ * Remove a fact. Every disclosure the named rows made is still here, reworded about the
+ * category: that call audio and transcripts may leave India; that the speech provider's own
+ * terms permit training on what it receives unless consent is declined; its retention
+ * figures; that the "no vendor trains on your data" promise is narrowed to our own conduct;
+ * the carrier's recording and our 90-day copy; the language model's United States region;
+ * and every NOT VERIFIED location. Where one category holds companies in different states,
+ * the cell says which state each is in without naming it. A category that merges two
+ * companies' positions must never borrow the better one for both.
  *
- * **Sarvam** — VENDOR-PUBLISHED (Privacy Policy, "Cross-Border Data Transfers" and the
- * retention/deletion tables; Terms of Service v2.0, eff. 29 July 2026, ss.6.2 and 17.5; read
- * by the founder at `www.sarvam.ai` on 27 Aug 2026 and relayed). `sarvam.ai` and
- * `docs.sarvam.ai` are egress-blocked from this container, so do not try to "re-verify" this
- * with a fetch that will 403. Two facts from it drive the row: personal data may be
- * transferred to and processed outside India (US cloud and analytics, EU model and security
- * vendors), the India-storage carve-out covering only content-studio voice biometrics and
- * payment data — so the AUDIO may leave India on the SPEECH leg, not only the transcript on
- * the language leg; and s.17.5 permits training on inputs, outputs and usage data, not
- * varying by tier, with s.6.2 making a signed order form the only instrument that can
- * displace it. Section 3.4 states both to the client. The Location cell says India for the
- * COMPANY and not for the data: a one-word country in the cell a buyer's counsel reads is
- * the most expensive place in this tree to be imprecise.
+ * Names are printed only where naming is unavoidable and harmless to the white label:
+ * the payment gateway a client pays through, and services a client connects to its own
+ * account itself (so the client necessarily knows the counterparty).
  *
- * **Cartesia** — VENDOR-PUBLISHED, RELAYED, and weaker than Sarvam's. Every data-handling
- * fact in its row and in section 3.6 comes from
- * `docs/evidence/cartesia-tts-verification-2026-09-06.md` §A5, a research run over the
- * vendor's pages delivered 6-7 Sep 2026; `cartesia.ai` and `docs.cartesia.ai` are
- * egress-blocked here, so nobody in this repo has opened those pages and that file's own
- * header says its VERIFIED labels are the research run's reading, not ours. Hence the
- * wording throughout is what the vendor's documents SAY, never our finding about the world;
- * the only two claims stated as ours ("nothing has been sent to it", "it receives only the
- * words the agent speaks") are read off this tree's own code. It has TWO rows — same
- * identity in `names`, different product, different status — because D-547 made it a live
- * voice-quality vendor while it was already listed as a contingency engine
- * (`engine/cartesia.py`, never adopted), and one row cannot carry two standings.
+ * ## The `status` column is load-bearing
  *
- * **Gnani** — the weakest class on this page: one published PRICE and nothing else. All
- * three of its sites are egress-blocked (measured 15 Sep 2026); the price (₹27.00 per
- * 10,000 characters, `app.gnani.ai/voice/pricing`, read by the founder 19 Sep 2026 and
- * relayed — VENDOR-PUBLISHED) lives in `billing/rates.TTS_INR_PER_10K_CHARS` and is not
- * restated here, because a rate card is not this page's subject. It answers nothing about
- * training, retention or residency, so the row and section 3.6 still say what we have not
- * established rather than borrowing Cartesia's answers for it. ⚠ Both said the vendor
- * publishes NO price until 20 Sep 2026 — a page nobody had found, written down as a
- * vendor fact — which is why they now name the correction rather than only the fact.
- *
- * **Supermemory** — VERIFIED-IN-REPO for what it says about OUR behaviour, UNKNOWN for the
- * vendor. `supermemory.ai` is egress-blocked (measured 14 Sep 2026, recorded in
- * `apps/api/retrieval/supermemory.py`), so nobody here has read its terms, retention position
- * or delete surface: the Location cell says NOT VERIFIED and the Status cell says the purge
- * rests on our own reading rather than a documented route, repeating rather than smoothing
- * over `supermemory_index.py`'s own recorded assumption.
- *
- * ## What is deliberately NOT on the page — do not add it
- *
- * Cartesia's §A5 marks these UNKNOWN, and an unknown may not be dressed as a fact on the one
- * page whose job is disclosure: where the vendor processes (no region or residency commitment
- * in any document read), the retention periods on a non-enterprise plan, and whether its DPA
- * is self-serve signable. Those three are stated AS gaps in section 3.6 rather than omitted
- * silently. What rights it takes over a cloned voice is out of scope: no cloned voice is
- * offered.
- *
- * Its certification claims are off the page for two reasons that agree. §A5 records the
- * vendor asserting GDPR / SOC 2 Type II / PCI-DSS / HIPAA and records the REPORT ITSELF as
- * UNKNOWN, behind an unmade access request — so what we hold is a marketing line, not a
- * certificate. And `legal.test.tsx` ("claims no security certification anywhere") bans that
- * vocabulary from these documents outright; paraphrasing around the regex to get a vendor's
- * unseen certificate onto a legal page would satisfy the guard's words and defeat its
- * purpose.
- *
- * The LOCATION of the two WhatsApp BSPs (AiSensy, Interakt) is deliberately absent for the
- * same reason: both hosts are egress-blocked (`apps/api/actions/whatsapp.py` marks its whole
- * endpoint spec REPORTED), so a country here would be a guess — on the one page whose entire
- * job is saying where data goes.
- *
- * ## Keeping this register true
- *
- * Client-switched integrations are the easy ones to miss, because no data reaches them until
- * the client turns them on: Google Calendar (`apps/api/actions/calendar.py`; the event title
- * is whatever the client mapped, so a caller's name commonly goes to Google) and the two
- * WhatsApp BSPs above (`apps/api/actions/whatsapp.py`, selected by `tool.provider`).
- * OPERATOR-switched ones are harder still — Supermemory needs only a dropdown in the ops
- * console for `retrieval/service.get_retriever` to start sending it every published
- * `kb_chunks` passage. `apps/web/tests/legal.test.tsx` cannot catch either shape: it checks
- * this register against itself and the DPA, so a vendor absent from BOTH is consistent and
- * invisible. `scripts/check_subprocessor_coverage.py` is the guard that can — it derives
- * vendor identity from adapter modules and `Settings` fields and fails when a vendor that can
- * receive client data is not on this page.
+ * Nothing is deployed to production yet. Each row says which of four states its companies
+ * are in — in the running path, configured but off, selected only if the client turns it on,
+ * or a contingency nobody has selected.
  */
-export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
+export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
   {
-    names: ["Sarvam"],
-    vendor: "Sarvam AI",
+    key: "telephony",
+    category: "Telephony",
+    named: [],
     does:
-      "Speech recognition during the call \u2014 turning what your caller says " +
-      "into text \u2014 the first pass " +
-      "that extracts fields from the transcript, and the standby for the " +
-      "in-app assistant if no other provider can answer. On that standby leg " +
-      "it answers in prose only: it is not given the assistant's look-up tools, " +
-      "so it cannot read a client's leads, calls or campaigns, and it cannot " +
-      "fill in a form or propose a change.",
-    receives:
-      "Call audio and the raw, unredacted transcript. This is the one path that " +
-      "must see raw text: a callback-number field needs the actual digits.",
-    location:
-      "India for the company; NOT India for the data, and this cell said only " +
-      "India until 27 August 2026. Its published privacy policy states that " +
-      "personal data may be transferred to and processed in countries outside " +
-      "India, and names United States cloud infrastructure (AWS, GCP, Azure) " +
-      "and analytics providers, European Union model and security vendors, and " +
-      "other jurisdictions as necessary to provide the service — with EU " +
-      "Standard Contractual Clauses, adequacy decisions and data-processing " +
-      "agreements as the safeguards. Its India-storage commitments cover voice " +
-      "biometric data in its content-studio product and payment data, not the " +
-      "ordinary speech traffic our calls generate. So the call audio and the " +
-      "transcript may be processed outside India on this leg too.",
-    status:
-      "Core. It no longer supplies the language model that holds the " +
-      "conversation — that is the next row — and since 18 September 2026 it no " +
-      "longer produces the voice your caller hears either: it hears the call and " +
-      "reads the transcript, and the two rows further down are the companies that " +
-      "speak. Nothing else about this row narrowed with it. Section 3.4 sets out " +
-      "what this vendor's own terms permit it to do with what it receives, " +
-      "including model training.",
-  },
-  {
-    names: ["Microsoft"],
-    vendor: "Microsoft — Azure OpenAI",
-    does:
-      "Both language-model legs when the client runs an Azure model: the model " +
-      "that holds the conversation during a call, and the in-app assistant " +
-      "a client's own people open from their dashboard. It is also the leg the " +
-      "in-app assistant falls back to for a client whose own model runs with a " +
-      "provider we cannot yet use for that assistant, and the leg the hourly job " +
-      "uses that distils durable business facts out of past assistant " +
-      "conversations. A client may instead choose a " +
-      "model from another provider (see the OpenAI and Google — Gemini API " +
-      "rows), and then that provider handles the language leg in this vendor's " +
-      "place. So the choice is a choice of provider and place, not only of " +
-      "which model answers — the single-vendor claim this row used to make is " +
-      "withdrawn (section 3.3).",
-    receives:
-      "On the call leg, the conversation as it happens — everything the caller " +
-      "says, turn by turn, as it is said. On the dashboard leg, the redacted " +
-      "transcript of a call a client asks us to re-read for them; what a client's " +
-      "user types into the in-app assistant, plus what the assistant looks up in that " +
-      "client's own account to answer them: lead names and statuses, recent " +
-      "calls with their already-redacted summaries, campaign and agent names, " +
-      "counts, and the client's own knowledge content. This cell used to say " +
-      "the dashboard leg received the redacted transcript and the client's " +
-      "configuration and nothing else; that was written before the assistant " +
-      "could look anything up, and it is corrected rather than left to run in " +
-      "our favour. What is still true, and is enforced rather than promised: " +
-      "phone numbers reach it as markers, and no raw transcript and no " +
-      "extraction payload is sent on this leg at all. The two legs see very " +
-      "different things and are listed separately for that reason.",
-    location:
-      "United States — East US 2, by configuration. This cell has moved twice " +
-      "and both steps are kept rather than overwritten: until 19 August 2026 " +
-      "the language model ran on Google Cloud's Vertex AI in the asia-south1 " +
-      "region (Mumbai, India); from 19 August 2026 on this vendor's South " +
-      "India region; and since 22 August 2026 on this vendor's East US 2 " +
-      "region, in the United States. Read the caution below before relying " +
-      "on this: the endpoint does not name its own region, so this is a " +
-      "setting we make and check by hand rather than one a build can prove.",
-    status:
-      "Core. Until 19 August 2026 this row named Google Cloud's Vertex AI for the " +
-      "dashboard leg only; both legs moved to Microsoft on that date, and the " +
-      "in-call leg — which hears the caller — is new to this vendor. On " +
-      "22 August 2026 the region moved out of India; the vendor did not " +
-      "change, and neither did the speech provider or the first reading of " +
-      "your transcript. Read that last part narrowly: those stay with an " +
-      "INDIAN COMPANY, which is not the same as staying in India, and that " +
-      "vendor's own policy permits it to process outside India — its row and " +
-      "section 3.4 say so.",
-  },
-  {
-    names: ["OpenAI"],
-    vendor: "OpenAI",
-    does:
-      "An alternative provider for the IN-CALL language-model leg, reached when " +
-      "a client chooses one of its models: the model that holds the " +
-      "conversation during a call. It does NOT serve the in-app assistant, and " +
-      "this row said it did until 1 September 2026. The reason is ours and not " +
-      "theirs: nobody here has read this provider's published position on what " +
-      "it may do with what an API sends it, this provider's own pages cannot be " +
-      "reached from our build environment, and an unread position is not a " +
-      "permission — so the assistant for a client on one of its models is " +
-      "answered by the Azure OpenAI row above, and the screen says so.",
-    receives:
-      "On the call leg, the conversation as it happens, turn by turn. Nothing " +
-      "from the in-app assistant reaches it, because it does not serve that " +
-      "leg. Never the recording.",
-    location: "United States. This provider's API offers no Indian region to request.",
-    status:
-      "Client-selectable. Reached only when a client picks one of this " +
-      "provider's models; no client data reaches it otherwise.",
-  },
-  {
-    names: ["Google"],
-    vendor: "Google — Gemini API",
-    does:
-      "An alternative provider for the in-call language-model leg, reached when " +
-      "a client chooses one of its Gemini models, and for the in-app assistant " +
-      "for such a client — but only while we hold a recorded confirmation that " +
-      "our own account with this provider is on a plan under which it does not " +
-      "train on what is submitted, and that nothing on that account has opted " +
-      "our content back into the terms that would. Without that confirmation " +
-      "the assistant for such a client is answered by the Azure OpenAI row " +
-      "above instead, and the screen says so. This is a separate Google " +
-      "service from the Sheets API below: once a Gemini model is selectable, a " +
-      "model request does reach Google again, which is why the Sheets row no " +
-      "longer says none does.",
-    receives:
-      "On the call leg, the conversation as it happens, turn by turn. On the " +
-      "assistant leg, where it serves it, the same things the Azure OpenAI row " +
-      "lists: the redacted transcript of a call a client asks us to re-read, " +
-      "what a client's user types, and the names, statuses, counts, " +
-      "redacted call summaries and knowledge content the assistant looks up to " +
-      "answer them. Never a raw transcript, an extraction payload, a raw phone " +
-      "number, or the recording.",
-    location:
-      "Google, global. This provider's developer API names no region we can " +
-      "request, so we cannot pin where it processes and do not claim to.",
-    status:
-      "Client-selectable. Reached only when a client picks one of this " +
-      "provider's Gemini models; no client data reaches it otherwise.",
-  },
-  {
-    names: ["Vobiz", "Plivo"],
-    vendor: "Vobiz (Plivo as a fallback)",
-    does:
-      "The telephone carrier: the calling numbers and the carrier connection the calls " +
+      "Call carriage and numbers: the calling numbers and the carrier connection the calls " +
       "run over. The carrier also CARRIES THE AUDIO: the call's media connection " +
       "terminates at the carrier, and it streams the sound of the call, in both " +
-      "directions, to and from the program of ours that holds the conversation. Vobiz " +
-      "is the carrier in use, on our own account with it. Plivo is a fallback our " +
-      "software can be switched to; we hold no account with it, and nothing reaches " +
-      "it unless we make that switch.",
+      "directions, to and from the program of ours that holds the conversation. One " +
+      "carrier is in use, on our own account with it; a second is a fallback our software " +
+      "can be switched to, with which we hold no account, and nothing reaches it unless " +
+      "we make that switch. Where a deployment is switched to the hosted voice platform " +
+      "described in the next row, that platform rents the numbers and carries the calls " +
+      "instead, and the carrier in use does not.",
     receives:
       "Caller and called numbers, call detail records, the live audio of the call in " +
       "both directions, and a recording of the call, which we copy and keep for 90 " +
-      "days, and which is deleted from Vobiz one day after our copy is saved.",
+      "days, and which is deleted from the carrier one day after our copy is saved.",
     location:
-      "Not stated by the vendor. Nothing Vobiz publishes that we have read says where " +
-      "it processes or stores call data, so we name no country for it.",
+      "Not stated by the carrier in use. Nothing it publishes that we have read says " +
+      "where it processes or stores call data, so we name no country for it. Where the " +
+      "hosted voice platform carries the call instead, its own published location is in " +
+      "the next row.",
     status:
-      "Core. Vobiz carries every call; Plivo is the fallback described above.",
+      "Core: the carrier in use carries every call. The fallback carrier and the hosted " +
+      "voice platform are configured, not enabled.",
   },
   {
-    names: ["Pipecat Cloud"],
-    vendor: "Pipecat Cloud",
+    key: "voice-platform",
+    category: "Voice platform",
+    named: [],
     does:
-      "RUNS THE CALL. Where a deployment is set to use it, the conversation is a " +
-      "program of ours — our script, our choice of models, our knowledge lookup " +
-      "— running in a container on this vendor's platform. Until 2 October 2026 this " +
-      "register also listed Bolna, a third-party voice platform that was to run the call " +
-      "instead; it is no longer used and has been removed from the product. This row is " +
-      "the same kind of relationship as " +
-      "the hosting provider two rows down, and it matters far more, because this one " +
-      "is on the call.",
+      "RUNS THE CALL. Two kinds of platform, and a deployment uses one of them. The first " +
+      "is a hosting platform on which the conversation is a program of ours — our script, " +
+      "our choice of models, our knowledge lookup — running in a container. The second is " +
+      "a hosted voice platform that runs the whole call itself: it holds the agent we " +
+      "configure, answers and places the calls on numbers it rents to us, and does its own " +
+      "speech recognition, language model and voice, so on such a deployment the separate " +
+      "speech, voice and language-model categories below are replaced by that platform and " +
+      "the companies it uses. A third platform is kept as a contingency. Until 2 October " +
+      "2026 this register also listed a third-party voice platform that was to run the " +
+      "call; it is no longer used and has been removed from the product.",
     receives:
-      "The most sensitive combination anything in this table receives, which is why " +
-      "this row exists: the caller's live audio in both directions, the transcript as " +
-      "it is produced, the agent's instructions, the knowledge the agent answers from, " +
-      "and — where the account has switched caller continuity on — the short " +
-      "note of what a returning caller told the agent before. Its platform does not " +
-      "read those things; it runs the container they pass through, which is a " +
-      "distinction about purpose and not about access.",
+      "The most sensitive combination anything in this table receives: the caller's live " +
+      "audio in both directions, the transcript as it is produced, the agent's " +
+      "instructions, the knowledge the agent answers from, and — where the account has " +
+      "switched caller continuity on — the short note of what a returning caller told the " +
+      "agent before. The hosted voice platform also receives the caller and called " +
+      "numbers and a recording of the call, which we copy into our own storage and keep " +
+      "for 90 days. A hosting platform does not read those things; it runs the container " +
+      "they pass through, which is a distinction about purpose and not about access.",
     location:
-      "The region we intend to run in is the one this vendor calls “ap-south”. " +
-      "Read that narrowly, because it is a vendor's name for a region and not a " +
-      "residency commitment we have obtained: NOBODY HERE HAS ESTABLISHED WHICH " +
-      "COUNTRY OR CITY IT IS IN, and this vendor's own pages cannot be read from our " +
-      "build environment (both of its documented hosts refuse a connection from it, " +
-      "re-measured 15 September 2026). Do not read “India” into the name " +
-      "until this cell says India.",
+      "Different for each, and neither is India by default. The hosting platform names " +
+      "the region we intend to run in only by its own region label: that is not a " +
+      "residency commitment we have obtained, NOBODY HERE HAS ESTABLISHED WHICH COUNTRY OR " +
+      "CITY IT IS IN, and its own pages cannot be read from our build environment. Do not " +
+      "read India into it. The hosted voice platform's published privacy policy, read on " +
+      "6 October 2026, says it stores data with a cloud provider in India, and that " +
+      "its language-model step may be processed outside India by the model providers it " +
+      "uses. The contingency platform's location is not verified.",
     status:
-      "Configured, not enabled — and further from enabled than any other row here. " +
-      "There is no account with this vendor, the deployment manifest in our repository " +
-      "has never been applied, no container has ever been started, and no call has ever " +
-      "run on it. Nothing of anybody's has reached this vendor. Section 3.7 lists what " +
-      "we have not established about it, and it is a longer list than any other row's.",
+      "Configured, not enabled, for both — and the hosting platform is further from " +
+      "enabled than any other row here: there is no account with it, nothing has been " +
+      "deployed to it and no call has ever run on it. No call has run on the hosted voice " +
+      "platform either. Its published policy names its own sub-processors — speech, " +
+      "language-model, cloud-hosting, payment and messaging companies — and states a " +
+      "default retention of 180 days; it does not state a data processing agreement or " +
+      "whether it trains on what it receives, and we have asked it both. The contingency " +
+      "platform has been sent nothing and no decision to adopt it has been taken. Section " +
+      "3.7 lists what we have not established about the hosting platform.",
   },
   {
-    names: ["Cloudflare"],
-    vendor: "Cloudflare",
+    key: "speech-to-text",
+    category: "Speech-to-text",
+    named: [],
     does:
-      "Two distinct things: the edge in front of the site (TLS, caching, protection " +
-      "against attack), and R2 object storage.",
+      "Speech recognition during the call — turning what your caller says into text. It " +
+      "is one company, and it is the same company as the post-call extraction row below " +
+      "and the standby in the language-model row. Since 18 September 2026 it no longer " +
+      "produces the voice your caller hears.",
     receives:
-      "At the edge: every HTTP request, including IP addresses. In R2: call " +
-      "recordings, exports, the archived raw call documents, the bodies delivered " +
-      "to client CRMs, and database backup segments.",
+      "Call audio and the raw, unredacted transcript. This is the one path that must see " +
+      "raw text: a callback-number field needs the actual digits.",
     location:
-      "Global. We ask R2 to place the bucket in its Asia-Pacific region. That " +
-      "is a preference Cloudflare honours where it can and not a residency " +
-      "commitment — R2 guarantees a jurisdiction only for the European Union, " +
-      "the United States, and United States government workloads, and offers " +
-      "no India-only jurisdiction — so this data is stored outside India and " +
-      "may be stored outside Asia. We do not name a city: Cloudflare " +
-      "documents this region only as Asia-Pacific and does not publish which " +
-      "datacentre serves it.",
-    status: "Core.",
+      "An Indian company, and NOT India for the data. Its published privacy policy " +
+      "states that personal data may be transferred to and processed in countries " +
+      "outside India, and names United States cloud infrastructure and analytics " +
+      "providers, European Union model and security vendors, and other jurisdictions as " +
+      "necessary to provide the service — with EU Standard Contractual Clauses, adequacy " +
+      "decisions and data-processing agreements as the safeguards. Its India-storage " +
+      "commitments cover voice biometric data in its content-studio product and payment " +
+      "data, not the ordinary speech traffic our calls generate. So the call audio and " +
+      "the transcript may be processed outside India on this leg too.",
+    status:
+      "Core. Section 3.4 sets out what this company's own terms permit it to do with what " +
+      "it receives, including model training.",
   },
   {
-    names: [],
-    vendor: "The hosting provider for the application server",
+    key: "post-call-extraction",
+    category: "Post-call extraction",
+    named: [],
+    does:
+      "The first pass that reads the transcript after a call and pulls the client's " +
+      "fields out of it. The same company as the speech-to-text row.",
+    receives: "The raw, unredacted transcript.",
+    location: "As the speech-to-text row: an Indian company that may process outside India.",
+    status: "Core. Section 3.4 applies to it in full.",
+  },
+  {
+    key: "text-to-speech",
+    category: "Text-to-speech",
+    named: [],
+    does:
+      "Turns what an agent says into speech during the call. Two companies, one for each " +
+      "of the two voice qualities the product offers, and each hears nothing of the calls " +
+      "on the other quality. Until 18 September 2026 the cheaper quality was spoken by " +
+      "the speech-to-text company; it no longer synthesises anything.",
+    receives:
+      "The words the agent is about to speak, sent as text a turn at a time — which can " +
+      "include a detail the caller has just given, where the agent repeats it back to " +
+      "confirm it. Not the caller's own audio, not the transcript of what the caller said, " +
+      "not the recording, and nothing from your dashboard.",
+    location:
+      "NOT VERIFIED for either, and we would rather say so than name a country. Neither " +
+      "company's own pages can be read from our build environment. For the dearer " +
+      "quality's company, what we hold is a reading of them relayed to us, which records " +
+      "no data-residency commitment and no region we could ask for, and records that its " +
+      "published privacy policy says its services “are designed for users in the " +
+      "United States only and are not intended for users located outside the United " +
+      "States” — a statement about who the service is for rather than where data is " +
+      "processed. Of the cheaper quality's company we have read only its price list and " +
+      "its published software package, which names an address and no region. Assume " +
+      "processing outside India.",
+    status:
+      "Configured, not enabled, for both. No credential for either is installed, no " +
+      "voice in either quality can be selected, and nothing has ever been sent to either. " +
+      "The cheaper quality is held off by a second thing as well: nobody has established " +
+      "what a minute of it costs us. Section 3.6 is what a client should read before " +
+      "either becomes live for them.",
+  },
+  {
+    key: "language-models",
+    category: "Language models",
+    named: [],
+    does:
+      "The model that holds the conversation during a call, and the in-app assistant a " +
+      "client's own people open from their dashboard. Three providers, and a client's " +
+      "choice of model is also a choice of provider and place (section 3.3). The default " +
+      "is a hyperscale cloud provider's service, which serves both legs, is the " +
+      "assistant's fallback for a client whose own model cannot serve it, and runs the " +
+      "hourly job that distils durable business facts out of past assistant " +
+      "conversations. A second provider is an alternative for the IN-CALL leg only and " +
+      "does NOT serve the in-app assistant: nobody here has read that provider's " +
+      "published position on what it may do with what an API sends it, and an unread " +
+      "position is not a permission. A third serves the call leg, and the assistant only " +
+      "while we hold a recorded confirmation that our own account with it is on a plan " +
+      "under which it does not train on what is submitted. The speech-to-text company is " +
+      "the assistant's standby if no other provider can answer; there it answers in prose " +
+      "only, is given none of the assistant's look-up tools, cannot read a client's " +
+      "leads, calls or campaigns, and cannot fill in a form or propose a change.",
+    receives:
+      "On the call leg, the conversation as it happens — everything the caller says, " +
+      "turn by turn, as it is said. On the assistant leg, the redacted transcript of a " +
+      "call a client asks us to re-read, what a client's user types, and what the " +
+      "assistant looks up in that client's own account to answer them: lead names and " +
+      "statuses, recent calls with their already-redacted summaries, campaign and agent " +
+      "names, counts, and the client's own knowledge content. Phone numbers reach it as " +
+      "markers, and no raw transcript and no extraction payload is sent on this leg at " +
+      "all. The second provider receives the call leg only. Nothing from the in-app " +
+      "assistant reaches it. None of them receives the recording.",
+    location:
+      "Outside India for all three. The default provider: United States — its East US 2 " +
+      "region, by configuration. This has moved twice: until 19 August 2026 the language " +
+      "model ran in an Indian cloud region; from 19 August 2026 in a different Indian " +
+      "region, in South India; since 22 August 2026 in East US 2. Its endpoint does not name its own " +
+      "region, so this is a setting we make and check by hand rather than one a build can " +
+      "prove (section 3.2). The second provider: United States, with no Indian region to " +
+      "request. The third: global — its developer service names no region we can " +
+      "request, so we cannot pin where it processes and do not claim to.",
+    status:
+      "Core for the default provider. Client-selectable for the other two: no client " +
+      "data reaches either unless a client picks one of its models.",
+  },
+  {
+    key: "hosting",
+    category: "Cloud hosting and database",
+    named: [],
     does: "Runs the application, the background workers and the PostgreSQL database.",
     receives:
       "Everything held in the database: phone numbers, transcripts, summaries, lead " +
       "records, account data.",
     location:
-      "{{PRIMARY_HOSTING_LOCATION}} — decided, and nothing has been provisioned " +
-      "yet, because no client data is in production. This tier runs outside the " +
-      "live call path, so India is not required for it; it was chosen anyway.",
+      "{{PRIMARY_HOSTING_LOCATION}} — decided, and nothing has been provisioned yet, " +
+      "because no client data is in production. This tier runs outside the live call " +
+      "path, so India is not required for it; it was chosen anyway.",
     status: "Core.",
   },
   {
-    names: [],
-    vendor: "The tracing collector, if one is configured",
-    does:
-      "Receives performance traces from our own services — which request went where and " +
-      "how long each step took — when a deployment is set to send them somewhere. It is " +
-      "listed with no company name because none is chosen: the address is a setting, and " +
-      "it can be a service of ours on our own host or a monitoring vendor's.",
+    key: "object-storage",
+    category: "Object storage and backups",
+    named: [],
+    does: "Stores files outside the database, including the database's own backups.",
     receives:
-      "Timing spans and identifiers. Personal data is stripped before a trace leaves the " +
-      "process — the same redaction that backs the log formatter is applied at the " +
-      "exporter rather than at each place a trace is written.",
-    location: "Wherever the configured collector runs. Nothing is configured.",
-    status:
-      "Configured, not enabled. With no collector address set there is no tracing at " +
-      "all — the library is not even loaded — which is the state this deployment is in. " +
-      "If a monitoring vendor is ever chosen for it, that is a named change to this page " +
-      "under clause 5 of the Data Processing Addendum.",
+      "Call recordings, exports, the archived raw call documents, the bodies delivered " +
+      "to client CRMs, and database backup segments.",
+    location:
+      "Outside India. We ask the provider to place the bucket in its Asia-Pacific region. " +
+      "That is a preference it honours where it can and not a residency commitment — it " +
+      "guarantees a jurisdiction only for the European Union, the United States, and " +
+      "United States government workloads, and offers no India-only jurisdiction — so " +
+      "this data is stored outside India and may be stored outside Asia. We do not name a " +
+      "city: the provider documents this region only as Asia-Pacific and does not publish " +
+      "which datacentre serves it.",
+    status: "Core.",
   },
   {
-    names: ["Resend"],
-    vendor: "Resend",
-    does:
-      "Transactional email: the hot-lead notification to a client, and operator " +
-      "alerts.",
+    key: "edge-network",
+    category: "Website edge network",
+    named: [],
+    does: "Sits in front of the site: TLS, caching and protection against attack.",
+    receives: "Every HTTP request, including IP addresses.",
+    location: "Global.",
+    status: "Core.",
+  },
+  {
+    key: "email",
+    category: "Email delivery",
+    named: [],
+    does: "Transactional email: the hot-lead notification to a client, and operator alerts.",
     receives:
-      "The recipient's email address; in a hot-lead notification, the lead's name " +
-      "and the call summary. The phone number is masked before the email is " +
-      "composed. Operator alerts carry identifiers only.",
+      "The recipient's email address; in a hot-lead notification, the lead's name and " +
+      "the call summary. The phone number is masked before the email is composed. " +
+      "Operator alerts carry identifiers only.",
     location: "United States.",
+    status: "Core. An SMTP server of your own choosing is the alternative and is selectable.",
+  },
+  {
+    key: "monitoring",
+    category: "Error monitoring and tracing",
+    named: [],
+    does:
+      "Error and performance monitoring for our own services, and performance traces — " +
+      "which request went where and how long each step took — when a deployment is set " +
+      "to send them to a tracing collector. No company is chosen for the collector: its " +
+      "address is a setting, and it can be a service of ours on our own host or a " +
+      "monitoring vendor's.",
+    receives:
+      "Error reports, timing spans and identifiers. Personal data is stripped before " +
+      "anything leaves the process: the redaction pair backs the log formatter, the " +
+      "error-reporting hook and breadcrumbs, and traces are redacted at the exporter " +
+      "rather than at each call site.",
+    location:
+      "The error-monitoring provider is operated from outside India. The tracing " +
+      "collector is wherever it is configured to run, and nothing is configured.",
     status:
-      "Core. An SMTP server of your own choosing is the alternative and is " +
-      "selectable.",
+      "Configured, not enabled. Error monitoring activates only when its address is set; " +
+      "with no collector address there is no tracing at all. If a monitoring vendor is " +
+      "ever chosen for tracing, that is a change notified under clause 5 of the Data " +
+      "Processing Addendum.",
   },
   {
-    names: ["Sentry"],
-    vendor: "Sentry",
-    does: "Error and performance monitoring for our own services.",
-    receives:
-      "Error reports and traces. Personal data is stripped before it leaves the " +
-      "process: the redaction pair backs the log formatter, the Sentry event " +
-      "hook and breadcrumbs, and traces are redacted at the exporter rather " +
-      "than at each call site.",
-    location: "Operated from outside India.",
-    status: "Configured, not enabled — it activates only when a DSN is set.",
-  },
-  {
-    names: ["Razorpay"],
-    vendor: "Razorpay",
+    key: "payments",
+    category: "Payments — Razorpay",
+    named: ["Razorpay"],
     does: "Card, UPI and netbanking payments for self-serve top-ups.",
-    receives:
-      "Payer contact details and payment metadata. Card numbers never reach us.",
+    receives: "Payer contact details and payment metadata. Card numbers never reach us.",
     location: "India.",
     status: "Configured, not enabled. No merchant account has been confirmed.",
   },
   {
-    names: ["Google"],
-    vendor: "Google — Sheets API",
+    key: "knowledge-search",
+    category: "Knowledge search",
+    named: [],
     does:
-      "Writes each new lead into a Google Sheet you own. This is a separate " +
-      "Google service from the Gemini API row above and receives lead fields " +
-      "only: no call audio, no transcript and no model request reaches the " +
-      "Sheets API. From 19 August 2026 until Gemini models became selectable " +
-      "this was the only thing any Google service did for us; that is no longer " +
-      "so, because a client can now choose a Gemini model, and the earlier " +
-      "sentence saying no model request reached Google any more is withdrawn.",
-    receives:
-      "The lead's fields, including name and — depending on the option you choose " +
-      "— the phone number in raw or masked form. Never the recording or the " +
-      "transcript.",
-    location: "Google, global.",
-    status:
-      "Client-enabled. Access is granted by you sharing your own document with our " +
-      "service account, and revoked by un-sharing it.",
-  },
-  {
-    names: ["Google"],
-    vendor: "Google — Calendar API",
-    does:
-      "Reads free time on a calendar you own and books an appointment on it, when " +
-      "your agent is configured with a calendar action. A third Google service, " +
-      "separate from the Gemini and Sheets rows: a calendar request is not a model " +
-      "request and carries no transcript.",
-    receives:
-      "The appointment's start and end time, and the event title — which is " +
-      "whichever field you mapped to it, commonly the caller's name. The caller's " +
-      "phone number reaches it only if you put it in that title yourself. Never the " +
-      "recording or the transcript.",
-    location: "Google, global.",
-    status:
-      "Configured, not enabled. This deployment holds no Google OAuth client yet, " +
-      "and every calendar route refuses cleanly until it does rather than " +
-      "half-working. Beyond that it is yours to switch on: it reaches only a " +
-      "calendar you connect yourself, and disconnecting it revokes the access.",
-  },
-  {
-    names: ["Meta"],
-    vendor: "Meta — WhatsApp Business",
-    does:
-      "Sends a WhatsApp message to a lead using an approved template — either as a " +
-      "post-call follow-up, or as an action the agent triggers during the call itself.",
-    receives: "The recipient's phone number and the template parameters.",
-    location: "Meta, global.",
-    status:
-      "Configured, not enabled for the post-call follow-up: no messaging provider " +
-      "has been chosen for it and the code refuses to send until one is. The " +
-      "in-call action is client-enabled instead — it runs on a WhatsApp " +
-      "credential you supply for your own account. Either way a separate, " +
-      "recorded messaging opt-in is required for every recipient, and consent to " +
-      "be called never satisfies it.",
-  },
-  {
-    names: ["AiSensy", "Interakt"],
-    vendor: "AiSensy · Interakt",
-    does:
-      "Alternative WhatsApp Business Solution Providers. Either can carry the " +
-      "in-call WhatsApp action in place of a direct Meta connection, sending the " +
-      "approved template on your behalf.",
-    receives:
-      "The recipient's phone number and the template's variables — whatever your " +
-      "action was configured to fill them with. Never the recording or the " +
-      "transcript.",
-    location:
-      "NOT VERIFIED, and we would rather say so than name a country. Both are " +
-      "reached at their own endpoints and neither vendor's documentation could be " +
-      "read from our build environment, so nobody here has confirmed where either " +
-      "processes. If you are choosing one of them, ask them directly — and ask us " +
-      "for this cell to be filled in, because it should be.",
-    status:
-      "Client-enabled. Nothing reaches either provider unless you configure a " +
-      "WhatsApp action on your own account with them, using your own credential.",
-  },
-  {
-    names: ["Meta"],
-    vendor: "Meta — Lead Ads",
-    does:
-      "Retrieves the answers a person submitted on your Facebook or Instagram lead " +
-      "form, so the agent can call them back.",
-    receives: "The lead form answers, including name and phone number.",
-    location: "Meta, global.",
-    status:
-      "Client-enabled, and per lead source: it works only where you have supplied " +
-      "the access token for your own Page.",
-  },
-  {
-    names: ["Cartesia"],
-    vendor: "Cartesia — voice synthesis",
-    does:
-      "Turns what an agent says into speech during the call, for agents set to the " +
-      "dearer of the two voice qualities the product offers. Agents on the other " +
-      "quality are spoken by the vendor in the row below, and this vendor hears " +
-      "nothing of their calls. Until 18 September 2026 that other quality was spoken " +
-      "by the speech vendor named earlier in this table; it no longer synthesises " +
-      "anything.",
-    receives:
-      "The words the agent is about to speak, sent as text a turn at a time — which " +
-      "can include a detail the caller has just given, where the agent repeats it back " +
-      "to confirm it. Not the caller's own audio, not the transcript of what the " +
-      "caller said, not the recording, and nothing from your dashboard.",
-    location:
-      "NOT VERIFIED, and — as with the messaging providers elsewhere in this table — " +
-      "we would rather say so than name a country. This vendor's own pages cannot be " +
-      "read from our build environment; " +
-      "what we hold is a reading of them relayed to us, and it records no " +
-      "data-residency commitment and no region we could ask for. It does record that " +
-      "the vendor's published privacy policy says its services \u201care designed for " +
-      "users in the United States only and are not intended for users located outside " +
-      "the United States\u201d — a statement about who the service is for rather than " +
-      "about where data is processed, and section 3.6 sets out why we are telling you " +
-      "it anyway. Assume processing outside India; do not read a country into that " +
-      "until this cell names one.",
-    status:
-      "Configured, not enabled. No credential for this vendor is installed on this " +
-      "deployment, no voice in this quality is offered for selection yet, and no " +
-      "request has ever been made to it from this system. Section 3.6 is what a " +
-      "client should read before this row becomes live for them.",
-  },
-  {
-    names: ["Gnani"],
-    vendor: "Gnani — voice synthesis",
-    does:
-      "Turns what an agent says into speech during the call, for agents set to the " +
-      "cheaper of the two voice qualities the product offers \u2014 a role the speech " +
-      "vendor named earlier in this table held until 18 September 2026. Agents on the " +
-      "other quality are spoken by the vendor in the row above, and this vendor hears " +
-      "nothing of their calls.",
-    receives:
-      "The words the agent is about to speak, sent as text a turn at a time over a " +
-      "connection our own program opens — which can include a detail the caller has just " +
-      "given, where the agent repeats it back to confirm it. Not the caller's own audio, " +
-      "not the transcript of what the caller said, not the recording, and nothing from " +
-      "your dashboard.",
-    location:
-      "NOT VERIFIED, for the same reason the row above gives and with the same refusal to " +
-      "fill the gap in: this vendor's own sites cannot be reached from our build " +
-      "environment (all three of them, measured 15 September 2026), so nobody here has " +
-      "read where it processes or what it commits to. What we have read is the vendor's " +
-      "own published software package, which we hold by checksum, and it names the " +
-      "address its speech service answers on and nothing about a region. Do not read a " +
-      "country into a vendor's nationality: that is the mistake this page already made " +
-      "once about a different vendor, and section 3.4 is where it was corrected.",
-    status:
-      "Configured, not enabled, and TWO separate things hold it there rather than one. " +
-      "No credential for this vendor is installed on this deployment; and nobody has " +
-      "established what a minute of it costs us. This cell said until 20 September 2026 " +
-      "that the vendor publishes no price, and that was our own failure to find the " +
-      "page rather than a fact about the vendor: it does publish one, and we have now " +
-      "read it. What we have not seen is a bill, so the product refuses to offer any of " +
-      "its voices for selection at all until somebody records a figure taken off one. " +
-      "Nothing has ever been sent to it from this system.",
-  },
-  {
-    names: ["Cartesia"],
-    vendor: "Cartesia — alternative voice platform",
-    does:
-      "A second role for the same company, kept separate because it is a different " +
-      "product and a different standing: a whole alternative voice platform, built so " +
-      "that switching platforms is a configuration change rather than a rewrite.",
-    receives:
-      "The same categories as the platform that runs the call (the Pipecat Cloud row " +
-      "above), if it were ever selected.",
-    location:
-      "Not verified in this role either, for the reason the other row for this " +
-      "vendor gives.",
-    status:
-      "Contingency. Nothing has been sent to it in this role and no decision to adopt " +
-      "it has been taken.",
-  },
-  {
-    names: ["Supermemory"],
-    vendor: "Supermemory — knowledge store and search",
-    does:
-      "Stores and searches the knowledge content a client publishes for their agents, " +
-      "for the parts of the product that are NOT on a call: the in-app assistant and the " +
-      "search over your own records in the dashboard. Nothing on the live call path " +
-      "uses it — an agent answers a caller out of a sealed copy of the knowledge held in " +
-      "the program running the call. Which store answers is a setting an operator can " +
-      "change while the product is running, without a new release.",
+      "Stores and searches the knowledge content a client publishes for their agents, for " +
+      "the parts of the product that are NOT on a call: the in-app assistant and the " +
+      "search over your own records in the dashboard. Nothing on the live call path uses " +
+      "it — an agent answers a caller out of a sealed copy of the knowledge held in the " +
+      "program running the call. A second company is a contingency for text embeddings, " +
+      "needed only if the store adopted does not bundle its own.",
     receives:
       "Every passage of the knowledge a client has published — the text of the FAQs, " +
       "price lists, staff names and contact numbers they uploaded — and the questions " +
@@ -596,54 +341,82 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
       "search their own records for. Never the call audio, never a transcript, and never " +
       "a recording.",
     location:
-      "NOT VERIFIED, and the honest answer has two parts. This is software we intend to " +
-      "run on our OWN server, in which case nothing reaches the company that writes it; " +
-      "the address it is reached at is a setting, so an operator could point it at a " +
-      "service that company runs instead, and the register has to describe the " +
-      "capability rather than only the intention. Nobody here has read that company's " +
-      "own published terms or retention position: its site cannot be reached from our " +
-      "build environment (measured 14 September 2026). One thing does leave whichever " +
-      "way it is run — the store buys the embedding for each question from a model " +
-      "vendor on our account, and that vendor's row above is where that leg is described.",
+      "NOT VERIFIED for the store. It is software we intend to run on our OWN server, in " +
+      "which case nothing reaches the company that writes it; its address is a setting, " +
+      "so an operator could point it at a service that company runs instead. Nobody here " +
+      "has read that company's own terms or retention position: its site cannot be " +
+      "reached from our build environment. Either way, the store buys the embedding for " +
+      "each question from a model vendor on our account, described in the " +
+      "language-model row. The contingency embedding company is outside India.",
     status:
-      "Configured, not enabled — configured and NOT SELECTED, which is this page's " +
-      "fourth state read exactly: the product ships set to a different store and no " +
-      "deployment has switched to this one, so nothing of anybody's has reached it. " +
-      "Two cautions belong with it rather than in a footnote: switching it on is an " +
-      "operator setting that takes effect on the next request with no release, so this " +
-      "row can become live without a code change; and when an account is closed, the " +
-      "removal of its knowledge from this store rests on our own reading of how that " +
-      "software deletes, which nobody has been able to check against the company's " +
-      "documentation. Our own record of exactly what was sent is what the removal is " +
-      "driven from, and the erasure is refused outright rather than reported as done if " +
-      "the store will not accept it.",
+      "Configured, NOT SELECTED: the product ships set to a different store and nothing " +
+      "of anybody's has reached this one. Two cautions belong with it: switching it on is " +
+      "an operator setting that takes effect on the next request with no release, so this " +
+      "row can become live without a code change; and when an account is closed, removing " +
+      "its knowledge from this store rests on our own reading of how that software " +
+      "deletes, which nobody has been able to check against the company's documentation. " +
+      "Our own record of exactly what was sent drives the removal, and the erasure is " +
+      "refused outright rather than reported as done if the store will not accept it. The " +
+      "embedding company is a contingency and is not selected.",
   },
   {
-    names: ["Cohere"],
-    vendor: "Cohere",
+    key: "messaging",
+    category: "WhatsApp messaging — Meta, AiSensy, Interakt",
+    named: ["Meta", "AiSensy", "Interakt"],
     does:
-      "Text embeddings, needed only if the retrieval service we adopt does not " +
-      "bundle its own.",
+      "Sends a WhatsApp message to a lead using an approved template — as a post-call " +
+      "follow-up, or as an action the agent triggers during the call. Meta's WhatsApp " +
+      "Business service directly, or AiSensy or Interakt as alternative WhatsApp Business " +
+      "Solution Providers carrying the in-call action on your behalf.",
     receives:
-      "Chunks of the knowledge content a client uploads for their agent to answer " +
-      "from.",
-    location: "Outside India.",
-    status: "Contingency. Not selected.",
+      "The recipient's phone number and the template's variables — whatever your action " +
+      "was configured to fill them with. Never the recording or the transcript.",
+    location:
+      "Meta: global. AiSensy and Interakt: NOT VERIFIED, and we would rather say so than " +
+      "name a country — neither company's documentation could be read from our build " +
+      "environment. If you are choosing one of them, ask them directly, and ask us to " +
+      "fill this in.",
+    status:
+      "Configured, not enabled for the post-call follow-up: no messaging provider has " +
+      "been chosen for it and the code refuses to send until one is. The in-call action " +
+      "is client-enabled — it runs on a credential you supply for your own account with " +
+      "the provider you choose. Either way a separate, recorded messaging opt-in is " +
+      "required for every recipient, and consent to be called never satisfies it.",
+  },
+  {
+    key: "client-integrations",
+    category: "Integrations you connect — Google, Meta",
+    named: ["Google", "Meta"],
+    does:
+      "Three services you connect to your own account: Google Sheets (writes each new " +
+      "lead into a sheet you own), Google Calendar (reads free time on a calendar you own " +
+      "and books an appointment on it, when your agent has a calendar action), and Meta " +
+      "Lead Ads (retrieves the answers a person submitted on your Facebook or Instagram " +
+      "lead form, so the agent can call them back). None of them is a model request.",
+    receives:
+      "Sheets: the lead's fields, including name and — depending on the option you choose " +
+      "— the phone number in raw or masked form. Calendar: the appointment's start and " +
+      "end time and the event title, which is whichever field you mapped to it, commonly " +
+      "the caller's name; the phone number only if you put it in that title yourself. " +
+      "Lead Ads: the lead form answers, including name and phone number. Never the " +
+      "recording or the transcript.",
+    location: "Global.",
+    status:
+      "Client-enabled. Sheets access is granted by sharing your own document with our " +
+      "service account and revoked by un-sharing it. Lead Ads works per lead source, only " +
+      "where you have supplied the access token for your own Page. Calendar is " +
+      "configured, not enabled: this deployment holds no sign-in client for it yet, and " +
+      "every calendar route refuses cleanly until it does; after that it reaches only a " +
+      "calendar you connect yourself, and disconnecting it revokes the access.",
   },
 ];
 
 /**
- * The canonical vendor-identity inventory, derived from `SUBPROCESSOR_ROWS` and the ONE
- * list the legal tests may compare a document against.
- *
- * It is deliberately the brand identities, not the Vendor cells: the "Google — Gemini API"
- * row's identity is "Google", so the register may say "Gemini" in prose while this list
- * (correctly) does not — a departed vendor named only in the sentence that records its
- * departure never enters here. Because it is derived, a vendor change in the register
- * moves it automatically; nothing is retyped.
+ * The company names this page may print, derived from `SUBPROCESSOR_CATEGORIES`. Every
+ * other sub-processor is unnamed here and listed in the internal register.
  */
-export const SUBPROCESSOR_NAMES: readonly string[] = [
-  ...new Set(SUBPROCESSOR_ROWS.flatMap((row) => row.names)),
+export const PUBLICLY_NAMED_SUBPROCESSORS: readonly string[] = [
+  ...new Set(SUBPROCESSOR_CATEGORIES.flatMap((row) => row.named)),
 ];
 
 export const SUBPROCESSORS: LegalDocument = {
@@ -651,8 +424,8 @@ export const SUBPROCESSORS: LegalDocument = {
   title: "Sub-processors",
   shortTitle: "Sub-processors",
   summary:
-    "Every third party that processes personal data on our behalf, what reaches them, " +
-    "and where they process it.",
+    "Every category of third party that processes personal data on our behalf, what " +
+    "reaches it, and where it is processed. A named list is available on request.",
   appliesTo:
     "Clients assessing Calevate, and anyone reading the Privacy Policy or the Data " +
     "Processing Addendum — both of which incorporate this page.",
@@ -666,15 +439,27 @@ export const SUBPROCESSORS: LegalDocument = {
           text:
             "A sub-processor is a third party — a company or an individual — that we " +
             "engage to process personal data as part of delivering the service. Under " +
-            "clause 5 of the Data Processing Addendum, this page is the authorised list, " +
-            "and it is the list we notify changes against.",
+            "clause 5 of the Data Processing Addendum, this page and the named list " +
+            "described in section 4 are the authorised list, and they are what we notify " +
+            "changes against.",
+        },
+        {
+          kind: "para",
+          text:
+            "Sub-processors are listed here by CATEGORY. Each row describes every company " +
+            "we use in that category: what it does, what reaches it, where it processes, " +
+            "and its status. Where the companies in one category differ — one live and " +
+            "one switched off, or one whose location we know and one whose location we " +
+            "do not — the row says so rather than giving the better answer for both. We " +
+            "name a company only where you pay it or connect it to your own account " +
+            "yourself. The names of the rest are available on request (section 4).",
         },
         {
           kind: "callout",
           tone: "warning",
           title: "Calevate is not yet running in production",
           text:
-            "No client account is live and no production deployment exists. This register " +
+            "No client account is live and no production deployment exists. This page " +
             "describes the system as built and configured, which is the honest thing a " +
             "buyer needs before they sign, not a description of data flowing today. The " +
             "Status column tells you which is which, and every entry marked otherwise " +
@@ -687,7 +472,7 @@ export const SUBPROCESSORS: LegalDocument = {
             {
               term: "Core",
               detail:
-                "In the path for every client. Data reaches this vendor as soon as the " +
+                "In the path for every client. Data reaches this category as soon as the " +
                 "service runs at all.",
             },
             {
@@ -708,8 +493,7 @@ export const SUBPROCESSORS: LegalDocument = {
               detail:
                 "An alternative kept ready in case the primary choice fails. Nothing has " +
                 "been sent to it and no account exists. If one is ever adopted, that is a " +
-                "change to this page and is notified under clause 5 of the Data " +
-                "Processing Addendum.",
+                "change notified under clause 5 of the Data Processing Addendum.",
             },
           ],
         },
@@ -718,30 +502,36 @@ export const SUBPROCESSORS: LegalDocument = {
           tone: "note",
           title: "Some Location cells say NOT VERIFIED, and that is the honest answer",
           text:
-            "The Location column says where a vendor processes the data it receives. " +
-            "Where we have read the vendor's own published position, it says so; where a " +
-            "person confirms it by hand against a console rather than a build check, the " +
-            "row says that too, and section 3.2 explains which. Some rows say NOT " +
-            "VERIFIED. That is not an oversight we forgot to fill in: those are rows " +
-            "nobody here has been able to confirm, on a page whose only job is telling " +
-            "you where data goes, and inventing a plausible country for one would be " +
-            "worse than the gap. Every one of them is an integration that is switched " +
-            "off or that you would have to switch on yourself, so nothing reaches it " +
-            "unless somebody decides it does — and for the two voice-synthesis vendors, " +
-            "section 3.6 says what we do know about them and what we still do not.",
+            "The Location column says where the companies in a category process the data " +
+            "they receive. Where we have read a company's own published position, it says " +
+            "so; where a person confirms it by hand against a console rather than a build " +
+            "check, the row says that too, and section 3.2 explains which. Some cells say " +
+            "NOT VERIFIED. That is not an oversight we forgot to fill in: those are " +
+            "companies nobody here has been able to confirm, on a page whose only job is " +
+            "telling you where data goes, and inventing a plausible country would be " +
+            "worse than the gap. Every one of them is switched off or one you would have " +
+            "to switch on yourself, so nothing reaches it unless somebody decides it does " +
+            "— and for the two voice-synthesis companies, section 3.6 says what we do " +
+            "know about them and what we still do not.",
         },
       ],
     },
     {
       id: "register",
-      heading: "2. The register",
+      heading: "2. The categories",
       blocks: [
         {
           kind: "table",
-          caption: "Sub-processors, the data each receives, and where it is processed",
-          columns: ["Vendor", "What it does for us", "Personal data it receives", "Location", "Status"],
-          rows: SUBPROCESSOR_ROWS.map((row) => [
-            row.vendor,
+          caption: "Sub-processor categories, the data each receives, and where it is processed",
+          columns: [
+            "Category",
+            "What it does for us",
+            "Personal data it receives",
+            "Location",
+            "Status",
+          ],
+          rows: SUBPROCESSOR_CATEGORIES.map((row) => [
+            row.category,
             row.does,
             row.receives,
             row.location,
@@ -763,15 +553,18 @@ export const SUBPROCESSORS: LegalDocument = {
               tone: "warning",
               title: "Assume the call itself may be handled outside India",
               text:
-                "The conversation runs as a program of ours in a container on Pipecat " +
-                "Cloud, in the region that vendor calls “ap-south”; nobody here " +
-                "has established which country that region is in, and section 3.7 lists " +
-                "what else we have not established about it. The sound of the call reaches " +
-                "that program through our telephone carrier, Vobiz, which does not state " +
-                "where it processes or stores call data. Vobiz also records the call, " +
-                "and we copy the recording into our own storage. So a client should not " +
-                "assume that the live audio of their calls, or the transcript produced from it, " +
-                "stays in India while the call is happening.",
+                "The conversation runs as a program of ours in a container on a hosting " +
+                "platform, in a region that platform names only by its own label; nobody " +
+                "here has established which country that region is in, and section 3.7 " +
+                "lists what else we have not established about it. The sound of the call " +
+                "reaches that program through our telephone carrier, which does not state " +
+                "where it processes or stores call data. The carrier also records the " +
+                "call, and we copy the recording into our own storage. Where a deployment " +
+                "is switched to the hosted voice platform instead, that platform carries " +
+                "the whole call; its published policy places its storage in India and " +
+                "says its language-model step may be processed outside India. So a client " +
+                "should not assume that the live audio of their calls, or the transcript " +
+                "produced from it, stays in India while the call is happening.",
             },
             {
               kind: "para",
@@ -779,7 +572,7 @@ export const SUBPROCESSORS: LegalDocument = {
                 "What this does NOT change: the speech and first-extraction work stays " +
                 "with an Indian company, on both call legs. It does NOT follow that it " +
                 "stays in India, and until 27 August 2026 this paragraph let you read it " +
-                "that way. That vendor's own published privacy policy permits it to " +
+                "that way. That company's own published privacy policy permits it to " +
                 "transfer personal data to and process it in countries outside India, " +
                 "including on United States cloud infrastructure and with European Union " +
                 "model and security vendors; section 3.4 sets that out with what its " +
@@ -790,15 +583,15 @@ export const SUBPROCESSORS: LegalDocument = {
                 "moved and what we still promise about it. Our own copy of the recording " +
                 "and transcript — the system of record, the one the product reads " +
                 "and the one our retention periods govern — is in the storage " +
-                "described in the register above.",
+                "described in the table above.",
             },
             {
               kind: "para",
               text:
-                "Until 2 October 2026 this section was about a third-party voice platform, " +
-                "Bolna, which documented that it ran calls on United States infrastructure " +
-                "by default. That platform is no longer used and has left this register; " +
-                "the call is now handled by the program and the carrier described above.",
+                "Until 2 October 2026 this section was about a third-party voice platform " +
+                "which documented that it ran calls on United States infrastructure by " +
+                "default. That platform is no longer used and has left this list; the " +
+                "call is now handled by the program and the carrier described above.",
             },
           ],
         },
@@ -817,11 +610,10 @@ export const SUBPROCESSORS: LegalDocument = {
                 "going to keep the sentences alive with qualifiers: on that date the " +
                 "default model's region moved to East US 2, in the United States, " +
                 "withdrawing the claim that model inference happens in India; and the " +
-                "product now offers models from more than one provider — Azure OpenAI, " +
-                "OpenAI and Google — so a client's choice of model is also a choice of " +
-                "provider and place. What replaced both claims is set out below, and it " +
-                "is a promise about our code rather than about a country or a single " +
-                "vendor.",
+                "product now offers models from three providers, so a client's choice of " +
+                "model is also a choice of provider and place. What replaced both claims " +
+                "is set out below, and it is a promise about our code rather than about a " +
+                "country or a single vendor.",
             },
             {
               kind: "para",
@@ -883,9 +675,9 @@ export const SUBPROCESSORS: LegalDocument = {
                 "console by a person, dated and filed as evidence, and neither can be " +
                 "seen from the endpoint, from the response, or from any check we could " +
                 "write. The other providers a client can choose place their processing " +
-                "on their own terms, stated in their rows above — one of them names no " +
-                "region we could pin at all. We say all of this because a document that " +
-                "called it machine-enforced would be overstating it.",
+                "on their own terms, stated in the language-model row above — one of " +
+                "them names no region we could pin at all. We say all of this because a " +
+                "document that called it machine-enforced would be overstating it.",
             },
           ],
         },
@@ -909,17 +701,16 @@ export const SUBPROCESSORS: LegalDocument = {
                 "which model answered and moved nothing about who processed your " +
                 "callers' data or where — that every model on the list was served by " +
                 "the same vendor, from the same account resource, in the region named " +
-                "in the register. That was written when only one provider was on the " +
-                "list, and it is no longer true. The models on offer now run with more " +
-                "than one provider — Azure OpenAI, OpenAI and Google — in more than one " +
-                "place, so your choice is a choice of which provider handles the " +
-                "language leg and where. The single-vendor, single-region promise this " +
-                "section used to make is WITHDRAWN, not narrowed. What has NOT changed: " +
-                "the set of providers our code may reach at all is fixed in code and " +
-                "moves only by a reviewed change to it, never by a control on a screen — " +
-                "ours or yours — and the one operator setting that can still reach where " +
-                "a given provider processes is the account resource named in section " +
-                "3.2.",
+                "on this page. That was written when only one provider was on the " +
+                "list, and it is no longer true. The models on offer now run with three " +
+                "providers in more than one place, so your choice is a choice of which " +
+                "provider handles the language leg and where. The single-vendor, " +
+                "single-region promise this section used to make is WITHDRAWN, not " +
+                "narrowed. What has NOT changed: the set of providers our code may reach " +
+                "at all is fixed in code and moves only by a reviewed change to it, " +
+                "never by a control on a screen — ours or yours — and the one operator " +
+                "setting that can still reach where a given provider processes is the " +
+                "account resource named in section 3.2.",
             },
             {
               kind: "para",
@@ -936,39 +727,38 @@ export const SUBPROCESSORS: LegalDocument = {
         },
         {
           id: "speech-vendor-terms",
-          heading: "3.4 What the speech vendor's own terms allow, including model training",
+          heading: "3.4 What the speech provider's own terms allow, including model training",
           blocks: [
             {
               kind: "callout",
               tone: "warning",
-              title: "Your call audio may be processed outside India, and the vendor's terms permit it to train on what it receives",
+              title: "Your call audio may be processed outside India, and the provider's terms permit it to train on what it receives",
               text:
                 "We chose an Indian company for the speech leg and that is still true of " +
                 "the company. Two things in its own published documents are not what an " +
                 "Indian company implies, and this page stated both wrongly until " +
                 "27 August 2026. First, its privacy policy says personal data may be " +
                 "transferred to and processed in countries outside India, and names " +
-                "United States cloud infrastructure (AWS, GCP and Azure) and analytics " +
-                "providers, European Union model and security vendors, and other " +
-                "jurisdictions as necessary to provide the service; the safeguards it " +
-                "names are EU Standard Contractual Clauses, adequacy decisions and " +
-                "data-processing agreements. Its India-storage commitments cover voice " +
-                "biometric data in its content-studio product and payment data, not the " +
-                "ordinary speech traffic a call generates. Second, its terms of service " +
-                "(version 2.0, effective 29 July 2026) permit it, at their paragraph 17.5, to " +
-                "use " +
-                "inputs, outputs and usage data to train its machine-learning models — " +
-                "in accordance with its privacy policy and applicable law, and where " +
-                "required subject to a consent that may be declined or withdrawn, with " +
-                "access to certain of its offerings possibly restricted if it is " +
-                "declined. That clause does not vary by plan: free credits, " +
-                "pay-as-you-go and paid accounts are treated alike.",
+                "United States cloud infrastructure and analytics providers, European " +
+                "Union model and security vendors, and other jurisdictions as necessary " +
+                "to provide the service; the safeguards it names are EU Standard " +
+                "Contractual Clauses, adequacy decisions and data-processing agreements. " +
+                "Its India-storage commitments cover voice biometric data in its " +
+                "content-studio product and payment data, not the ordinary speech traffic " +
+                "a call generates. Second, its terms of service (version 2.0, effective " +
+                "29 July 2026) permit it, at their paragraph 17.5, to use inputs, outputs " +
+                "and usage data to train its machine-learning models — in accordance with " +
+                "its privacy policy and applicable law, and where required subject to a " +
+                "consent that may be declined or withdrawn, with access to certain of its " +
+                "offerings possibly restricted if it is declined. That clause does not " +
+                "vary by plan: free credits, pay-as-you-go and paid accounts are treated " +
+                "alike.",
             },
             {
               kind: "para",
               text:
                 "We have not signed an order form or enterprise agreement with that " +
-                "vendor. Paragraph 6.2 of its terms gives a signed order form precedence " +
+                "company. Paragraph 6.2 of its terms gives a signed order form precedence " +
                 "over the terms, which is the only route by which we could promise you " +
                 "something stronger than the paragraph above — so until we have one we " +
                 "will not write the stronger sentence. Clause 2 of the Data Processing " +
@@ -979,7 +769,7 @@ export const SUBPROCESSORS: LegalDocument = {
             {
               kind: "para",
               text:
-                "What that vendor says about keeping what it receives, so this page is " +
+                "What that company says about keeping what it receives, so this page is " +
                 "complete rather than only corrected. Content submitted through its " +
                 "APIs — inputs and outputs — is retained by default for 30 days after " +
                 "last access, on a setting it describes as user-configurable; account " +
@@ -991,7 +781,7 @@ export const SUBPROCESSORS: LegalDocument = {
                 "by law, where the data is needed for ongoing legal proceedings, or " +
                 "where technical limitations prevent deletion — in which case it " +
                 "anonymises instead. One gap we will not paper over: we have not been " +
-                "able to find where in that vendor's console the 30-day content " +
+                "able to find where in that company's console the 30-day content " +
                 "retention is actually changed, so we do not claim to have changed it " +
                 "and we do not describe a control we have not found.",
             },
@@ -1004,7 +794,7 @@ export const SUBPROCESSORS: LegalDocument = {
             {
               kind: "para",
               text:
-                "Section 3 was headed \u201cfour things\u201d until 1 September 2026 and " +
+                "Section 3 was headed “four things” until 1 September 2026 and " +
                 "this is the fifth, added because the assistant inside a client's " +
                 "dashboard changed shape and no page a client reads said so. It used to " +
                 "do two things: answer questions about the screen in front of it, and " +
@@ -1018,9 +808,9 @@ export const SUBPROCESSORS: LegalDocument = {
               kind: "para",
               text:
                 "What that means for this page is a change to what the language-model " +
-                "provider on the assistant leg receives, and the rows above have been " +
-                "corrected to say it: what a person types, plus names, statuses, counts " +
-                "and already-redacted call summaries from the account. A phone number " +
+                "provider on the assistant leg receives, and the language-model row " +
+                "above says it: what a person types, plus names, statuses, counts and " +
+                "already-redacted call summaries from the account. A phone number " +
                 "reaches that provider as a marker rather than as digits, and no raw " +
                 "transcript and no extracted-field payload is sent on this leg at all — " +
                 "those are properties of the code rather than instructions in a prompt, " +
@@ -1030,7 +820,7 @@ export const SUBPROCESSORS: LegalDocument = {
                 "own published position on training with what it receives, and, where " +
                 "the answer depends on which plan our account is on, recorded that " +
                 "answer against the account. One offered provider fails that test today " +
-                "and its row says so.",
+                "and the language-model row says so.",
             },
             {
               kind: "para",
@@ -1050,41 +840,40 @@ export const SUBPROCESSORS: LegalDocument = {
         },
         {
           id: "voice-vendor-terms",
-          heading: "3.6 What the voice-synthesis vendors' own terms allow, and what we have not established",
+          heading: "3.6 What the voice-synthesis companies' own terms allow, and what we have not established",
           blocks: [
             {
               kind: "callout",
               tone: "warning",
               title: "One of them permits training on what it receives and sells its no-retention option only on a plan we cannot buy; of the other we have read nothing but a price list",
               text:
-                "Section 3 was headed \u201cfive things\u201d until 7 September 2026, and " +
+                "Section 3 was headed “five things” until 7 September 2026, and " +
                 "this is the sixth: the product gained a second voice quality, spoken by " +
-                "a second vendor, and a client choosing it should read what that " +
-                "vendor's own published documents say before they do. Since " +
+                "a second company, and a client choosing it should read what that " +
+                "company's own published documents say before they do. Since " +
                 "18 September 2026 it covers BOTH voice qualities rather than one. The " +
                 "cheaper quality used to be spoken by the same Indian company that hears " +
                 "the call, whose terms section 3.4 sets out; it is now spoken by a third " +
                 "company, and that company's own sites cannot be reached from the " +
                 "environment we build in, so nobody here has read its position on " +
                 "training, on retention, on residency or on anything else it does with " +
-                "what it receives. We state that " +
-                "as the gap it is rather than assuming its answers match the vendor " +
-                "described next. The three things below are that other vendor's, all " +
-                "quoted from those documents rather than inferred from them. Its privacy " +
-                "policy says it may use information it receives to generate output and " +
-                "to train and enhance the models behind its services, and offers an " +
-                "opt-out form whose effect is forward-only — it stops future use for " +
-                "training and does not reach anything used before the day it is " +
-                "submitted. Its zero-retention option, under which submitted text and " +
-                "generated audio are not kept at all, is available only on its " +
-                "enterprise plan; on the plans we could buy, what it keeps is governed " +
-                "by its published data-processing agreement instead, and that agreement " +
-                "is where the question is answered rather than by the zero-retention " +
-                "option. And its privacy policy states that its services \u201care " +
-                "designed for users in the United States only and are not intended for " +
-                "users located outside the United States\u201d — which we quote in " +
-                "full because it is an unusual thing for an Indian business's supplier " +
-                "to say, and paraphrasing it would soften it.",
+                "what it receives. We state that as the gap it is rather than assuming " +
+                "its answers match the company described next. The three things below " +
+                "are that other company's, all quoted from its documents rather than " +
+                "inferred from them. Its privacy policy says it may use information it " +
+                "receives to generate output and to train and enhance the models behind " +
+                "its services, and offers an opt-out form whose effect is forward-only — " +
+                "it stops future use for training and does not reach anything used " +
+                "before the day it is submitted. Its zero-retention option, under which " +
+                "submitted text and generated audio are not kept at all, is available " +
+                "only on its enterprise plan; on the plans we could buy, what it keeps is " +
+                "governed by its published data-processing agreement instead, and that " +
+                "agreement is where the question is answered rather than by the " +
+                "zero-retention option. And its privacy policy states that its services " +
+                "“are designed for users in the United States only and are not " +
+                "intended for users located outside the United States” — which we " +
+                "quote in full because it is an unusual thing for an Indian business's " +
+                "supplier to say, and paraphrasing it would soften it.",
             },
             {
               kind: "para",
@@ -1092,104 +881,100 @@ export const SUBPROCESSORS: LegalDocument = {
                 "What we have NOT established, listed rather than left for you to " +
                 "assume. We have not established where this vendor processes the text " +
                 "we would send it: its published documents, as read to us, name no " +
-                "region and make no residency commitment, so the register's Location " +
-                "cell says so instead of naming a country. We have not established the " +
-                "retention periods that apply on a plan we could actually buy — only " +
-                "that they come from the data-processing agreement and not from the " +
-                "zero-retention option. We have not established whether that agreement " +
-                "can be entered on a self-serve plan without a sales conversation, so we " +
-                "do not tell you that one is in place. Each of those is a question with " +
-                "an answer somebody can get, and none of them is a gap we would fill " +
-                "with a plausible sentence. For the company that speaks the cheaper " +
-                "quality the list is shorter and worse: we have established none of " +
-                "those things, because its site cannot be reached from the environment " +
-                "we build in and the one page of its own anybody here has read — its " +
-                "published price list, read on 19 September 2026 — answers none of " +
-                "them. There is one more, and it is the reason no agent can be set to " +
-                "that quality at all today: what that page gives is a list price and " +
-                "not a bill, so nobody has established what one minute of it actually " +
-                "costs us, and we will not put an agent on a leg we have only been " +
-                "quoted for. This paragraph said until 20 September 2026 that the " +
-                "company publishes no price at all, which was a page we had not found " +
-                "written down as a fact about the vendor, and we would rather correct " +
-                "it here than quietly.",
+                "region and make no residency commitment, so the Location cell says so " +
+                "instead of naming a country. We have not established the retention " +
+                "periods that apply on a plan we could actually buy — only that they " +
+                "come from the data-processing agreement and not from the zero-retention " +
+                "option. We have not established whether that agreement can be entered " +
+                "on a self-serve plan without a sales conversation, so we do not tell " +
+                "you that one is in place. Each of those is a question with an answer " +
+                "somebody can get, and none of them is a gap we would fill with a " +
+                "plausible sentence. For the company that speaks the cheaper quality the " +
+                "list is shorter and worse: we have established none of those things, " +
+                "because its site cannot be reached from the environment we build in and " +
+                "the one page of its own anybody here has read — its published price " +
+                "list, read on 19 September 2026 — answers none of them. There is one " +
+                "more, and it is the reason no agent can be set to that quality at all " +
+                "today: what that page gives is a list price and not a bill, so nobody " +
+                "has established what one minute of it actually costs us, and we will " +
+                "not put an agent on a leg we have only been quoted for. This paragraph " +
+                "said until 20 September 2026 that the company publishes no price at " +
+                "all, which was a page we had not found written down as a fact about the " +
+                "company, and we would rather correct it here than quietly.",
             },
             {
               kind: "para",
               text:
                 "Two limits on all of the above, both of which cut in your favour. " +
-                "First, nothing has been sent to either of these vendors from this " +
+                "First, nothing has been sent to either of these companies from this " +
                 "system: no credential for either is installed, no voice in either " +
                 "quality can be selected yet, and the product refuses rather than " +
                 "silently working. Second, when one of them does become selectable it " +
-                "receives only the words your agent speaks " +
-                "— never the caller's audio, the transcript, the recording, or " +
-                "anything from your dashboard — so the material above bears on what " +
-                "your agent says, which can include a detail it repeats back to a " +
-                "caller, and not on the call as a whole. ⚠ This paragraph used to end " +
-                "by telling a client who would rather it did not apply to them at all " +
-                "that they could keep every agent on the other voice quality. That is " +
-                "withdrawn, not reworded: since 18 September 2026 the other quality is " +
-                "spoken by the third company named above rather than by the vendor whose " +
-                "terms section 3.4 sets out, so choosing between the two voice qualities " +
-                "is no longer a way of keeping synthesis with a company whose position " +
-                "anybody has read. What is true of both, and is the limit that matters " +
-                "today, is the sentence this paragraph opens with: nothing has been sent " +
-                "to either of them.",
+                "receives only the words your agent speaks — never the caller's audio, " +
+                "the transcript, the recording, or anything from your dashboard — so the " +
+                "material above bears on what your agent says, which can include a " +
+                "detail it repeats back to a caller, and not on the call as a whole. " +
+                "This paragraph used to end by telling a client who would rather it did " +
+                "not apply to them at all that they could keep every agent on the other " +
+                "voice quality. That is withdrawn, not reworded: since 18 September 2026 " +
+                "the other quality is spoken by the third company described above rather " +
+                "than by the company whose terms section 3.4 sets out, so choosing " +
+                "between the two voice qualities is no longer a way of keeping synthesis " +
+                "with a company whose position anybody has read. What is true of both, " +
+                "and is the limit that matters today, is the sentence this paragraph " +
+                "opens with: nothing has been sent to either of them.",
             },
           ],
         },
         {
           id: "call-runtime",
-          heading: "3.7 The call is moving to a platform we run it ON, and what we have not established about it",
+          heading: "3.7 The call runs on a platform, and what we have not established about it",
           blocks: [
             {
               kind: "callout",
               tone: "warning",
-              title: "A new vendor is on the call path, and we have read none of its terms",
+              title: "A company is on the call path whose terms we have not read",
               text:
-                "Section 3 was headed \u201csix things\u201d until 15 September 2026, " +
+                "Section 3 was headed “six things” until 15 September 2026, " +
                 "and this is the seventh. The design of the call changed. It used to be " +
                 "that a voice platform took the call, ran the conversation with models " +
-                "it chose on our behalf, and handed us a transcript afterwards \u2014 " +
-                "a platform this register no longer lists, because it is no longer used. " +
-                "The call is moving to a program of OURS, running in a " +
-                "container on a platform called Pipecat Cloud: we choose the models, we " +
-                "hold the script, and the sound of the call passes through somebody " +
-                "else's compute while it happens. That is better for you in the ways " +
-                "this page can show \u2014 fewer parties see the conversation, and the " +
-                "choices about which model hears it become ours and therefore yours " +
-                "\u2014 and it puts ONE NEW COMPANY on the most sensitive path in the " +
-                "product, which is why it gets its own register row and this section " +
+                "it chose on our behalf, and handed us a transcript afterwards — a " +
+                "platform this list no longer includes, because it is no longer used. " +
+                "The call is moving to a program of OURS, running in a container on a " +
+                "hosting platform: we choose the models, we hold the script, and the " +
+                "sound of the call passes through somebody else's compute while it " +
+                "happens. That is better for you in the ways this page can show — fewer " +
+                "parties see the conversation, and the choices about which model hears " +
+                "it become ours and therefore yours — and it puts ONE NEW COMPANY on the " +
+                "most sensitive path in the product, which is why it has this section " +
                 "rather than a footnote.",
             },
             {
               kind: "para",
               text:
                 "What we have NOT established about that company, stated plainly " +
-                "because a register that guesses is worth less than one that names its " +
+                "because a list that guesses is worth less than one that names its " +
                 "gaps. Which legal entity operates the platform, and in which country " +
-                "it is established: not established. Where \u201cap-south\u201d " +
-                "physically is: not established \u2014 it is the vendor's name for a " +
-                "region, and a name is not a residency commitment. What its terms " +
-                "permit it to do with what passes through it, including whether " +
-                "anything may be used to train a model: not established. How long " +
-                "anything is kept, and whether any of it is kept at all once a call " +
-                "ends: not established. Whether a data-processing agreement can be " +
-                "entered with it, and on what plan: not established. Which other " +
-                "companies it relies on in turn: not established. Every one of those " +
-                "is a question with an answer somebody can obtain from the vendor's " +
-                "own documents, and not one of them is a gap we will fill with a " +
-                "plausible sentence.",
+                "it is established: not established. Where the region it labels for us " +
+                "physically is: not established — a region label is not a residency " +
+                "commitment. What its terms permit it to do with what passes through it, " +
+                "including whether anything may be used to train a model: not " +
+                "established. How long anything is kept, and whether any of it is kept " +
+                "at all once a call ends: not established. Whether a data-processing " +
+                "agreement can be entered with it, and on what plan: not established. " +
+                "Which other companies it relies on in turn: not established. Every one " +
+                "of those is a question with an answer somebody can obtain from the " +
+                "company's own documents, and not one of them is a gap we will fill with " +
+                "a plausible sentence.",
             },
             {
               kind: "para",
               text:
-                "Why we cannot simply look: this vendor's documentation host and its " +
+                "Why we cannot simply look: this company's documentation host and its " +
                 "own site both refuse a connection from the environment this software " +
-                "is built in \u2014 measured again on 15 September 2026, with the same " +
+                "is built in — measured again on 15 September 2026, with the same " +
                 "result as every earlier attempt. That is the same reason the messaging " +
-                "providers' and both voice-synthesis vendors' Location cells say NOT " +
+                "providers' and both voice-synthesis companies' locations say NOT " +
                 "VERIFIED rather than naming a country. The answers are not secret; " +
                 "they are simply not ours to assert until a person has read them, and " +
                 "this page would rather be short of a fact than confident about one.",
@@ -1197,26 +982,52 @@ export const SUBPROCESSORS: LegalDocument = {
             {
               kind: "para",
               text:
+                "The hosted voice platform in the same row is a different case, and its " +
+                "published privacy policy has been read: it says it stores data with a " +
+                "cloud provider in India, that its language-model step may be " +
+                "processed outside India by the model providers it uses, that it relies " +
+                "on speech, language-model, cloud-hosting, payment and messaging " +
+                "companies of its own, and that its default retention is 180 days. It " +
+                "does not say whether it offers a data processing agreement or whether " +
+                "it trains on what it receives. We have asked it both, and until it " +
+                "answers we represent nothing about either.",
+            },
+            {
+              kind: "para",
+              text:
                 "Two limits that cut in your favour, and one that does not. In your " +
-                "favour: nothing has reached this vendor from this system \u2014 there " +
-                "is no account, nothing has been deployed, and no call has ever run on " +
-                "it \u2014 and the record of the call that we keep afterwards is in " +
-                "our own database and storage, not theirs, exactly as it is today. " +
-                "Not in your favour, and stated rather than left for you to work out: " +
-                "when this does go live it will be handling the caller's AUDIO, which " +
-                "is the one category on this page that cannot be redacted, masked or " +
-                "summarised on its way past. That is why the answers above must be in " +
-                "this section before the first real call, and not after it \u2014 and " +
-                "why the register row for this vendor says, in terms, that nothing has " +
-                "been sent to it yet.",
+                "favour: nothing has reached either platform from this system — no call " +
+                "has ever run on either — and the record of the call that we keep " +
+                "afterwards is in our own database and storage, not theirs. Not in your " +
+                "favour, and stated rather than left for you to work out: when either " +
+                "goes live it will be handling the caller's AUDIO, which is the one " +
+                "category on this page that cannot be redacted, masked or summarised on " +
+                "its way past. That is why the answers above must be in this section " +
+                "before the first real call, and not after it.",
             },
           ],
         },
       ],
     },
     {
+      id: "named-list",
+      heading: "4. The named list",
+      blocks: [
+        {
+          kind: "para",
+          text:
+            "A named list of our current sub-processors — each company, the category it " +
+            "is in, what it receives, where it processes and its status — is available " +
+            "on request. Email {{DATA_PROTECTION_CONTACT_EMAIL}}. It carries the same " +
+            "facts as the table above, company by company, and it is the list the " +
+            "notices in section 5 are given against: a new company in a category already " +
+            "on this page is notified exactly as a new category would be.",
+        },
+      ],
+    },
+    {
       id: "changes",
-      heading: "4. Changes to this list",
+      heading: "5. Changes to this list",
       blocks: [
         {
           kind: "para",

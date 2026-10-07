@@ -15,6 +15,7 @@ import {
 import { useAdminAccess } from "@/app/admin/access";
 import type { Credits, Payment } from "@/lib/api/credits";
 import {
+  bonusClawedBack,
   refundBlockReason,
   refundConfirmationWord,
   refundOutcome,
@@ -287,6 +288,7 @@ export function RefundPanel({
  * arm says what the operator should do next, which in both cases is "nothing".
  */
 function Refunded({ result, clientName }: { result: RefundResult; clientName: string }) {
+  const bonusBack = bonusClawedBack(result);
   switch (refundOutcome(result)) {
     case "credited":
       return (
@@ -303,7 +305,9 @@ function Refunded({ result, clientName }: { result: RefundResult; clientName: st
               : // A STATED ABSENCE, never ₹0.00: the route returns a balance only when
                 // the ledger entry was written in this request, and "we did not derive
                 // it" is a different fact from "the wallet is empty".
-                " The wallet balance was not reported with this answer — the ledger below is the figure to read."}{" "}
+                " The wallet balance was not reported with this answer — the ledger below is the figure to read."}
+            {bonusBack !== null &&
+              ` ${formatINR(bonusBack)} of the pack's bonus credit was taken back with it, in proportion to the amount refunded.`}{" "}
             Their bank typically shows it within {result.processing_days} days. Nothing
             further to do; do not issue it again.
           </p>

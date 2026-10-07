@@ -205,5 +205,55 @@ async def test_a_token_that_names_no_rung_refuses_rather_than_vanishing() -> Non
                 await billing.voice_tier_usage(
                     session, tenant_id=tenant_id, month=current_billing_month()
                 )
+            # The prepaid statement reads the same splits by rate and refuses for the same
+            # reason: lines short of the ledger would disagree with the debits behind them.
+            with pytest.raises(ValueError, match="bulbul"):
+                await billing.prepaid_call_statement_lines(
+                    session, tenant_id=tenant_id, month=current_billing_month()
+                )
     finally:
         await _retire(tenant_id)
+
+
+async def test_a_rate_whose_debits_round_to_nothing_prints_no_statement_line() -> None:
+    """A lot that ran dry mid-call leaves a remnant split worth less than half a paisa at
+    its own rate. Its (voice, rate) group rounds to ₹0.00, and a "0 min at ₹6.00/min, ₹0.00"
+    line is noise on a client's statement, so it is skipped; the real line is unchanged."""
+    tenant_id = await make_tenant(prefix="rung")
+    await _prepaid(tenant_id)
+    await credit_entry(tenant_id, amount="10000.00")
+    async with tenant_session(tenant_id) as session:
+        call_id = await _metered_call(session, tenant_id=tenant_id, minutes=Decimal("10"))
+        await record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=-Decimal("40.0040"),
+            reason="usage",
+            ref=str(call_id),
+            meta={
+                "lots": [
+                    {
+                        "kind": "call",
+                        "credits": "0.0040",
+                        "minutes": "0.0000",
+                        "inr_per_min": "6.00",
+                        "voice_tier": "clear",
+                    },
+                    {
+                        "kind": "call",
+                        "credits": "40.0000",
+                        "minutes": "10.0000",
+                        "inr_per_min": "4.00",
+                        "voice_tier": "clear",
+                    },
+                ]
+            },
+        )
+        lines = await billing.prepaid_call_statement_lines(
+            session, tenant_id=tenant_id, month=current_billing_month()
+        )
+
+    assert [(line["qty"], line["amount_inr"]) for line in lines] == [
+        (Decimal("10.00"), Decimal("40.00"))
+    ]
+    assert "₹4" in lines[0]["description"]

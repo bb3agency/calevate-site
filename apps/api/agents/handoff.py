@@ -74,6 +74,33 @@ from apps.workers.redaction import redact
 #: kept identical so the two screens cannot disagree about what a roster is.
 MAX_HANDOFF_MEMBERS: Final = 10
 
+#: What a client is told when a handover number is outside India, beside the field.
+HANDOFF_NUMBER_NOT_INDIA: Final = (
+    "Calevate can only put callers through to Indian numbers. Enter this person's mobile "
+    "number starting with +91."
+)
+
+
+def india_handoff_number(value: str) -> str:
+    """Pydantic after-validator for every number written to a handover roster.
+
+    The India-only freeze (`compliance.service.INDIA_E164_PREFIX`) refuses a non-`+91`
+    bridged leg at call time (`transfer_providers/vobiz.start_transfer`); this refuses it
+    when the number is registered, so the roster never holds a number the platform will
+    not ring and the client is told while they are looking at the form rather than by a
+    caller who was never put through. Both roster writers — the client's whole-list PUT
+    and the admin intake — validate through this one function.
+
+    Imported inside the function because `compliance.service` imports `agents.service`,
+    which imports this module.
+    """
+    from apps.api.compliance.service import INDIA_E164_PREFIX
+
+    if not value.startswith(INDIA_E164_PREFIX):
+        raise ValueError(HANDOFF_NUMBER_NOT_INDIA)
+    return value
+
+
 #: The longest a handover `reason` or `summary` may be after redaction. Both are written
 #: by a language model with no length contract and land in a column a client reads, so an
 #: unbounded model output would be an unbounded row (`callbacks.MAX_NOTE`'s reason).
@@ -375,6 +402,7 @@ def handoff_spec(duty: OnDuty, *, trigger: str | None, language: str) -> Handoff
 
 
 __all__ = [
+    "HANDOFF_NUMBER_NOT_INDIA",
     "HANDOFF_SPOKEN_TEMPLATES",
     "HANDOFF_TRIGGER_DEFAULT",
     "MAX_BRIEF_CHARS",
@@ -383,6 +411,7 @@ __all__ = [
     "OnDuty",
     "RosterMember",
     "handoff_spec",
+    "india_handoff_number",
     "on_duty",
     "redacted_brief",
     "resolve_on_duty",

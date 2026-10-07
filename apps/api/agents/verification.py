@@ -65,6 +65,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from calevate_shared.engine import (
+    CONFIDENTIALITY_MARKER,
     TRUTHFUL_ANSWER_MARKER,
     AgentConfig,
     AgentSnapshot,
@@ -131,6 +132,11 @@ class PublishVerification:
     #: outright — while holding none of the rules that make the agent answer honestly.
     #: Folding the two together would report that agent as fully applied.
     truthful_answer_applied: bool | None
+    #: Is `CONFIDENTIALITY_MARKER` in every prompt the engine will run (D-674)? Scored
+    #: separately from the truthful-answer rule for that rule's own reason: the two blocks
+    #: are adjacent at the end of the prompt, where a length ceiling truncates, and a
+    #: verdict folding them together could not say which one was lost.
+    confidentiality_applied: bool | None
     voice_applied: bool | None
     #: **DOES THE ENGINE HAND CALLERS TO EXACTLY WHO WE PUBLISHED — AND NOBODY ELSE**
     #: (D-533)? Scored as an equality of SETS, not a containment, and that is the whole
@@ -342,6 +348,9 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     # about translation rather than about compliance. The FLOOR is ours and belongs in all
     # of them.
     truthful = snapshot.every_prompt_carries(TRUTHFUL_ANSWER_MARKER)
+    # Every prompt, for the floor's reason: it is ours, a `Final`, and a console-added
+    # per-language prompt that lacks it is a language in which the agent will recite.
+    confidential = snapshot.every_prompt_carries(CONFIDENTIALITY_MARKER)
     handoff = _handoff_verdict(engine, cfg, snapshot)
     voice = _voice_verdict(engine, cfg, snapshot)
 
@@ -354,6 +363,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     checked = (
         ("greeting disclosure", disclosure),
         ("truthful-answer rule", truthful),
+        ("confidentiality rule", confidential),
         ("script", prompt),
         ("voice", voice),
         ("handover destination", handoff),
@@ -366,6 +376,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
             disclosure_applied=disclosure,
             prompt_disclosure_applied=prompt_disclosure,
             truthful_answer_applied=truthful,
+            confidentiality_applied=confidential,
             voice_applied=voice,
             handoff_applied=handoff,
             detail=(
@@ -382,6 +393,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
             disclosure_applied=disclosure,
             prompt_disclosure_applied=prompt_disclosure,
             truthful_answer_applied=truthful,
+            confidentiality_applied=confidential,
             voice_applied=voice,
             handoff_applied=handoff,
             detail=(
@@ -398,11 +410,12 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
         # true-by-construction move that made the original verdict meaningless.
         prompt_disclosure_applied=prompt_disclosure,
         truthful_answer_applied=True,
+        confidentiality_applied=True,
         voice_applied=True,
         handoff_applied=True,
         detail=(
             "The voice platform was read back and is holding the published script, "
-            "the truthful-answer rule and the voice."
+            "the truthful-answer rule, the confidentiality rule and the voice."
         ),
     )
 
@@ -445,6 +458,7 @@ async def verify_publish(
             disclosure_applied=None,
             prompt_disclosure_applied=None,
             truthful_answer_applied=None,
+            confidentiality_applied=None,
             voice_applied=None,
             handoff_applied=None,
             detail=(
@@ -489,6 +503,10 @@ class EngineDrift:
     #: dashboard and pastes back the script without the block underneath it. The
     #: half-hourly sweep is the only thing that ever looks at that agent again.
     truthful_answer_applied: bool | None
+    #: The confidentiality rule (D-674), same meaning as on `PublishVerification`. On the
+    #: drift object for the truthful rule's reason: a prompt pasted back in a vendor console
+    #: without the blocks underneath it needs no publish of ours to take effect.
+    confidentiality_applied: bool | None
     voice_applied: bool | None
     #: WHO THE ENGINE WOULD HAND A CALLER TO (D-533), same set-equality meaning as on
     #: `PublishVerification`. Carried on the DRIFT object for the reason the field above

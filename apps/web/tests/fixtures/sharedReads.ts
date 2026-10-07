@@ -6,6 +6,7 @@ import type { Me } from "@/lib/api/client";
 import type { PeRegistration } from "@/lib/api/dltRegistration";
 import type { DeliveryList } from "@/lib/api/kb";
 import type { KycRecord } from "@/lib/api/kyc";
+import type { ClientLlmDefaults } from "@/lib/api/llmModels";
 import type { ClientMaintenance } from "@/lib/api/maintenance";
 import type { Lanes } from "@/lib/api/publishing";
 import type { OfferedVoice, VoiceCatalogue } from "@/lib/api/voices";
@@ -227,9 +228,11 @@ export function agentRow(over: Partial<Agent> = {}): Agent {
     published: true,
     inbound_number_count: 1,
     extraction_fields: [],
-    llm_model: null,
-    llm_model_effective: "gpt-4o-mini",
-    llm_model_source: "platform",
+    llm_tier: null,
+    llm_tier_effective: "standard",
+    llm_tier_label: "Standard",
+    llm_tier_source: "platform",
+    llm_surcharged: false,
     ...over,
   };
 }
@@ -388,3 +391,49 @@ export const EMPTY_WALLET_LOTS = {
   lots: [],
   overdraft_inr: "0.00",
 } satisfies WalletLots;
+
+/**
+ * `GET /v1/organization/llm-defaults` as the CLIENT realm serves it (D-680): three tiers and
+ * the server's words for each, no model and no provider. Following the Calevate default, with
+ * an upgrade surcharge on the two dearer tiers so the price comparisons render.
+ */
+export function clientLlmTiers(over: Partial<ClientLlmDefaults> = {}): ClientLlmDefaults {
+  return {
+    default_llm_tier: null,
+    effective_tier: "standard",
+    effective_tier_label: "Standard",
+    effective_is_available: true,
+    in_force_surcharge_inr_per_minute: "0",
+    upgrade_surcharge_inr_per_minute: "1.5000",
+    available: [
+      {
+        tier: "standard",
+        label: "Standard",
+        description: "Quick, natural replies for everyday calls. Our lowest-cost option.",
+        client_surcharge_inr_per_minute: "0",
+        is_platform_default: true,
+        is_available: true,
+        unavailable_reason: null,
+      },
+      {
+        tier: "plus",
+        label: "Plus",
+        description: "Stronger reasoning for longer calls and detailed questions.",
+        client_surcharge_inr_per_minute: "1.5000",
+        is_platform_default: false,
+        is_available: true,
+        unavailable_reason: null,
+      },
+      {
+        tier: "pro",
+        label: "Pro",
+        description: "Our most capable option, for the most involved conversations.",
+        client_surcharge_inr_per_minute: "1.5000",
+        is_platform_default: false,
+        is_available: true,
+        unavailable_reason: null,
+      },
+    ],
+    ...over,
+  };
+}

@@ -69,11 +69,17 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.engine_choice import (
+    byok_in_force,
+    refuse_choice_under_byok,
+    require_engine_choice,
+)
 from apps.api.agents.models import AGENT_DIRECTIONS, AgentDirection, AgentStatus
 from apps.api.agents.service import (
     INBOUND_SILENCE_TRUTHFUL_ANSWER,
     publish_agent,
     retire_agent_carrier_bindings,
+    retire_in_call_actions,
     route_inbound_numbers,
 )
 from apps.api.agents.write_guard import archived_refusal
@@ -357,6 +363,63 @@ async def create_agent(
     return agent_id
 
 
+#: A published agent cannot be put back on the engine's default voice or model by clearing
+#: the choice: the vendor documents no value that resets either (`thinnest-findings/mirror/
+#: pages/api-reference/agents.md:105-110,156` name ids only), so the last one sent would
+#: keep speaking while our row, and the rate key stamped from it, said otherwise.
+ENGINE_CHOICE_RESET_UNSUPPORTED = "engine_choice_reset_unsupported"
+
+
+async def _check_engine_choice(
+    session: AsyncSession,
+    *,
+    published: bool,
+    republish: bool,
+    held: tuple[str | None, str | None],
+    voice: tuple[bool, str | None],
+    model: tuple[bool, str | None],
+) -> None:
+    """Refuse an engine-catalogue choice before the column write.
+
+    A live agent is checked by the republish that follows (`publish_agent`); any other
+    agent is checked here, so a draft cannot store a voice that would refuse its first
+    publish. `held` is the row's current (voice, model); `voice`/`model` are (sent, value).
+    """
+    # Under BYOK the workspace's own keys run the legs and no catalogue choice is sent, so
+    # clearing one changes nothing at the vendor and is allowed.
+    byok = byok_in_force(get_engine())
+    legs = (("voice", voice, held[0]), ("language model", model, held[1]))
+    for what, (sent, value), current in legs:
+        if sent and value is None and current is not None and published and not byok:
+            log.warning(
+                "agent_engine_choice_refused", extra={"reason": ENGINE_CHOICE_RESET_UNSUPPORTED}
+            )
+            raise ProblemError(
+                kind="business_rule",
+                code=ENGINE_CHOICE_RESET_UNSUPPORTED,
+                title=f"This agent's {what} cannot be put back to the default",
+                detail=(
+                    f"The voice platform keeps the last {what} it was given and offers no "
+                    "way to return to its default, so clearing the choice would not change "
+                    "what callers hear."
+                ),
+                remediation=f"Choose another {what} instead.",
+            )
+    refuse_choice_under_byok(
+        get_engine(),
+        voice_id=voice[1] if voice[0] else None,
+        model_id=model[1] if model[0] else None,
+    )
+    if republish or not any(sent and value is not None for sent, value in (voice, model)):
+        return
+    await require_engine_choice(
+        session,
+        get_engine(),
+        voice_id=voice[1] if voice[0] else held[0],
+        model_id=model[1] if model[0] else held[1],
+    )
+
+
 async def update_agent(
     session: AsyncSession,
     *,
@@ -367,6 +430,10 @@ async def update_agent(
     language_primary: str | None = None,
     llm_model: str | None = None,
     set_llm_model: bool = False,
+    engine_voice_id: str | None = None,
+    set_engine_voice_id: bool = False,
+    engine_model_id: str | None = None,
+    set_engine_model_id: bool = False,
 ) -> None:
     """Edit the fields that describe WHAT an agent is.
 
@@ -417,6 +484,12 @@ async def update_agent(
         # Named here rather than by the comprehension above, because "the caller asked for
         # NULL" is a supplied field and `value is not None` cannot see it.
         supplied.append("llm_model")
+    # The engine-catalogue choices carry `llm_model`'s tri-state for its reason: NULL is
+    # "the engine's default", a value of its own.
+    if set_engine_voice_id:
+        supplied.append("engine_voice_id")
+    if set_engine_model_id:
+        supplied.append("engine_model_id")
     if not supplied:
         # A body that names nothing is a client bug, and answering 200 for it would write
         # an audit row describing a decision nobody took (`DisclosureIn._at_least_one`).
@@ -426,7 +499,7 @@ async def update_agent(
             title="Nothing to change",
             detail=(
                 "Change at least one thing — the name, the direction, the main "
-                "language or the language model."
+                "language, the language model or the voice."
             ),
         )
 
@@ -436,7 +509,7 @@ async def update_agent(
     row = (
         await session.execute(
             text(
-                "SELECT status, engine_agent_ref FROM agents "
+                "SELECT status, engine_agent_ref, engine_voice_id, engine_model_id FROM agents "
                 "WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
             ),
             {"aid": agent_id},
@@ -446,6 +519,15 @@ async def update_agent(
         raise ProblemError.not_found("Agent")
     if str(row[0]) == "archived":
         raise archived_refusal("edited")
+    republish = str(row[0]) == "live" and bool(row[1])
+    await _check_engine_choice(
+        session,
+        published=bool(row[1]),
+        republish=republish,
+        held=(row[2], row[3]),
+        voice=(set_engine_voice_id, engine_voice_id),
+        model=(set_engine_model_id, engine_model_id),
+    )
 
     # ONE STATEMENT WITH `coalesce`, NOT AN ASSEMBLED ASSIGNMENT LIST. Building
     # `SET name = :name, ...` from the fields that were supplied is the obvious shape and
@@ -470,6 +552,10 @@ async def update_agent(
             # is what `scripts/check_raw_sql.py` requires of every statement here.
             "llm_model = CASE WHEN :set_llm_model THEN CAST(:llm_model AS text) "
             "ELSE llm_model END, "
+            "engine_voice_id = CASE WHEN :set_engine_voice_id "
+            "THEN CAST(:engine_voice_id AS text) ELSE engine_voice_id END, "
+            "engine_model_id = CASE WHEN :set_engine_model_id "
+            "THEN CAST(:engine_model_id AS text) ELSE engine_model_id END, "
             "updated_at = now() WHERE id = :aid AND deleted_at IS NULL"
         ),
         {
@@ -478,10 +564,14 @@ async def update_agent(
             "language_primary": language_primary,
             "llm_model": llm_model,
             "set_llm_model": set_llm_model,
+            "engine_voice_id": engine_voice_id,
+            "set_engine_voice_id": set_engine_voice_id,
+            "engine_model_id": engine_model_id,
+            "set_engine_model_id": set_engine_model_id,
             "aid": agent_id,
         },
     )
-    if str(row[0]) == "live" and bool(row[1]):
+    if republish:
         await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
     log.info(
         "agent_updated",
@@ -492,7 +582,7 @@ async def update_agent(
             # there is nothing an operator does with it in a log line (hard rule 6's
             # neighbourhood).
             "fields": sorted(supplied),
-            "republished": str(row[0]) == "live" and bool(row[1]),
+            "republished": republish,
         },
     )
 
@@ -571,6 +661,10 @@ async def deactivate_agent(
         visible_where=_VISIBLE,
     )
     released = await _release_inbound_numbers(session, agent_id=agent_id) if moved else 0
+    if moved:
+        await retire_in_call_actions(
+            agent_id=agent_id, ref=await _engine_agent_ref(session, agent_id)
+        )
     return LifecycleResult(
         agent_id=agent_id, status="paused", changed=moved, numbers_released=released
     )
@@ -680,12 +774,9 @@ async def archive_agent(
     released = await _release_inbound_numbers(session, agent_id=agent_id) if moved else 0
     if moved:
         # After the release: the carrier refuses to delete a binding a number still uses.
-        ref = (
-            await session.execute(
-                text("SELECT engine_agent_ref FROM agents WHERE id = :aid"), {"aid": agent_id}
-            )
-        ).scalar()
+        ref = await _engine_agent_ref(session, agent_id)
         await retire_agent_carrier_bindings(agent_id=agent_id, ref=ref)
+        await retire_in_call_actions(agent_id=agent_id, ref=ref)
     return LifecycleResult(
         agent_id=agent_id, status="archived", changed=moved, numbers_released=released
     )
@@ -836,6 +927,15 @@ async def _assert_no_campaign_is_dialling(session: AsyncSession, *, agent_id: UU
                 "Deactivate, which stops it immediately and keeps it restorable."
             ),
         )
+
+
+async def _engine_agent_ref(session: AsyncSession, agent_id: UUID) -> str | None:
+    ref = (
+        await session.execute(
+            text("SELECT engine_agent_ref FROM agents WHERE id = :aid"), {"aid": agent_id}
+        )
+    ).scalar()
+    return str(ref) if ref else None
 
 
 async def _locked_status(session: AsyncSession, agent_id: UUID) -> str:

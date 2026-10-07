@@ -348,7 +348,9 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
       "the decision does NOT fix is the data centre, because nothing is provisioned yet " +
       "(`infra/README.md` §5); name the city here in the change that provisions it.",
     source: "The hosting decision (ROADMAP D-180), and then the provisioned host itself.",
-    value: "a Hostinger data centre in India",
+    // The provider's name is in `docs/legal/SUBPROCESSOR-REGISTER.md`, not here: this value
+    // renders on three published documents, and they name no hosting vendor (D-679).
+    value: "a data centre in India",
   },
   REFUND_PROCESSING_DAYS: {
     describes:

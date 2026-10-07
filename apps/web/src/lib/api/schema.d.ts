@@ -196,8 +196,8 @@ export interface paths {
         /**
          * Complete Google Calendar OAuth — stores the refresh token as a credential
          * @description Exchange the authorization code and save the refresh token as a `google_calendar`
-         *     credential. Bound to the authenticated `org:manage` tenant, so a code cannot be
-         *     redeemed onto another tenant's account.
+         *     credential. The `state` is checked BEFORE the code is exchanged, so a code from a consent
+         *     this person did not start is never redeemed at all.
          */
         post: operations["calendar_callback_v1_actions_calendar_callback_post"];
         delete?: never;
@@ -215,13 +215,8 @@ export interface paths {
         };
         /**
          * Begin Google Calendar OAuth — returns the consent URL
-         * @description Start the OAuth flow. `state` carries the tenant so the callback can attribute the
-         *     refresh token; it is signed context, not a bearer — the callback re-checks it.
-         *
-         *     ⚠ The state here is the tenant id; a production hardening is to sign it (HMAC) to stop a
-         *     forged callback attaching a token to another tenant. Left as a NAMED follow-up because
-         *     the callback also requires an authenticated `org:manage` session, which already binds
-         *     the acting tenant — see `calendar_callback`.
+         * @description Start the OAuth flow. `state` is signed and bound to this account and this person
+         *     (`calendar.mint_oauth_state`); the callback refuses a code that arrives without it.
          */
         get: operations["calendar_connect_v1_actions_calendar_connect_get"];
         put?: never;
@@ -426,7 +421,7 @@ export interface paths {
         put?: never;
         /**
          * Attest what a number-month costs a client — a rate change is a new row
-         * @description Records the monthly price a client is charged for a phone number, in rupees, with the document it was read from. Until one is recorded no client can buy a number: a price nobody has read may not reach a bill. A rate change is a new attestation — numbers already bought keep the figure they were sold at, so editing the rate in place would leave those frozen figures unexplainable.
+         * @description Records the monthly price a client is charged for a phone number, in rupees, with the document it was read from. Until one is recorded no client can buy a number: a price nobody has read may not reach a bill. A rate change is a new attestation — numbers already bought keep the figure they were sold at, so editing the rate in place would leave those frozen figures unexplainable. Requires `X-Confirm-Action: attest_number_price`.
          */
         post: operations["attest_price_v1_admin_number_pricing_post"];
         delete?: never;
@@ -501,6 +496,26 @@ export interface paths {
          * @description Buys the named number at the voice platform and records it against this client. **This spends money and cannot be undone by retrying**: the vendor's purchase endpoint takes no idempotency key, so a repeat buys a second number and starts a second monthly rental. Refused with `number_taken` if the platform already holds the number, and with `number_series_not_purchasable` for a 140 or 160 series connection, which is taken on an Indian operator's own account and recorded here afterwards. The monthly rental is metered from the price accepted here.
          */
         post: operations["buy_number_v1_admin_numbers_tenants__tenant_id__buy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/numbers/tenants/{tenant_id}/engine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Numbers held at the voice platform's own console, and how to attach one
+         * @description On a voice platform where numbers are rented and pointed at agents only in its own console, lists what the platform holds that this client's agents answer or that nobody answers yet, this client's published agents with the id the console shows, and the console steps. Read-only. On any other platform it says so and reads nothing.
+         */
+        get: operations["tenant_engine_numbers_v1_admin_numbers_tenants__tenant_id__engine_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -660,26 +675,22 @@ export interface paths {
         };
         /**
          * Which language model one client's agents run
-         * @description The language model this account's agents run when the agent itself names none.
+         * @description The language model one client's agents run when the agent itself names none, with the real model identifiers the client realm never sees (it reads tiers).
          *
-         *     Resolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.
+         *     Each row carries TWO figures of different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to the client's bill per minute. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call. `tier` is the word the client reads for the model. `agents` lists each agent with the model it runs and the level that chose it.
          *
-         *     Each row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs — the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.
-         *
-         *     A row with `is_available: false` cannot be chosen — this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.
+         *     A row with `is_available: false` cannot be chosen; `unavailable_reason` says what is missing.
          */
         get: operations["admin_get_llm_defaults_v1_admin_organizations__org_id__llm_defaults_get"];
         /**
          * Set the language model one client's agents run by default
-         * @description The language model this account's agents run when the agent itself names none.
+         * @description The language model one client's agents run when the agent itself names none, with the real model identifiers the client realm never sees (it reads tiers).
          *
-         *     Resolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.
+         *     Each row carries TWO figures of different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to the client's bill per minute. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call. `tier` is the word the client reads for the model. `agents` lists each agent with the model it runs and the level that chose it.
          *
-         *     Each row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs — the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.
+         *     A row with `is_available: false` cannot be chosen; `unavailable_reason` says what is missing.
          *
-         *     A row with `is_available: false` cannot be chosen — this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.
-         *
-         *     Send `null` to put the account back on the platform's model. Recorded in the audit ledger against the client's account, because it changes what their calls cost and how their agents answer.
+         *     Send `null` to put the account back on the platform's model. A model this platform does not run is refused with `llm_model_not_available`; one it supports but cannot serve yet with `llm_model_not_deployed`. Recorded in the audit ledger against the client's account, because it changes what their calls cost and how their agents answer.
          *
          *     Every LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched — this sets what the others follow.
          */
@@ -2097,6 +2108,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/engine-catalogue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The voice platform's own voices and models, each with its availability */
+        get: operations["engine_catalogue_v1_agents_engine_catalogue_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/lanes": {
         parameters: {
             query?: never;
@@ -2222,7 +2250,9 @@ export interface paths {
          * Rename an agent, change its calling direction or language, or pick its model
          * @description Applies immediately. A live agent is re-published to the voice platform in the same transaction — including the numbers it answers, so switching a two-way agent to outbound-only really does stop it picking up — and if that push fails nothing is saved.
          *
-         *     `llm_model` is the one field where sending `null` MEANS something: it clears this agent's own choice so it follows the account default again. Omit the field entirely to leave the current choice alone. A model this platform does not run at all is refused with `llm_model_not_available`; one it supports but has no deployment for is refused with `llm_model_not_deployed`. Both name the models you can pick — read them off `GET /v1/organization/llm-defaults`, where a row with `is_available: false` is one of these refusals waiting to happen.
+         *     `llm_tier` is the one field where sending `null` MEANS something: it clears this agent's own AI model tier so it follows the account default again. Omit the field entirely to leave the current choice alone. A tier that is not switched on yet is refused with `llm_tier_not_available` — `GET /v1/organization/llm-defaults` marks those tiers `is_available: false`. Choosing the tier the agent is already on changes nothing.
+         *
+         *     `engine_voice_id` and `engine_model_id` choose from the voice platform's own list (`GET /v1/agents/engine-catalogue`, whose model ids are opaque) where it supplies one; `null` clears a choice that has not yet been published. An entry that list marks unavailable is refused with its reason.
          *
          *     An archived agent is refused: restore it first.
          */
@@ -6275,6 +6305,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/engine-minute-prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every engine priced by the minute, and each rate's attested price */
+        get: operations["list_engine_minute_prices_v1_ops_engine_minute_prices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/engine-minute-prices/{engine}/{rate_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attest one engine rate per billed minute (step-up confirmed, audited)
+         * @description Records what one billed minute on this engine and rate costs THIS account, read off your own invoice, as a NEW effective-dated row. Requires `X-Confirm-Action: attest_engine_minute_price:<engine>:<rate_key>`. Until a rate exists, minutes on it are not offered and any that run are metered with no cost and alarmed.
+         */
+        post: operations["attest_engine_minute_v1_ops_engine_minute_prices__engine___rate_key__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/fx-rate": {
         parameters: {
             query?: never;
@@ -6862,27 +6929,27 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Which language model this account's agents run, and what else it could run
-         * @description The language model this account's agents run when the agent itself names none.
+         * Which AI model tier this account's agents run, and which tiers it could choose
+         * @description The AI model tier this account's agents run when the agent itself names none: `standard`, `plus` or `pro`. Which model answers each tier is Calevate's, and is not part of this response.
          *
-         *     Resolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.
+         *     Resolution is three levels: the agent's own choice, then this account default, then Calevate's default. `effective_tier` is what an agent that has chosen nothing runs.
          *
-         *     Each row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs — the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.
+         *     `client_surcharge_inr_per_minute` on each tier is what choosing it ADDS to this account's bill for every minute it runs — the plan's own model surcharge, `0` when the plan quotes none and `0` on a tier that is not an upgrade. `in_force_surcharge_inr_per_minute` is what the tier in force adds now; following Calevate's default is never surcharged.
          *
-         *     A row with `is_available: false` cannot be chosen — this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.
+         *     A tier with `is_available: false` cannot be chosen yet; `unavailable_reason` says so.
          */
         get: operations["get_organization_llm_defaults_v1_organization_llm_defaults_get"];
         /**
-         * Choose the language model this account's agents run by default
-         * @description The language model this account's agents run when the agent itself names none.
+         * Choose the AI model tier this account's agents run by default
+         * @description The AI model tier this account's agents run when the agent itself names none: `standard`, `plus` or `pro`. Which model answers each tier is Calevate's, and is not part of this response.
          *
-         *     Resolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.
+         *     Resolution is three levels: the agent's own choice, then this account default, then Calevate's default. `effective_tier` is what an agent that has chosen nothing runs.
          *
-         *     Each row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs — the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.
+         *     `client_surcharge_inr_per_minute` on each tier is what choosing it ADDS to this account's bill for every minute it runs — the plan's own model surcharge, `0` when the plan quotes none and `0` on a tier that is not an upgrade. `in_force_surcharge_inr_per_minute` is what the tier in force adds now; following Calevate's default is never surcharged.
          *
-         *     A row with `is_available: false` cannot be chosen — this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.
+         *     A tier with `is_available: false` cannot be chosen yet; `unavailable_reason` says so.
          *
-         *     Send `null` to go back to following the platform's model. A model this platform does not run at all is refused with `llm_model_not_available`; one it supports but has no deployment for is refused with `llm_model_not_deployed` — the same rows `available` marks `is_available: false`.
+         *     Send `null` to go back to following Calevate's default. A tier that is not switched on yet is refused with `llm_tier_not_available`. Choosing the tier the account is already on changes nothing.
          *
          *     Every LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched — this sets what the others follow.
          */
@@ -7460,6 +7527,27 @@ export interface components {
              */
             status: "draft" | "live" | "paused" | "archived";
         };
+        /**
+         * AgentLlmModelOut
+         * @description Which model one of the account's agents runs, for the operator. The client realm
+         *     reads the same facts as tiers on `AgentOut`.
+         */
+        AgentLlmModelOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Llm Model */
+            llm_model: string | null;
+            /** Llm Model Effective */
+            llm_model_effective: string;
+            /**
+             * Llm Model Source
+             * @enum {string}
+             */
+            llm_model_source: "agent" | "organization" | "platform";
+        };
         /** AgentOut */
         AgentOut: {
             /** Ai Disclosure Enabled */
@@ -7481,6 +7569,10 @@ export interface components {
             disclosure_line: string;
             /** Engine */
             engine: string;
+            /** Engine Model Id */
+            engine_model_id?: string | null;
+            /** Engine Voice Id */
+            engine_voice_id?: string | null;
             /**
              * Extraction Fields
              * @default []
@@ -7498,15 +7590,22 @@ export interface components {
              * @enum {string}
              */
             language_primary: "te-IN" | "hi-IN" | "en-IN";
-            /** Llm Model */
-            llm_model: string | null;
-            /** Llm Model Effective */
-            llm_model_effective: string;
+            /** Llm Surcharged */
+            llm_surcharged: boolean;
+            /** Llm Tier */
+            llm_tier: ("standard" | "plus" | "pro") | null;
             /**
-             * Llm Model Source
+             * Llm Tier Effective
              * @enum {string}
              */
-            llm_model_source: "agent" | "organization" | "platform";
+            llm_tier_effective: "standard" | "plus" | "pro";
+            /** Llm Tier Label */
+            llm_tier_label: string;
+            /**
+             * Llm Tier Source
+             * @enum {string}
+             */
+            llm_tier_source: "agent" | "organization" | "platform";
             /** Name */
             name: string;
             /** Opening Line */
@@ -7596,15 +7695,15 @@ export interface components {
          *     one moved, and a PATCH that could only send all three would make renaming an agent a
          *     read-modify-write race against a direction change.
          *
-         *     ⚠ **`llm_model` IS THE ONE FIELD WHERE `null` IS A VALUE AND NOT AN ABSENCE** (D-454),
+         *     ⚠ **`llm_tier` IS THE ONE FIELD WHERE `null` IS A VALUE AND NOT AN ABSENCE** (D-454),
          *     because it is the only one whose column is nullable and whose NULL MEANS something:
          *     "inherit the account's default". On every other field here `null` and "omitted" are
          *     the same request, so the model can read them the same way; on this one they are
          *     opposite requests — clear my choice, versus do not touch it — and a model that could
          *     not tell them apart would leave an owner unable to go back to the account default
          *     once they had chosen. `model_fields_set` is Pydantic v2's answer to exactly this and
-         *     is what `set_llm_model` below reads: it carries which keys the CLIENT SENT, so an
-         *     explicit `"llm_model": null` is distinguishable from a body that never mentioned it.
+         *     is what `set_llm_tier` below reads: it carries which keys the CLIENT SENT, so an
+         *     explicit `"llm_tier": null` is distinguishable from a body that never mentioned it.
          *     The rejected alternative was a sentinel default (`UNSET = object()`), which works but
          *     puts a non-JSON-schema type in the OpenAPI document and therefore in every generated
          *     client.
@@ -7612,10 +7711,14 @@ export interface components {
         AgentUpdateIn: {
             /** Direction */
             direction?: ("inbound" | "outbound" | "both") | null;
+            /** Engine Model Id */
+            engine_model_id?: string | null;
+            /** Engine Voice Id */
+            engine_voice_id?: string | null;
             /** Language Primary */
             language_primary?: ("te-IN" | "hi-IN" | "en-IN") | null;
-            /** Llm Model */
-            llm_model?: string | null;
+            /** Llm Tier */
+            llm_tier?: ("standard" | "plus" | "pro") | null;
             /** Name */
             name?: string | null;
         };
@@ -8132,6 +8235,8 @@ export interface components {
              * @default Google Calendar
              */
             label: string;
+            /** State */
+            state: string;
         };
         /** CalendarConnectOut */
         CalendarConnectOut: {
@@ -8982,6 +9087,40 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /**
+         * ClientLlmDefaultIn
+         * @description The tier for every agent that chooses none, or `null` to follow the Calevate default.
+         *     Required for `LlmDefaultIn`'s reason. A `Literal` here is right where a model allow-list
+         *     was not: the tier vocabulary is ours and closed, and which model each tier runs is not
+         *     on the wire at all.
+         */
+        ClientLlmDefaultIn: {
+            /** Default Llm Tier */
+            default_llm_tier: ("standard" | "plus" | "pro") | null;
+        };
+        /**
+         * ClientLlmDefaultsOut
+         * @description The client's model settings, in tiers.
+         */
+        ClientLlmDefaultsOut: {
+            /** Available */
+            available: components["schemas"]["LlmTierOptionOut"][];
+            /** Default Llm Tier */
+            default_llm_tier: ("standard" | "plus" | "pro") | null;
+            /** Effective Is Available */
+            effective_is_available: boolean;
+            /**
+             * Effective Tier
+             * @enum {string}
+             */
+            effective_tier: "standard" | "plus" | "pro";
+            /** Effective Tier Label */
+            effective_tier_label: string;
+            /** In Force Surcharge Inr Per Minute */
+            in_force_surcharge_inr_per_minute: string;
+            /** Upgrade Surcharge Inr Per Minute */
+            upgrade_surcharge_inr_per_minute: string;
         };
         /**
          * ClientMaintenanceOut
@@ -9838,6 +9977,10 @@ export interface components {
             packs: components["schemas"]["CreditPackOut"][];
             /** Studio Tier Label */
             studio_tier_label: string;
+            /** Voice Not Offered */
+            voice_not_offered: ("clear" | "studio") | null;
+            /** Voice Not Offered Notice */
+            voice_not_offered_notice: string | null;
         };
         /** CreditsOut */
         CreditsOut: {
@@ -10641,6 +10784,73 @@ export interface components {
             url: string | null;
         };
         /**
+         * EngineAgentOut
+         * @description One of this client's published agents, with the id the platform's console shows.
+         */
+        EngineAgentOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Answers A Number */
+            answers_a_number: boolean;
+            /** Engine Agent Ref */
+            engine_agent_ref: string;
+            /** Name */
+            name: string;
+        };
+        /** EngineCatalogueModelOut */
+        EngineCatalogueModelOut: {
+            /** Call Capable */
+            call_capable: boolean;
+            /** Label */
+            label: string;
+            /** Model Id */
+            model_id: string;
+            /** Offerable */
+            offerable: boolean;
+            /** Plan Allows */
+            plan_allows: boolean;
+            /** Reason */
+            reason: string | null;
+        };
+        /** EngineCatalogueOut */
+        EngineCatalogueOut: {
+            /** Available */
+            available: boolean;
+            /** Choice Note */
+            choice_note?: string | null;
+            /**
+             * Choosable
+             * @default true
+             */
+            choosable: boolean;
+            /** Complete */
+            complete: boolean;
+            /** Models */
+            models: components["schemas"]["EngineCatalogueModelOut"][];
+            /** Note */
+            note: string;
+            /** Voices */
+            voices: components["schemas"]["EngineCatalogueVoiceOut"][];
+        };
+        /** EngineCatalogueVoiceOut */
+        EngineCatalogueVoiceOut: {
+            /** Is Custom */
+            is_custom: boolean;
+            /** Label */
+            label: string;
+            /** Offerable */
+            offerable: boolean;
+            /** Price Band */
+            price_band: string;
+            /** Reason */
+            reason: string | null;
+            /** Voice Id */
+            voice_id: string;
+        };
+        /**
          * EngineDriftOut
          * @description How far the platform's live agents have drifted from what we published (D-123).
          *
@@ -10721,6 +10931,82 @@ export interface components {
             groups: components["schemas"]["LatencyGroup"][];
             /** Window Days */
             window_days: number;
+        };
+        /** EngineMinutePriceAttestIn */
+        EngineMinutePriceAttestIn: {
+            /** Effective From */
+            effective_from?: string | null;
+            /** Inr Per Min */
+            inr_per_min: string;
+            /** Source Note */
+            source_note: string;
+        };
+        /** EngineMinutePriceOut */
+        EngineMinutePriceOut: {
+            /** Attested At */
+            attested_at: string | null;
+            /** Billable */
+            billable: boolean;
+            /** Effective From */
+            effective_from: string | null;
+            /** Engine */
+            engine: string;
+            /** Inr Per Min */
+            inr_per_min: string | null;
+            /** Rate Key */
+            rate_key: string;
+            /** Sold As */
+            sold_as: string | null;
+            /** Source Note */
+            source_note: string | null;
+        };
+        /** EngineMinutePricesOut */
+        EngineMinutePricesOut: {
+            /** As Of */
+            as_of: string;
+            /** Prices */
+            prices: components["schemas"]["EngineMinutePriceOut"][];
+        };
+        /**
+         * EngineNumberOut
+         * @description One number the voice platform holds, from its own list.
+         */
+        EngineNumberOut: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Agent Name */
+            agent_name: string | null;
+            /** E164 */
+            e164: string;
+            /** Engine Owned */
+            engine_owned: boolean | null;
+            /** Provider */
+            provider: string | null;
+            /** Unassigned */
+            unassigned: boolean;
+        };
+        /**
+         * EngineNumbersOut
+         * @description The numbers held at a voice platform that rents and attaches them in its OWN console.
+         *
+         *     `managed_in_engine_console` is False on every engine whose numbers this console records
+         *     and routes itself; the lists are then empty and nothing was read from the engine.
+         */
+        EngineNumbersOut: {
+            /** Agents */
+            agents: components["schemas"]["EngineAgentOut"][];
+            /** Managed In Engine Console */
+            managed_in_engine_console: boolean;
+            /** Notes */
+            notes: string[];
+            /** Numbers */
+            numbers: components["schemas"]["EngineNumberOut"][];
+            /** Other Numbers */
+            other_numbers: number;
+            /** Platform */
+            platform: string | null;
+            /** Steps */
+            steps: string[];
         };
         /**
          * EngineRefIn
@@ -13286,10 +13572,7 @@ export interface components {
          * @description The account's choice, or `null` to go back to following the platform.
          *
          *     REQUIRED RATHER THAN OPTIONAL, and that is what makes this a PUT rather than a PATCH:
-         *     the body states the whole of the resource, so `null` is unambiguously "clear it" and
-         *     there is no third "field omitted" case to interpret. `PATCH /v1/agents/{id}` has to
-         *     carry that third case because it edits four properties at once; this one carries a
-         *     single value and does not.
+         *     the body states the whole of the resource, so `null` is unambiguously "clear it".
          */
         LlmDefaultIn: {
             /** Default Llm Model */
@@ -13297,9 +13580,11 @@ export interface components {
         };
         /**
          * LlmDefaultsOut
-         * @description What this account has chosen, what that resolves to, and what else it could pick.
+         * @description What this account has chosen, what that resolves to, and what else it could run.
          */
         LlmDefaultsOut: {
+            /** Agents */
+            agents: components["schemas"]["AgentLlmModelOut"][];
             /** Available */
             available: components["schemas"]["LlmModelOptionOut"][];
             /** Default Llm Model */
@@ -13309,7 +13594,7 @@ export interface components {
         };
         /**
          * LlmModelOptionOut
-         * @description One model an account may choose, with what a minute of it costs.
+         * @description One model an account may run, with what a minute of it costs. ADMIN REALM ONLY.
          *
          *     Every field is required on the wire: a Pydantic default here would generate an
          *     OPTIONAL TypeScript property and the screen would have to branch on a case the server
@@ -13328,6 +13613,32 @@ export interface components {
             platform_cost_inr_per_minute: string;
             /** Provider */
             provider: string;
+            /** Tier */
+            tier: ("standard" | "plus" | "pro") | null;
+            /** Unavailable Reason */
+            unavailable_reason: string | null;
+        };
+        /**
+         * LlmTierOptionOut
+         * @description One tier a client may choose. No model id and no provider: which model answers a tier
+         *     is ours, and changing it must not be a client-visible rename (D-679, D-680).
+         */
+        LlmTierOptionOut: {
+            /** Client Surcharge Inr Per Minute */
+            client_surcharge_inr_per_minute: string;
+            /** Description */
+            description: string;
+            /** Is Available */
+            is_available: boolean;
+            /** Is Platform Default */
+            is_platform_default: boolean;
+            /** Label */
+            label: string;
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "standard" | "plus" | "pro";
             /** Unavailable Reason */
             unavailable_reason: string | null;
         };
@@ -14472,7 +14783,7 @@ export interface components {
          *     Returned on every plan the operator reads or writes, so the margin of a bundle is a
          *     number on the screen that sets it — not something discovered when a client reconciles.
          *     The effective committed rate is `monthly_fee / included_min`; both it and the overage
-         *     rate are judged against `SELF_SERVE_COST_FLOOR_INR_PER_MIN` and `MIN_GROSS_MARGIN`
+         *     rate are judged against the Clear cost floor of the deployment's engine and `MIN_GROSS_MARGIN`
          *     (`billing/rates.py`, the same floor the prepaid packs use). Money and ratios are exact
          *     strings (hard rule 7); `null` where a rate is unset, never a zero standing in for it.
          */
@@ -14720,7 +15031,7 @@ export interface components {
              * Provider
              * @enum {string}
              */
-            provider: "vobiz" | "plivo";
+            provider: "vobiz" | "plivo" | "thinnest";
             /** Purpose */
             purpose?: string | null;
             /**
@@ -15332,6 +15643,8 @@ export interface components {
             amount_inr: string;
             /** Balance Inr */
             balance_inr: string | null;
+            /** Bonus Clawed Back Inr */
+            bonus_clawed_back_inr: string | null;
             /** Payment Id */
             payment_id: string;
             /** Processing Days */
@@ -18185,10 +18498,10 @@ export interface components {
             llm_surcharge_inr: string;
             /** Llm Surcharge Minutes */
             llm_surcharge_minutes: string;
-            /** Llm Surcharge Models */
-            llm_surcharge_models: string[];
             /** Llm Surcharge Rate Inr */
             llm_surcharge_rate_inr: string | null;
+            /** Llm Surcharge Tiers */
+            llm_surcharge_tiers: string[];
             /** Minutes Left */
             minutes_left: number | null;
             /** Minutes Used */
@@ -19412,7 +19725,9 @@ export interface operations {
     attest_price_v1_admin_number_pricing_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -19531,6 +19846,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BoughtNumberOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    tenant_engine_numbers_v1_admin_numbers_tenants__tenant_id__engine_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineNumbersOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -22472,6 +22818,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    engine_catalogue_v1_agents_engine_catalogue_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineCatalogueOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -29375,6 +29750,73 @@ export interface operations {
             };
         };
     };
+    list_engine_minute_prices_v1_ops_engine_minute_prices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineMinutePricesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    attest_engine_minute_v1_ops_engine_minute_prices__engine___rate_key__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                engine: string;
+                rate_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EngineMinutePriceAttestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineMinutePriceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_fx_rate_v1_ops_fx_rate_get: {
         parameters: {
             query?: {
@@ -30342,7 +30784,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LlmDefaultsOut"];
+                    "application/json": components["schemas"]["ClientLlmDefaultsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -30365,7 +30807,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["LlmDefaultIn"];
+                "application/json": components["schemas"]["ClientLlmDefaultIn"];
             };
         };
         responses: {
@@ -30375,7 +30817,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LlmDefaultsOut"];
+                    "application/json": components["schemas"]["ClientLlmDefaultsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

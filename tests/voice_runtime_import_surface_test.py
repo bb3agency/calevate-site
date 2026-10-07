@@ -200,6 +200,16 @@ ALLOWED_APPS_MODULES: frozenset[str] = frozenset(
         "apps.api.core.alarm_severity",
         "apps.api.core.alerting",
         "apps.api.core.bootstrap",
+        # Constants only (console hostnames and the admin realm's path prefixes), no
+        # imports. `bootstrap` and `middleware` read it to bind admin paths to the admin
+        # console's origin; the prefixes live here rather than in `core.rbac` so that
+        # binding does not pull the route-permission registry into this service.
+        "apps.api.core.console_links",
+        # D-678. The ONE AES-GCM implementation in the tree, reused with a ring of its own
+        # (the engine intake key, NOT `PLATFORM_KEK`, which this service never holds):
+        # opening an agent's webhook signing secret and sealing a verified body for the
+        # queue. `cryptography` was already loaded here through PyJWT.
+        "apps.api.core.envelope",
         "apps.api.core.context",
         "apps.api.core.errors",
         "apps.api.core.health",
@@ -248,6 +258,9 @@ ALLOWED_APPS_MODULES: frozenset[str] = frozenset(
         # The inbox claim: the dedupe that carries the guarantee (BACKEND-PATTERNS §4).
         "apps.api.reliability",
         "apps.api.reliability.service",
+        # D-678: the engine intake key ring and the two seal/open pairs over it. No ORM,
+        # no I/O — envelope calls and context strings.
+        "apps.api.reliability.engine_intake_keys",
     }
 )
 
@@ -282,6 +295,8 @@ ALLOWED_THIRD_PARTY: frozenset[str] = frozenset(
         "main",
         "webhook_routes",
         "engine_intake",
+        # D-678: per-agent HMAC verification for an engine that signs the body.
+        "signed_intake",
         # The carrier's answer document (D-610). It imports `apps.api.core`'s error
         # ladder, logger and settings plus `calevate_shared.engine`'s ref parser, and
         # NOTHING of `voice_worker` — which is the whole reason the renderer moved here

@@ -544,6 +544,7 @@ async def count_tenant_credential_keks(
             complete = False
             break
         async with tenant_session(tenant_id) as session:
+            # An ungrouped aggregate always returns exactly one row, so `.one()`.
             row = (
                 await session.execute(
                     text(
@@ -552,10 +553,9 @@ async def count_tenant_credential_keks(
                     ),
                     {"active": active},
                 )
-            ).first()
-        if row is not None:
-            total += int(row[0])
-            pending += int(row[1])
+            ).one()
+        total += int(row[0])
+        pending += int(row[1])
     return TenantCredentialKekCounts(total=total, pending=pending, complete=complete)
 
 

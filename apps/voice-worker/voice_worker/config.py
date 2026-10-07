@@ -41,7 +41,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from calevate_shared.engine import carries_truthful_answer_floor
+from calevate_shared.engine import carries_confidentiality_rule, carries_truthful_answer_floor
 from calevate_shared.events import CallDirection
 from loguru import logger
 
@@ -218,6 +218,13 @@ def refuse_unless_disclosed(
         raise AgentNotRunnableError(
             f"agent {agent_id} has a published prompt that does not carry the "
             "truthful-answer floor, so no call may run on it (hard rule 5)"
+        )
+    # D-674: the confidentiality rule is the same kind of platform-owned block, so a prompt
+    # without it was composed by something other than `compose_engine_prompt`.
+    if not carries_confidentiality_rule(composed_prompt):
+        raise AgentNotRunnableError(
+            f"agent {agent_id} has a published prompt that does not carry the "
+            "confidentiality rule, so no call may run on it (D-674); republish it"
         )
 
 

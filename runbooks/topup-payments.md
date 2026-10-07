@@ -663,40 +663,39 @@ LIMIT 20;
   capture both rows before touching anything and escalate.
 - **Neither** — the event never arrived or never verified. §4.
 
-## 6. Refunding a payment — the route is real, the screen is not
+## 6. Refunding a payment
 
-The server half is finished: `POST /v1/admin/tenants/{tenant_id}/refunds` (admin realm,
-`admin:tenants`) calls Razorpay's refund endpoint, enforces a ceiling on the TOTAL
-refunded against a payment through a committed claim, and records the money as ONE
-compensating `credit_ledger` entry — negative delta, `reason='refund'`, keyed on the
-refund id so the API response and the `refund.processed` webhook cannot both write it
-(hard rule 4: money going back is a new entry, never an edit).
+`POST /v1/admin/tenants/{tenant_id}/refunds` (admin realm, `admin:tenants`) calls
+Razorpay's refund endpoint, enforces a ceiling on the TOTAL refunded against a payment
+through a committed claim, and records the money as ONE compensating `credit_ledger`
+entry — negative delta, `reason='refund'`, keyed on the refund id so the API response and
+the `refund.processed` webhook cannot both write it (hard rule 4: money going back is a
+new entry, never an edit).
 
-**What does not exist is a console control for it.** Nothing in `apps/web` calls that
-route, so today an operator issues a refund with a direct call, authenticated by their
-own admin session:
+**Use the console:** the client's Money → Credits page has the refund panel
+(`apps/web/src/app/admin/tenants/[tenantId]/credits/RefundPanel.tsx`), which calls that
+route with your admin session.
 
-```
-POST https://api.calevate.tech/v1/admin/tenants/<tenantId>/refunds
-Cookie: <your admin session cookie>
-Content-Type: application/json
-
-{"payment_id": "pay_...", "reason": "duplicate payment, agreed with client"}
-```
-
-- Omit `amount_inr` for a full refund of the top-up we recorded for that payment; send a
-  smaller **string** amount (`"250.00"`, never a JSON number) for a partial one.
+- Leave the amount empty for a full refund of the top-up we recorded for that payment, or
+  enter a smaller amount for a partial one (the API takes it as a **string**, `"250.00"`).
 - A payment we never recorded a top-up for answers 404 — we only refund money we recorded
   arriving.
 - More than the payment brought in is refused; the ceiling is on the running TOTAL, not
   on this request.
-- The response's `recorded: false` is not a failure: the provider accepted the refund but
-  has not processed it, so the ledger entry follows from the `refund.processed` webhook.
+- `recorded: false` is not a failure: the provider accepted the refund but has not
+  processed it, so the ledger entry follows from the `refund.processed` webhook.
   `processing_days` is what to quote the client.
-- Then check §5's first query: exactly one negative row, `reason='refund'`.
+- **A refunded pack takes its bonus back** (D-672): in the refund's own transaction, a
+  negative `bonus` row keyed on the refund id (`meta.kind = credit_pack_bonus_clawback`),
+  sized so that partial refunds adding up to the payment take back exactly the bonus. A
+  spent bonus is taken into overdraft. The answer carries `bonus_clawed_back_inr` and the
+  panel names it; every catalogue pack has `bonus_pct = 0` since D-547, so this is
+  normally `0.00`.
+- Then check §5's first query: exactly one negative row, `reason='refund'` (and, for a
+  pack that carried a bonus, one negative `reason='bonus'` row with the same ref).
 
-Until the screen exists, that call is the procedure — and it is the reason
-`refund.processed` is on §0.4's subscribe list rather than optional.
+`refund.processed` stays on §0.4's subscribe list: it is how a refund the provider
+processes later reaches the ledger.
 
 ---
 

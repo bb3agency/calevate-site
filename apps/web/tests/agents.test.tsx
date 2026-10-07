@@ -88,9 +88,11 @@ function agent(over: Partial<Agent> = {}): Agent {
     extraction_fields: [],
     // D-454: inheriting all the way up — what this fixture always meant
     // implicitly, back when an agent had no opinion about its model.
-    llm_model: null,
-    llm_model_effective: "gpt-4o-mini",
-    llm_model_source: "platform",
+    llm_tier: null,
+    llm_tier_effective: "standard",
+    llm_tier_label: "Standard",
+    llm_tier_source: "platform",
+    llm_surcharged: false,
     ...over,
   };
 }
@@ -556,13 +558,13 @@ describe("the archive is a second request, and a failed one is not an empty one"
  * `llm_model_surcharge` for every minute that agent runs (D-455), so the busiest agent on
  * the dearest model is the combination nobody sets on purpose and nobody could find.
  *
- * The badge is read off `llm_model_source`, never off `llm_model !== null`. The two agree
+ * The badge is read off `llm_tier_source`, never off `llm_tier !== null`. The two agree
  * today; the day the server adds a fourth level the derived version starts badging agents
  * as having their OWN model when they do not, on the one screen an owner scans for exactly
  * that — and it would be silent about it.
  */
 describe("the roster says which agents carry their own AI model", () => {
-  it("names the model on an agent that overrides, and on no other row", async () => {
+  it("names the tier on an agent that overrides, and on no other row", async () => {
     await renderClientPage(
       page,
       routes({
@@ -570,9 +572,11 @@ describe("the roster says which agents carry their own AI model", () => {
           agent({
             id: "a-own",
             name: "Front desk",
-            llm_model: "gpt-4.1-mini",
-            llm_model_effective: "gpt-4.1-mini",
-            llm_model_source: "agent",
+            llm_tier: "plus",
+            llm_tier_effective: "plus",
+            llm_tier_label: "Plus",
+            llm_tier_source: "agent",
+            llm_surcharged: true,
           }),
           agent({ id: "a-inherits", name: "Weekend line" }),
         ],
@@ -588,10 +592,10 @@ describe("the roster says which agents carry their own AI model", () => {
       .getByText("Weekend line")
       .closest("li") as HTMLElement;
 
-    expect(own.textContent).toContain("Its own AI model: gpt-4.1-mini");
+    expect(own.textContent).toContain("Its own AI model: Plus");
     // The default is NOT printed on every row: a column of identical identifiers hides the
     // one row that differs, which is the opposite of what a roster scan is for.
-    expect(inherits.textContent).not.toContain("gpt-4o-mini");
+    expect(inherits.textContent).not.toContain("Standard");
     expect(inherits.textContent).not.toContain("Its own AI model");
   });
 
@@ -606,9 +610,11 @@ describe("the roster says which agents carry their own AI model", () => {
           agent({
             id: "a-org",
             name: "Front desk",
-            llm_model: null,
-            llm_model_effective: "gpt-4.1-mini",
-            llm_model_source: "organization",
+            llm_tier: null,
+            llm_tier_effective: "plus",
+            llm_tier_label: "Plus",
+            llm_tier_source: "organization",
+            llm_surcharged: true,
           }),
         ],
       }),

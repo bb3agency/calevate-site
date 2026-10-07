@@ -37,7 +37,7 @@ import pytest
 from apps.api.db.session import tenant_session
 from apps.api.engine.pipecat import engine_agent_ref_for
 from apps.api.main import app as api_app
-from calevate_shared.engine import pipecat_call_ref
+from calevate_shared.engine import TRUTHFUL_ANSWER_DIRECTIVE, pipecat_call_ref
 from calevate_shared.events import CallEvent, TranscriptTurn
 from calevate_shared.worker_api import (
     MeteredQuantity,
@@ -250,6 +250,41 @@ async def test_a_published_version_without_the_truthful_answer_floor_is_never_se
                 "              WHERE agent_id = :a)"
             ),
             {"vid": version_id, "sha": "f" * 64, "a": agent_id},
+        )
+        await db.execute(
+            text("UPDATE pipecat_agents SET agent_config_version_id = :v WHERE agent_id = :a"),
+            {"v": version_id, "a": agent_id},
+        )
+    async with worker_client() as api:
+        with pytest.raises(WorkerApiError) as refused:
+            await api.session(ref)
+    assert "409" in str(refused.value)
+
+
+async def test_a_published_version_without_the_confidentiality_rule_is_never_served(
+    worker_token: None,
+) -> None:
+    """D-674 on the server's side: the truthful floor alone is not enough. The version is
+    inserted by hand because `mint_config_version` refuses to compose it."""
+    tenant_id, agent_id, ref = await published_agent()
+    async with tenant_session(tenant_id) as db:
+        version_id = uuid.uuid4()
+        await db.execute(
+            text(
+                "INSERT INTO agent_config_versions (id, tenant_id, agent_id, prompt_sha256, "
+                " model_config_sha256, composed_prompt, opening_line, model_config) "
+                "SELECT :vid, tenant_id, agent_id, :sha, model_config_sha256, "
+                "       :prompt, opening_line, model_config "
+                "FROM agent_config_versions v "
+                "WHERE v.id = (SELECT agent_config_version_id FROM pipecat_agents "
+                "              WHERE agent_id = :a)"
+            ),
+            {
+                "vid": version_id,
+                "sha": "e" * 64,
+                "prompt": "You are a helpful receptionist.\n" + TRUTHFUL_ANSWER_DIRECTIVE,
+                "a": agent_id,
+            },
         )
         await db.execute(
             text("UPDATE pipecat_agents SET agent_config_version_id = :v WHERE agent_id = :a"),

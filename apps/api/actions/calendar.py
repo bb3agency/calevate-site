@@ -28,14 +28,30 @@ refuses cleanly rather than half-working.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+from datetime import UTC, datetime, timedelta
+from typing import Final
 from urllib.parse import urlencode
+from uuid import UUID
+
+import jwt
 
 from apps.api.actions.schema import PreparedRequest
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
+from apps.api.core.settings import get_settings, resolve_hmac_key
+from apps.api.db.base import uuid7
 
 log = get_logger(__name__)
+
+#: How long a consent round trip may take. Google's own authorization codes are short-lived;
+#: ten minutes covers a person reading the consent screen without leaving a state usable all day.
+OAUTH_STATE_TTL: Final = timedelta(minutes=10)
+OAUTH_STATE_AUDIENCE: Final = "calevate:google-calendar-oauth-state"
+OAUTH_STATE_ALGORITHM: Final = "HS256"
+_STATE_KDF_INFO: Final = b"calevate:google-calendar-oauth-state:v1"
+_STATE_REQUIRED_CLAIMS: Final = ("aud", "sub", "act", "exp", "jti")
 
 # Read access to availability + write access to insert an event. Kept minimal — no full
 # `calendar` scope, which would let us delete anything (auth page's guidance).
@@ -110,8 +126,80 @@ def _require_configured() -> None:
         raise calendar_unavailable()
 
 
+def _state_key() -> bytes:
+    """A purpose-separated subkey of `IMPERSONATION_GRANT_SECRET` (HKDF-Expand, one block).
+
+    The same derivation `copilot/write_tools._signing_key` argues for its proposals, under
+    its own `info` label: a short-lived token we mint, hand to our own browser and verify
+    back, so a fifth deployment secret would buy nothing but a new readiness key.
+    """
+    settings = get_settings()
+    parent = resolve_hmac_key(
+        settings.impersonation_grant_secret,
+        env_var="IMPERSONATION_GRANT_SECRET",
+        purpose="Google Calendar OAuth state",
+        code="calendar_state_not_configured",
+        title="Calendar connection is not available",
+        local_fallback=f"calevate-local-dev-impersonation-grant-key:{settings.app_env}",
+        app_env=settings.app_env,
+    )
+    return hmac.new(parent, _STATE_KDF_INFO + b"\x01", hashlib.sha256).digest()
+
+
+def mint_oauth_state(*, tenant_id: UUID, user_id: UUID, now: datetime | None = None) -> str:
+    """The `state` for one consent round trip, bound to the account AND the person.
+
+    This is the OAuth CSRF defence (RFC 6749 §10.12, RFC 9700 §2.1): without it, anyone can
+    obtain an authorization code for THEIR OWN Google account and get it redeemed by a
+    signed-in owner, so the owner's calendar bookings — callers' names and numbers — land
+    in the attacker's calendar. A bare tenant id is not a defence because it is not secret.
+    Binding the user as well means a state minted by one colleague cannot complete another's.
+    """
+    at = now or datetime.now(UTC)
+    claims = {
+        "aud": OAUTH_STATE_AUDIENCE,
+        "sub": str(tenant_id),
+        "act": str(user_id),
+        "jti": str(uuid7()),
+        "iat": int(at.timestamp()),
+        "exp": int((at + OAUTH_STATE_TTL).timestamp()),
+    }
+    return jwt.encode(claims, _state_key(), algorithm=OAUTH_STATE_ALGORITHM)
+
+
+def verify_oauth_state(raw: str, *, tenant_id: UUID, user_id: UUID) -> None:
+    """Refuse a `state` this deployment did not mint for this account and this person."""
+    try:
+        claims = jwt.decode(
+            raw,
+            _state_key(),
+            algorithms=[OAUTH_STATE_ALGORITHM],
+            audience=OAUTH_STATE_AUDIENCE,
+            options={"require": list(_STATE_REQUIRED_CLAIMS)},
+        )
+    except jwt.PyJWTError as exc:
+        log.info("calendar_oauth_state_rejected", extra={"error": type(exc).__name__})
+        raise _state_refused() from exc
+    if claims.get("sub") != str(tenant_id) or claims.get("act") != str(user_id):
+        log.warning("calendar_oauth_state_mismatch")
+        raise _state_refused()
+
+
+def _state_refused() -> ProblemError:
+    return ProblemError(
+        kind="permission",
+        code="calendar_oauth_state_invalid",
+        title="This calendar connection was not started here",
+        detail=(
+            "The connection request did not come from a calendar connection you started "
+            "in this account, or it has expired."
+        ),
+        remediation="Start the connection again from the Actions screen.",
+    )
+
+
 def authorize_url(*, state: str) -> str:
-    """The consent URL a client is sent to. `state` carries our CSRF/tenant token."""
+    """The consent URL a client is sent to. `state` is `mint_oauth_state`'s token."""
     _require_configured()
     s = get_settings()
     params = {
@@ -200,6 +288,8 @@ __all__ = [
     "build_book",
     "build_freebusy",
     "calendar_configured",
+    "mint_oauth_state",
     "token_exchange_request",
     "token_refresh_request",
+    "verify_oauth_state",
 ]

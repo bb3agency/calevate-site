@@ -42,8 +42,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.llm_models import resolve_llm_model
+from apps.api.agents.llm_tiers import engine_model_token, tier_label, tier_of_model
 from apps.api.agents.models import AgentStatus
 from apps.api.agents.schemas import AgentOut
+from apps.api.billing.rates import llm_surcharge_applies
 from apps.api.compliance.disclosure import truthful_answer_promise
 from apps.api.engine import engine_capabilities
 
@@ -78,7 +80,9 @@ AGENT_ROSTER_SQL = (
     # Sentence three and its switch (D-507). APPENDED rather than slotted beside the two
     # sentences above, so every existing positional index below keeps meaning what it
     # meant — a shifted index in a positional row read is a silent field swap.
-    "a.caller_memory_notice_line, a.caller_memory_enabled "
+    "a.caller_memory_notice_line, a.caller_memory_enabled, "
+    # The engine-catalogue choices (D-678), appended for the reason above.
+    "a.engine_voice_id, a.engine_model_id "
     "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
     "LEFT JOIN organizations o ON o.id = a.tenant_id "
     "WHERE a.deleted_at IS NULL"
@@ -99,6 +103,11 @@ def agent_out(r: Any) -> AgentOut:
     # and the config the engine is actually sent cannot disagree about which model an
     # agent runs or which level chose it.
     resolved = resolve_llm_model(agent_model=r[15], organization_model=r[16])
+    # The client reads TIERS, never the model (D-680); every catalogue model has one, and
+    # both columns are CHECKed to the catalogue, so a `None` here is a broken invariant.
+    effective_tier = tier_of_model(resolved.model)
+    if effective_tier is None:
+        raise RuntimeError("the model in force has no tier")
     # ONE READ of the engine's recording fact for both sentences that depend on it, so the
     # opening a client is shown and the answer they are promised cannot disagree.
     recorded = engine_capabilities().records_audio
@@ -120,9 +129,13 @@ def agent_out(r: Any) -> AgentOut:
         caller_memory_enabled=bool(r[18]),
         archived_at=r[13],
         inbound_number_count=int(r[14]),
-        llm_model=r[15],
-        llm_model_effective=resolved.model,
-        llm_model_source=resolved.source,
+        llm_tier=tier_of_model(r[15]),
+        llm_tier_effective=effective_tier,
+        llm_tier_label=tier_label(effective_tier),
+        llm_tier_source=resolved.source,
+        llm_surcharged=llm_surcharge_applies(model=resolved.model, source=resolved.source),
+        engine_voice_id=r[19],
+        engine_model_id=engine_model_token(r[20]) if r[20] is not None else None,
         # Through the ONE composer, so the roster, the publish path and the engine
         # cannot disagree about what this agent opens with (D-163).
         opening_line=compose_opening_line(

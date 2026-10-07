@@ -53,6 +53,7 @@ from apps.api.agents.llm_models import (
 )
 from apps.api.agents.llm_routes import admin_router as llm_admin_router
 from apps.api.agents.llm_routes import router as llm_router
+from apps.api.agents.llm_tiers import LLM_TIERS, tier_of_model
 from apps.api.agents.routes import router as agents_router
 from apps.api.agents.service import publish_agent
 from apps.api.billing.rates import PRICED_LLM_MODELS, llm_cost_inr_per_minute
@@ -125,6 +126,10 @@ def _azure(monkeypatch: pytest.MonkeyPatch, *, deployments: str = "") -> None:
         # that field says which model the DEPLOYMENT was made from and nothing else.
         ("platform_llm_model", AZURE_OPENAI_DEFAULT_MODEL),
         ("azure_openai_deployments", deployments),
+        # The client chooses TIERS (D-680); on this fixture the two tiers that matter point at
+        # the two Azure models, so a tier choice exercises exactly the leg configured here.
+        ("llm_tier_standard_model", AZURE_OPENAI_DEFAULT_MODEL),
+        ("llm_tier_plus_model", ALTERNATE_MODEL),
     ):
         monkeypatch.setattr(settings, field, value, raising=False)
 
@@ -590,10 +595,11 @@ async def _operator() -> str:
     return f"dev:admin:{admin_id}"
 
 
-async def test_an_agent_reports_its_model_and_which_level_chose_it(
+async def test_an_agent_reports_its_tier_and_which_level_chose_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The whole client-facing contract in one route, walked down all three rungs."""
+    """The whole client-facing contract in one route, walked down all three rungs — in
+    TIERS, with the model each tier resolved to read back from the columns (D-680)."""
     _azure_leg_for_both_models(monkeypatch)
     tenant_id, agent_id, bearer = await _tenant()
     app = _app()
@@ -603,72 +609,67 @@ async def test_an_agent_reports_its_model_and_which_level_chose_it(
         # Nothing chosen anywhere: the platform answers, and it says so.
         first = await client.get(f"/v1/agents/{agent_id}", headers=headers)
         assert first.status_code == 200, first.text
-        assert first.json()["llm_model"] is None
-        assert first.json()["llm_model_effective"] == get_settings().platform_llm_model
-        assert first.json()["llm_model_source"] == "platform"
+        assert first.json()["llm_tier"] is None
+        assert first.json()["llm_tier_effective"] == "standard"
+        assert first.json()["llm_tier_label"] == "Standard"
+        assert first.json()["llm_tier_source"] == "platform"
+        assert first.json()["llm_surcharged"] is False
 
         # The account chooses: every agent that has not chosen follows it.
         put = await client.put(
             "/v1/organization/llm-defaults",
             headers=headers,
-            json={"default_llm_model": ALTERNATE_MODEL},
+            json={"default_llm_tier": "plus"},
         )
         assert put.status_code == 200, put.text
-        assert put.json()["default_llm_model"] == ALTERNATE_MODEL
-        assert put.json()["effective_default"] == ALTERNATE_MODEL
+        assert put.json()["default_llm_tier"] == "plus"
+        assert put.json()["effective_tier"] == "plus"
 
         inherited = await client.get(f"/v1/agents/{agent_id}", headers=headers)
-        assert inherited.json()["llm_model"] is None
-        assert inherited.json()["llm_model_effective"] == ALTERNATE_MODEL
-        assert inherited.json()["llm_model_source"] == "organization"
+        assert inherited.json()["llm_tier"] is None
+        assert inherited.json()["llm_tier_effective"] == "plus"
+        assert inherited.json()["llm_tier_source"] == "organization"
+        # An upgrade the client chose: the surcharge applies, exactly as the meter decides.
+        assert inherited.json()["llm_surcharged"] is True
 
         # The agent overrides its account.
         patched = await client.patch(
-            f"/v1/agents/{agent_id}",
-            headers=headers,
-            json={"llm_model": AZURE_OPENAI_DEFAULT_MODEL},
+            f"/v1/agents/{agent_id}", headers=headers, json={"llm_tier": "standard"}
         )
         assert patched.status_code == 200, patched.text
-        assert patched.json()["llm_model"] == AZURE_OPENAI_DEFAULT_MODEL
-        assert patched.json()["llm_model_effective"] == AZURE_OPENAI_DEFAULT_MODEL
-        assert patched.json()["llm_model_source"] == "agent"
+        assert patched.json()["llm_tier"] == "standard"
+        assert patched.json()["llm_tier_effective"] == "standard"
+        assert patched.json()["llm_tier_source"] == "agent"
 
-        # And `null` on the agent is INHERIT, not "leave it alone" — the one field on this
-        # PATCH where an explicit null is a request rather than an absence.
+        # `null` on the agent is INHERIT, not "leave it alone".
         cleared = await client.patch(
-            f"/v1/agents/{agent_id}", headers=headers, json={"llm_model": None}
+            f"/v1/agents/{agent_id}", headers=headers, json={"llm_tier": None}
         )
         assert cleared.status_code == 200, cleared.text
-        assert cleared.json()["llm_model"] is None
-        assert cleared.json()["llm_model_source"] == "organization"
+        assert cleared.json()["llm_tier"] is None
+        assert cleared.json()["llm_tier_source"] == "organization"
 
-        # Omitting the field entirely leaves the choice alone — the other half of the
-        # tri-state, and the half a `str | None` model alone could not express.
-        #
-        # ⚠ THE AGENT IS PUT BACK ON ITS OWN MODEL FIRST, and that is the whole test. This
-        # assertion used to run while the agent was already inheriting, so it read
-        # `source == "organization"` before AND after and passed identically whether the
-        # omission was honoured or silently cleared the column — a test of the tri-state
-        # that could not fail on the half it was named for.
+        # Omitting the field leaves the choice alone. The agent is put back on its own tier
+        # FIRST, so the omission has something to be wrong about.
         rechosen = await client.patch(
-            f"/v1/agents/{agent_id}",
-            headers=headers,
-            json={"llm_model": AZURE_OPENAI_DEFAULT_MODEL},
+            f"/v1/agents/{agent_id}", headers=headers, json={"llm_tier": "standard"}
         )
         assert rechosen.status_code == 200, rechosen.text
-        assert rechosen.json()["llm_model_source"] == "agent"
+        assert rechosen.json()["llm_tier_source"] == "agent"
 
         renamed = await client.patch(
             f"/v1/agents/{agent_id}", headers=headers, json={"name": "Front desk"}
         )
         assert renamed.status_code == 200, renamed.text
         assert renamed.json()["name"] == "Front desk"
-        assert renamed.json()["llm_model"] == AZURE_OPENAI_DEFAULT_MODEL
-        assert renamed.json()["llm_model_source"] == "agent"
+        assert renamed.json()["llm_tier"] == "standard"
+        assert renamed.json()["llm_tier_source"] == "agent"
 
-        # ...and the column itself, not only the rendering of it: a `coalesce` on this
-        # column would have written NULL here and the roster would still have said
-        # "organization" for a different reason.
+        # No response on the client's side of the wire names a model or its provider.
+        for response in (first, put, inherited, patched, cleared, renamed):
+            _assert_names_no_model(response.text)
+
+        # ...and the column holds the MODEL the tier resolved to.
         async with tenant_session(tenant_id) as check:
             assert (
                 await check.execute(
@@ -683,7 +684,63 @@ async def test_an_agent_reports_its_model_and_which_level_chose_it(
     assert stored == ALTERNATE_MODEL
 
 
-async def test_the_roster_carries_the_same_three_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+def _assert_names_no_model(body: str) -> None:
+    """A client-realm response carries no model id and no provider name (D-679, D-680)."""
+    lowered = body.lower()
+    for word in (*LLM_MODELS, *{spec.provider for spec in LLM_MODELS.values()}):
+        assert word.lower() not in lowered, f"{word!r} reached the client realm: {body}"
+    for key in ('"model"', '"provider"', '"llm_model', '"default_llm_model"'):
+        assert key not in body, f"{key} reached the client realm: {body}"
+
+
+async def test_a_legacy_model_choice_reads_as_its_tier_and_is_kept_on_resave(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An account that chose a model BEFORE tiers keeps running and paying for exactly that
+    model: it reads as the tier the model's price falls in, and re-saving that tier is the
+    no-op it looks like even though the tier now points at a different model."""
+    _azure_leg_for_both_models(monkeypatch)
+    # Plus now points elsewhere; the account's stored `gpt-4.1-mini` is no tier's target.
+    monkeypatch.setattr(get_settings(), "llm_tier_plus_model", "gemini-2.5-flash", raising=False)
+    tenant_id, agent_id, bearer = await _tenant()
+    headers = {"Authorization": f"Bearer {bearer}"}
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET default_llm_model = :m"), {"m": ALTERNATE_MODEL}
+        )
+        await session.execute(
+            text("UPDATE agents SET llm_model = :m WHERE id = :aid"),
+            {"m": ALTERNATE_MODEL, "aid": agent_id},
+        )
+
+    async with _client(_app()) as client:
+        shown = await client.get("/v1/organization/llm-defaults", headers=headers)
+        assert shown.status_code == 200, shown.text
+        assert shown.json()["default_llm_tier"] == "plus"
+        assert shown.json()["effective_tier"] == "plus"
+        agent = await client.get(f"/v1/agents/{agent_id}", headers=headers)
+        assert agent.json()["llm_tier"] == "plus"
+
+        resaved = await client.put(
+            "/v1/organization/llm-defaults", headers=headers, json={"default_llm_tier": "plus"}
+        )
+        assert resaved.status_code == 200, resaved.text
+        repatched = await client.patch(
+            f"/v1/agents/{agent_id}", headers=headers, json={"llm_tier": "plus"}
+        )
+        assert repatched.status_code == 200, repatched.text
+
+    async with tenant_session(tenant_id) as session:
+        org = (await session.execute(text("SELECT default_llm_model FROM organizations"))).scalar()
+        own = (
+            await session.execute(
+                text("SELECT llm_model FROM agents WHERE id = :aid"), {"aid": agent_id}
+            )
+        ).scalar()
+    assert (org, own) == (ALTERNATE_MODEL, ALTERNATE_MODEL)
+
+
+async def test_the_roster_carries_the_same_facts(monkeypatch: pytest.MonkeyPatch) -> None:
     """One resolver behind the list and the detail route: a screen that reads a roster and
     a screen that opens one agent must not be able to disagree."""
     _no_azure(monkeypatch)
@@ -692,16 +749,16 @@ async def test_the_roster_carries_the_same_three_facts(monkeypatch: pytest.Monke
         rows = await client.get("/v1/agents", headers={"Authorization": f"Bearer {bearer}"})
     assert rows.status_code == 200, rows.text
     row = next(r for r in rows.json() if r["id"] == str(agent_id))
-    assert row["llm_model_source"] == "platform"
-    assert row["llm_model_effective"] == get_settings().platform_llm_model
+    assert row["llm_tier_source"] == "platform"
+    assert row["llm_tier_effective"] == tier_of_model(get_settings().platform_llm_model)
+    _assert_names_no_model(rows.text)
 
 
-async def test_choosing_a_model_this_platform_cannot_run_is_refused_at_both_doors(
+async def test_choosing_a_tier_this_platform_cannot_run_is_refused_at_both_doors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The offer and the wire cannot diverge, asserted through HTTP rather than only
-    through the validator: a selection the platform has no deployment for is a 422 on the
-    agent and on the account, in problem+json, naming what is wrong."""
+    """The offer and the wire cannot diverge, through HTTP: a tier whose model the platform
+    cannot serve is a 422 on the agent and on the account, in problem+json, in tier words."""
     _azure(monkeypatch)
     _tenant_id, agent_id, bearer = await _tenant()
     headers = {"Authorization": f"Bearer {bearer}"}
@@ -709,57 +766,73 @@ async def test_choosing_a_model_this_platform_cannot_run_is_refused_at_both_door
     async with _client(_app()) as client:
         listing = await client.get("/v1/organization/llm-defaults", headers=headers)
         assert listing.status_code == 200, listing.text
-        rows = {row["model"]: row for row in listing.json()["available"]}
-        assert rows[ALTERNATE_MODEL]["is_available"] is False
-        assert rows[ALTERNATE_MODEL]["unavailable_reason"]
+        rows = {row["tier"]: row for row in listing.json()["available"]}
+        assert rows["plus"]["is_available"] is False
+        assert rows["plus"]["unavailable_reason"] == CLIENT_UNAVAILABLE_REASON
 
         refused = await client.put(
             "/v1/organization/llm-defaults",
             headers=headers,
-            json={"default_llm_model": ALTERNATE_MODEL},
+            json={"default_llm_tier": "plus"},
         )
         assert refused.status_code == 422, refused.text
         assert refused.headers["content-type"].startswith("application/problem+json")
-        assert refused.json()["type"].endswith("/llm_model_not_deployed")
+        assert refused.json()["type"].endswith("/llm_tier_not_available")
         assert refused.json()["remediation"]
+        # Naming the tiers that WOULD work, and nothing behind them.
+        assert "Standard" in refused.json()["detail"]
+        _assert_names_no_model(refused.text)
 
         on_agent = await client.patch(
-            f"/v1/agents/{agent_id}", headers=headers, json={"llm_model": ALTERNATE_MODEL}
+            f"/v1/agents/{agent_id}", headers=headers, json={"llm_tier": "plus"}
         )
         assert on_agent.status_code == 422, on_agent.text
-        assert on_agent.json()["type"].endswith("/llm_model_not_deployed")
+        assert on_agent.json()["type"].endswith("/llm_tier_not_available")
 
         unknown = await client.patch(
-            f"/v1/agents/{agent_id}", headers=headers, json={"llm_model": "gpt-9-omni"}
+            f"/v1/agents/{agent_id}", headers=headers, json={"llm_tier": "ultra"}
         )
         assert unknown.status_code == 422, unknown.text
-        assert unknown.json()["type"].endswith("/llm_model_not_available")
-        # Naming the permitted values is the difference between a refusal a screen can act
-        # on and one it can only show.
-        assert AZURE_OPENAI_DEFAULT_MODEL in unknown.json()["detail"]
+        # And a model id is no longer a thing the client door accepts at all.
+        by_model = await client.patch(
+            f"/v1/agents/{agent_id}", headers=headers, json={"llm_model": ALTERNATE_MODEL}
+        )
+        assert by_model.status_code == 422, by_model.text
 
 
 async def test_prices_reach_the_wire_as_strings(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Hard rule 7 at the boundary: a JSON float cannot hold a rupee amount exactly, so
-    the value is a string all the way to the screen and reads back as the same Decimal."""
+    """Hard rule 7 at the boundary, in both realms: a JSON float cannot hold a rupee amount
+    exactly. The client realm sees one row per tier and no model; the admin realm sees one
+    row per selectable model, with its provider and the tier a client reads it as."""
     _no_azure(monkeypatch)
-    _tenant_id, _agent_id, bearer = await _tenant()
+    tenant_id, _agent_id, bearer = await _tenant()
+    operator = await _operator()
     async with _client(_app()) as client:
         body = await client.get(
             "/v1/organization/llm-defaults", headers={"Authorization": f"Bearer {bearer}"}
         )
+        admin = await client.get(
+            f"/v1/admin/organizations/{tenant_id}/llm-defaults",
+            headers={"Authorization": f"Bearer {operator}"},
+        )
     assert body.status_code == 200, body.text
+    assert [row["tier"] for row in body.json()["available"]] == list(LLM_TIERS)
+    assert sum(1 for row in body.json()["available"] if row["is_platform_default"]) == 1
     for row in body.json()["available"]:
+        assert isinstance(row["client_surcharge_inr_per_minute"], str)
+        assert row["label"] and row["description"]
+    assert isinstance(body.json()["in_force_surcharge_inr_per_minute"], str)
+    _assert_names_no_model(body.text)
+
+    assert admin.status_code == 200, admin.text
+    for row in admin.json()["available"]:
         assert isinstance(row["platform_cost_inr_per_minute"], str)
         assert Decimal(row["platform_cost_inr_per_minute"]) == llm_cost_inr_per_minute(
             5, model=row["model"]
         )
-        # THE PROVIDER FOLLOWS THE MODEL, not the product: three legs are declared, so a
-        # row's leg is a property of the model it names (`leg_for_model`), and a hard-coded
-        # "azure_openai" here was correct only while there was one leg to name.
         assert row["provider"] == LLM_MODELS[row["model"]].provider
-    assert [row["model"] for row in body.json()["available"]] == list(selectable_models())
-    assert sum(1 for row in body.json()["available"] if row["is_platform_default"]) == 1
+        assert row["tier"] == tier_of_model(row["model"])
+    assert [row["model"] for row in admin.json()["available"]] == list(selectable_models())
 
 
 async def test_an_operator_can_set_it_for_any_client_and_the_change_is_audited(
@@ -790,6 +863,11 @@ async def test_an_operator_can_set_it_for_any_client_and_the_change_is_audited(
             )
             assert read_back.status_code == 200, read_back.text
             assert read_back.json()["effective_default"] == ALTERNATE_MODEL
+            # The operator sees each agent's real model; the client realm reads tiers.
+            in_force = {row["agent_id"]: row for row in read_back.json()["agents"]}
+            assert in_force[str(_agent_id)]["llm_model_effective"] == ALTERNATE_MODEL
+            assert in_force[str(_agent_id)]["llm_model_source"] == "organization"
+            assert {row["tier"] for row in read_back.json()["available"]} <= {*LLM_TIERS}
 
     assert "admin.organization_llm_default_set" in await _audited_actions(tenant_id)
     assert _summaries(caplog) == [{"default_llm_model": ALTERNATE_MODEL, "changed": True}]
@@ -806,7 +884,7 @@ async def test_a_client_setting_their_own_default_is_audited(
             response = await client.put(
                 "/v1/organization/llm-defaults",
                 headers={"Authorization": f"Bearer {bearer}"},
-                json={"default_llm_model": ALTERNATE_MODEL},
+                json={"default_llm_tier": "plus"},
             )
     assert response.status_code == 200, response.text
 
@@ -879,16 +957,16 @@ async def test_the_agents_own_model_change_is_audited_with_the_model(
         caplog.clear()
         async with _client(_app()) as client:
             for body in (
-                {"llm_model": ALTERNATE_MODEL},
-                {"llm_model": None},
+                {"llm_tier": "plus"},
+                {"llm_tier": None},
                 {"name": "Front desk"},
             ):
                 response = await client.patch(f"/v1/agents/{agent_id}", headers=headers, json=body)
                 assert response.status_code == 200, response.text
 
     assert _summaries(caplog) == [
-        {"fields": "llm_model", "llm_model": ALTERNATE_MODEL},
-        {"fields": "llm_model", "llm_model": None},
+        {"fields": "llm_tier", "llm_model": ALTERNATE_MODEL},
+        {"fields": "llm_tier", "llm_model": None},
         {"fields": "name"},
     ]
 
@@ -959,7 +1037,7 @@ async def test_moving_the_account_default_reaches_the_agents_it_moves(
         put = await client.put(
             "/v1/organization/llm-defaults",
             headers={"Authorization": f"Bearer {bearer}"},
-            json={"default_llm_model": ALTERNATE_MODEL},
+            json={"default_llm_tier": "plus"},
         )
         assert put.status_code == 200, put.text
 
@@ -989,13 +1067,13 @@ async def test_an_agent_with_its_own_model_is_left_where_it_is(
         pinned = await client.patch(
             f"/v1/agents/{agent_id}",
             headers=headers,
-            json={"llm_model": AZURE_OPENAI_DEFAULT_MODEL},
+            json={"llm_tier": "standard"},
         )
         assert pinned.status_code == 200, pinned.text
         moved = await client.put(
             "/v1/organization/llm-defaults",
             headers=headers,
-            json={"default_llm_model": ALTERNATE_MODEL},
+            json={"default_llm_tier": "plus"},
         )
         assert moved.status_code == 200, moved.text
 
@@ -1016,7 +1094,7 @@ async def test_re_sending_the_value_already_on_file_pushes_nothing(
     tenant_id, agent_id, bearer = await _tenant()
     ref = await _published(tenant_id, agent_id)
     headers = {"Authorization": f"Bearer {bearer}"}
-    body = {"default_llm_model": ALTERNATE_MODEL}
+    body = {"default_llm_tier": "plus"}
 
     published: list[str] = []
     engine = get_engine()
@@ -1097,7 +1175,7 @@ async def test_a_model_whose_deployment_was_removed_refuses_the_go_live_in_words
         chosen = await client.put(
             "/v1/organization/llm-defaults",
             headers=headers,
-            json={"default_llm_model": ALTERNATE_MODEL},
+            json={"default_llm_tier": "plus"},
         )
         assert chosen.status_code == 200, chosen.text
 
@@ -1111,7 +1189,9 @@ async def test_a_model_whose_deployment_was_removed_refuses_the_go_live_in_words
     body = refused.json()
     assert body["type"].endswith("/llm_model_not_deployed")
     assert body["kind"] == "business_rule"
-    assert ALTERNATE_MODEL in body["detail"]
+    # The client is told the TIER, never the model behind it (D-680).
+    assert "Plus" in body["detail"]
+    assert ALTERNATE_MODEL not in body["detail"]
     assert body["remediation"]
     # And nothing was half-done: the agent is still a draft, not a live agent nobody can
     # publish.
@@ -1223,7 +1303,7 @@ async def test_an_account_that_does_not_exist_is_a_404_on_both_admin_doors(
 
 
 async def test_a_patch_that_names_nothing_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Adding `llm_model` to the PATCH body must not make an empty body legal: answering
+    """Adding `llm_tier` to the PATCH body must not make an empty body legal: answering
     200 for a request that changed nothing writes an audit row describing a decision
     nobody took."""
     _no_azure(monkeypatch)

@@ -498,6 +498,10 @@ class TopUpResult:
     # bonus — it is read after both entries land.
     bonus_entry_id: UUID | None = None
     bonus_inr: Decimal | None = None
+    # On a REFUND: the pack bonus this refund took back (positive), or zero when the payment
+    # carried no bonus. Read off the ledger on a replay, so it never says zero for a refund
+    # whose clawback a previous call already wrote.
+    bonus_clawed_back_inr: Decimal = Decimal("0")
 
 
 def verify_signature(*, secret: str, body: bytes, signature: str | None) -> bool:
@@ -1641,6 +1645,9 @@ async def _claw_back_pack_bonus(
     refunded = await refunded_total_inr(
         session, tenant_id=refund.tenant_id, payment_id=refund.payment_id
     )
+    # The ledger's one rounding rule (`rates.ROUNDING`, half-up to `MONEY_Q`), applied to the
+    # CUMULATIVE target so each refund's rounding is re-absorbed by the next and the last lands
+    # on the grant exactly; the clamp keeps a half-up from ever taking more than was granted.
     target = min(
         grant.amount_inr,
         (grant.amount_inr * refunded / paid.amount_inr).quantize(MONEY_Q, rounding=ROUNDING),
@@ -1778,10 +1785,14 @@ async def credit_refund(
             "razorpay_refund_replay",
             extra={"tenant_id": str(refund.tenant_id), "entry_id": str(existing.entry_id)},
         )
+        clawback = await find_entry_by_ref(
+            session, tenant_id=refund.tenant_id, reason="bonus", ref=refund.refund_id
+        )
         return TopUpResult(
             entry_id=existing.entry_id,
             balance=await get_balance(session, tenant_id=refund.tenant_id),
             recorded=False,
+            bonus_clawed_back_inr=Decimal("0") if clawback is None else abs(clawback.amount_inr),
         )
 
     # The lot this refund reverses is the one THIS PAYMENT opened, found through its paid
@@ -1844,9 +1855,15 @@ async def credit_refund(
     # The bonus this refund reverses, in the SAME transaction as the refund itself, so a
     # wallet can never hold a pack's bonus without the purchase that earned it — the mirror
     # of the invariant `credit_captured_payment` keeps when it grants the two together.
-    if await _claw_back_pack_bonus(session, refund=refund, ip=ip) > 0:
+    clawed_back = await _claw_back_pack_bonus(session, refund=refund, ip=ip)
+    if clawed_back > 0:
         balance = await get_balance(session, tenant_id=refund.tenant_id)
-    return TopUpResult(entry_id=written.entry_id, balance=balance, recorded=True)
+    return TopUpResult(
+        entry_id=written.entry_id,
+        balance=balance,
+        recorded=True,
+        bonus_clawed_back_inr=clawed_back,
+    )
 
 
 async def issue_refund(*, tenant_id: UUID, payment_id: str, amount_inr: Decimal) -> ProviderRefund:

@@ -172,17 +172,30 @@ make web-check                # frontend: typecheck + lint + vitest + browser ax
   session modules (`lib/authn/`, D-177) that share no logic; typed
   API client via `pnpm -C apps/web gen:api` (never hand-write fetchers).
 - `apps/api` — modular monolith; modules own their tables; no cross-module SQL.
-- `apps/voice-runtime` — latency-critical webhooks + in-call tool endpoints; ack <500ms,
-  defer to workers; deployed independently.
+- `apps/voice-runtime` — latency-critical carrier answer documents, status callbacks and
+  engine webhooks; ack <500ms, defer to workers; deployed independently. Its in-call tool
+  routes went with D-650; the voice worker calls `/v1/worker/**` on the api instead.
+- Telephony: Vobiz (D-662), behind a carrier switch. Calls are placed and answered
+  through `apps/api/engine/carrier.py` (`vobiz.py`; `plivo_carrier.py` is the fallback),
+  chosen by `Settings.carrier` (`CARRIER`, console-managed, default `vobiz`). Vobiz records
+  the call and our copy is kept 90 days (D-668/D-670); every URL we give Vobiz carries
+  `VOBIZ_CALLBACK_SECRET` until Vobiz signs callbacks (D-673, OPERATIONS §2 gate 55). It
+  carries the founder's own test calls only until Vobiz consents in writing to client
+  traffic (gate V-10).
 - `apps/workers` — ARQ jobs; idempotent, keyed by call_id; **3 attempts total** (i.e. 2
   retries — `WORKER_MAX_TRIES`; outbound deliveries wait 30s then 120s) + DLQ. A job
   earns a retry only by raising `arq.Retry`; a plain `raise` is terminal.
 - `apps/voice-worker` — the Pipecat conversation loop, our own container on Pipecat Cloud
   `ap-south`; Python package `voice_worker`, but every env var, secret set and script an
-  operator touches says `pipecat-worker`. ⚠ **THIS LIST NAMED FOUR DEPLOYABLES AND THE TREE HAS
-  FIVE** (added 19 Sep 2026): the package landed with D-592 on 13 Sep 2026, hard rule 2
-  names it as the third place vendor SDKs may be imported, and this section never learned
-  it existed.
+  operator touches says `pipecat-worker`. Hard rule 2 names it as the third place vendor
+  SDKs may be imported (D-592). Its pipeline puts `output_guard`
+  (`voice_worker/output_guard.PromptLeakGuard`) between the LLM and the TTS: every sentence
+  is checked before it is spoken, and one that reproduces platform text, the client's
+  instructions or a machine identifier is replaced by a single decline (D-674). The prompt
+  half is `calevate_shared.engine.CONFIDENTIALITY_RULE`, verified at mint, at publish
+  (`CONFIDENTIALITY_MARKER`) and by the drift sweep like the truthful-answer block, so an
+  agent published before D-674 reads as drift until republished (SECURITY-COMPLIANCE §6.1,
+  PROMPT-GUIDE §1.6).
 - `packages/shared` — Pydantic models, VoiceEngine Protocol, normalized events.
 
 ## Non-negotiable rules
@@ -313,7 +326,7 @@ doc section it implements. Auth/billing/compliance code requires the review chec
 
 ## Domain terms
 
-tenant (client business) · agent (configured voice AI) · engine (rented platform) ·
+tenant (client business) · agent (configured voice AI) · engine (voice runtime `ENGINE` selects; our Pipecat loop, D-592) · carrier (Vobiz, D-662) ·
 extraction schema (per-agent fields → CRM columns) · T0–T4 (RAG latency tiers) ·
 PE/TM (DLT: client is Principal Entity, Calevate is Telemarketer) · 140/160-series
 (promotional vs service numbers) · compliance gate · big red switch (global outbound halt).

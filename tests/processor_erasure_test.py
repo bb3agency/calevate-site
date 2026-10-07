@@ -108,9 +108,11 @@ def test_the_vocabulary_names_the_carrier_and_the_register_says_something_true()
     # separable on the certificate.
     assert entry.outcome != deletion.PROCESSOR_OUTCOME
     # The carrier is chosen (Vobiz, D-662) and its API reference has been read: it names
-    # no route that deletes a call record. So the entry names the carrier and says the
-    # remedy is a written request, and no longer says no carrier has been chosen.
-    assert "Vobiz" in entry.why
+    # no route that deletes a call record. So the entry describes the carrier's position
+    # and says the remedy is a written request — without naming it on a certificate a
+    # client reads (D-679).
+    assert "the carrier" in entry.why
+    assert "Vobiz" not in entry.why
     assert "written request" in entry.why
     assert "no carrier has been chosen" not in entry.why
     assert "whichever carrier" not in entry.why
@@ -160,11 +162,13 @@ def test_the_engine_entry_describes_the_runtime_we_run_and_not_the_one_d639_dele
 
 
 def test_the_carrier_prose_no_longer_says_no_carrier_is_chosen() -> None:
-    """The structured entry named Vobiz while the prose a client reads still said "No
-    carrier is chosen yet" — two halves of one register disagreeing about one vendor."""
+    """The structured entry described the chosen carrier while the prose a client reads
+    still said "No carrier is chosen yet" — two halves of one register disagreeing about one
+    vendor. Both now describe the carrier's position without naming it (D-679)."""
     prose = " ".join(deletion.ERASURE_LIMITATIONS)
     assert "No carrier is chosen" not in prose
-    assert "Vobiz" in prose
+    assert "Vobiz" not in prose
+    assert "Where the carrier recorded a call" in prose
     assert "written request" in prose
 
 

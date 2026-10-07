@@ -491,7 +491,7 @@ def test_every_fallback_names_its_own_reason_and_says_so_in_words(
     assert capability.provider == SARVAM_PROVIDER
     assert capability.fallback_reason == expected
     assert capability.disclosure is not None
-    assert "Sarvam" in capability.disclosure
+    assert "our standby model" in capability.disclosure
 
 
 def test_an_off_list_model_is_refused_where_values_enter_and_not_here() -> None:

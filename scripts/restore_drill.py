@@ -268,6 +268,8 @@ _APPEND_ONLY_PROBE_SET = {
     # — a probe that could fail on a constraint instead of on the trigger would report a
     # protected ledger as protected for the wrong reason (`fx_rate_observations`' own note).
     "platform_tts_plan_fees": "source_note = source_note || 'x'",
+    # D-678: `source_note` rather than `inr_per_min`, which carries a positive CHECK.
+    "platform_engine_minute_prices": "source_note = source_note || 'x'",
     # D-499: platform-scoped for `platform_model_prices`' reason — the payer is Calevate,
     # so there is no tenant whose row this could be and no `tenant_id` to mutate. `ref` is
     # the safe target: `qty`/`unit_cost_paid` carry non-negative CHECKs and `ref` carries
@@ -806,6 +808,10 @@ class RestoreDrill:
             "INSERT INTO platform_tts_plan_fees (provider, month, effective_from, plan_inr, "
             "attested_by, source_note) VALUES ('cartesia', '2026-01', now(), 4312.00, "
             f"'{ADMIN_ID}', 'restore-drill fixture')",
+            # D-678: one attested engine minute price, for the same reason. A FIXTURE.
+            "INSERT INTO platform_engine_minute_prices (engine, rate_key, effective_from, "
+            "inr_per_min, attested_by, source_note) VALUES ('thinnest', 'platform', now(), "
+            f"1.000000, '{ADMIN_ID}', 'restore-drill fixture')",
             # D-477: one attestation, for `platform_model_prices`' reason — a FOR EACH ROW
             # trigger cannot fire on an empty table. `attested_by` is the ADMIN_ID seeded
             # above; both text columns are non-blank for the evidence CHECK. The project

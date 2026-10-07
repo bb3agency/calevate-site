@@ -6,8 +6,8 @@
 # and raises a REVIEWABLE pull request when one moves, rewriting both the SHA and the
 # `# vX.Y.Z` comment together so the two never drift.
 #
-# SCOPE IS DELIBERATELY `github-actions` ONLY. Those live under `.github/` and are CI's
-# own supply chain. The application dependency trees (pnpm/`apps/web`, uv/`pyproject`)
+# SCOPE IS `github-actions` AND the server image's `docker` base (below). The application
+# dependency trees (pnpm/`apps/web`, uv/`pyproject`)
 # are governed elsewhere — `pnpm-workspace.yaml` already pins CVE overrides by hand and
 # carries a release-age quarantine — and adding their ecosystems here is a dependency-
 # policy decision for the maintainer, not a CI-hardening default. Turn them on by adding
@@ -30,3 +30,16 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+
+  # The server image's base is pinned by digest (Dockerfile, hard rule 9). Without this
+  # block the pin would age past Debian and CPython security fixes.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "build"
+    labels:
+      - "dependencies"
+      - "docker"

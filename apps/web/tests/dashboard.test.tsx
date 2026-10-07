@@ -156,7 +156,7 @@ const USAGE: UsagePanel = {
   llm_surcharge_rate_inr: null,
   llm_surcharge_minutes: "0.00",
   llm_surcharge_inr: "0.00",
-  llm_surcharge_models: [],
+  llm_surcharge_tiers: [],
   monthly_fee_inr: "4999.00",
   // The server's total: ₹4,999.00 retainer + ₹10,159.00 overage + ₹0.00 upgrade.
   month_charges_inr: "15158.00",
@@ -474,7 +474,7 @@ describe("the dashboard renders what the server said, or says it could not", () 
           llm_surcharge_rate_inr: "1.5000",
           llm_surcharge_minutes: "120.50",
           llm_surcharge_inr: "180.75",
-          llm_surcharge_models: ["gpt-4.1-mini"],
+          llm_surcharge_tiers: ["Plus"],
           // ₹4,999.00 retainer + ₹180.75 upgrade, and NO overage — the whole point of
           // this case is that the total is neither ₹0.00 nor the retainer alone.
           month_charges_inr: "5179.75",

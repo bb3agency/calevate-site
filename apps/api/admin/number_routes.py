@@ -47,6 +47,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
+from apps.api.engine.hosted_platform import engine_number_console
 
 router = APIRouter(prefix="/v1/admin/numbers", tags=["admin"])
 
@@ -466,6 +467,145 @@ async def tenant_numbers(
         )
         for row in rows
     ]
+
+
+class EngineNumberOut(BaseModel):
+    """One number the voice platform holds, from its own list."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    e164: str
+    #: Whose network the number is on, as the platform names it.
+    provider: str | None
+    #: Rented from the platform (True) or brought from the account's own carrier (False).
+    engine_owned: bool | None
+    #: This client's agent that answers it, when one does.
+    agent_id: UUID | None
+    agent_name: str | None
+    #: Nobody answers it: it can be pointed at one of this client's agents.
+    unassigned: bool
+
+
+class EngineAgentOut(BaseModel):
+    """One of this client's published agents, with the id the platform's console shows."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    name: str
+    engine_agent_ref: str
+    #: Does any number the platform holds answer with this agent?
+    answers_a_number: bool
+
+
+class EngineNumbersOut(BaseModel):
+    """The numbers held at a voice platform that rents and attaches them in its OWN console.
+
+    `managed_in_engine_console` is False on every engine whose numbers this console records
+    and routes itself; the lists are then empty and nothing was read from the engine.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    managed_in_engine_console: bool
+    platform: str | None
+    #: The console steps that rent a number and make it answer, in order.
+    steps: list[str]
+    notes: list[str]
+    numbers: list[EngineNumberOut]
+    #: Numbers answered by agents that are not this client's, counted and not listed.
+    other_numbers: int
+    agents: list[EngineAgentOut]
+
+
+_ENGINE_PUBLISHED_AGENTS = (
+    "SELECT id, name, engine_agent_ref FROM agents WHERE deleted_at IS NULL "
+    "AND engine = :engine AND engine_agent_ref IS NOT NULL ORDER BY name, id LIMIT :limit"
+)
+
+
+@router.get(
+    "/tenants/{tenant_id}/engine",
+    response_model=EngineNumbersOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Numbers held at the voice platform's own console, and how to attach one",
+    description=(
+        "On a voice platform where numbers are rented and pointed at agents only in its "
+        "own console, lists what the platform holds that this client's agents answer or "
+        "that nobody answers yet, this client's published agents with the id the console "
+        "shows, and the console steps. Read-only. On any other platform it says so and "
+        "reads nothing."
+    ),
+)
+async def tenant_engine_numbers(
+    tenant_id: UUID,
+    session: AdminSession,
+    request: Request,
+    principal: NumberOperator,
+) -> EngineNumbersOut:
+    engine = get_engine()
+    console = engine_number_console(engine)
+    if console is None:
+        return EngineNumbersOut(
+            managed_in_engine_console=False,
+            platform=None,
+            steps=[],
+            notes=[],
+            numbers=[],
+            other_numbers=0,
+            agents=[],
+        )
+    async with tenant_session(tenant_id) as scoped:
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
+        rows = (
+            await scoped.execute(
+                text(_ENGINE_PUBLISHED_AGENTS), {"engine": engine.name, "limit": 200}
+            )
+        ).all()
+    await record_admin_tenant_read(
+        session, request=request, principal=principal, tenant_id=tenant_id
+    )
+    ours = {str(row[2]): (row[0], str(row[1])) for row in rows}
+    held = await engine.list_engine_numbers()
+    numbers: list[EngineNumberOut] = []
+    other = 0
+    answering: set[str] = set()
+    for number in held:
+        ref = number.answering_agent_ref
+        if ref is not None and ref not in ours:
+            other += 1
+            continue
+        agent = ours.get(ref) if ref is not None else None
+        if ref is not None:
+            answering.add(ref)
+        numbers.append(
+            EngineNumberOut(
+                e164=number.e164,
+                provider=number.provider,
+                engine_owned=number.engine_owned,
+                agent_id=agent[0] if agent else None,
+                agent_name=agent[1] if agent else None,
+                unassigned=ref is None,
+            )
+        )
+    return EngineNumbersOut(
+        managed_in_engine_console=True,
+        platform=console.platform_label,
+        steps=list(console.steps),
+        notes=list(console.notes),
+        numbers=numbers,
+        other_numbers=other,
+        agents=[
+            EngineAgentOut(
+                agent_id=agent_id,
+                name=name,
+                engine_agent_ref=ref,
+                answers_a_number=ref in answering,
+            )
+            for ref, (agent_id, name) in ours.items()
+        ],
+    )
 
 
 __all__ = ["router"]

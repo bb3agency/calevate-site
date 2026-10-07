@@ -6,8 +6,8 @@ import {
   packMinutes,
   packRate,
   tierLabel,
-  UNPRICED_TIER,
-  UNPRICED_TIER_NOTICE,
+  voiceNotOffered,
+  voiceNotOfferedNotice,
   VOICE_TIERS,
   type PublicRateCard,
   type RateCardPack,
@@ -175,15 +175,16 @@ function VoicePanel({ card, voice }: { card: PublicRateCard; voice: VoiceTier })
           (D-629). The figures below are real and are frozen on any credit bought today, so
           the table is not hidden and no rung is struck through — what would be dishonest is
           six rungs of a voice we will not set an agent to, printed with nothing saying it.
-          The sentence is `lib/api/rateCard.UNPRICED_TIER_NOTICE`, whole, for the reason
-          that constant gives: three surfaces, one wording. `role="status"` because it is
-          the state of the panel a reader just switched to. */}
-      {voice === UNPRICED_TIER && (
+          The sentence is the server's (`lib/api/rateCard.voiceNotOfferedNotice`), whole:
+          three surfaces, one wording, and the voice it names follows the deployment's
+          engine. `role="status"` because it is the state of the panel a reader just
+          switched to. */}
+      {voice === voiceNotOffered(card) && (
         <p
           role="status"
           className="mb-4 rounded-card border border-dashed border-line bg-surface p-3 text-sm text-ink-muted"
         >
-          {UNPRICED_TIER_NOTICE}
+          {voiceNotOfferedNotice(card)}
         </p>
       )}
       {/* `ScrollRegion`, not a bare `overflow-x-auto`: a scroll container no keyboard can

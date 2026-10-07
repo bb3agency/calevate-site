@@ -38,7 +38,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Final, Literal, cast
-from urllib.parse import parse_qsl, quote, urlencode
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from uuid import UUID
 from xml.etree.ElementTree import Element, tostring
 
@@ -47,11 +47,16 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from calevate_shared.carrier import (
+    CALLBACK_SECRET_PARAM,
+    CALLBACK_SECRET_SETTINGS,
     RECORDED_SEGMENT,
     VOBIZ_CALLBACK_IPS,
     CarrierName,
+    accepted_callback_secrets,
+    callback_secret_for,
     events_path,
     is_carrier,
+    with_callback_secret,
 )
 from calevate_shared.carrier_token import open_sealed, usable_secret
 from calevate_shared.client_address import client_ip
@@ -73,15 +78,16 @@ from carrier_auth import (
     VOBIZ_SIGNATURE_V3,
     AuthMethod,
     SignatureScheme,
+    check_callback_secret,
     check_signature,
     ip_in,
     parse_networks,
     signed_base_urls,
     split_list,
 )
-from engine_intake import scalar_hint
+from engine_intake import keyable, scalar_hint
 from fastapi import APIRouter, Request, Response
-from webhook_routes import AckMeter, read_bounded
+from webhook_routes import AckMeter, read_bounded, stamp_ack
 
 log = get_logger(__name__)
 
@@ -106,6 +112,20 @@ EvidenceClass = Literal["VERIFIED-VENDOR-DOCS", "VENDOR-PUBLISHED", "REPORTED", 
 #: The sealed number rides `worker_api.CALLER_SEAL_PARAM`, which both import.
 CLAIM_CARRIER_PARAM: Final = "carrier"
 CLAIM_CALLER_STATE_PARAM: Final = "caller_state"
+
+#: Every parameter a claim may set. A base URL carrying one of these names has it dropped,
+#: so a value in the configured base can never stand in for a claim the worker believes.
+_STREAM_CLAIM_PARAMS: Final = frozenset(
+    {
+        CLAIM_CARRIER_PARAM,
+        CLAIM_CALLER_STATE_PARAM,
+        CALLER_SEAL_PARAM,
+        CALL_ID_PARAM,
+        CALL_DIRECTION_PARAM,
+        CALL_CLAIM_EXPIRES_PARAM,
+        CALL_CLAIM_MAC_PARAM,
+    }
+)
 
 #: The one problem every refusal on these routes answers with. A distinct status, code
 #: or sentence per cause would tell a prober which half of its guess was right (the ref,
@@ -457,8 +477,44 @@ class CarrierAuthVerdict:
     reason: str
 
 
+def _callback_secret_verdict(carrier: str, request: Request) -> CarrierAuthVerdict | None:
+    """The shared-secret check (D-673): a refusal, an admission by secret, or `None` when
+    this carrier carries no secret.
+
+    A carrier with a secret setting and no usable value is refused outside `local`: the
+    source addresses are shared by every customer of the carrier, so admitting on them alone
+    is the exposure this check closes, and a missing secret is a misconfiguration the deploy
+    gate and `/healthz/ready` both name. `local` admits, so a developer's carrier double
+    needs no secret.
+    """
+    if carrier not in CALLBACK_SECRET_SETTINGS:
+        return None
+    settings = get_settings()
+    outcome = check_callback_secret(
+        request.query_params.getlist(CALLBACK_SECRET_PARAM),
+        accepted_callback_secrets(carrier, settings),
+    )
+    if outcome == "matched":
+        return CarrierAuthVerdict(
+            ok=True, method="callback_secret", reason="callback secret matched"
+        )
+    if outcome == "unconfigured":
+        if settings.app_env == "local":
+            return None
+        return CarrierAuthVerdict(
+            ok=False, method="callback_secret", reason="callback secret not configured"
+        )
+    reason = "callback secret missing" if outcome == "absent" else "callback secret invalid"
+    return CarrierAuthVerdict(ok=False, method="callback_secret", reason=reason)
+
+
 def authenticate(carrier: str, request: Request) -> CarrierAuthVerdict:
-    """Source address first, then signature. Both must pass; the stronger one is reported.
+    """Source address, then our callback secret, then signature. All that apply must pass;
+    the strongest is reported.
+
+    The secret does not replace the address check or the signature: a request from outside
+    the carrier's published range is refused whatever it carries, and a present signature
+    that fails is refused whatever secret came with it.
 
     SIGNATURE POLICY, for a carrier whose row declares a scheme:
 
@@ -486,9 +542,13 @@ def authenticate(carrier: str, request: Request) -> CarrierAuthVerdict:
     )
     if not source.ok:
         return CarrierAuthVerdict(ok=False, method=source.method, reason=source.reason)
+    secret = _callback_secret_verdict(carrier, request)
+    if secret is not None and not secret.ok:
+        return secret
+    admitted = secret or CarrierAuthVerdict(ok=True, method=source.method, reason=source.reason)
     contract = CARRIER_ANSWER_CONTRACT.get(carrier)
     if contract is None or contract.signature_scheme is None:
-        return CarrierAuthVerdict(ok=True, method=source.method, reason=source.reason)
+        return admitted
 
     key = (
         getattr(settings, contract.signing_key_setting) or None
@@ -520,7 +580,7 @@ def authenticate(carrier: str, request: Request) -> CarrierAuthVerdict:
     if outcome == "absent" and required:
         return CarrierAuthVerdict(ok=False, method="signature", reason="signature required")
     reason = "unsigned" if outcome == "absent" else "signature present but no key to check it"
-    return CarrierAuthVerdict(ok=True, method=source.method, reason=reason)
+    return CarrierAuthVerdict(ok=True, method=admitted.method, reason=reason)
 
 
 def refuse(reason: str, *, carrier: str, surface: str) -> ProblemError:
@@ -638,7 +698,13 @@ async def read_params(request: Request, *, carrier: str) -> tuple[dict[str, str]
             detail="This call event carried more data than this address accepts.",
             status=413,
         )
-    return carrier_params(request.query_params, request.headers.get("content-type", ""), raw)
+    params, readable = carrier_params(
+        request.query_params, request.headers.get("content-type", ""), raw
+    )
+    # Ours, already checked by `authenticate`: kept out of the job payload and the replay
+    # fingerprint, where it would be stored and would split one delivery across a rotation.
+    params.pop(CALLBACK_SECRET_PARAM, None)
+    return params, readable
 
 
 def stream_url(
@@ -664,8 +730,21 @@ def stream_url(
     travel under an HMAC (`call_claim_mac`); they are not personal data, only claims the
     worker must be able to authenticate. With no usable secret both are left off: the worker
     would not believe them.
+
+    The base may carry a query of its own: Pipecat Cloud's telephony endpoint is
+    `wss://<region>.api.pipecat.daily.co/ws/plivo?serviceHost=<agent>.<org>`
+    (docs.pipecat.ai/pipecat-cloud/guides/telephony/plivo-websocket and /guides/regions, read
+    5 Oct 2026). So the ref goes on the base's PATH and the base's own parameters are kept
+    ahead of ours; concatenating onto the whole string would bury the ref inside
+    `serviceHost` and leave a second `?` in the URL.
     """
-    url = f"{base_wss_url.rstrip('/')}/{quote(ref, safe='')}"
+    base = urlsplit(base_wss_url.strip())
+    url_path = f"{base.path.rstrip('/')}/{quote(ref, safe='')}"
+    base_params = [
+        (name, value)
+        for name, value in parse_qsl(base.query, keep_blank_values=True)
+        if name not in _STREAM_CLAIM_PARAMS
+    ]
     claim: dict[str, str] = {}
     if carrier is not None:
         claim[CLAIM_CARRIER_PARAM] = carrier
@@ -686,7 +765,8 @@ def stream_url(
         claim[CALL_CLAIM_MAC_PARAM] = call_claim_mac(
             claim_key, ref=ref, call_id=call_id, direction=direction, expires_at=expires_at
         )
-    return f"{url}?{urlencode(claim)}" if claim else url
+    query = urlencode([*base_params, *claim.items()])
+    return urlunsplit((base.scheme, base.netloc, url_path, query, ""))
 
 
 @dataclass(frozen=True, slots=True)
@@ -848,7 +928,11 @@ def session_recording_for(
         )
         return SessionRecording(callback_url=None)
     path = events_path(cast(CarrierName, contract.carrier), ref, call_id=call_id)
-    return SessionRecording(callback_url=base + path)
+    return SessionRecording(
+        callback_url=with_callback_secret(
+            base + path, callback_secret_for(contract.carrier, settings)
+        )
+    )
 
 
 async def _answer(
@@ -860,6 +944,7 @@ async def _answer(
     before anything is read from its request and before the worker's address is minted.
     The body is read only for a carrier whose row declares a parameter name to look in.
     """
+    started = time.perf_counter()
     surface = "answer"
     contract, verdict = admit(carrier, request, surface=surface)
     tenant_id, agent_id = parse_ref(ref, carrier=carrier, surface=surface)
@@ -885,6 +970,8 @@ async def _answer(
         ),
         recording=recording,
     )
+    response = _xml_response(document)
+    ack_ms = stamp_ack(response, started, carrier, meter=CARRIER_ACK)
     log.info(
         "carrier_answer_served",
         extra={
@@ -892,14 +979,21 @@ async def _answer(
             "tenant_id": str(tenant_id),
             "agent_id": str(agent_id),
             "call_id": ours,
+            # The carrier's id for this call: the key its hangup, its CDR and the worker's
+            # `start.callId` all carry, so one search joins the three legs' logs.
+            "carrier_call_id": keyable(params.get("CallUUID", "")),
             "direction": direction,
+            "ack_ms": ack_ms,
             "auth_method": verdict.method,
+            # The signature outcome under the secret ("unsigned", "signature verified", ...),
+            # which gate 55 records for the answer request.
+            "auth_reason": verdict.reason,
             "caller_identity": caller.state,
             "caller_identity_ground": caller.ground,
             "recorded": recording is not None,
         },
     )
-    return _xml_response(document)
+    return response
 
 
 @router.api_route("/{carrier}/answer/{ref}", methods=["GET", "POST"], include_in_schema=False)
@@ -944,6 +1038,76 @@ async def carrier_answer_outbound_recorded(
 ) -> Response:
     """A call we dialled for an agent published announcing a recording."""
     return await _answer(carrier, ref, call_id, request, recorded=True)
+
+
+#: The `<Hangup>` reason the fallback document gives. Vobiz invokes the fallback only when
+#: the answer URL is unreachable, times out or returns no valid XML, and "with no fallback
+#: set, the call drops" (`applications/create-application.md:34`, `call/make-call.md:44`).
+#:
+#: `busy` rather than a spoken apology: a `<Hangup>` placed first rejects an inbound call
+#: WITHOUT answering or billing it, and `busy` gives the caller a busy tone
+#: (`xml/hangup.md:13-21,37-46`), the one "try again later" signal that needs no language —
+#: `<Speak>` offers only European and American voices (`xml/speak.md:62-80`), none a caller
+#: of a Telugu-first product would be addressed in. On a call that is already answered (an
+#: outbound dial) the vendor ignores the reason and ends it as a normal hangup (`:20-21`).
+FALLBACK_HANGUP_REASON: Final = "busy"
+
+
+def fallback_document() -> str:
+    """`<Response><Hangup reason="busy"/></Response>`. Static: it must not depend on
+    anything the failed answer depended on, and `infra/nginx/calevate.conf.template` serves
+    the same bytes when voice-runtime itself is down."""
+    response = Element("Response")
+    response.append(Element("Hangup", {"reason": FALLBACK_HANGUP_REASON}))
+    return _xml(response)
+
+
+@router.api_route("/{carrier}/fallback", methods=["GET", "POST"], include_in_schema=False)
+async def carrier_fallback(carrier: str, request: Request) -> Response:
+    """The document the carrier fetches when an answer URL failed (D-675).
+
+    A request that fails `authenticate` is still served the document, with a warning and no
+    alarm: the commonest reason a REAL call's answer fails is the same misconfiguration that
+    would fail it here (a rotated secret, a renumbered carrier), and a caller is better
+    turned away with a busy tone than dropped. The document is static and names nothing,
+    so serving it to a stranger tells them nothing. An authentic request alarms, because it
+    means a caller was turned away.
+    """
+    started = time.perf_counter()
+    surface = "fallback"
+    if not is_carrier(carrier) or carrier not in CARRIER_ANSWER_CONTRACT:
+        raise refuse("carrier_unknown", carrier=carrier, surface=surface)
+    verdict = authenticate(carrier, request)
+    response = _xml_response(fallback_document())
+    if not verdict.ok:
+        log.warning(
+            "carrier_request_refused",
+            extra={"carrier": carrier, "surface": surface, "reason": verdict.reason},
+        )
+        stamp_ack(response, started, carrier, meter=CARRIER_ACK)
+        return response
+    params, _readable = await read_params(request, carrier=carrier)
+    carrier_call_id = keyable(params.get("CallUUID", ""))
+    direction = params.get("Direction", "").strip()
+    alert(
+        "ROUTE_HANDLER",
+        "carrier_answer_fallback_served",
+        detail="the answer URL failed, so the caller was turned away with a busy hangup",
+        carrier=carrier,
+        carrier_call_id=carrier_call_id or "unknown",
+        direction=direction if direction in ("inbound", "outbound") else "unknown",
+    )
+    ack_ms = stamp_ack(response, started, carrier, meter=CARRIER_ACK)
+    log.warning(
+        "carrier_answer_fallback_served",
+        extra={
+            "carrier": carrier,
+            "carrier_call_id": carrier_call_id,
+            "auth_method": verdict.method,
+            "ack_ms": ack_ms,
+        },
+    )
+    return response
 
 
 _E164: Final = re.compile(r"^\+[1-9]\d{6,14}$")
@@ -1061,6 +1225,7 @@ __all__ = [
     "CARRIER_ANSWER_CONTRACT",
     "CLAIM_CALLER_STATE_PARAM",
     "CLAIM_CARRIER_PARAM",
+    "FALLBACK_HANGUP_REASON",
     "RECORDING_FILE_FORMAT",
     "RECORDING_FINISH_ON_KEY",
     "RECORDING_MAX_LENGTH_S",
@@ -1080,6 +1245,7 @@ __all__ = [
     "carrier_label",
     "carrier_params",
     "dial_document",
+    "fallback_document",
     "parse_call_id",
     "parse_ref",
     "read_params",

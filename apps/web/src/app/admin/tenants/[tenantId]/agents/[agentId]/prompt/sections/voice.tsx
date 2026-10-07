@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { InfoTip } from "@/components/console/infoTip";
+import { TenantEngineCatalogue } from "@/components/engineCatalogueList";
 import { VoicePicker } from "@/components/voicePicker";
 import {
   Card,
@@ -12,6 +13,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import type { useAdminAccess } from "@/app/admin/access";
+import type { Agent } from "@/lib/api/agents";
 import type { AgentVoice, AgentVoiceState, PendingState } from "@/lib/api/publishing";
 import {
   useSetAgentVoice,
@@ -65,6 +67,7 @@ export function VoicePanel({
   tenantId,
   agentId,
   slug,
+  agent,
   pending,
   tenantLoading,
   write,
@@ -72,6 +75,8 @@ export function VoicePanel({
   tenantId: string;
   agentId: string;
   slug: string;
+  /** The roster row, for the engine-catalogue picker's saved choice. */
+  agent: Agent | undefined;
   pending: PendingState | undefined;
   tenantLoading: boolean;
   write: ReturnType<typeof useAdminAccess>;
@@ -145,6 +150,11 @@ export function VoicePanel({
           <>
             <VoiceInForce state={state} published={pending?.published} />
             <p className="text-xs text-ink-muted">{catalogue.data.note}</p>
+            <TenantEngineCatalogue
+              slug={slug}
+              agent={agent}
+              disabledReason={write.allowed ? null : write.reason}
+            />
           </>
         ) : (
           <>

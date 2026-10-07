@@ -24,9 +24,10 @@ from uuid import UUID
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing.ai_quota import OVERAGE_META_KIND
-from apps.api.billing.history import spend_series, today_ist
+from apps.api.billing.history import spend_series, statement_page, today_ist
 from apps.api.billing.service import get_balance
 from apps.api.billing.wallet import read_runway
+from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
@@ -227,7 +228,25 @@ async def test_the_series_route_answers_strings_and_refuses_a_bad_range() -> Non
             SERIES, params={"from": "2026-09-10", "to": "2026-09-01"}, headers=owner
         )
         odd_length = await http.get(SERIES, params={"days": 12}, headers=owner)
+        today = today_ist()
+        ranged = await http.get(
+            SERIES,
+            params={"from": (today - timedelta(days=2)).isoformat(), "to": today.isoformat()},
+            headers=owner,
+        )
+        future = await http.get(
+            SERIES,
+            params={"from": today.isoformat(), "to": (today + timedelta(days=1)).isoformat()},
+            headers=owner,
+        )
 
+    assert ranged.status_code == 200, ranged.text
+    assert [d["date"] for d in ranged.json()["days"]] == [
+        (today - timedelta(days=offset)).isoformat() for offset in (2, 1, 0)
+    ]
+    assert future.status_code == 422, future.text
+    assert future.json()["type"].endswith("/invalid_spend_range")
+    assert "future" in future.json()["detail"]
     assert week.status_code == 200, week.text
     body = week.json()
     assert body["basis"] == "wallet_debits"
@@ -253,6 +272,24 @@ async def test_one_tenant_never_sees_another_tenants_spend() -> None:
     assert body["spent_inr"] == "0.00"
     assert body["by_agent"] == []
     assert all(day["spent_inr"] == "0.00" for day in body["days"])
+
+
+async def test_a_window_with_credit_but_no_calls_names_no_agent() -> None:
+    # The per-agent grouping still yields a row for the top-up (agent NULL, calls zero);
+    # an agent list that showed it would list a ₹0 "no agent" spender.
+    org = await _org()
+    tenant_id = UUID(str(org["id"]))
+    await _entry(tenant_id, delta="1000", reason="topup", hours_ago=2)
+    await _entry(tenant_id, delta="50", reason="bonus", hours_ago=1)
+
+    today = today_ist()
+    async with tenant_session(tenant_id) as session:
+        series = await spend_series(
+            session, tenant_id=tenant_id, start=today - timedelta(days=6), end=today
+        )
+
+    assert series.by_agent == ()
+    assert series.spent_inr == Decimal("0")
 
 
 async def test_staff_cannot_read_the_series_or_the_statements() -> None:
@@ -318,6 +355,26 @@ async def test_the_list_pages_back_to_the_month_the_account_opened() -> None:
     assert 4 <= len(months) <= 5  # 100 days spans four or five IST months
     assert too_many.status_code == 422
     assert bad.status_code == 422
+
+
+async def test_a_page_before_the_opening_month_is_empty_not_an_error() -> None:
+    org = await _org()
+    owner, _ = await _member(org)
+
+    async with _client() as http:
+        opening = (await http.get(STATEMENTS, headers=owner)).json()["statements"][-1]["month"]
+        earlier = await http.get(STATEMENTS, params={"before": opening}, headers=owner)
+
+    assert earlier.status_code == 200, earlier.text
+    assert earlier.json() == {"statements": [], "next_before": None}
+
+
+async def test_a_statement_list_for_an_unknown_organization_is_not_found() -> None:
+    missing = uuid.uuid4()
+    async with tenant_session(missing) as session:
+        with pytest.raises(ProblemError) as refused:
+            await statement_page(session, tenant_id=missing, limit=6, before=None)
+    assert refused.value.kind == "not_found"
 
 
 async def test_the_list_counts_credit_and_spend_in_the_month_they_landed() -> None:

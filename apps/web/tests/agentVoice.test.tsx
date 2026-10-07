@@ -11,6 +11,8 @@ import {
   type VoiceTierRates,
 } from "@/lib/api/voices";
 
+import { ENGINE_CATALOGUE_PATH, type EngineCatalogue } from "@/lib/api/engineCatalogue";
+
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, type Routes } from "./harness";
 import { agentRow } from "./fixtures/sharedReads";
@@ -218,6 +220,45 @@ const DICTATED_CATALOGUE: VoiceCatalogue = {
   voices: [],
   tiers: [],
   note: "The voice platform in use supplies its own voices, so a voice cannot be chosen here. Nothing is wrong with this agent.",
+};
+
+/** The platform publishes no catalogue of its own — the list renders nothing. */
+const NO_ENGINE_CATALOGUE: EngineCatalogue = {
+  available: false,
+  complete: true,
+  choosable: true,
+  note: "Voices on this account come from Calevate's own catalogue.",
+  voices: [],
+  models: [],
+};
+
+/** A platform that speaks its own voices: one band priced, one not, one slow model. */
+const ENGINE_CATALOGUE: EngineCatalogue = {
+  available: true,
+  complete: true,
+  choosable: true,
+  note: "1 of 2 voices can be chosen today.",
+  voices: [
+    { voice_id: "3b7e", label: "Anjali", price_band: "standard", is_custom: false, offerable: true, reason: null },
+    {
+      voice_id: "priya",
+      label: "Priya",
+      price_band: "premium",
+      is_custom: false,
+      offerable: false,
+      reason: "No rupee-per-minute rate is attested for ThinnestAI's 'premium' voice band.",
+    },
+  ],
+  models: [
+    {
+      model_id: "gpt-4.1",
+      label: "GPT-4.1",
+      call_capable: false,
+      plan_allows: false,
+      offerable: false,
+      reason: "ThinnestAI lists this model as too slow to answer a phone call.",
+    },
+  ],
 };
 
 /** One stored voice as `GET /v1/agents/{id}/pending` answers it. */
@@ -589,7 +630,10 @@ describe("the voice panel", () => {
     //    runbook for a deployment working exactly as designed.
     //  - the voice in force is STILL shown. "What do callers hear right now" remains a
     //    fair question; it is only the answer that is not ours to change.
-    const { container } = await render({ [VOICES_PATH]: DICTATED_CATALOGUE });
+    const { container } = await render({
+      [VOICES_PATH]: DICTATED_CATALOGUE,
+      [ENGINE_CATALOGUE_PATH]: NO_ENGINE_CATALOGUE,
+    });
 
     await screen.findByText(/supplies its own voices/);
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
@@ -602,6 +646,59 @@ describe("the voice panel", () => {
     // Still answering the question it can answer.
     expect(container.textContent).toContain("Callers hear now");
   });
+
+  it("lists the platform's own voices and models with the reason each cannot be used", async () => {
+    // D-678. On a platform that speaks its own voices, what it offers is still worth seeing,
+    // and an unpriced band says so in the server's words rather than being hidden.
+    const { container } = await render({
+      [VOICES_PATH]: DICTATED_CATALOGUE,
+      [ENGINE_CATALOGUE_PATH]: ENGINE_CATALOGUE,
+    });
+
+    await screen.findByText("Anjali");
+    expect(container.textContent).toContain("1 of 2 voices can be chosen today.");
+    expect(container.textContent).toContain(
+      "Cannot be used — No rupee-per-minute rate is attested for ThinnestAI's 'premium' voice band.",
+    );
+    expect(container.textContent).toContain("too slow to answer a phone call");
+    // A picker now (D-678): the priced voice can be chosen, the unpriced one cannot.
+    expect((screen.getByRole("radio", { name: /Anjali/ }) as HTMLInputElement).disabled).toBe(
+      false,
+    );
+    expect((screen.getByRole("radio", { name: /Priya/ }) as HTMLInputElement).disabled).toBe(
+      true,
+    );
+    expect((screen.getByRole("radio", { name: /GPT-4\.1/ }) as HTMLInputElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it("saves the platform voice it picks through the agent update route, as the client", async () => {
+    // D-678. The write is `PATCH /v1/agents/{id}` on the view-as session, sending only the
+    // field that moved; the server checks it against the catalogue and the attested rates.
+    const { calls } = await render({
+      [VOICES_PATH]: DICTATED_CATALOGUE,
+      [ENGINE_CATALOGUE_PATH]: ENGINE_CATALOGUE,
+      [`PATCH /v1/agents/${AGENT}`]: agentRow({ id: AGENT, engine_voice_id: "3b7e" }),
+    });
+
+    const save = await screen.findByRole("button", { name: "Save voice and model" });
+    // The roster row has no choice saved, so "Platform default" is checked.
+    const defaults = screen.getAllByRole("radio", { name: /Platform default/ });
+    expect((defaults[0] as HTMLInputElement).checked).toBe(true);
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("radio", { name: /Anjali/ }));
+    fireEvent.click(save);
+
+    const path = `/v1/agents/${AGENT}`;
+    await waitFor(() =>
+      expect(calls.some((c) => c.path === path && c.method === "PATCH")).toBe(true),
+    );
+    const write = calls.find((c) => c.path === path && c.method === "PATCH")!;
+    expect(JSON.parse(write.body!)).toEqual({ engine_voice_id: "3b7e" });
+    expect(write.headers["X-Impersonate-Org"]).toBe("sunrise");
+  });
+
 
   it("renders a refusal, not an empty picker, when the catalogue cannot be read", async () => {
     // §52. A `<select>` with only "Choose a voice" in it says "there are no voices",

@@ -153,6 +153,32 @@ renders them read-only when the environment supplies them. `.env.example` carrie
 current census of what is on each side of the line (55 console-managed today, 37
 core-config + 18 credentials, counted from `managed_fields()` rather than remembered).
 
+**Env-only by decision, beside the bootstrap set.** Some keys could technically live in the
+store and are kept out of it on purpose: `apps/api/core/settings.ENV_ONLY_REASONS` names
+each with its reason, the console shows them read-only and REFUSES to store them, and
+`ENV_ONLY_FOREIGN_ENV` marks the ones held by another environment (the Pipecat Cloud secret
+set) so their absence here does not read as a fault. Today that is `RESEND_API_KEY`, the
+carrier credentials (`VOBIZ_AUTH_ID`/`VOBIZ_AUTH_TOKEN`, `PLIVO_AUTH_ID`/`PLIVO_AUTH_TOKEN`),
+`CARRIER_CLAIM_SECRET`, `VOBIZ_CALLBACK_SECRET` and its `_RETIRED` twin (D-673),
+`PIPECAT_WORKER_API_BASE_URL`, `GNANI_API_KEY`, and the ThinnestAI pair `THINNEST_API_KEY` /
+`THINNEST_API_BASE_URL` (D-678: the adapter captures the key at start-up, and the base URL
+decides which host the key is sent to) — read the dict, not this sentence, for
+the current list. The carrier SWITCHES are console-managed: `carrier`,
+`carrier_concurrency`, `carrier_cps`, `inbound_reserve_ratio`, `carrier_recording_enabled`
+(needs republish), `carrier_transfer_enabled`, `vobiz_signature_required` and
+`vobiz_callback_ips`; DEPLOYMENT's carrier table gives each one's default and effect.
+ThinnestAI's own call ceiling, `thinnest_max_concurrent_calls` (default 5, applies live), is
+console-managed the same way and plays `carrier_concurrency`'s part on `ENGINE=thinnest`.
+Its other console-managed settings are `thinnest_byok_enabled` (needs republish; the
+operator's statement that the ThinnestAI workspace runs on its own keys) and
+`engine_actions_base_url` (needs republish; the public API origin its in-call actions call).
+`ENGINE_INTAKE_KEK` is env-only, in `ENV_ONLY_REASONS`. No BYOK provider key is stored here:
+ThinnestAI documents a BYOK API since 7 Oct 2026, but BYOK calls are not on sale (D-681) and
+the keys, when used, are entered in ThinnestAI (`docs/THINNEST-INTEGRATION.md` §4).
+The ThinnestAI keys appear in the console's Calling section with plain labels, and
+`/healthz/ready` names `THINNEST_API_KEY`, `ENGINE_INTAKE_KEK`, `WEBHOOK_BASE_URL` and
+`ENGINE_ACTIONS_BASE_URL` on `ENGINE=thinnest` when one is missing or unusable (D-682).
+
 ## 5. Data model
 
 Neither table is tenant-scoped. They are PLATFORM state, admin realm only, and they

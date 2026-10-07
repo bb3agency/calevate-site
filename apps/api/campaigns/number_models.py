@@ -95,7 +95,7 @@ class NumberPriceAttestation(PKMixin, Base):
     #: pricing screen is exactly the figure that gets repeated later as if it were a fact.
     source: Mapped[str] = mapped_column(Text, nullable=False)
     attested_by: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+        ForeignKey("admin_users.id", ondelete="RESTRICT"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

@@ -839,12 +839,15 @@ async def test_the_dial_gate_refuses_a_tenant_without_an_accepted_application(
 
 
 async def test_a_tenant_dialling_from_its_own_connection_is_not_refused(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, on_plivo: None
 ) -> None:
     """The scoping, asserted rather than described. Every number on this platform today is
     a client's own, so a supply-blind blocker would have halted every existing client's
-    calling the day it shipped."""
-    from apps.api.compliance.service import check_dispatch
+    calling the day it shipped.
+
+    On Plivo, the carrier that needs the application: on Vobiz the blocker answers None
+    before it looks at the number, so the scoping would go unexercised."""
+    from apps.api.compliance.service import carrier_application_blocker, check_dispatch
 
     monkeypatch.setattr("apps.api.compliance.service.within_calling_hours", lambda *a, **k: True)
     org = await _tenant()
@@ -853,6 +856,10 @@ async def test_a_tenant_dialling_from_its_own_connection_is_not_refused(
     await arm_agent_for_outbound(tenant_id, agent_id)
 
     async with tenant_session(tenant_id) as session:
+        assert (
+            await carrier_application_blocker(session, tenant_id=tenant_id, agent_id=agent_id)
+            is None
+        )
         decision = await check_dispatch(
             session, tenant_id=tenant_id, agent_id=agent_id, phone_e164="+919000000012"
         )

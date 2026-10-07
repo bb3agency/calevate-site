@@ -30,6 +30,9 @@ export const NUMBER_PRICING_QUERY_KEY = ["admin", "number-pricing"] as const;
 export type NumberPrice = Schemas["NumberPriceOut"];
 export type NumberPriceIn = Schemas["NumberPriceIn"];
 
+/** The step-up string, copied verbatim from the route that checks it. */
+export const ATTEST_NUMBER_PRICE_CONFIRMATION = "attest_number_price";
+
 export function useNumberPrice(): UseQueryResult<NumberPrice> {
   return useQuery({
     queryKey: NUMBER_PRICING_QUERY_KEY,
@@ -43,7 +46,11 @@ export function useAttestNumberPrice() {
     // The figure travels as the string the operator typed: `inr_per_month` is a Decimal on
     // the server and a JSON float would round it before validation saw it.
     mutationFn: (body: NumberPriceIn & { inr_per_month: string }) =>
-      apiRequest<NumberPrice>(adminSession(), NUMBER_PRICING_PATH, { method: "POST", body }),
+      apiRequest<NumberPrice>(adminSession(), NUMBER_PRICING_PATH, {
+        method: "POST",
+        body,
+        confirmAction: ATTEST_NUMBER_PRICE_CONFIRMATION,
+      }),
     onSuccess: (price) => {
       client.setQueryData(NUMBER_PRICING_QUERY_KEY, price);
     },

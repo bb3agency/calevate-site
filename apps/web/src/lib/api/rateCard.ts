@@ -201,44 +201,29 @@ export function tierLabel(card: PublicRateCard, voice: VoiceTier): string {
 }
 
 /**
- * **THE TIER NO AGENT CAN BE PUT ON RIGHT NOW, AND THE ONE SENTENCE THAT SAYS SO (D-629).**
+ * **THE VOICE NO AGENT CAN BE PUT ON ON THIS DEPLOYMENT, AND THE ONE SENTENCE THAT SAYS SO.**
  *
- * D-629 removed Sarvam from the TEXT-TO-SPEECH leg entirely — it still transcribes every
- * call, it no longer speaks on any — and gave the cheaper rung to Gnani. Hard rule 7 keeps
- * every Gnani voice out of what anyone can select until an operator attests a real INVOICE
- * figure. The rung therefore EXISTS, has a vendor, prices minutes on every credit lot — and
- * cannot be chosen.
- *
- * Gnani DO publish a catalogue rate — ₹27.00 / 10,000 characters
- * (`app.gnani.ai/voice/pricing`, VENDOR-PUBLISHED, read by the founder 19 Sep 2026 and
- * relayed; D-631) — and it changes nothing here, because the notice rests on our not having
- * established what a MINUTE costs and a catalogue rate is not an invoice. The other figure
- * in the wild is a RESELLER's for their own platform (`docs/PIPECAT-MIGRATION.md` §7); a
- * number that turns out to match is still not a source.
- *
- * A public page that goes on leading with its rate, and a client screen that goes on saying
- * a new agent starts on it, would both be advertising a voice nobody can be put on. This is
- * what they say instead, in ONE place: three surfaces render it (`/pricing`'s rate table,
- * the ROI calculator's voice options, the client's "What calls cost"), and three typed
- * copies is how a client meets three versions of one fact.
- *
- * **IT IS A PRODUCT FACT, NOT A DEPLOYMENT ONE, WHICH IS WHY IT MAY BE TYPED HERE AT ALL.**
- * Whether a particular deployment has a credential installed is the SERVER's answer, per
- * voice and per audience (`agents/voice_offer.unofferable_reason`, rendered verbatim by
- * `components/voicePicker.tsx`) and is never composed in the browser. "Nobody has priced
- * this vendor" is true of the product everywhere, and the public rate-card route carries no
- * availability field to ask. When the price is attested, this constant and its three call
- * sites are deleted together — that is the whole change, and it is why the notice is one
- * export rather than three sentences.
+ * The server decides both (`billing/payment_routes.voice_tier_not_offered`), because the
+ * answer follows the voice engine: on the engine that speaks our own voices the cheaper rung
+ * has no attested invoice figure (D-629, hard rule 7), and on an engine that sells its own
+ * voices by band only the rungs those bands are sold as are open (D-681: Clear, with Studio
+ * held back). A rate the buyer cannot be put on still prices credit bought today, so the
+ * pages print its table with this sentence beside it rather than hiding it. Three surfaces
+ * render it (`/pricing`, the ROI calculator, the client's "What calls cost"), all from here.
  */
-export const UNPRICED_TIER: VoiceTier = "clear";
+export function voiceNotOffered(card: PublicRateCard): VoiceTier | null {
+  return card.voice_not_offered ?? null;
+}
 
-/** The sentence itself. Rendered verbatim; never reworded at a call site. */
-export const UNPRICED_TIER_NOTICE =
-  "Not available to choose yet: the vendor that speaks this voice changed and we have not " +
-  "established what one minute of it costs, so we will not put an agent on it. Its rate is " +
-  "still fixed on credit you buy today, and it costs you nothing to move an agent onto it " +
-  "once it opens.";
+/** The server's sentence for `voiceNotOffered`, rendered verbatim, or null. */
+export function voiceNotOfferedNotice(card: PublicRateCard): string | null {
+  return card.voice_not_offered_notice ?? null;
+}
+
+/** The voice a headline quotes: one somebody can actually be put on. */
+export function headlineVoice(card: PublicRateCard): VoiceTier {
+  return voiceNotOffered(card) === "studio" ? "clear" : "studio";
+}
 
 export const PUBLIC_RATE_CARD_PATH = "/v1/public/rate-card";
 
@@ -295,9 +280,9 @@ export function formatAmountINR(amount: string): string {
  *
  * PER VOICE since D-547, and it has to be: the two columns fall at different speeds
  * (Studio 7.00 → 5.50 against a FLAT Clear 4.00), so "the cheapest pack" is a question
- * with two answers and the old single-rate form silently answered the Sarvam one for both.
+ * with two answers and the old single-rate form silently answered the Clear one for both.
  * It matched on `effective_rate_inr_per_min`, a field that is now deprecated and holds the
- * Sarvam figure for unmigrated readers — which is exactly how a caller asking about the
+ * Clear figure for unmigrated readers — which is exactly how a caller asking about the
  * dearer voice would have been handed the cheaper voice's pack and never noticed.
  */
 export function cheapestPack(

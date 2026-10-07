@@ -200,7 +200,7 @@ TENANT_ERASURE_LIMITATIONS: tuple[str, ...] = (
     "deleted by this system, so this certificate does not claim a deletion it cannot "
     "show: confirm the engine-side erasure in writing before telling the client their "
     "data is gone everywhere. The same holds for three more vendors that handled these "
-    "calls: the telephone carrier, Vobiz, which keeps its own records of every call it "
+    "calls: the telephone carrier, which keeps its own records of every call it "
     "connected and publishes no way to delete one, and the speech and language services, "
     "which publish no way to delete one customer's data. Each is a written request "
     "opened against this erasure, and none is recorded here as made. The agents "
@@ -349,7 +349,7 @@ TENANT_ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "certificate reports engine-side deletion as "
             "'unconfirmed_pending_vendor_api' rather than claiming something it cannot "
             "show; each is a written request, opened against this erasure. So are the "
-            "copies held by the telephone carrier, Vobiz — its records of every call it "
+            "copies held by the telephone carrier — its records of every call it "
             "connected, which its published interface lists and exports but cannot "
             "delete — and by the speech and language services, neither of which publishes "
             "a way to delete one customer's data. None of those requests is recorded here "
@@ -424,12 +424,8 @@ TENANT_ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "registration document names people, and keeping it after the engagement ends "
             "is not a thing a certificate may pass over in silence."
         ),
-        # `workers/storage.py` carries the correction this entry pairs with: both prefix
-        # comments claimed an offboarding swept them and neither sweep exists. The arm
-        # belongs in `workers/retention.py::execute_tenant_erasure`; `infra/README.md`
-        # §"kb-uploads/"/"carrier-compliance/" already records that the 7-year rule is a
-        # ceiling and NOT a retention period. The sentence below says all of it without
-        # citing a document this reader does not have.
+        # The sweep is `workers/retention.py::execute_tenant_erasure` over
+        # `storage.kb_tenant_prefix` and `storage.carrier_tenant_prefix`.
         authority=(
             "Calevate's erasure scope is the caller data this account collected — calls, "
             "transcripts, extracted fields, leads and recordings — and a document the "

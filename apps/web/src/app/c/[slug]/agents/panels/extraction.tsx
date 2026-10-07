@@ -175,8 +175,8 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
       },
       {
         key: "agent_llm_model",
-        label: "AI model it runs on",
-        value: `${agent.llm_model_effective} (chosen at the ${agent.llm_model_source} level)`,
+        label: "AI model tier it runs on",
+        value: `${agent.llm_tier_label} (chosen at the ${agent.llm_tier_source} level)`,
       },
       {
         key: "agent_announcements",

@@ -125,7 +125,7 @@ from calevate_shared.worker_api import (
     verify_call_claim,
 )
 from loguru import logger
-from pipecat.frames.frames import EndWorkerFrame
+from pipecat.frames.frames import EndWorkerFrame, InterruptionFrame
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.base_serializer import FrameSerializer
 from pipecat.serializers.plivo import PlivoFrameSerializer
@@ -1016,7 +1016,12 @@ def arm_first_turn(transport: BaseTransport, call: AssembledCall, *, call_id: st
 
     async def _hang_up(*_args: Any) -> None:
         logger.info("carrier call disconnected by the far end", call_id=call_id)
-        await call.worker.queue_frames([EndWorkerFrame(reason="caller hung up")])
+        # INTERRUPT FIRST: nobody is listening, so the reply in flight is cut where it stands
+        # instead of being generated and synthesised (and billed) into a closed socket. The
+        # assistant aggregator then records only what was spoken, as on a barge-in.
+        await call.worker.queue_frames(
+            [InterruptionFrame(), EndWorkerFrame(reason="caller hung up")]
+        )
 
     transport.add_event_handler(CLIENT_CONNECTED_EVENT, _greet)
     transport.add_event_handler(CLIENT_DISCONNECTED_EVENT, _hang_up)

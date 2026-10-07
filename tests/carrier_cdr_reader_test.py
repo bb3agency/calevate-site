@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -32,6 +33,9 @@ from apps.workers import carrier_events
 from apps.workers.carrier_events import (
     CARRIER_CDR_META_KIND,
     CDR_JOB,
+    FINALISE_GRACE_S,
+    FINALISE_JOB,
+    LIVE_PROBE_AFTER,
     carrier_cost_inr,
     read_carrier_cdr,
     reconcile_carrier_cdrs,
@@ -405,3 +409,149 @@ async def test_an_uncharged_dial_nobody_answered_owes_nothing_and_is_not_read_ag
 
     seen.enqueued.clear()
     assert (await reconcile_carrier_cdrs({})).startswith("enqueued=0 ")
+
+
+# ---------------------------------------------------------------- a hangup never received
+
+
+async def _live_call(
+    tenant_id: uuid.UUID, agent_id: uuid.UUID, *, began_ago_min: int, status: str = "in_progress"
+) -> tuple[uuid.UUID, str]:
+    """A row still live on our side: neither its hangup nor a worker settlement arrived."""
+    ccid = f"cuuid-{uuid.uuid4().hex}"
+    call_id = await make_call(tenant_id, agent_id, status=status, carrier_call_id=ccid)
+    began = datetime.now(UTC) - timedelta(minutes=began_ago_min)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET created_at = :b, started_at = :b WHERE id = :i"),
+            {"b": began, "i": call_id},
+        )
+    return call_id, ccid
+
+
+async def _row(tenant_id: uuid.UUID, call_id: uuid.UUID) -> tuple[str, Any]:
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text("SELECT status, ended_at FROM calls WHERE id = :i"), {"i": call_id}
+            )
+        ).one()
+    return str(row[0]), row[1]
+
+
+async def test_a_live_row_the_carrier_has_a_record_for_is_ended_and_backstopped(
+    carrier: FakeCarrier, seen: Recorder
+) -> None:
+    """The lost hangup: before the fix the row stayed live, held a carrier line for 70
+    minutes, and no settlement backstop was ever queued, so the call was never billed."""
+    tenant_id, agent_id, _ref = await make_tenant()
+    call_id, ccid = await _live_call(tenant_id, agent_id, began_ago_min=12)
+    ended = datetime.now(UTC) - timedelta(minutes=3)
+    carrier.cdr = replace(_cdr(ccid, billed=93), ended_at=ended)
+
+    # The meter has not run, so the cost row waits on its ladder, as for any completed call.
+    with pytest.raises(Retry):
+        await read_carrier_cdr({"job_try": 1}, _job(tenant_id, call_id, ccid))
+
+    status, ended_at = await _row(tenant_id, call_id)
+    assert status == "completed"
+    assert ended_at == ended
+    assert [a[1] for a in seen.alerts] == ["carrier_hangup_never_received"]
+    [(_name, body, job_id, kw)] = [e for e in seen.enqueued if e[0] == FINALISE_JOB]
+    assert body == {"tenant_id": str(tenant_id), "call_id": str(call_id)}
+    assert job_id == f"{FINALISE_JOB}:{call_id}"
+    assert kw == {"_defer_by": FINALISE_GRACE_S}
+
+
+async def test_a_live_dial_the_carrier_never_connected_ends_failed_without_a_backstop(
+    carrier: FakeCarrier, seen: Recorder
+) -> None:
+    tenant_id, agent_id, _ref = await make_tenant()
+    call_id, ccid = await _live_call(tenant_id, agent_id, began_ago_min=12, status="ringing")
+    carrier.cdr = _cdr(ccid, cost="0.1500", billed=0)
+
+    assert await read_carrier_cdr({"job_try": 1}, _job(tenant_id, call_id, ccid)) == "recorded"
+
+    assert (await _row(tenant_id, call_id))[0] == "failed"
+    assert [e for e in seen.enqueued if e[0] == FINALISE_JOB] == []
+    [(qty, cost, _meta, _at)] = await _cost_rows(tenant_id, call_id)
+    assert (qty, cost) == (1, Decimal("0.1500"))
+
+
+async def test_a_live_row_with_no_record_yet_is_left_alone_and_silent(
+    carrier: FakeCarrier, seen: Recorder
+) -> None:
+    """A call genuinely still up answers 404: no retry ladder and no alarm, or every long
+    call would page."""
+    tenant_id, agent_id, _ref = await make_tenant()
+    call_id, ccid = await _live_call(tenant_id, agent_id, began_ago_min=12)
+    carrier.cdr = None
+
+    assert await read_carrier_cdr({"job_try": 1}, _job(tenant_id, call_id, ccid)) == "still_live"
+
+    assert (await _row(tenant_id, call_id))[0] == "in_progress"
+    assert seen.alerts == [] and seen.enqueued == []
+
+
+async def test_the_sweep_asks_about_rows_live_past_the_probe_age(
+    monkeypatch: pytest.MonkeyPatch, carrier: FakeCarrier, seen: Recorder
+) -> None:
+    tenant_id, agent_id, _ref = await make_tenant()
+    stale, stale_ccid = await _live_call(tenant_id, agent_id, began_ago_min=12)
+    await _live_call(tenant_id, agent_id, began_ago_min=1)  # still inside the probe age
+    await make_call(tenant_id, agent_id, status="in_progress")  # no carrier call id
+
+    async def _only_this_tenant() -> list[uuid.UUID]:
+        return [tenant_id]
+
+    monkeypatch.setattr(carrier_events, "callable_tenants", _only_this_tenant)
+    outcome = await reconcile_carrier_cdrs({})
+
+    assert " live=1 " in outcome
+    [(_name, body, job_id, _kw)] = [e for e in seen.enqueued if e[0] == CDR_JOB]
+    assert body["call_id"] == str(stale) and body["carrier_call_id"] == stale_ccid
+    assert job_id == f"{CDR_JOB}:vobiz:{stale_ccid}"
+    assert timedelta(minutes=12) > LIVE_PROBE_AFTER
+
+
+@pytest.mark.parametrize(
+    ("status", "billed", "expected"),
+    [
+        # The carrier's own reading of an unanswered dial reaches the campaign's retry rung.
+        ("busy", 0, "busy"),
+        ("no_answer", 0, "no_answer"),
+        # A machine answered: billed, and still not a conversation.
+        ("voicemail", 30, "voicemail"),
+        # Billed talk time is a conversation whatever the cause says.
+        ("failed", 600, "completed"),
+        ("completed", 93, "completed"),
+        ("failed", 0, "failed"),
+        (None, 0, "failed"),
+        (None, 93, "completed"),
+    ],
+)
+def test_a_lost_hangup_is_closed_on_the_carriers_own_reading(
+    status: str | None, billed: int, expected: str
+) -> None:
+    cdr = replace(_cdr("c-1", billed=billed), status=status)  # type: ignore[arg-type]
+    assert carrier_events.status_from_cdr(cdr) == expected
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        # `cdr.md:281-282`: the cause name first, then the numeric code.
+        ({"hangup_cause": "USER_BUSY", "hangup_cause_code": 3010}, "busy"),
+        ({"hangup_cause": "UNKNOWN", "hangup_cause_code": 6010}, "no_answer"),
+        ({"hangup_cause": "NORMAL_CLEARING", "hangup_cause_code": 4000}, "completed"),
+        ({"hangup_cause_code": "3000"}, "no_answer"),
+        ({}, "failed"),
+    ],
+)
+def test_the_vobiz_cdr_carries_its_status_and_code(fields: dict[str, Any], expected: str) -> None:
+    from apps.api.engine.vobiz import parse_cdr
+
+    cdr = parse_cdr({"uuid": "c-1", "billsec": 0, **fields}, carrier_call_id="c-1")
+    assert cdr.status == expected
+    code = fields.get("hangup_cause_code")
+    assert cdr.hangup_cause_code == (int(code) if code is not None else None)

@@ -117,7 +117,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.models import CALL_CAP_DEFAULT_S, CALL_CAP_MAX_S, CALL_CAP_MIN_S
 from apps.api.agents.service import effective_call_cap, publish_agent
-from apps.api.agents.verification import EngineDrift, verify_publish
+from apps.api.agents.verification import EngineDrift, PublishVerification, verify_publish
 from apps.api.agents.voice_offer import (
     VoiceReasonAudience,
     cartesia_tier_could_be_offered,
@@ -1077,6 +1077,7 @@ async def engine_drift_for(
                     disclosure_applied=None,
                     prompt_disclosure_applied=None,
                     truthful_answer_applied=None,
+                    confidentiality_applied=None,
                     voice_applied=None,
                     handoff_applied=None,
                     detail=(
@@ -1121,25 +1122,44 @@ async def _drift_of(
         disclosure_applied=verdict.disclosure_applied,
         prompt_disclosure_applied=verdict.prompt_disclosure_applied,
         truthful_answer_applied=verdict.truthful_answer_applied,
+        confidentiality_applied=verdict.confidentiality_applied,
         voice_applied=verdict.voice_applied,
         handoff_applied=verdict.handoff_applied,
-        detail=(
-            # `verify_publish`'s wording assumes a write just happened. Here nothing did,
-            # so the one verdict whose sentence would be actively misleading is respelled.
-            #
-            # IT ENUMERATES `judge`'s `checked` TUPLE AND MUST KEEP DOING SO. The
-            # handover destination joined that tuple with D-533 and this sentence did
-            # not, so the one drift a roster can produce read back as "a different
-            # script, opening line, truthful-answer rule or voice" — four properties
-            # that are all identical — and sent whoever opened the screen looking at
-            # the script. A verdict that names the wrong cause is worse than a verdict
-            # with no detail at all.
-            "The voice platform is running a different script, opening line, "
-            "truthful-answer rule, voice or handover destination from the one this "
-            "agent last published."
-            if verdict.state == "not_applied"
-            else verdict.detail
-        ),
+        detail=_drift_detail(verdict),
+    )
+
+
+def _drift_detail(verdict: PublishVerification) -> str:
+    """The operator's sentence for one drift verdict.
+
+    `verify_publish`'s wording assumes a write just happened; here nothing did, so the
+    `not_applied` sentence is respelled. It ENUMERATES `judge`'s `checked` tuple and must keep
+    doing so: a verdict that names the wrong cause sends whoever opens the screen looking at
+    the wrong property (the handover destination once read back as "a different script").
+
+    The confidentiality rule alone gets its own sentence because it has one cause that is
+    not drift at all: every agent published before D-674 holds a prompt composed without it,
+    and the fix is a republish, not an investigation of the vendor console.
+    """
+    if verdict.state != "not_applied":
+        return verdict.detail
+    others = (
+        verdict.disclosure_applied,
+        verdict.truthful_answer_applied,
+        verdict.prompt_applied,
+        verdict.voice_applied,
+        verdict.handoff_applied,
+    )
+    if verdict.confidentiality_applied is False and False not in others:
+        return (
+            "The voice platform is running a prompt without the platform's confidentiality "
+            "rule — this agent was last published before that rule existed (D-674). "
+            "Publish it again to apply it."
+        )
+    return (
+        "The voice platform is running a different script, opening line, "
+        "truthful-answer rule, confidentiality rule, voice or handover destination from "
+        "the one this agent last published."
     )
 
 

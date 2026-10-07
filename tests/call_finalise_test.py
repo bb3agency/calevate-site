@@ -103,12 +103,33 @@ async def _finalised_state(tenant_id: uuid.UUID, call_id: uuid.UUID) -> tuple[An
     return duration, promised, tuple(refused)
 
 
+async def _worker_opened(tenant_id: uuid.UUID, call_id: uuid.UUID) -> None:
+    """What a worker's opening event leaves on the row: its session start."""
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET started_at = now() - interval '2 minutes' WHERE id = :c"),
+            {"c": call_id},
+        )
+
+
+async def _status(tenant_id: uuid.UUID, call_id: uuid.UUID) -> str:
+    async with tenant_session(tenant_id) as session:
+        return str(
+            (
+                await session.execute(
+                    text("SELECT status FROM calls WHERE id = :c"), {"c": call_id}
+                )
+            ).scalar_one()
+        )
+
+
 async def test_an_unsettled_answered_call_is_finalised_from_the_carrier_record(
     monkeypatch: pytest.MonkeyPatch, alerts: list[tuple[str, str, dict[str, Any]]]
 ) -> None:
     tenant_id, agent_id, _ref = await make_tenant()
     ccid = f"vz-{uuid.uuid4().hex[:10]}"
     call_id = await make_call(tenant_id, agent_id, status="completed", carrier_call_id=ccid)
+    await _worker_opened(tenant_id, call_id)
     carrier = _Carrier(_cdr(ccid, billsec=42))
     monkeypatch.setattr(call_finalise, "get_carrier", lambda name=None: carrier)
 
@@ -153,6 +174,7 @@ async def test_without_a_carrier_record_the_call_is_still_finalised(
 ) -> None:
     tenant_id, agent_id, _ref = await make_tenant()
     call_id = await make_call(tenant_id, agent_id, status="completed", carrier_call_id=None)
+    await _worker_opened(tenant_id, call_id)
     monkeypatch.setattr(call_finalise, "get_carrier", lambda name=None: _Carrier(None))
 
     outcome = await finalise_unsettled_call(
@@ -162,6 +184,56 @@ async def test_without_a_carrier_record_the_call_is_still_finalised(
     assert outcome == "finalised:no_cdr"
     duration, promised, _refused = await _finalised_state(tenant_id, call_id)
     assert duration is None and promised == 1
+
+
+async def test_a_connected_call_no_worker_ever_opened_is_failed_and_never_billed(
+    monkeypatch: pytest.MonkeyPatch, alerts: list[tuple[str, str, dict[str, Any]]]
+) -> None:
+    """The dialled person answered and heard nothing: no worker session ever started.
+
+    Before the fix this promised the pipeline with the carrier's billsec as the call's length,
+    so the client was charged for talk time nobody spoke, and the campaign contact was held
+    out of its retry ladder by the claim.
+    """
+    tenant_id, agent_id, _ref = await make_tenant()
+    ccid = f"vz-{uuid.uuid4().hex[:10]}"
+    call_id = await make_call(tenant_id, agent_id, status="completed", carrier_call_id=ccid)
+    carrier = _Carrier(_cdr(ccid, billsec=42))
+    monkeypatch.setattr(call_finalise, "get_carrier", lambda name=None: carrier)
+
+    outcome = await finalise_unsettled_call(
+        {"job_try": 1}, {"tenant_id": str(tenant_id), "call_id": str(call_id)}
+    )
+
+    assert outcome == "unserved"
+    assert await _status(tenant_id, call_id) == "failed"
+    assert await _finalised_state(tenant_id, call_id) == (None, 0, ())
+    assert carrier.reads == [], "the CDR job prices the carrier leg; nothing here bills"
+    assert [code for _stage, code, _kw in alerts] == ["answered_call_never_reached_worker"]
+
+
+async def test_a_flushed_turn_proves_a_worker_served_the_call(
+    monkeypatch: pytest.MonkeyPatch, alerts: list[tuple[str, str, dict[str, Any]]]
+) -> None:
+    tenant_id, agent_id, _ref = await make_tenant()
+    call_id = await make_call(tenant_id, agent_id, status="completed", carrier_call_id=None)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO transcript_turns (id, tenant_id, call_id, idx, speaker, text, "
+                "created_at, updated_at) VALUES (:i, :t, :c, 0, 'agent', 'hello', now(), now())"
+            ),
+            {"i": uuid.uuid4(), "t": tenant_id, "c": call_id},
+        )
+    monkeypatch.setattr(call_finalise, "get_carrier", lambda name=None: _Carrier(None))
+
+    outcome = await finalise_unsettled_call(
+        {"job_try": 1}, {"tenant_id": str(tenant_id), "call_id": str(call_id)}
+    )
+
+    assert outcome == "finalised:no_cdr"
+    assert await _status(tenant_id, call_id) == "completed"
+    assert (await _finalised_state(tenant_id, call_id))[1] == 1
 
 
 async def test_a_call_that_is_not_there_is_permanent_and_loud(

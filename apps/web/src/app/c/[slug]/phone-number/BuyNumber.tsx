@@ -132,8 +132,8 @@ function CannotSupply({
       </NoticeBox>
       <p className="text-sm text-ink-muted">
         There is nothing for you to do here. Your account manager arranges your number with
-        you, and Calevate provides it on our own carrier account with Vobiz — there is no
-        operator account for you to open.
+        you, and Calevate provides it on our own telephony account — there is no operator
+        account for you to open.
       </p>
       {unverified && (
         <div className="space-y-2">

@@ -171,7 +171,8 @@ class _RetiredEnvKeyGuard(PydanticBaseSettingsSource):
 
 
 Environment = Literal["local", "staging", "prod"]
-# ThinnestAI was retired by D-31 before any adapter existed — do not re-add it.
+# `thinnest` is the ThinnestAI control-plane engine (D-678, `docs/THINNEST-INTEGRATION.md`);
+# D-31's earlier retirement of that vendor predates any adapter and is superseded.
 # `cartesia` is a REAL adapter with a real conformance run (D-93), not a placeholder —
 # but D-94 gates ADOPTING it on three triggers, one of which (BYOC SIP from an Indian
 # DLT-registered carrier) is unanswered. Selectable, not recommended.
@@ -180,7 +181,7 @@ Environment = Literal["local", "staging", "prod"]
 # validates the setting against it and mypy checks every comparison against it, and
 # neither can be done with a runtime set — so this is the one spelling of these names on
 # the selection axis, and `SELECTABLE_ENGINES` below is how every other module asks.
-EngineName = Literal["fake", "cartesia", "pipecat"]
+EngineName = Literal["fake", "cartesia", "pipecat", "thinnest"]
 
 #: The same set as a value, for the callers that need to CHECK membership rather than
 #: annotate a field — `get_args` on the Literal, never a second tuple beside it.
@@ -385,6 +386,40 @@ class Settings(BaseSettings):
     #: than dial from whatever number the vendor picks: a promotional campaign leaving on
     #: a service-series number is a TCCCPR breach we would discover from a complaint.
     cartesia_from_number_id: str | None = Field(default=None, max_length=128)
+    #: ThinnestAI API key (`ta_live_…`, full access: a Build key cannot place calls —
+    #: `thinnest-findings/mirror/pages/api-reference/authentication.md:29-37`). ENV-ONLY
+    #: (`core/settings.ENV_ONLY_REASONS`). Absent ⇒ the adapter reports itself unconfigured.
+    thinnest_api_key: str | None = Field(default=None, max_length=256)
+    #: ThinnestAI REST base (`api-reference/introduction.md:24-28`). ENV-ONLY: it decides
+    #: where the API key is sent, so a console edit could redirect the key to another host.
+    thinnest_api_base_url: str = Field(
+        default="https://app.thinnest.ai/api/v1", max_length=512, pattern=r"^https?://\S+$"
+    )
+    #: The ThinnestAI workspace runs on its OWN keys (BYOK). An operator sets it AFTER all
+    #: three legs (speech-to-text, language model, voice) are configured in ThinnestAI's
+    #: console at Settings → Your keys (`/settings/byok`): BYOK there is workspace-wide and
+    #: console-only, with no API field (FOUNDER-RELAYED console reading, 6 Oct 2026). On, a
+    #: per-agent catalogue voice or model does not apply (`agents/engine_choice.py` refuses
+    #: one and the pickers lock), and every minute is metered at the `platform` rate key,
+    #: the ₹1/min BYOK rate, instead of a voice tier.
+    thinnest_byok_enabled: bool = False
+    #: The public `https://` origin of `apps/api` (e.g. `https://api.calevate.tech`) that
+    #: ThinnestAI's custom actions call for our in-call tools (`reliability/engine_actions.py`).
+    #: Not `webhook_base_url`: that is voice-runtime's face, which may not write the DNC list
+    #: or the call-back book (hard rule 3). The vendor refuses anything but `https://`
+    #: (`thinnest-findings/mirror/snapshots/2026-10-07/pages/api-reference/actions/
+    #: create-action.md:174-181`), so the pattern does too. Baked into each action at publish.
+    engine_actions_base_url: str | None = Field(
+        default=None, max_length=255, pattern=r"^https://[^\s]+$"
+    )
+    #: Simultaneous calls the ThinnestAI workspace runs, inbound and outbound together: API
+    #: calls "count toward the same concurrency ceiling as calls people make to you"
+    #: (`thinnest-findings/mirror/pages/api-reference/place-call.md:333-336`) and a dial over
+    #: it is refused with `429` (`place-call.md:288-291`). 5 is the pay-as-you-go ceiling,
+    #: raised by ThinnestAI on request by email (FOUNDER-RELAYED, 7 Oct 2026); set this to
+    #: the raised figure when they confirm it. The dial gate keeps `inbound_reserve_ratio`
+    #: of it free for callers (`engine/carrier_pacing.outbound_line_pool`).
+    thinnest_max_concurrent_calls: int = Field(default=5, ge=1, le=1000)
     #: The Gnani TTS key (D-618), read by `apps/voice-worker` and by nothing on this host.
     #:
     #: **A `Settings` FIELD THAT THIS DEPLOYMENT NEVER READS THE VALUE OF, FOR D-614's
@@ -522,6 +557,17 @@ class Settings(BaseSettings):
     #: Comma-separated override of Vobiz's published callback source addresses
     #: (`calevate_shared.carrier.VOBIZ_CALLBACK_IPS`). Unset uses the published list.
     vobiz_callback_ips: str | None = Field(default=None, max_length=1024)
+    #: The shared secret on every URL we register with Vobiz (`calevate_shared.carrier.
+    #: CALLBACK_SECRET_PARAM`, D-673). A Vobiz request without it is refused even from a
+    #: Vobiz address, because every Vobiz customer sends from those addresses. Unset or
+    #: under `MIN_CALLBACK_SECRET_CHARS` is "no secret": every Vobiz request is refused
+    #: outside `local`. ENV-ONLY: voice-runtime checks it and never opens the credential
+    #: store. Never the claim key or the auth token, because Vobiz's console and call
+    #: records show this one.
+    vobiz_callback_secret: str | None = Field(default=None, max_length=256)
+    #: The previous `vobiz_callback_secret`, still ACCEPTED while Applications and calls
+    #: registered under it drain, and never written onto a URL. Unset is the normal state.
+    vobiz_callback_secret_retired: str | None = Field(default=None, max_length=256)
     #: Outbound calls started per second, at most. The account's CPS limit is in its
     #: account object (`account/account-object.md:41-46`); the founder's account shows 1
     #: (Vobiz console, founder-relayed, 2 Oct 2026, VENDOR-PUBLISHED). Enforced once per
@@ -962,6 +1008,18 @@ class Settings(BaseSettings):
     # reported instead, where it can be acted on — the picker marks the row unavailable with
     # its ground, `in_call_llm` refuses the publish, and the ops console shows why.
     platform_llm_model: LlmModelName = PLATFORM_DEFAULT_LLM_MODEL
+    # WHICH MODEL EACH CLIENT-FACING TIER RESOLVES TO (D-680). A client picks a tier —
+    # Standard, Plus or Pro — and never a model; `apps/api/agents/llm_tiers.py` turns the
+    # tier into one of these at the moment of choosing and STORES THE MODEL, so changing a
+    # value here moves the next choice made and never an account that has already chosen.
+    # Typed like `platform_llm_model` and for its reason: an unknown identifier is refused
+    # at the console write and at boot, and an unofferable one is reported as an
+    # unavailable tier rather than bricking anything. Defaults are the cost ladder of the
+    # offered set (`LLM_MODELS`): the platform default at the bottom, `gpt-5.4-mini` at
+    # the top.
+    llm_tier_standard_model: LlmModelName = PLATFORM_DEFAULT_LLM_MODEL
+    llm_tier_plus_model: LlmModelName = "gpt-4.1-mini"
+    llm_tier_pro_model: LlmModelName = "gpt-5.4-mini"
     # HOW MANY LIVE AGENTS MAY BE ON THE CARTESIA VOICE TIER, PLATFORM-WIDE (D-547 §0 Q10).
     # Cartesia's TTS is a monthly PLAN with a concurrency ceiling, not a per-character
     # meter, so the third clinic on it does not cost a third more — it forces the next plan
@@ -1729,6 +1787,15 @@ class Settings(BaseSettings):
     # refused: it only ever helps, so a typo in a decommissioned key must not be an
     # outage.
     platform_kek_retired: str | None = None
+
+    # THE ENGINE INTAKE KEY (D-678), base64 of 32 bytes, and its previous generation. It
+    # seals only ThinnestAI's per-endpoint webhook signing secrets and the verified
+    # delivery bodies queued for the worker (`apps/api/reliability/engine_intake_keys.py`),
+    # so voice-runtime can hold it while `PLATFORM_KEK` stays out of that service. ENV-ONLY
+    # (`core/settings.ENV_ONLY_REASONS`): voice-runtime never opens the credential store.
+    # Unset is a public development key under APP_ENV=local only.
+    engine_intake_kek: str | None = None
+    engine_intake_kek_retired: str | None = None
 
 
 # --- email: the one selector ---------------------------------------------------

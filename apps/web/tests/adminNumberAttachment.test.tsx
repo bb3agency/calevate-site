@@ -82,6 +82,16 @@ function healthy(numbers: TenantNumberCost[]): Routes {
       holds: [],
     } satisfies TenantSummary,
     [COSTS_PATH]: numbers,
+    // The voice platform in these cases manages no numbers of its own (D-678).
+    [`${COSTS_PATH}/engine`]: {
+      managed_in_engine_console: false,
+      platform: null,
+      steps: [],
+      notes: [],
+      numbers: [],
+      other_numbers: 0,
+      agents: [],
+    },
     "/v1/agents": [
       {
         id: AGENT,
@@ -292,9 +302,84 @@ describe("recording a number is on the numbers screen, not on a campaign screen"
     fireEvent.click(screen.getByRole("button", { name: "Record this number" }));
 
     // NO `agent_id`. The console decides which agent answers in ONE place — the picker on
-    // the row — and never at the moment the operator knows least (D-576).
+    // the row — and never at the moment the operator knows least (D-576). `provider` is
+    // REQUIRED by `ProvisionNumberIn`: a body without it is a 422 on every submit.
     await waitFor(() =>
-      expect(calls).toEqual([{ e164: "+918041234567", series: "standard" }]),
+      expect(calls).toEqual([
+        { e164: "+918041234567", series: "standard", provider: "vobiz", direction: "inbound" },
+      ]),
+    );
+  });
+
+  it("sends the direction and the carrier's number id the operator chose", async () => {
+    const calls: unknown[] = [];
+    await render({
+      ...healthy([]),
+      [RECORD_PATH]: (call: { body: string | null }) => {
+        calls.push(JSON.parse(call.body ?? "null"));
+        return { id: NUMBER, e164: "+918041234567", series: "standard", dlt_status: "pending" };
+      },
+    });
+
+    fireEvent.click((await screen.findAllByRole("button", { name: "Record a number" }))[0]!);
+    fireEvent.change(await screen.findByLabelText("The number, with its country code"), {
+      target: { value: "+918041234567" },
+    });
+    // Outbound "call this lead" is refused as `number_inbound_only` unless the number was
+    // recorded for outgoing calls, and nothing changes the direction afterwards.
+    fireEvent.change(screen.getByLabelText("Calls on this number"), { target: { value: "both" } });
+    fireEvent.change(screen.getByLabelText("Carrier's number id (optional)"), {
+      target: { value: " 0192f0aa-aaaa-7000-8000-000000000999 " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Record this number" }));
+
+    await waitFor(() =>
+      expect(calls).toEqual([
+        {
+          e164: "+918041234567",
+          series: "standard",
+          provider: "vobiz",
+          direction: "both",
+          engine_number_ref: "0192f0aa-aaaa-7000-8000-000000000999",
+        },
+      ]),
+    );
+  });
+
+  it("records a number rented on the voice platform under that platform, and offers no carrier", async () => {
+    const calls: unknown[] = [];
+    await render({
+      ...healthy([]),
+      [`${COSTS_PATH}/engine`]: {
+        managed_in_engine_console: true,
+        platform: "ThinnestAI",
+        steps: [],
+        notes: [],
+        numbers: [],
+        other_numbers: 0,
+        agents: [],
+      },
+      [RECORD_PATH]: (call: { body: string | null }) => {
+        calls.push(JSON.parse(call.body ?? "null"));
+        return { id: NUMBER, e164: "+918041234567", series: "standard", dlt_status: "pending" };
+      },
+    });
+
+    fireEvent.click((await screen.findAllByRole("button", { name: "Record a number" }))[0]!);
+    fireEvent.change(await screen.findByLabelText("The number, with its country code"), {
+      target: { value: "+918041234567" },
+    });
+    const carrier = screen.getByLabelText("Carrier") as HTMLSelectElement;
+    await waitFor(() => expect(carrier.value).toBe("thinnest"));
+    expect(carrier.disabled).toBe(true);
+    expect(Array.from(carrier.options).map((o) => o.value)).toEqual(["thinnest"]);
+    fireEvent.change(screen.getByLabelText("Calls on this number"), { target: { value: "both" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record this number" }));
+
+    await waitFor(() =>
+      expect(calls).toEqual([
+        { e164: "+918041234567", series: "standard", provider: "thinnest", direction: "both" },
+      ]),
     );
   });
 });

@@ -11,6 +11,7 @@ from sqlalchemy import (
     CheckConstraint,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -176,6 +177,35 @@ class EngineAgentRoute(Base):
     kb_drift_state: Mapped[str | None] = mapped_column(Text)
     kb_drift_checked_at: Mapped[datetime | None]
     kb_drift_detected_at: Mapped[datetime | None]
+
+    # THE VENDOR AGENT'S WEBHOOK ENDPOINT (migration f3a8c61d2e57, D-678). An engine that
+    # signs each delivery with a per-endpoint secret needs the receiver to find that secret
+    # with no tenant in hand, which is the question this row already answers. The secret is
+    # an envelope under the engine intake key (`reliability/engine_intake_keys.py`); the
+    # five envelope columns and `webhook_id` are all set or all NULL (CHECK).
+    webhook_id: Mapped[str | None] = mapped_column(Text)
+    webhook_secret_ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
+    webhook_secret_nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
+    webhook_secret_dek_wrapped: Mapped[bytes | None] = mapped_column(LargeBinary)
+    webhook_secret_dek_nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
+    webhook_secret_kek_version: Mapped[int | None] = mapped_column(Integer)
+    webhook_checked_at: Mapped[datetime | None]
+    #: Which attested per-minute price (`platform_engine_minute_prices.rate_key`) a call on
+    #: this vendor agent is metered at. NULL means the engine's `platform` rate.
+    engine_rate_key: Mapped[str | None] = mapped_column(Text)
+    #: The agent's "Business facts" knowledge document at the vendor (D-678) and the digest of
+    #: the facts it holds, so a republish with unchanged facts sends nothing. Both or neither.
+    facts_kb_ref: Mapped[str | None] = mapped_column(Text)
+    facts_digest: Mapped[str | None] = mapped_column(Text)
+    #: The header our in-call actions carry at this vendor agent (migration e8a4c2f17b39),
+    #: sealed under `PLATFORM_KEK`; all five set or all NULL (CHECK). Read by
+    #: `worker/engine_actions.py` to verify a call and by `reliability/engine_actions.py`
+    #: to send it again.
+    action_secret_ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
+    action_secret_nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
+    action_secret_dek_wrapped: Mapped[bytes | None] = mapped_column(LargeBinary)
+    action_secret_dek_nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
+    action_secret_kek_version: Mapped[int | None] = mapped_column(Integer)
 
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

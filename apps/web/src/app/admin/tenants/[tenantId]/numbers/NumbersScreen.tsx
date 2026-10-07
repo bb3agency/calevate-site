@@ -63,19 +63,28 @@ import {
   Skeleton,
   formatPhone,
 } from "@/components/ui";
-import { useProvisionNumber, useTenant, useTenantAgents } from "@/lib/api/admin";
+import {
+  useProvisionNumber,
+  useTenant,
+  useTenantAgents,
+  type ProvisionNumberBody,
+} from "@/lib/api/admin";
 import {
   useAvailableNumbers,
   useBuyNumber,
   useReleaseNumber,
+  useTenantEngineNumbers,
   useTenantNumberCosts,
   type AvailableNumber,
   type TenantNumberCost,
 } from "@/lib/api/numbers";
 
+import { EngineNumbersPanel } from "./EngineNumbersPanel";
 import { NumberRow } from "./NumberRow";
 
-type Series = "140" | "160" | "standard";
+type Series = ProvisionNumberBody["series"];
+type Carrier = ProvisionNumberBody["provider"];
+type Direction = ProvisionNumberBody["direction"];
 
 /**
  * A search result WITH a quoted monthly price — the only thing this screen will buy.
@@ -111,6 +120,21 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
   // is — is `standard`, and a 140/160 preselect quietly proposes a regulated class to
   // somebody recording an ordinary landline.
   const [series, setSeries] = useState<Series>("standard");
+  // The carrier the number is held on. Vobiz is the platform's carrier (D-662); the dial
+  // gate presents a number only on the carrier it is recorded on (`number_not_on_carrier`).
+  const [carrier, setCarrier] = useState<Carrier>("vobiz");
+  // On a voice platform that rents numbers in its own console (ThinnestAI, D-678) the only
+  // provider a call there can present is that platform: the server refuses any other
+  // provider at the dial gate, and refuses `thinnest` on any other deployment.
+  const engineNumbers = useTenantEngineNumbers(tenantId);
+  const engineHeld = engineNumbers.data?.managed_in_engine_console === true;
+  const engineLabel = engineNumbers.data?.platform ?? "the voice platform";
+  const recordAs: Carrier = engineHeld ? "thinnest" : carrier;
+  // `inbound` matches the server's own default: it is the leg no regulation restricts. A
+  // number an agent should also call OUT from must say so here, or the dial gate refuses
+  // it as `number_inbound_only` — there is no later control that changes it.
+  const [direction, setDirection] = useState<Direction>("inbound");
+  const [engineRef, setEngineRef] = useState("");
 
   const [country, setCountry] = useState<"IN" | "US">("IN");
   const [pattern, setPattern] = useState("");
@@ -139,6 +163,10 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
       />
 
       <RestrictionNote reason={write.reason} />
+
+      {/* Only on a voice platform that rents and attaches numbers in its own console;
+          renders nothing otherwise. */}
+      <EngineNumbersPanel tenantId={tenantId} />
 
       {held.error ? (
         <ProblemNotice error={held.error} onRetry={() => held.refetch()} />
@@ -270,28 +298,35 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
         open={recording}
         onClose={() => setRecording(false)}
         title="Record a number"
-        description="A connection this client already holds in their own name."
+        description="A number already held on a carrier account. Recording it buys nothing."
       >
         <form
           className="space-y-4"
           noValidate
           onSubmit={numberValid.onSubmit(() => {
             record.mutate(
-              { e164, series },
+              {
+                e164,
+                series,
+                provider: recordAs,
+                direction,
+                // A blank field means "not known yet", which the row's own link control
+                // fills in later; it is never sent as an empty handle.
+                ...(engineRef.trim() ? { engine_number_ref: engineRef.trim() } : {}),
+              },
               {
                 onSuccess: () => {
                   setE164("");
+                  setEngineRef("");
                   setRecording(false);
                 },
               },
             );
           })}
         >
-          {/* The legal posture (Model B), stated where the number is entered. */}
           <p className="text-sm text-ink-muted">
-            Calevate does not buy or resell this number: the client is the subscriber of
-            record on their own operator account and issues us revocable credentials for
-            it. Recording it here is what lets an agent be put on it.
+            Recording a number here is what lets an agent be put on it. To buy a new one,
+            use the search on this page instead.
           </p>
           {record.error && <ProblemNotice error={record.error} />}
           <label className="block">
@@ -332,6 +367,60 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
                 correcting it.
               </InfoTip>
             </div>
+          </div>
+          <label className="block">
+            <span className={FIELD_LABEL}>Carrier</span>
+            <select
+              className={FIELD}
+              value={recordAs}
+              disabled={!write.allowed || engineHeld}
+              onChange={(ev) => setCarrier(ev.target.value as Carrier)}
+            >
+              {engineHeld ? (
+                <option value="thinnest">{engineLabel}</option>
+              ) : (
+                <>
+                  <option value="vobiz">Vobiz</option>
+                  <option value="plivo">Plivo</option>
+                </>
+              )}
+            </select>
+          </label>
+          <div>
+            <label className="block">
+              <span className={FIELD_LABEL}>Calls on this number</span>
+              <select
+                className={FIELD}
+                value={direction}
+                disabled={!write.allowed}
+                onChange={(ev) => setDirection(ev.target.value as Direction)}
+              >
+                <option value="inbound">Incoming only</option>
+                <option value="outbound">Outgoing only</option>
+                <option value="both">Incoming and outgoing</option>
+              </select>
+            </label>
+            <p className={FIELD_HINT}>
+              An agent can call out from this number only if it is recorded for outgoing
+              calls. This cannot be changed after recording.
+            </p>
+          </div>
+          <div>
+            <label className="block">
+              <span className={FIELD_LABEL}>Carrier&apos;s number id (optional)</span>
+              <input
+                value={engineRef}
+                maxLength={200}
+                disabled={!write.allowed}
+                onChange={(ev) => setEngineRef(ev.target.value)}
+                className={`font-mono ${FIELD}`}
+              />
+            </label>
+            <p className={FIELD_HINT}>
+              The id the carrier gives this number (on Vobiz, the number&apos;s id in its
+              number list). No agent can answer the number until it is set; you can also add
+              it later on the number&apos;s row.
+            </p>
           </div>
           <button
             type="submit"

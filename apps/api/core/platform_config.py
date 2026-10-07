@@ -161,7 +161,9 @@ _PII_ONLY_REDACT_KEYS: frozenset[str] = frozenset(
 _SECRET_NAME_FRAGMENTS: tuple[str, ...] = tuple(
     sorted(
         (set(REDACT_KEYS) - _PII_ONLY_REDACT_KEYS)
-        | {"dsn", "credential", "private_key", "_json", "heartbeat"}
+        # `kek`: the key-encryption keys (`PLATFORM_KEK`, `ENGINE_INTAKE_KEK`) are env-only
+        # secrets whose names match no other fragment.
+        | {"dsn", "credential", "private_key", "_json", "heartbeat", "kek"}
     )
 )
 
@@ -464,6 +466,12 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # published is silently mismatched by it, and the account-default writer re-publishes the
     # agents it moves.
     "platform_llm_model": AppliesRule(LIVE),
+    # WHICH MODEL A CLIENT GETS WHEN THEY PICK A TIER (D-680). LIVE because it is read only
+    # at the moment a client chooses: the tier is resolved to a model and the MODEL is
+    # stored, so no agent and no account moves when this changes — only the next choice.
+    "llm_tier_standard_model": AppliesRule(LIVE),
+    "llm_tier_plus_model": AppliesRule(LIVE),
+    "llm_tier_pro_model": AppliesRule(LIVE),
     # The EMBEDDING deployment (D-502). LIVE, and genuinely so: unlike the three chat
     # deployment fields above, this value is never published into an agent's engine record —
     # it is read per request by `retrieval/embedding.embedding_leg` and per tick by the
@@ -509,6 +517,24 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # by `agents/voice_offer.offered_catalogue` and per write by `set_agent_voice`, so a
     # raise is in force on the next picker load; it touches nothing already published.
     "cartesia_agent_cap": AppliesRule(LIVE),
+    # Whether the ThinnestAI workspace runs on its own keys (D-678). It decides which rate key
+    # a publish stamps and whether a per-agent catalogue choice is allowed, both at publish.
+    "thinnest_byok_enabled": AppliesRule(
+        NEEDS_REPUBLISH,
+        "each agent's per-minute rate is stamped when it is published, so live agents keep "
+        "the rate they were published with until they are re-published",
+    ),
+    # Read inside every ThinnestAI dial's intent transaction (`agents/service.dispatch_call`)
+    # and once per dispatch tick for the outbound pool, like `carrier_concurrency`.
+    "thinnest_max_concurrent_calls": AppliesRule(LIVE),
+    # Where ThinnestAI's in-call actions call us. Written into each action at publish
+    # (`reliability/engine_actions.py`); the drift check repairs a live agent's actions on
+    # its next pass, and a republish does it at once.
+    "engine_actions_base_url": AppliesRule(
+        NEEDS_REPUBLISH,
+        "each agent's in-call actions carry this address from when it was published, so "
+        "live agents keep calling the old one until they are re-published",
+    ),
     # WHICH SARVAM TRANSCRIBER AGENTS ARE PUBLISHED WITH (D-583). `needs_republish` and not
     # `live` for `azure_openai_deployment`'s reason, exactly: `in_call_speech` resolves it at
     # PUBLISH time into the agent object the engine stores, so an agent already live keeps

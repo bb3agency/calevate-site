@@ -41,7 +41,6 @@ from pipecat.frames.frames import (
     EndFrame,
     EndWorkerFrame,
     LLMFullResponseEndFrame,
-    LLMTextFrame,
     TTSSpeakFrame,
 )
 from pipecat.services.cartesia.tts import language_to_cartesia_language
@@ -54,6 +53,7 @@ from scenario_harness import (
     CallerTurn,
     ScenarioRun,
     compose_agent_prompt,
+    is_model_text,
     make_session_config,
     run_scenario,
     undigited_numbers,
@@ -151,7 +151,11 @@ def tool_results(run: ScenarioRun) -> list[dict[str, Any]]:
 
 def tts_input(run: ScenarioRun) -> list[str]:
     """Every text the speech leg was handed: the model's tokens and anything spoken verbatim."""
-    return [frame.text for frame in run.tts.seen if isinstance(frame, LLMTextFrame | TTSSpeakFrame)]
+    return [
+        frame.text
+        for frame in run.tts.seen
+        if is_model_text(frame) or isinstance(frame, TTSSpeakFrame)
+    ]
 
 
 # ======================================================================================
@@ -285,15 +289,16 @@ async def test_a_caller_who_says_goodbye_is_hung_up_on_after_the_agent_says_good
 
     assert [name for name, _ in run.model.tool_calls] == [END_CALL_TOOL_NAME]
     assert run.agent_utterances[-1] == GOODBYE_REPLY
-    assert GOODBYE_REPLY in run.tts.spoken, "the goodbye was cut off by the hang-up"
+    # The speech leg is handed one sentence per frame (the D-674 output guard aggregates),
+    # so the goodbye arrives as its sentences in order.
+    last_sentence = GOODBYE_REPLY.rsplit(". ", 1)[-1]
+    assert GOODBYE_REPLY in " ".join(run.tts.spoken), "the goodbye was cut off by the hang-up"
 
     # ORDER AT THE SPEECH LEG: the goodbye and the end of its response, then the request
     # to end. Downstream and ordered, so the goodbye is flushed before the pipeline ends.
     # Read downstream only: the worker's upstream echo of the same request is not a second one.
     seen = run.tts.downstream
-    goodbye_at = max(
-        i for i, f in enumerate(seen) if isinstance(f, LLMTextFrame) and f.text == GOODBYE_REPLY
-    )
+    goodbye_at = max(i for i, f in enumerate(seen) if is_model_text(f) and f.text == last_sentence)
     response_end_at = next(
         i for i, f in enumerate(seen) if i > goodbye_at and isinstance(f, LLMFullResponseEndFrame)
     )

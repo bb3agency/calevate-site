@@ -24,6 +24,12 @@ BOTH APPLY ONLY TO THE ENGINE THAT DIALS THROUGH OUR CARRIER (`dials_through_our
 An `owned_runtime` engine places the call on the carrier account these limits belong to; any
 other engine either dials nothing (the fake) or dials on an account whose limits are not
 ours.
+
+AN ENGINE WITH ITS OWN CALL CEILING (`engine_concurrency_cap`, ThinnestAI today) gets the
+same two answers on its own account: the line pool is its ceiling minus the inbound reserve,
+counted from our outbound rows (its inbound calls are invisible to us until they end), and a
+`429` holds every dial off for the vendor's `Retry-After` (`start_dial_backoff`) instead of
+being re-asked once per claimed contact.
 """
 
 from __future__ import annotations
@@ -45,7 +51,10 @@ from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.engine import get_engine
 from apps.api.engine.carrier import CARRIER_DEFAULT_RING_TIMEOUT_S, RING_TIMEOUT_S
-from apps.api.engine.vendor_http import LINES_BUSY_CODE, lines_busy_error
+from apps.api.engine.vendor_http import (
+    LINES_BUSY_CODE,
+    lines_busy_error,
+)
 
 log = get_logger(__name__)
 
@@ -114,16 +123,102 @@ def inbound_line_reserve(concurrency: int, ratio: float) -> int:
     return max(1, math.ceil(Decimal(concurrency) * Decimal(str(ratio))))
 
 
+def engine_concurrency_cap(settings: Settings | None = None) -> int | None:
+    """The simultaneous-call ceiling of an engine that runs calls on ITS OWN account, or
+    None when the engine has none we hold (the carrier's lines apply, or nothing does).
+
+    ThinnestAI places and answers calls on its own numbers, so `carrier_concurrency` says
+    nothing about it; its workspace has its own ceiling, inbound and outbound together
+    (`thinnest-findings/mirror/pages/api-reference/place-call.md:333-336`).
+    """
+    if get_engine().name != "thinnest":
+        return None
+    return (settings or get_settings()).thinnest_max_concurrent_calls
+
+
 def outbound_line_pool(settings: Settings | None = None) -> int:
     """Lines outbound dials may hold at once: the account's lines minus the inbound reserve.
 
     At the default three lines and a 0.3 ratio that is two outbound lines and one kept for
     callers. Zero when the account is too small to spare one, which the dispatch tick reports
-    as `outbound_pool_empty`.
+    as `outbound_pool_empty`. On an engine with its own ceiling (`engine_concurrency_cap`)
+    that ceiling is the account's lines: at ThinnestAI's 5 that is three outbound and two
+    kept for callers, who share the same ceiling and whom we cannot see while they talk.
     """
     cfg = settings or get_settings()
-    reserve = inbound_line_reserve(cfg.carrier_concurrency, cfg.inbound_reserve_ratio)
-    return max(0, cfg.carrier_concurrency - reserve)
+    cap = engine_concurrency_cap(cfg)
+    lines = cfg.carrier_concurrency if cap is None else cap
+    reserve = inbound_line_reserve(lines, cfg.inbound_reserve_ratio)
+    return max(0, lines - reserve)
+
+
+#: How long an outbound row on an engine-capped account counts as holding a line. Such an
+#: engine reports nothing while a call rings or talks — ThinnestAI sends `call.completed`
+#: when it ends and nothing before (`api-reference/webhooks.md:73-74`) — so the row stays
+#: `queued` for the whole call, and the live horizon applies to it rather than the ring one.
+ENGINE_LINE_HORIZON: Final = LIVE_LINE_HORIZON
+
+#: One key per engine. A refusal for the workspace's ceiling is the ACCOUNT's, so every
+#: dialling process honours it, not only the one that was refused.
+ENGINE_BACKOFF_KEY_PREFIX: Final = "calevate:engine:dial_backoff"
+
+#: The hold-off after a throttled dial that named no `Retry-After`: the vendor's own example
+#: value (`api-reference/authentication.md:59-66`). A floor as well, because a call ceiling
+#: frees only when a call ends and a shorter wait would just collect another 429.
+ENGINE_BACKOFF_DEFAULT_S: Final = 60.0
+
+#: The longest hold-off taken from a vendor header, so a malformed one cannot stop dialling
+#: for a day. The `from` number's daily cap (`place-call.md:187-189`) is the case that
+#: reaches it; dials then retry at this interval, each refunded, until the day turns.
+ENGINE_BACKOFF_MAX_S: Final = 900.0
+
+
+def _backoff_key() -> str:
+    return f"{ENGINE_BACKOFF_KEY_PREFIX}:{get_engine().name}"
+
+
+async def dial_backoff_remaining_s() -> float:
+    """Seconds left on this engine's dial hold-off; 0.0 when none, or when the engine has no
+    ceiling of its own. Fails OPEN on a Redis error, for `await_dial_slot`'s reason: the
+    vendor's own 429 still refuses the dial, and nothing is placed."""
+    if engine_concurrency_cap() is None:
+        return 0.0
+    try:
+        remaining_ms = int(await get_redis().pttl(_backoff_key()))
+    except Exception:
+        log.warning("engine_dial_backoff_unavailable", extra={"engine": get_engine().name})
+        return 0.0
+    return max(0, remaining_ms) / 1000
+
+
+async def start_dial_backoff(retry_after_s: float | None) -> float:
+    """Hold this engine's dials off after the vendor refused one for its rate or ceiling.
+    Returns the hold-off taken. A longer one already running is never shortened."""
+    seconds = min(max(retry_after_s or 0.0, ENGINE_BACKOFF_DEFAULT_S), ENGINE_BACKOFF_MAX_S)
+    try:
+        redis = get_redis()
+        key = _backoff_key()
+        if await dial_backoff_remaining_s() < seconds:
+            await redis.set(key, "1", px=int(seconds * 1000))
+    except Exception:
+        log.warning("engine_dial_backoff_unavailable", extra={"engine": get_engine().name})
+        return 0.0
+    log.warning("engine_dial_backoff", extra={"engine": get_engine().name, "seconds": seconds})
+    return seconds
+
+
+def engine_backoff_refusal() -> ProblemError:
+    """The refusal for a dial inside the hold-off. Nothing was dialled, and the code is the
+    one `DIAL_NOT_PLACED_CODES` already reads as a throttle, so no attempt is spent; the
+    wording is `vendor_http.EngineRateLimitedError`'s, because it is the same refusal."""
+    return ProblemError(
+        kind="transient",
+        code="engine_rate_limited",
+        title="Voice engine is rate limiting us",
+        detail="The voice platform is temporarily refusing new requests.",
+        remediation="The lines are busy. Try again in a minute.",
+        failure_stage="CORE_LOGIC",
+    )
 
 
 def pacing_timed_out() -> ProblemError:
@@ -186,6 +281,10 @@ async def await_dial_slot(
 
 __all__ = [
     "CARRIER_LINES_LOCK_KEY",
+    "ENGINE_BACKOFF_DEFAULT_S",
+    "ENGINE_BACKOFF_KEY_PREFIX",
+    "ENGINE_BACKOFF_MAX_S",
+    "ENGINE_LINE_HORIZON",
     "LINES_BUSY_RULE",
     "LIVE_LINE_HORIZON",
     "MAX_PACING_WAIT_S",
@@ -195,10 +294,14 @@ __all__ = [
     "SPACING_MARGIN_PERCENT",
     "DialPacingTimeoutError",
     "await_dial_slot",
+    "dial_backoff_remaining_s",
     "dials_through_our_carrier",
+    "engine_backoff_refusal",
+    "engine_concurrency_cap",
     "inbound_line_reserve",
     "lines_busy",
     "outbound_line_pool",
     "pacing_timed_out",
     "slot_interval_ms",
+    "start_dial_backoff",
 ]

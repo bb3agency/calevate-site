@@ -32,10 +32,12 @@ refuse-below-cost / warn-below-target posture `committed_plan_margin` already ap
 bundle (D-469). **A voice tier is never a bill**: what a Cartesia call actually COSTS us
 per character is Phase D's `TtsPriceAttestation`; everything here is the margin MODEL.
 
-**THE APPROVED CARD NOW CLEARS THE 20% TARGET ON BOTH COLUMNS** — 21.3% at a flat ₹4.00
-against the ₹3.1491 Clear floor, 21.5% on the deepest Studio rung against ₹4.7099. Every
-figure here is DERIVED; the guard still REFUSES below cost and only REPORTS below target,
-so do not "fix" a below-target row by moving the floor.
+**THE CARD IS JUDGED AGAINST THE FLOORS OF THE ENGINE THE DEPLOYMENT RUNS (D-681).** At a
+flat ₹4.00 the Clear column earns 31.3% on ThinnestAI (₹2.75 floor) and 7.8% on the owned
+Pipecat runtime (₹3.6891, carrier included); the deepest Studio rung (₹5.50) earns 14.4%
+against the base ₹4.7099 and 4.5% against Pipecat's ₹5.2499. Every figure here is DERIVED;
+the guard REFUSES below cost and only REPORTS below target, so do not "fix" a below-target
+row by moving the floor.
 
 The previous two-rung ladder (Bulbul v3 "premium" beside a Bulbul v2 "value" rung, with
 `billable_tier` billing the cheaper rung when a premium voice could not be proven) was
@@ -77,7 +79,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from functools import lru_cache
 from types import MappingProxyType
@@ -1363,10 +1365,7 @@ def telephony_billed_seconds(duration_s: int) -> Decimal:
     """
     if duration_s < 0:
         raise ValueError("call duration cannot be negative")
-    pulses = (Decimal(duration_s) / TELEPHONY_PULSE_SECONDS).to_integral_value(
-        rounding=ROUND_CEILING
-    )
-    return pulses * TELEPHONY_PULSE_SECONDS
+    return pulsed_seconds(Decimal(duration_s), pulse=TELEPHONY_PULSE_SECONDS)
 
 
 def _telephony_cost_inr_exact(
@@ -1529,13 +1528,12 @@ def vobiz_rate_inr_per_min(usage: VobizUsage) -> Decimal:
 # ours to carry. The sum re-scores itself when any leg constant moves, which is what a
 # margin guard is for.
 #
-# **NO TELEPHONY LEG, on either floor (D-474, Model B).** The client buys the connection
-# on their own carrier account (Exotel/Plivo/Vobiz), is the subscriber of record and is
-# billed the per-minute carrier rate by that carrier — Calevate supplies, rents and bills
-# no number. Plivo's ₹0.38/min is therefore the CLIENT's cost and folding it in here would
-# defend our margin with a rupee we never pay. Under the third arrangement (the number sold
-# through the platform) that minute IS ours: it is costed by `telephony_cost_inr` above and
-# summed in by the caller, never added to a floor these cards are struck against.
+# **NO TELEPHONY LEG IN THESE TWO BASE FLOORS (D-474, Model B)**, which assumed the client
+# bought the line on their own carrier account. That premise is retired for the owned
+# Pipecat runtime (D-681): the Vobiz minute and the recording add-on are ours since
+# D-662/D-668 and are added per engine by `cost_floor_inr_per_min(voice, engine=...)`, below,
+# rather than folded into these constants — the base pair is still the speech and model
+# legs, and ThinnestAI replaces the Clear one outright.
 #
 # THE LEGS, with the evidence class of each (hard rule 11):
 #
@@ -1811,11 +1809,11 @@ def clear_cost_floor_at(basis: SpeakingRateBasis) -> ClearCostFloor:
     )
 
 
-#: THE SARVAM-VOICE COST FLOOR: the worst-case cost of one call-minute spoken by Bulbul
-#: v3, at `MONEY_Q`. DERIVED from the legs above (see the table) — never typed. It is what
-#: every pack's `clear_inr_per_min` is judged against (`credit_packs.pack_rate_margin`)
-#: and what a committed bundle's rates are judged against (`committed_plan_margin`, whose
-#: bundles are all Sarvam-voiced today).
+#: THE BASE CLEAR COST FLOOR: the worst-case cost of one Clear call-minute on our own
+#: speech and model legs (Gnani `timbre-v2.5` voice), no carrier, at `MONEY_Q`. DERIVED from
+#: the legs above (see the table) — never typed. A pack's `clear_inr_per_min` is judged
+#: against it on an engine with no floors of its own (`cost_floor_inr_per_min`), and a
+#: committed bundle's rates by default (`committed_plan_margin`).
 #:
 #: The name keeps its pre-D-547 spelling because eleven readers across `admin/`, `tests/`
 #: and this file use it; `cost_floor_inr_per_min(VALUE_VOICE_TIER)` is the same number by
@@ -2215,7 +2213,7 @@ def cartesia_cost_inr_per_call_minute(call_minutes: Decimal, *, usd_inr: Decimal
 
     The three shared legs plus the TTS leg at that volume on the cheapest plan. This is the
     number the ops console must print under a heading that says "costs us", and it is a
-    CURVE: at ₹88 it is ₹6.90 at 100 call-minutes a month, ₹4.93 at 200 and ₹5.46 at 1,000.
+    CURVE: at ₹88 it is ₹6.02 at 100 call-minutes a month, ₹4.05 at 200 and ₹4.58 at 1,000.
     It is not monotonic, because the cheapest plan changes underneath it.
 
     Quantized ONCE, here, after the legs are summed exactly.
@@ -2251,8 +2249,8 @@ def cartesia_cost_floor_inr_per_min_at(usd_inr: Decimal) -> Decimal:
 
     This is the pure OVERAGE marginal rate and applies only ABOVE the included allotment,
     so it is the worst case rather than what a typical month costs; the BLENDED figure is
-    `cartesia_cost_inr_per_call_minute`, and both belong on the console. The ₹6.00 max rung
-    clears target against it (21.5% at ₹88) — it did NOT while the engine leg was $0.02.
+    `cartesia_cost_inr_per_call_minute`, and both belong on the console. The ₹5.50 max rung
+    clears cost against it (14.4% at ₹88, under the 20% target; D-601 cut it deliberately).
 
     **THIS IS NOT THE REFUSAL THRESHOLD** — see `CARTESIA_COST_FLOOR_INR_PER_MIN`.
     """
@@ -2262,7 +2260,7 @@ def cartesia_cost_floor_inr_per_min_at(usd_inr: Decimal) -> Decimal:
 
 
 def cartesia_best_marginal_cost_inr_per_min(usd_inr: Decimal) -> Decimal:
-    """The CHEAPEST marginal cost any volume can reach, at a named rate — ₹4.6395 at ₹88.
+    """The CHEAPEST marginal cost any volume can reach, at a named rate — ₹3.7595 at ₹88.
 
     A retail rate at or below this loses money on every additional minute at every volume,
     which is why `cartesia_rung_breakeven_call_minutes` returns a stated absence for it
@@ -2465,9 +2463,9 @@ def cartesia_rung_breakeven_call_minutes(
 #: is deliberate; a live refusal is a pricing decision made by a currency feed.
 #:
 #: **IT IS NOT A LOWER BOUND ON COST AT EVERY VOLUME, AND MUST NOT BE DESCRIBED AS ONE.**
-#: Below ~150 call-minutes a month the real cost is HIGHER (₹6.90 at 100), because the
+#: Below ~150 call-minutes a month the real cost is HIGHER (₹6.02 at 100), because the
 #: subscription is paid whether or not it is spoken; above Startup's crossover the real
-#: marginal cost is lower (₹4.6395 all-in).
+#: marginal cost is lower (₹3.7595 all-in).
 #:
 #: EVIDENCE CLASS: VENDOR-PUBLISHED for the plan inputs (Tinmaz correspondence, 9 Sep 2026)
 #: over VERIFIED-VENDOR-DOCS for the engine fee, with the SPEAKING RATE (540 chars per
@@ -2477,7 +2475,7 @@ CARTESIA_COST_FLOOR_INR_PER_MIN: Final[Decimal] = cartesia_cost_floor_inr_per_mi
     CARTESIA_EVIDENCE_USD_INR
 )
 
-#: The BEST marginal cost at the frozen rate: ₹4.6395/min all-in (Startup's $45/1M).
+#: The BEST marginal cost at the frozen rate: ₹3.7595/min all-in (Startup's $45/1M).
 #: `cartesia_best_marginal_cost_inr_per_min` is the same quantity at a live rate.
 CARTESIA_BEST_MARGINAL_COST_INR_PER_MIN: Final[Decimal] = cartesia_best_marginal_cost_inr_per_min(
     CARTESIA_EVIDENCE_USD_INR
@@ -2681,23 +2679,77 @@ def voice_tier_label(voice: TtsProvider | VoiceTier) -> str:
     return VOICE_TIER_LABELS[_TIER_OF_TTS_PROVIDER[cast("TtsProvider", voice)]]
 
 
-def cost_floor_inr_per_min(voice: VoiceTier) -> Decimal:
-    """THE ONE DOOR to a per-minute cost floor, by the TIER's name.
+# --- THE FLOORS OF THE ENGINE A DEPLOYMENT RUNS (D-681) ------------------------------
+#
+# `SELF_SERVE_COST_FLOOR_INR_PER_MIN` and `CARTESIA_COST_FLOOR_INR_PER_MIN` are the speech
+# and model legs only, with no carrier (D-474's Model B: the client brought the line). Two
+# engines now change what a minute costs us beyond those legs, so a card is judged against
+# the engine the deployment actually runs (`cost_floor_inr_per_min(voice, engine=...)`):
+#
+# * **`pipecat`** — the carrier leg is ours since D-662, so D-474's premise no longer holds
+#   for this engine and the Vobiz minute plus the recording add-on (D-668) join both floors:
+#
+#       Clear   3.1491 + 0.44 + 0.10 = 3.6891 /min
+#       Studio  4.7099 + 0.44 + 0.10 = 5.2499 /min
+#
+#   Vobiz's card is VENDOR-PUBLISHED, FOUNDER-RELAYED and before tax (`VOBIZ_INR_PER_MIN`);
+#   its billing pulse is UNKNOWN (gate V-7), so per-minute is assumed.
+# * **`thinnest`** — ThinnestAI sells telephony, speech and model as one minute, and the
+#   Clear rung is sold on its Premium voices: ₹2.50 pay-as-you-go plus the 10% wallet top-up
+#   fee = ₹2.75 /min (FOUNDER-RELAYED console and website reading, 6 Oct 2026,
+#   `docs/evidence/thinnest-ai-evaluation.md` §2a; not an invoice). The Studio column keeps
+#   the Cartesia floor: Studio is not sold on ThinnestAI while its BYOK answer is pending.
+#
+# Any other engine (`fake`, the retired `cartesia` engine) is judged at the base floors.
+# Hard rule 7: a floor is a margin GUARD. Nothing here reaches `unit_cost_paid`, and the
+# ThinnestAI minute is metered only at the rate an operator attests (`engine_minutes`).
 
-    Two floors, two constants, one selector — so a caller judging a rate names the rung it
-    is a rate for and cannot compare a premium rate against the value floor (which is
-    lower, so the mistake would always pass). Total over the Literal; an unknown tier is a
-    programming error and raises rather than defaulting to the cheaper floor.
+#: What the carrier leg costs us per minute on the owned runtime: the Vobiz streaming
+#: minute plus the recording add-on. Derived from the card, never retyped.
+OWNED_CARRIER_INR_PER_MIN: Final[Decimal] = vobiz_rate_inr_per_min(
+    VOBIZ_OUR_CALL_USAGE
+) + vobiz_rate_inr_per_min(VOBIZ_RECORDING_USAGE)
 
-    ⚠ **THE VALUE FLOOR IS STRUCK AT A WITHDRAWN VENDOR'S RATE (18 Sep 2026)** — see
-    `TTS_INR_PER_10K_CHARS`. It is a real floor for judging a rate card and it is not a
-    licence to sell: no value-rung minute may be metered until a Gnani price is attested.
+#: ThinnestAI's Premium-band voice minute on pay-as-you-go, FOUNDER-RELAYED (evaluation
+#: §2a, 6 Oct 2026). A floor input only; the billed cost is the attested `premium` rate.
+THINNEST_PREMIUM_INR_PER_MIN: Final[Decimal] = Decimal("2.50")
+
+#: ThinnestAI's wallet top-up fee on pay-as-you-go, as a fraction. Website-only reading
+#: (evaluation §2a); it adds to every rupee spent there.
+THINNEST_WALLET_TOPUP_FEE: Final[Decimal] = Decimal("0.10")
+
+#: ₹2.75 — the Clear floor on ENGINE=thinnest. Derived.
+THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN: Final[Decimal] = (
+    THINNEST_PREMIUM_INR_PER_MIN * (Decimal("1") + THINNEST_WALLET_TOPUP_FEE)
+).quantize(MONEY_Q, rounding=ROUNDING)
+
+
+def cost_floor_inr_per_min(voice: VoiceTier, *, engine: str | None = None) -> Decimal:
+    """THE ONE DOOR to a per-minute cost floor, by the TIER's name and the ENGINE's.
+
+    A caller names the rung a rate is for, so a Studio rate cannot be judged against the
+    lower Clear floor (that mistake would always pass). `engine` is the deployment's engine
+    (`Settings.engine`); `None`, and any engine without a branch here, is the base pair —
+    speech and model legs, no carrier. An unknown tier raises rather than defaulting to the
+    cheaper floor. A branch per engine rather than a table: the engines differ in which legs
+    they add, not only in a number.
+
+    The base Clear floor is struck at Gnani's published ₹27.00 / 10,000 characters
+    (`TTS_INR_PER_10K_CHARS`). A published catalogue price is not an invoice: no Clear minute
+    on the owned runtime may be metered until an operator attests one.
     """
-    if voice == VALUE_VOICE_TIER:
-        return SELF_SERVE_COST_FLOOR_INR_PER_MIN
-    if voice == PREMIUM_VOICE_TIER:
-        return CARTESIA_COST_FLOOR_INR_PER_MIN
-    raise ValueError(f"no cost floor for voice tier {voice!r}")
+    if voice not in (VALUE_VOICE_TIER, PREMIUM_VOICE_TIER):
+        raise ValueError(f"no cost floor for voice tier {voice!r}")
+    base = (
+        SELF_SERVE_COST_FLOOR_INR_PER_MIN
+        if voice == VALUE_VOICE_TIER
+        else CARTESIA_COST_FLOOR_INR_PER_MIN
+    )
+    if engine == "pipecat":
+        return base + OWNED_CARRIER_INR_PER_MIN
+    if engine == "thinnest" and voice == VALUE_VOICE_TIER:
+        return THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN
+    return base
 
 
 # --- THE ONE GROSS-MARGIN FLOOR, AND THE ONE FORMULA (hoisted from credit_packs) ------
@@ -2920,6 +2972,71 @@ def prepaid_billed_inr(*, minutes: Decimal, self_serve_rate: Decimal) -> Decimal
     return (self_serve_rate * minutes).quantize(MONEY_Q, rounding=ROUNDING)
 
 
+# --- THE CLIENT BILLING INCREMENT (D-681) ---------------------------------------------
+#
+# A client's call is billed in whole 30-second steps, rounded up, on every engine
+# (founder, 7 Oct 2026): 1s bills 0.5 min, 31s bills 1.0 min, and a call with no talk time
+# bills nothing. It is a rule about what the CLIENT is charged and nothing else — the
+# ledger's `telephony_s` row keeps the measured seconds, and our supplier legs stay metered
+# the way each vendor bills them (`TELEPHONY_PULSE_SECONDS`, `engine_minutes.PULSE_SECONDS`).
+#
+# It applies to calls that ended from `CLIENT_PULSE_EFFECTIVE_FROM` on. A call before that
+# was billed by the second and stays so: re-rendering a closed month at the new increment
+# would re-price a month a client has already been billed for (Terms §6.1).
+#
+# One rule in two spellings, because the month is priced in SQL and a call in Python: the
+# wallet debit and the managed counter call `client_billed_minutes`, and every reader that
+# sums a month's minutes from the ledger applies `CLIENT_BILLED_SECONDS_SQL` per row. Both
+# are built from the same constants and `tests/client_billing_pulse_test.py` runs them
+# against each other.
+
+#: The client billing increment, in seconds.
+_CLIENT_PULSE_WHOLE_SECONDS: Final = 30
+CLIENT_PULSE_SECONDS: Final[Decimal] = Decimal(_CLIENT_PULSE_WHOLE_SECONDS)
+
+#: 00:00 IST on 7 Oct 2026, the founder's decision date: calls that ended from here on are
+#: billed in steps, and every earlier call keeps the by-the-second figure it was billed at.
+_CLIENT_PULSE_EFFECTIVE_FROM_ISO: Final = "2026-10-06T18:30:00+00:00"
+CLIENT_PULSE_EFFECTIVE_FROM: Final[datetime] = datetime.fromisoformat(
+    _CLIENT_PULSE_EFFECTIVE_FROM_ISO
+)
+
+
+def pulsed_seconds(seconds: Decimal, *, pulse: Decimal) -> Decimal:
+    """`seconds` rounded UP to whole pulses; zero or less is zero pulses. EXACT."""
+    if seconds <= 0:
+        return Decimal("0")
+    return (seconds / pulse).to_integral_value(rounding=ROUND_CEILING) * pulse
+
+
+def client_billed_seconds(duration_s: Decimal, *, at: datetime) -> Decimal:
+    """The seconds a client is billed for one call that ended at `at`: whole 30-second
+    steps, rounded up — or the measured seconds for a call before the increment began."""
+    if at < CLIENT_PULSE_EFFECTIVE_FROM:
+        return duration_s
+    return pulsed_seconds(duration_s, pulse=CLIENT_PULSE_SECONDS)
+
+
+def client_billed_minutes(duration_s: Decimal, *, at: datetime) -> Decimal:
+    """The minutes a client is billed for one call — `ceil(seconds / 30) x 0.5`. EXACT.
+
+    A multiple of 0.5 for every call under the increment, so it needs no quantizing before
+    it is multiplied by a rate.
+    """
+    return client_billed_seconds(duration_s, at=at) / _SECONDS_PER_MINUTE
+
+
+#: `client_billed_seconds` over one `usage_events` row, as SQL over its `qty` and
+#: `occurred_at`. A `telephony_s` row is one call (`ux_usage_events_tenant_call_unit`)
+#: stamped at the call's end, so rounding the row up is rounding the call up. Literals only,
+#: so `scripts/check_raw_sql` can trace every character to this file.
+CLIENT_BILLED_SECONDS_SQL: Final = (
+    f"(CASE WHEN occurred_at >= TIMESTAMPTZ '{_CLIENT_PULSE_EFFECTIVE_FROM_ISO}' "
+    f"THEN CEIL(GREATEST(qty, 0) / {_CLIENT_PULSE_WHOLE_SECONDS}) "
+    f"* {_CLIENT_PULSE_WHOLE_SECONDS} ELSE qty END)"
+)
+
+
 # --- the MODEL SURCHARGE: the client's half of D-454's choice (D-455) -----------------
 #
 # **THE DEFECT THIS CLOSES.** D-454 gave a client a picker over `AZURE_OPENAI_MODELS`, and
@@ -3099,7 +3216,10 @@ __all__ = [
     "CARTESIA_STARTUP_PLAN",
     "CARTESIA_VENDOR_CREDITS_PER_AUDIO_MINUTE",
     "CARTESIA_VOLUME_LADDER_CALL_MINUTES",
+    "CLIENT_BILLED_SECONDS_SQL",
     "CLIENT_CHOSEN_LLM_SOURCES",
+    "CLIENT_PULSE_EFFECTIVE_FROM",
+    "CLIENT_PULSE_SECONDS",
     "COST_FLOOR_REFERENCE_CALL_MINUTES",
     "COST_MODEL_USD_INR",
     "ENGINE_PLATFORM_FEE_INR_PER_MIN",
@@ -3111,6 +3231,7 @@ __all__ = [
     "LIST_PRICE_USD_INR",
     "MIN_GROSS_MARGIN",
     "MONEY_Q",
+    "OWNED_CARRIER_INR_PER_MIN",
     "PREMIUM_VOICE_TIER",
     "PREPAID_TIERS",
     "PRICED_LLM_MODELS",
@@ -3127,6 +3248,9 @@ __all__ = [
     "TELEPHONY_INR_PER_MIN",
     "TELEPHONY_NUMBER_RENTAL_INR_PER_MONTH",
     "TELEPHONY_PULSE_SECONDS",
+    "THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN",
+    "THINNEST_PREMIUM_INR_PER_MIN",
+    "THINNEST_WALLET_TOPUP_FEE",
     "TTS_ASSUMED_CHARS_PER_CALL_MINUTE",
     "TTS_INR_PER_10K_CHARS",
     "TTS_RATE_REFUSAL",
@@ -3165,6 +3289,8 @@ __all__ = [
     "cartesia_tts_inr_per_call_minute",
     "clear_cost_floor_at",
     "clear_cost_floor_inr_per_min_at",
+    "client_billed_minutes",
+    "client_billed_seconds",
     "committed_plan_margin",
     "cost_floor_inr_per_min",
     "ex_tts_cost_inr_per_min_at",
@@ -3179,6 +3305,7 @@ __all__ = [
     "llm_surcharge_applies",
     "llm_surcharge_billed_inr",
     "prepaid_billed_inr",
+    "pulsed_seconds",
     "rate_is_meterable",
     "rate_margin",
     "sarvam_llm_reference_inr_per_ktok",

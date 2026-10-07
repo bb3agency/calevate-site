@@ -172,6 +172,10 @@ async def test_the_bootstrap_six_are_never_managed_and_never_appliable() -> None
         # and never opens the credential store.
         "vobiz_auth_id",
         "vobiz_auth_token",
+        # D-673. The callback secret and its previous generation: voice-runtime checks
+        # them and never opens the credential store.
+        "vobiz_callback_secret",
+        "vobiz_callback_secret_retired",
         # D-621. The voice worker's API BASE URL, env-only for `gnani_api_key`'s reason
         # exactly: it is read by that same container and by no process on this host, so a
         # box for it here would be a value nothing could deliver and nothing could read.
@@ -179,6 +183,14 @@ async def test_the_bootstrap_six_are_never_managed_and_never_appliable() -> None
         # that one to verify a header, so it has a reader on this host and is console-
         # managed. One wire, two halves, two classifications, because they have two readers.
         "pipecat_worker_api_base_url",
+        # D-678. The ThinnestAI key is captured when the adapter is built, and the base URL
+        # decides which host that key is sent to, so neither may be editable in the console.
+        "thinnest_api_key",
+        "thinnest_api_base_url",
+        # D-678. The engine intake key and its previous generation: voice-runtime opens
+        # ThinnestAI signing secrets with it and never opens the credential store.
+        "engine_intake_kek",
+        "engine_intake_kek_retired",
     } == ENV_ONLY_KEYS
 
     before = get_settings().app_env

@@ -538,6 +538,8 @@ class TestRlsCoverage:
             # `unit_cost_paid`: it is published beside the metered total, and their
             # difference is the allotment nobody spoke into.
             "platform_tts_plan_fees",
+            # D-678: the attested per-minute engine price, `platform_tts_prices`' twin.
+            "platform_engine_minute_prices",
             "platform_tts_volume",
             # D-557: how many characters the fleet's agents spoke per minute of call —
             # three integers a month (calls, characters, seconds) and no text. Platform-

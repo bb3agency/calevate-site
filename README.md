@@ -11,13 +11,17 @@ The operating manual for coding agents is [CLAUDE.md](CLAUDE.md) (and
 ```
 apps/web            Next.js 15 (App Router) + TS — admin.calevate.tech + app.calevate.tech
 apps/api            FastAPI modular monolith
-apps/voice-runtime  FastAPI — engine webhooks, in-call tools. LATENCY-CRITICAL.
-apps/workers        ARQ workers — post-call pipeline, embeddings, campaigns
+apps/voice-runtime  FastAPI — carrier answer documents and callbacks (Vobiz, D-662),
+                    engine webhooks. LATENCY-CRITICAL.
+apps/voice-worker   Pipecat conversation loop on Pipecat Cloud ap-south (D-592);
+                    Python package `voice_worker`
+apps/workers        ARQ workers — post-call pipeline, carrier events, recordings,
+                    embeddings, campaigns, number rental
 packages/shared     Pydantic models, VoiceEngine protocol, normalized events
 infra/              nginx templates, backup units + wal-g config, object-lifecycle
                     policy, and Terraform whose only resource is that S3 lifecycle
-                    config. No host, no network, no DNS; nothing applied (D-25 moved
-                    hosting off DigitalOcean — this line said "DO Bangalore" for months)
+                    config. No host, no network, no DNS; nothing applied (the host is a
+                    Hostinger India VPS, D-180, set up by hand per DEPLOYMENT.md)
 .github/workflows/  CI (listed under infra/ here until D-102's sweep; it never lived there)
 ```
 
@@ -70,13 +74,13 @@ been updated to match; changing any of these needs a new entry.
 | D-18 | `apps/voice-runtime` (layout) vs `apps.voice_runtime` (run command) — hyphens are illegal in Python module names | Keep the hyphen; start with `--app-dir apps/voice-runtime`. |
 | D-19 | `create-next-app@latest` installs Next 16; TRD §2 locks 15 | Pin 15.5.21. Major bumps are deliberate migrations, not scaffold side effects. |
 
-## Before writing feature code
+## What still blocks a client going live
 
-[ROADMAP.md](docs/ROADMAP.md) Milestone 0 gates the build: the legal-entity
-decision → DLT registration, and the **Bolna pilot** ([OPERATIONS.md](docs/OPERATIONS.md)
-§2) — 13 gates that confirm Bolna as primary engine (D-31) and close the two
-remaining unverified cost inputs, the BYOK platform fee and telephony rates.
-The adapter interface in
-`packages/shared/src/calevate_shared/engine.py` is deliberately engine-agnostic
-so this scaffold is safe to build on before that session; the adapter
-implementations are not.
+The engine is our own Pipecat loop (D-592; Bolna was deleted by D-639) and the carrier is
+Vobiz (D-662). What still stands between the build and a client's first call is outside the
+code: the first real call (`runbooks/vobiz-first-live-call.md`, BLOCKER-1), Vobiz's written
+consent to client traffic (OPERATIONS §2 gate V-10), DLT registration for outbound, and the
+first deploy (`runbooks/first-deploy.md`). [docs/README.md](docs/README.md) lists them with
+their gates. The adapter interface in `packages/shared/src/calevate_shared/engine.py` stays
+engine-agnostic, and the `fake` engine (`ENGINE=fake`, the default) is what local
+development and the test suite run against.

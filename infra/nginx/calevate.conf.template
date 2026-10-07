@@ -124,9 +124,9 @@ server {
     # THE ACCESS LOG, WITH MAILED SECRETS REMOVED. See `log-format.conf.template` for the
     # whole argument: reset, invitation and admin-bootstrap links carry their token in the
     # query string, and the built-in `combined` format logs the full request line. Named
-    # per vhost rather than set once at `http` scope so that `api.` and `hooks.` — which
-    # this file does not serve — keep whatever the base config gives them, and so a new
-    # browser vhost has to make this choice deliberately instead of inheriting it.
+    # per vhost rather than set once at `http` scope so that a new vhost has to make this
+    # choice deliberately instead of inheriting it (`hooks.` names it too, for the
+    # carrier's callback secret, D-673).
     access_log /var/log/nginx/access.log calevate_redacted;
 
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
@@ -234,9 +234,9 @@ server {
     # THE ACCESS LOG, WITH MAILED SECRETS REMOVED. See `log-format.conf.template` for the
     # whole argument: reset, invitation and admin-bootstrap links carry their token in the
     # query string, and the built-in `combined` format logs the full request line. Named
-    # per vhost rather than set once at `http` scope so that `api.` and `hooks.` — which
-    # this file does not serve — keep whatever the base config gives them, and so a new
-    # browser vhost has to make this choice deliberately instead of inheriting it.
+    # per vhost rather than set once at `http` scope so that a new vhost has to make this
+    # choice deliberately instead of inheriting it (`hooks.` names it too, for the
+    # carrier's callback secret, D-673).
     access_log /var/log/nginx/access.log calevate_redacted;
 
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
@@ -295,9 +295,9 @@ server {
     # THE ACCESS LOG, WITH MAILED SECRETS REMOVED. See `log-format.conf.template` for the
     # whole argument: reset, invitation and admin-bootstrap links carry their token in the
     # query string, and the built-in `combined` format logs the full request line. Named
-    # per vhost rather than set once at `http` scope so that `api.` and `hooks.` — which
-    # this file does not serve — keep whatever the base config gives them, and so a new
-    # browser vhost has to make this choice deliberately instead of inheriting it.
+    # per vhost rather than set once at `http` scope so that a new vhost has to make this
+    # choice deliberately instead of inheriting it (`hooks.` names it too, for the
+    # carrier's callback secret, D-673).
     access_log /var/log/nginx/access.log calevate_redacted;
 
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
@@ -435,9 +435,9 @@ server {
     # THE ACCESS LOG, WITH MAILED SECRETS REMOVED. See `log-format.conf.template` for the
     # whole argument: reset, invitation and admin-bootstrap links carry their token in the
     # query string, and the built-in `combined` format logs the full request line. Named
-    # per vhost rather than set once at `http` scope so that `api.` and `hooks.` — which
-    # this file does not serve — keep whatever the base config gives them, and so a new
-    # browser vhost has to make this choice deliberately instead of inheriting it.
+    # per vhost rather than set once at `http` scope so that a new vhost has to make this
+    # choice deliberately instead of inheriting it (`hooks.` names it too, for the
+    # carrier's callback secret, D-673).
     access_log /var/log/nginx/access.log calevate_redacted;
 
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
@@ -643,6 +643,10 @@ server {
     http2 on;
     server_name hooks.${ROOT_DOMAIN};
 
+    # The redacted format, because every Vobiz request carries our callback secret in its
+    # query string (D-673) and the base config's `combined` would log it whole.
+    access_log /var/log/nginx/access.log calevate_redacted;
+
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
     include /etc/nginx/snippets/calevate-tls.conf;
@@ -710,6 +714,28 @@ server {
         proxy_pass http://calevate_hooks;
         include /etc/nginx/snippets/calevate-proxy.conf;
         proxy_request_buffering on;
+    }
+
+    # The carrier's fallback answer URL (D-675): what Vobiz fetches when an answer URL is
+    # unreachable, slow or broken. voice-runtime serves it (and alarms); when voice-runtime
+    # itself is down, restarting or slower than 3s, nginx answers with the same static
+    # document, so the caller hears a busy tone instead of the call dropping. Only 502/503/504
+    # are intercepted: a 404 from the app (an unknown carrier) passes through as a 404.
+    location = /carrier/v1/vobiz/fallback {
+        limit_req zone=carrier burst=100 nodelay;
+        proxy_pass http://calevate_hooks;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+        proxy_request_buffering on;
+        proxy_read_timeout 3s;
+        proxy_intercept_errors on;
+        error_page 502 503 504 = @carrier_fallback_document;
+    }
+
+    # `apps/voice-runtime/carrier_routes.py::fallback_document`, byte for byte apart from the
+    # line break after the declaration (`tests/carrier_fallback_test.py` compares them).
+    location @carrier_fallback_document {
+        default_type application/xml;
+        return 200 '<?xml version="1.0" encoding="UTF-8"?><Response><Hangup reason="busy" /></Response>';
     }
 
     location / {

@@ -728,7 +728,7 @@ export function IntakeStep({
               <Field
                 id={intakeFieldId(`escalation_contacts.${index}.phone_e164`)}
                 label="Phone"
-                hint="With the country code — for example +91…"
+                hint="An Indian number, starting with +91"
                 error={placed.messageAt(`escalation_contacts.${index}.phone_e164`)}
               >
                 {(props) => (

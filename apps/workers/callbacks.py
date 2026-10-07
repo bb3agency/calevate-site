@@ -32,6 +32,7 @@ from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
 from apps.api.engine.carrier_pacing import LINES_BUSY_RULE, PACING_RULE
+from apps.api.engine.vendor_http import RECIPIENT_OPTED_OUT_CODE
 
 log = get_logger(__name__)
 
@@ -60,6 +61,9 @@ PACING_DEFERRED_REASON = "The phone line was busy starting other calls; we will 
 
 #: ...and when every line the calling account allows was in use.
 LINES_BUSY_REASON = "All our phone lines were busy; we will try again shortly."
+
+#: ...and when the phone system has this person marked as not to be called.
+OPTED_OUT_REASON = "This number is marked as not to be called, so the call-back was not placed."
 
 #: The refusals that say the LINE was not free rather than that the phone system refused,
 #: each with the sentence the client reads on the deferred call-back.
@@ -187,6 +191,20 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                 # what stops that being for ever. A failure that may have rung somebody is
                 # `DialUnconfirmedError`, handled above, and is never retried.
                 code = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
+                if code == RECIPIENT_OPTED_OUT_CODE:
+                    # The voice platform will not call this person: a fact about the
+                    # person, settled like a gate's person-level refusal rather than
+                    # re-asked until the grace window runs out.
+                    record_compliance_block(rule=code)
+                    await callbacks.settle(
+                        session,
+                        callback.id,
+                        status="refused",
+                        rule=code,
+                        reason=OPTED_OUT_REASON,
+                    )
+                    blocked += 1
+                    continue
                 if code in _LINE_REFUSALS:
                     await callbacks.defer(
                         session, callback.id, rule=code, reason=_LINE_REFUSALS[code]

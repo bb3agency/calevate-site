@@ -90,3 +90,41 @@ async def test_any_other_refusal_still_propagates(monkeypatch: pytest.MonkeyPatc
             headers={SECRET_HEADER: SECRET},
         )
     assert response.status_code >= 400
+
+
+async def test_a_platform_opt_out_keeps_the_lead_and_books_no_call_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The voice platform refusing the person settles the delivery: nothing rang, the lead
+    is kept, no call-back is booked, and the sender gets a 2xx so it does not retry."""
+    from apps.api.engine.vendor_http import RECIPIENT_OPTED_OUT_CODE, recipient_opted_out_error
+
+    async def _refuse(*_args: object, **_kwargs: object) -> str:
+        raise recipient_opted_out_error()
+
+    monkeypatch.setattr(ingest_service, "dispatch_call", _refuse)
+    tenant_id, _agent_id, webhook_id = await _tenant_with_ingest()
+    async with _client() as http:
+        response = await http.post(
+            f"/hooks/v1/ingest/{webhook_id}",
+            json={"phone_number": "9876507704", "full_name": "Opted Out"},
+            headers={SECRET_HEADER: SECRET},
+        )
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["dispatched"] is False
+    assert body["blocked"] == RECIPIENT_OPTED_OUT_CODE
+
+    e164 = "+919876507704"
+    async with tenant_session(tenant_id) as session:
+        leads = (
+            await session.execute(text("SELECT id FROM leads WHERE phone_e164 = :p"), {"p": e164})
+        ).all()
+        booked = (
+            await session.execute(
+                text("SELECT count(*) FROM scheduled_callbacks WHERE phone_e164 = :p"),
+                {"p": e164},
+            )
+        ).scalar_one()
+    assert len(leads) == 1
+    assert booked == 0

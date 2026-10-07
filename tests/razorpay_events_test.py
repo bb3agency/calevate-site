@@ -1124,6 +1124,7 @@ async def test_a_full_refund_of_a_pack_takes_the_bonus_back_too(
         tenant_id, RefundIn(payment_id=pid, reason="client asked"), _request(), _admin()
     )
     assert out.amount_inr == pack.amount_inr
+    assert out.bonus_clawed_back_inr == pack.bonus_credits, "the operator is told what moved"
     assert await _balance(tenant_id) == Decimal("0.0000"), "the bonus went back with the purchase"
 
 

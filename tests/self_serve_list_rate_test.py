@@ -54,7 +54,7 @@ from apps.api.billing.list_rates import (
     self_serve_rate_at,
 )
 from apps.api.billing.plans import ist_billing_month, ist_month_end, month_pricing_instant
-from apps.api.billing.rates import MONEY_Q, ROUNDING
+from apps.api.billing.rates import MONEY_Q, ROUNDING, client_billed_minutes
 from apps.api.billing.service import margin_for_tenant, to_paise, usage_summary
 from apps.api.core.settings import Settings, get_settings
 from apps.api.db.session import tenant_session, untenanted_session
@@ -77,8 +77,11 @@ _SECONDS = 890
 _SUPPLIER_COST = "1.9000"
 
 
-def _debit(rate: Decimal) -> Decimal:
-    """What one `_SECONDS` call takes off the wallet at `rate`.
+def _debit(rate: Decimal, *, ended: datetime) -> Decimal:
+    """What one `_SECONDS` call that ended at `ended` takes off the wallet at `rate`.
+
+    The minutes are `rates.client_billed_minutes` (D-681): by the second before 7 Oct 2026,
+    in 30-second steps from then on, so a closed September month keeps its old figure.
 
     `billing/rates.prepaid_billed_inr`'s own rule, spelled out rather than called, so this
     asserts the RATE without asserting itself: exact seconds -> minutes, times the rate,
@@ -86,7 +89,8 @@ def _debit(rate: Decimal) -> Decimal:
     context, hard rule 7). Quantizing the MINUTES first is a different and wrong number —
     it gives ₹88.9998 where the ledger holds ₹89.0000.
     """
-    return (Decimal(_SECONDS) / 60 * rate).quantize(MONEY_Q, rounding=ROUNDING)
+    minutes = client_billed_minutes(Decimal(_SECONDS), at=ended)
+    return (minutes * rate).quantize(MONEY_Q, rounding=ROUNDING)
 
 
 # --- fixture plumbing ------------------------------------------------------------
@@ -246,13 +250,13 @@ async def test_a_late_settling_call_is_charged_at_its_own_months_rate(
     tenant_id, agent_id, closed_month, ended = await _priced_history(monkeypatch)
     await _bill(tenant_id, agent_id, seconds=_SECONDS, spend=_SUPPLIER_COST, ended=ended)
 
-    expected = _debit(_OLD_RATE)
+    expected = _debit(_OLD_RATE, ended=ended)
 
     month, _minutes, _spend, _capped, billed = await _spend_state(tenant_id)
     assert month == closed_month, "the call counts into the month it ended in"
     assert billed == expected, (
         f"the counter charged {billed} where the month's own rate makes it {expected} "
-        f"(at today's ₹{_NEW_RATE} it would be {_debit(_NEW_RATE)})"
+        f"(at today's ₹{_NEW_RATE} it would be {_debit(_NEW_RATE, ended=ended)})"
     )
 
     async with tenant_session(tenant_id) as session:
@@ -291,8 +295,8 @@ async def test_a_closed_months_statement_is_not_repriced_by_a_later_rate_move(
     # month's own list card — ₹89.0000, and NOT the ₹88.98 the old re-derivation produced
     # off the published (rounded) minute count. That bounded residual is what reading the
     # ledger closes.
-    charged = to_paise(_debit(_OLD_RATE))
-    at_todays_rate = to_paise(_debit(_NEW_RATE))
+    charged = to_paise(_debit(_OLD_RATE, ended=ended))
+    at_todays_rate = to_paise(_debit(_NEW_RATE, ended=ended))
     assert charged != at_todays_rate, "the fixture must be able to tell them apart"
     assert charged != to_paise(minutes * _OLD_RATE), (
         "and it must be able to tell the LEDGER apart from a re-derivation at the same "
@@ -324,7 +328,7 @@ async def test_the_admin_margin_panel_books_the_same_revenue(
 
     # The LEDGER's own figure, for `test_a_closed_months_statement...`'s reason: revenue is
     # what the wallet was charged, not the published minute count re-multiplied.
-    expected = to_paise(_debit(_OLD_RATE))
+    expected = to_paise(_debit(_OLD_RATE, ended=ended))
     assert margin["revenue_inr"] == expected
     assert attribution.period_charge_inr == expected, (
         "the per-call itemisation divides the same rupees as the statement"
@@ -338,12 +342,11 @@ async def test_an_open_month_still_prices_at_the_rate_in_force_now(
     'always price at the month end': a call in the OPEN month is charged at today's rate,
     which here is the ₹9 row that came into force when the month turned."""
     tenant_id, agent_id, _closed, _ended = await _priced_history(monkeypatch)
-    await _bill(
-        tenant_id, agent_id, seconds=_SECONDS, spend=_SUPPLIER_COST, ended=datetime.now(UTC)
-    )
+    now = datetime.now(UTC)
+    await _bill(tenant_id, agent_id, seconds=_SECONDS, spend=_SUPPLIER_COST, ended=now)
 
     _month, _m, _s, _c, billed = await _spend_state(tenant_id)
-    assert billed == _debit(_NEW_RATE)
+    assert billed == _debit(_NEW_RATE, ended=now)
 
 
 # --- the store itself ------------------------------------------------------------

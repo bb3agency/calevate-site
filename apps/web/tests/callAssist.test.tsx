@@ -182,7 +182,7 @@ describe("the assistant's answer", () => {
 
   it("shows the disclosure when a different model wrote the answer (G-6)", async () => {
     const disclosure =
-      "This was written by Sarvam, not the assistant model, because the assistant model did not answer.";
+      "This was written by our standby model, not the assistant model, because the assistant model did not answer.";
     await renderClientPage(page(), {
       ...baseRoutes(),
       "POST /v1/calls/c1/assist": {

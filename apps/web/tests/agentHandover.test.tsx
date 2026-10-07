@@ -5,7 +5,7 @@ import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import type { Agent, HandoffOut } from "@/lib/api/agents";
 
 import { renderClientPage } from "./harness";
-import { LANES, voiceCatalogue } from "./fixtures/sharedReads";
+import { LANES, clientLlmTiers, voiceCatalogue } from "./fixtures/sharedReads";
 
 // The handover panel lives in the workspace's Call handling section (D-657), so every test
 // here opens that section.
@@ -100,9 +100,11 @@ const AGENT: Agent = {
   published: true,
   inbound_number_count: 1,
   extraction_fields: [],
-  llm_model: null,
-  llm_model_effective: "gpt-4o-mini",
-  llm_model_source: "platform",
+  llm_tier: null,
+  llm_tier_effective: "standard",
+  llm_tier_label: "Standard",
+  llm_tier_source: "platform",
+  llm_surcharged: false,
 };
 
 const PENDING = {
@@ -131,11 +133,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/agents/agent-1": AGENT,
     "/v1/agents/agent-1/pending": PENDING,
     "/v1/kb/sources": [],
-    "/v1/organization/llm-defaults": {
-      default_llm_model: null,
-      effective_default: "gpt-4o-mini",
-      available: [],
-    },
+    "/v1/organization/llm-defaults": clientLlmTiers({ available: [] }),
     "/v1/agents/agent-1/actions": {
       api_actions_enabled: false,
       calendar_available: false,

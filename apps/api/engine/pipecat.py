@@ -77,7 +77,14 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 from uuid import UUID
 
-from calevate_shared.carrier import CarrierName, answer_path, events_path
+from calevate_shared.carrier import (
+    CALLBACK_SECRET_SETTINGS,
+    CarrierName,
+    answer_path,
+    callback_secret_for,
+    events_path,
+    with_callback_secret,
+)
 from calevate_shared.engine import (
     E164,
     PIPECAT_REF_PREFIX,
@@ -1763,15 +1770,22 @@ class PipecatEngine:
             raise _dial_precondition_failed(missing="published agent")
 
         name = carrier.name
+        secret = _carrier_callback_secret(name)
+        events_url = with_callback_secret(
+            base_url + events_path(name, ref, call_id=ctx.call_id), secret
+        )
         placed = await carrier.place_call(
             from_e164=ctx.from_e164,
             to_e164=to,
-            answer_url=base_url
-            + answer_path(
-                name, ref, call_id=ctx.call_id, recorded=_carrier_records(name, agent.config)
+            answer_url=with_callback_secret(
+                base_url
+                + answer_path(
+                    name, ref, call_id=ctx.call_id, recorded=_carrier_records(name, agent.config)
+                ),
+                secret,
             ),
-            hangup_url=base_url + events_path(name, ref, call_id=ctx.call_id),
-            ring_url=base_url + events_path(name, ref, call_id=ctx.call_id),
+            hangup_url=events_url,
+            ring_url=events_url,
             time_limit_s=min(
                 agent.config.max_call_duration_s + CARRIER_TIME_LIMIT_MARGIN_S,
                 CARRIER_TIME_LIMIT_CEILING_S,
@@ -1872,12 +1886,18 @@ class PipecatEngine:
             raise _number_not_linked()
         self._carrier_ready(carrier, "point a number at an agent")
         base_url = _public_callback_base()
+        secret = _carrier_callback_secret(carrier.name)
         held = await self._held(ref)
         binding_id = await carrier.bind_number(
             number.e164,
-            answer_url=base_url
-            + answer_path(carrier.name, ref, recorded=_carrier_records(carrier.name, held.config)),
-            hangup_url=base_url + events_path(carrier.name, ref),
+            answer_url=with_callback_secret(
+                base_url
+                + answer_path(
+                    carrier.name, ref, recorded=_carrier_records(carrier.name, held.config)
+                ),
+                secret,
+            ),
+            hangup_url=with_callback_secret(base_url + events_path(carrier.name, ref), secret),
             label=str(held.agent_id),
             known_binding_id=await self._store.number_binding(ref, e164=number.e164),
         )
@@ -1949,6 +1969,21 @@ def _public_callback_base() -> str:
     if not base or (settings.app_env != "local" and not is_public_callback_base(base)):
         raise _dial_precondition_failed(missing="public callback address")
     return base
+
+
+def _carrier_callback_secret(carrier: str) -> str | None:
+    """The secret every URL registered with `carrier` carries (D-673), or `None` for a
+    carrier that has none.
+
+    Refused outside `local` when the carrier needs one and none is usable: voice-runtime
+    would refuse every request on those URLs, so a dial would ring a phone whose answer
+    document is never served, and a binding would leave a number that rings and dies.
+    """
+    settings = get_settings()
+    secret = callback_secret_for(carrier, settings)
+    if secret is None and carrier in CALLBACK_SECRET_SETTINGS and settings.app_env != "local":
+        raise _dial_precondition_failed(missing="callback secret")
+    return secret
 
 
 def _dial_precondition_failed(*, missing: str) -> ProblemError:

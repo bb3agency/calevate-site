@@ -29,14 +29,11 @@ model reads, and the canned sentences a client is shown. Config constants, model
 sub-processor register and the decision log are all outside it by construction, not by
 exemption.
 
-**THE ONE VENDOR DELIBERATELY NOT BANNED IS SARVAM, AND THE EXCEPTION IS THE POINT.**
-D-127 G-6 requires a substituted answer to say who wrote it, and
-`workers/extraction._FALLBACK_DISCLOSURE` therefore says "This was written by Sarvam, not
-the assistant model" in the client's own words. That is a disclosure the product decided to
-make, in a place it can be reviewed. Banning the name would delete a compliance sentence to
-satisfy a guard aimed at a different problem — which is the shape of every weakened
-invariant. What is banned is the LANGUAGE-MODEL vendor identity behind the assistant, which
-no surface has ever been asked to disclose in chat.
+**SARVAM IS BANNED TOO, SINCE D-679.** It used to be the one exception, because the
+standby disclosure named it. D-127 G-6 requires a substituted answer to say that a
+DIFFERENT model wrote it, and `workers/extraction._FALLBACK_DISCLOSURE` still does ("This
+was written by our standby model"); which company that is belongs to the named
+sub-processor list given on request, not to chat.
 
 WHAT THIS CANNOT SEE, said plainly. It judges the surfaces enumerated below. A canned
 string that reaches a user through some other path — a new `ProblemError` detail, a toast
@@ -215,14 +212,14 @@ def test_the_scan_would_catch_the_sentence_that_shipped() -> None:
 
 def test_the_scan_does_not_fire_on_the_products_own_vocabulary() -> None:
     """The other half of a useful guard: it must be silent on the text this product does
-    ship. A scan that flagged the identity block itself, or the Sarvam disclosure, would be
+    ship. A scan that flagged the identity block itself, or the standby disclosure, would be
     turned off within a week — and `ASSISTANT_IDENTITY` is deliberately full of the SUBJECT
     ("which AI providers it buys from", "no company, no laboratory, no model") while naming
     none of them, which is precisely the distinction this guard has to be able to make."""
     assert not _offenders({"identity": prompt_module.ASSISTANT_IDENTITY})
     assert not _offenders({"framing": prompt_module.CONVERSATIONAL_FRAMING})
     assert not _offenders(
-        {"disclosure": "This was written by Sarvam, not the assistant model, because ..."}
+        {"disclosure": "This was written by our standby model, not the assistant model."}
     )
 
 

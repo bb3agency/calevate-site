@@ -333,6 +333,31 @@ class PlatformTtsPrice(Base):
     source_note: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class PlatformEngineMinutePrice(Base):
+    """What one engine charges us per billed minute, attested by an operator (D-678).
+
+    A control-plane engine that reports no per-call cost (ThinnestAI:
+    `thinnest-findings/mirror/pages/api-reference/get-call.md:199-204`) can only be metered
+    as minutes times a rate somebody read off its invoice, so this table is the one door to
+    `unit_cost_paid` for those minutes (hard rule 7). `rate_key` separates the engine's base
+    rate (`platform`) from per-voice-tier rates. Append-only and effective-dated for
+    `PlatformTtsPrice`'s reasons; platform-scoped, so no `tenant_id`.
+    """
+
+    __tablename__ = "platform_engine_minute_prices"
+
+    engine: Mapped[str] = mapped_column(Text, primary_key=True)
+    rate_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    effective_from: Mapped[datetime] = mapped_column(primary_key=True)
+    #: ₹ per billed minute.
+    inr_per_min: Mapped[Decimal] = mapped_column(INR_PER_KCHAR, nullable=False)
+    attested_by: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=False
+    )
+    attested_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    source_note: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 #: RUPEES for ONE MONTH of a voice vendor's plan, as the invoice states it. NUMERIC(12,2)
 #: and NOT `INR_PER_KCHAR`'s six decimals: this figure is not a division, it is the amount
 #: on the bill, and an invoice is quoted to the paisa. Never a float (hard rule 7).
@@ -767,6 +792,7 @@ __all__ = [
     "PlatformConfigVersion",
     "PlatformDashboardDataUse",
     "PlatformEngineHealth",
+    "PlatformEngineMinutePrice",
     "PlatformMaintenanceWindow",
     "PlatformModelPrice",
     "PlatformSecret",

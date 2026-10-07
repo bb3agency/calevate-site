@@ -58,7 +58,7 @@ from apps.api.agents.service import (
     NUMBER_NOT_ON_CARRIER_REASON,
     NUMBER_NOT_ON_CARRIER_RULE,
     agent_registered_numbers,
-    outbound_carrier,
+    outbound_number_provider,
 )
 from apps.api.campaigns.models import (
     CONSENT_SOURCES,
@@ -572,7 +572,7 @@ def _channel_blockers(
         # (`agents.service._AGENT_CALLER_ID_SQL`), so a campaign number that is not one
         # would resolve to no header at dial time. Refused here by the dial gate's own
         # rules, so the launch preview names it instead of every contact being refused.
-        carrier = outbound_carrier()
+        carrier = outbound_number_provider()
         if carrier is not None:
             if facts.number_provider != carrier:
                 blockers.append(

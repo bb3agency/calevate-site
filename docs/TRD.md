@@ -9,21 +9,23 @@ All choices are final unless a decision-log entry (ROADMAP.md §6) supersedes th
 
 Style: **modular monolith API + isolated latency-critical runtime**, NOT microservices.
 Fault isolation and swappability come from bulkheads (queues, timeouts, circuit breakers)
-and code-level interfaces (Protocols + DI), not from network boundaries. Four deployables:
+and code-level interfaces (Protocols + DI), not from network boundaries. Five deployables:
 
 | Service | Runtime | Responsibility | Scaling driver |
 |---|---|---|---|
 | `web` | Next.js 15 (App Router), TypeScript | Admin console (admin.calevate.tech) + client app (app.calevate.tech) | Traffic; CDN-cached |
 | `api` | FastAPI (Python 3.12) modular monolith | Auth/tenancy, agent config, CRM, analytics, billing, KB mgmt | Requests; deploy freely |
-| `voice-runtime` | FastAPI, separate deploy | Engine webhooks, in-call tool endpoints (RAG search, booking), engine adapters | **Concurrent calls; never redeployed casually; a dashboard deploy must not touch live calls** |
-| `workers` | ARQ on Redis | Post-call pipeline, embeddings, campaign dispatch, notifications, redaction, retention jobs | Queue depth; crashes delay work, never drop calls |
+| `voice-runtime` | FastAPI, separate deploy | Carrier answer documents and status/recording callbacks (Vobiz, D-662; Plivo kept behind the switch), engine webhooks. No in-call tool routes since D-650 | **Concurrent calls; never redeployed casually; a dashboard deploy must not touch live calls** |
+| `workers` | ARQ on Redis | Post-call pipeline, carrier events and CDR reads, recording copies, embeddings, campaign dispatch, number rental, notifications, redaction, retention jobs | Queue depth; crashes delay work, never drop calls |
+| `voice-worker` | Pipecat in our own container on Pipecat Cloud `ap-south` (D-592) | The conversation loop: STT, LLM, TTS, turn detection, the in-call knowledge pack; reaches the api only over `/v1/worker/**` | Concurrent calls; deployed by its own command, never by the VPS deploy |
 
 Shared infra: PostgreSQL 16 (+pgvector) on the host, Redis (Compose), Cloudflare R2
-object storage. Hosting (D-25 narrows D-13): the site stack is NOT in the live-call
-path (the rented engine — Bolna, D-31 — hosts the entire call in v1), so it deploys on a general-purpose VPS
-— see DEPLOYMENT.md. D-13's India-co-location reasoning still binds every future
-IN-CALL-PATH service (the M3 RAG tool endpoint deploys to an India region host;
-co-location saves 50–100ms/turn and the 100ms retrieval budget is unmeetable from EU).
+object storage. Hosting (D-25 narrows D-13; D-180 chose a Hostinger India VPS): the site
+stack is NOT in the live-call path — the call runs in the voice worker on Pipecat Cloud
+(PIPECAT-MIGRATION §8) — so it deploys on a general-purpose VPS; see DEPLOYMENT.md. What
+the caller waits on from the VPS is the worker's session read and its in-call tool calls
+to `/v1/worker/**`, which is why D-13's co-location reasoning still binds any in-call-path
+service.
 
 Module boundaries inside `api` (each owns its tables; no cross-module SQL; communicate via
 service interfaces): tenancy, agents, engine, campaigns, ingest(webhooks-in), postcall,
@@ -35,15 +37,12 @@ crm, analytics, billing, kb, integrations, compliance, audit.
   Ruff + mypy(strict) in CI. One backend language (voice/AI ecosystem is Python-first;
   phase-2 Pipecat runtime reuses everything).
 - **Frontend:** Next.js 15 + TypeScript, Tailwind + shadcn/ui, TanStack Query, Recharts/
-  Tremor. Typed API client generated from FastAPI OpenAPI. (Bolna DOES publish an
-  OpenAPI spec — this line said otherwise for the repository's whole life, D-350. It is
-  `references/openapi.yml` in `bolna-ai/skills`, their own GitHub org, pinned and
-  checksummed in `docs/vendor/bolna/hosted-oas.md`; the adapter's models are now read
-  from it rather than hand-maintained, §5.)
-- **DB:** Postgres 16 for all system-of-record data. Vector/RAG: a managed RAG/memory
-  service via API (D-28 — supersedes the earlier in-Postgres pgvector plan and the "no
-  external vector DB" rule; D-08's RTT physics now governs provider REGION choice and
-  keeps v1 in-call retrieval on the engine's built-in KB — TRD §6).
+  Tremor. Typed API client generated from FastAPI OpenAPI.
+- **DB:** Postgres 16 for all system-of-record data. Vector/RAG: `pgvector` inside that
+  same Postgres (`kb_chunks`, D-502, which reversed D-28's managed service), serving the
+  dashboard copilot and the CRM paths. In-call retrieval is the knowledge pack the voice
+  worker holds in memory (PIPECAT-MIGRATION §8.1), never a network call to this store —
+  TRD §6.
 - **Queue:** Redis + ARQ. Promote only campaign orchestration to Temporal if/when retry
   semantics outgrow ARQ. Not before.
 - **Auth: OURS, end to end. There is no identity vendor.** This bullet named Clerk for most
@@ -568,6 +567,14 @@ establish is what IS achievable, measured, and that number does not exist yet.
 > below that describes Bolna — its API, webhooks, source-IP allowlist, KB, pricing and pilot
 > gates — is the record of the engine this section was written for, not an instruction:
 > do not configure, call or buy from Bolna on its strength.
+
+**The carrier is a second seam beside the engine (D-662).** The owned runtime dials,
+answers and binds numbers through a carrier, and the api reaches one only through
+`apps/api/engine/carrier.py` (`CarrierClient`; `vobiz.py`, and `plivo_carrier.py` as the
+switchable fallback), chosen by `Settings.carrier`. The names and URL shapes every
+deployable shares are `calevate_shared.carrier`; voice-runtime renders the answer document
+(`carrier_routes.py`), and the worker speaks the carrier's stream protocol with its own
+serializer (`voice_worker/vobiz_serializer.py`), holding no carrier credential.
 
 Nothing outside `engine/` may import a vendor SDK or see a vendor payload shape.
 
@@ -1217,10 +1224,18 @@ and `null` if one digit is unclear, enum values verbatim and only when meant.
 
 ## 8. Post-Call Pipeline (workers; idempotent; keyed by call_id)
 
-webhook(execution status) → **authenticate per §5** (Bolna is unsigned: source-IP
+On the owned runtime (D-592) there is no vendor execution to fetch: the voice worker's
+settlement (`POST /v1/worker/calls/{id}/settlement`) writes the `calls` row and puts one
+`post-call:{call_id}` outbox row on the books, and `engine/pipecat.get_execution` reads our
+own rows as the snapshot. The carrier's hangup callback, CDR and `RecordStop` arrive
+separately through voice-runtime and `workers/carrier_events` / `carrier_recordings`
+(FLOWS §3). A rented engine's path, kept for the `cartesia` adapter:
+webhook(execution status) → **authenticate per §5** (an unsigned engine: source-IP
 allowlist + execution-id dedupe, payload treated as a HINT; HMAC only where an engine
 signs) → authenticated Get Execution is the TRUTH → persist CallEvent + turns → enqueue:
-1. fetch/persist recording to our storage (presigned; engine copy is not our system of record)
+1. fetch/persist recording to our storage (presigned; engine copy is not our system of record).
+   On Vobiz the carrier records the call and `workers/carrier_recordings` makes the copy;
+   this step finds it already made (D-668)
 2. PII redaction pass on transcript (Aadhaar/PAN/card/OTP patterns + LLM assist) →
    redacted transcript is the default view; raw restricted by role
 3. extraction (per §7) → upsert Lead
@@ -1264,9 +1279,22 @@ still outbound-only) now stops answering as well, enforced as durable state AT T
 rather than at any gate of ours — `agents/service.py::reconcile_inbound_answering` writes
 the neutral message on the ledger's crossing of zero and `publish_agent` re-decides it,
 because nothing of ours runs before the vendor answers an incoming call.
+A client-bought number's rental is collected monthly at the price frozen at purchase — a
+wallet `usage` debit for a prepaid account, a `one_time_charges` invoice line for an
+invoiced one — decided in `billing/number_rental.collect_number_rental` (D-665); a refunded
+credit pack takes its bonus back in the refund's own transaction (D-672). Our carrier cost
+per call is the Vobiz CDR's `total_cost`, written as one compensating `usage_events` row,
+while the client's billable minutes stay the worker's measured duration (D-662/D-648).
 Razorpay for collection (phase 1 can invoice manually; ledger from day 1 is non-negotiable).
 
 ## 10. Cost Model (verified July 2026; re-verify quarterly)
+
+> **7 Oct 2026 (D-681): the headline figures below are history, not today's floors.** The
+> floors a rate card is judged at are code-derived per engine in
+> `apps/api/billing/rates.py::cost_floor_inr_per_min(voice, engine=...)`: Pipecat folds in the
+> carrier leg we now own (Vobiz ₹0.44 + recording ₹0.10; Clear ₹3.6891, Studio ₹5.2499) and
+> ThinnestAI's Clear floor is ₹2.75 (₹2.50 Premium × 1.10 top-up fee, FOUNDER-RELAYED).
+> `tests/cost_floor_test.py` pins the derivations. Clients are billed in 30-second steps.
 
 Per-minute variable (₹): platform 1.5–2.0 (A-1) · STT 0.50 · **TTS 0.97–1.46 on the Clear
 voice (Gnani Timbre v2.5 since D-629, at the vendor's published per-character rate, `₹27.00 / 10,000 chars` —

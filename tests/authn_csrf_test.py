@@ -45,8 +45,12 @@ API_ORIGIN = "http://api"
 SIBLING_ORIGIN = "https://blog.calevate.tech"
 
 
-def _request(headers: dict[str, str], *, path: str = "/v1/auth/admin/login") -> Request:
-    """A Starlette request with these headers, addressed to `API_ORIGIN`."""
+def _request(headers: dict[str, str], *, path: str = "/v1/auth/client/login") -> Request:
+    """A Starlette request with these headers, addressed to `API_ORIGIN`.
+
+    A client-realm path by default, where every console origin is accepted; admin-realm
+    paths accept the admin console alone and are covered by
+    `tests/realm_origin_binding_test.py`."""
     raw = [(k.lower().encode(), v.encode()) for k, v in headers.items()]
     raw.append((b"host", API_ORIGIN.removeprefix("http://").encode()))
     return Request(

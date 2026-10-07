@@ -35,6 +35,8 @@ from calevate_shared.invisible_text import TAG_BLOCK
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.engine_facts import recorded_facts_handles
+from apps.api.agents.llm_tiers import client_model_label
 from apps.api.agents.t0 import KnowledgeFact, recompile_t0
 from apps.api.agents.write_guard import assert_agent_writable
 from apps.api.core.errors import ProblemError
@@ -595,7 +597,7 @@ async def preview(session: AsyncSession, source_id: UUID) -> list[dict[str, Any]
         )
     ).all()
     # THE GLOSS IS SHOWN AND IT IS SHOWN AS A MACHINE'S WORK. `gloss_model` travels with it
-    # so the screen can say WHICH model wrote it rather than asserting "machine-generated"
+    # so the screen can say WHICH model tier wrote it rather than asserting "machine-generated"
     # as a convention the API merely hopes the client honours. A reviewer who can see it can
     # report a bad one; a reviewer who cannot would be approving text they never read.
     return [
@@ -604,7 +606,10 @@ async def preview(session: AsyncSession, source_id: UUID) -> list[dict[str, Any]
             "content": r[1],
             "chars": len(r[1]),
             "gloss": r[2],
-            "gloss_model": r[3],
+            # The tier, never the model id (D-679, D-680): this route is the client realm.
+            "gloss_model": (
+                client_model_label(r[3], unclassified="Calevate") if r[3] is not None else None
+            ),
         }
         for r in rows
     ]
@@ -1002,6 +1007,13 @@ async def _lock_agent_publishes(session: AsyncSession, *, agent_id: UUID) -> Non
     )
 
 
+async def lock_agent_publishes(session: AsyncSession, *, agent_id: UUID) -> None:
+    """`_lock_agent_publishes`, for a caller outside this module that changes what the engine
+    holds for an agent (`agents/engine_facts.py`). Re-entrant within one transaction, which
+    is what a KB publish that recompiles T0 and republishes the agent relies on."""
+    await _lock_agent_publishes(session, agent_id=agent_id)
+
+
 async def try_lock_agent_publishes(session: AsyncSession, *, agent_id: UUID) -> bool:
     """Take `_lock_agent_publishes`' lock IF IT IS FREE. True if this transaction now holds it.
 
@@ -1123,7 +1135,9 @@ async def recorded_handles_of_agent(session: AsyncSession, agent_id: UUID) -> se
             {"aid": agent_id},
         )
     ).scalars()
-    return {str(row) for row in rows}
+    # The business-facts document an engine that keeps facts out of the prompt holds for
+    # this agent (`agents/engine_facts.py`) is ours too.
+    return {str(row) for row in rows} | await recorded_facts_handles(session, agent_id=agent_id)
 
 
 async def _reconcile_engine_state(
@@ -2320,6 +2334,7 @@ __all__ = [
     "approve_source",
     "chunk_text",
     "list_sources",
+    "lock_agent_publishes",
     "preview",
     "project_chunks",
     "publish_lock_key",

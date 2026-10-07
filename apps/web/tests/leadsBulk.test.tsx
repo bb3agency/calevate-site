@@ -86,9 +86,11 @@ const AGENT: Agent = {
   // D-454: the model this agent runs on. `null` + source "platform" is an agent
   // inheriting all the way up, which is what every pre-D-454 fixture described
   // implicitly by having no opinion at all.
-  llm_model: null,
-  llm_model_effective: "gpt-4o-mini",
-  llm_model_source: "platform",
+  llm_tier: null,
+  llm_tier_effective: "standard",
+  llm_tier_label: "Standard",
+  llm_tier_source: "platform",
+  llm_surcharged: false,
 };
 
 const MEMBERS: Member[] = [{ id: "u1", name: "Priya Nair", role: "owner" }];

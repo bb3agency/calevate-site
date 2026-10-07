@@ -42,6 +42,7 @@ import pytest
 import scripts.eval as ev
 import scripts.qa_report as qa
 from apps.api.admin import service as admin_service
+from apps.api.agents.llm_tiers import client_model_label
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from apps.api.quality.service import latest_report, store_report
@@ -215,6 +216,10 @@ async def test_the_route_recomputes_nothing_it_serves_what_was_stored() -> None:
         )
     assert response.json()[0]["defects"] == 7
     assert response.json()[0]["red_team"] == 3
+    # Verbatim except the model id, which a client reads as a tier word (D-679, D-680).
+    assert response.json()[0]["model"] == client_model_label(
+        computed.model, unclassified="Calevate"
+    )
 
 
 # --- 2. It cannot invent a clean run ----------------------------------------------

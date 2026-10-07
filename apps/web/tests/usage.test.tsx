@@ -102,7 +102,7 @@ function usage(over: Partial<UsagePanel> = {}): UsagePanel {
     llm_surcharge_rate_inr: null,
     llm_surcharge_minutes: "0.00",
     llm_surcharge_inr: "0.00",
-    llm_surcharge_models: [],
+    llm_surcharge_tiers: [],
     // THE SERVER'S OWN TOTAL of the three charge components above (retainer +
     // overage + model surcharge). Stated rather than derived, because it is a FIELD
     // now: a fixture that computed it would be re-implementing the arithmetic the
@@ -128,7 +128,7 @@ function surchargedUsage(): UsagePanel {
     llm_surcharge_rate_inr: "1.5000",
     llm_surcharge_minutes: "40.00",
     llm_surcharge_inr: "60.00",
-    llm_surcharge_models: ["gpt-4.1-mini"],
+    llm_surcharge_tiers: ["Plus"],
     // ₹4,999.00 + ₹10,159.00 + ₹60.00. The total MOVES with the surcharge, and a fixture
     // that left it at the base figure would let a screen printing a stale total pass.
     month_charges_inr: "15218.00",
@@ -248,7 +248,7 @@ describe("the usage panel", () => {
     await screen.findByText("Extra charges");
     // The MODEL is named, because it is the decision that caused the number, and the
     // line multiplies out: 40.00 × ₹1.5000 = ₹60.00.
-    expect(container.textContent).toContain("AI model upgrade, gpt-4.1-mini");
+    expect(container.textContent).toContain("AI model upgrade, Plus");
     expect(container.textContent).toContain("40.00 min × ₹1.5000");
     expect(container.textContent).toContain("₹60.00");
     // 4999.00 + 10159.00 + 60.00, added in paise.
@@ -310,7 +310,7 @@ describe("the usage panel", () => {
           llm_surcharge_rate_inr: null,
           llm_surcharge_minutes: "40.00",
           llm_surcharge_inr: "60.00",
-          llm_surcharge_models: ["gpt-4.1-mini"],
+          llm_surcharge_tiers: ["Plus"],
           month_charges_inr: "15218.00",
         }),
       }),
@@ -320,7 +320,7 @@ describe("the usage panel", () => {
     await screen.findByText("Extra charges");
     const text = container.textContent ?? "";
     // The line is THERE — the charge is real and is in the total.
-    expect(text).toContain("AI model upgrade, gpt-4.1-mini (40.00 min)");
+    expect(text).toContain("AI model upgrade, Plus (40.00 min)");
     expect(text).toContain("₹60.00");
     expect(text).toContain("₹15,218.00");
     // And it states no rate rather than inventing one. Asserted on the UPGRADE LABEL and

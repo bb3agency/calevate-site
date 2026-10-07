@@ -102,8 +102,8 @@ export const COOKIE_NOTICE: LegalDocument = {
           text:
             "What is recorded is the ordinary web request — your IP address, the page, " +
             "the time, the referring page and your browser's user-agent — in our web " +
-            "server's logs and in Cloudflare's, which provides TLS and protection against " +
-            "attack in front of the site. That is not a cookie, it is not tied to a " +
+            "server's logs and in those of the edge network provider that provides TLS " +
+            "and protection against attack in front of the site. That is not a cookie, it is not tied to a " +
             "profile, and it exists to keep the site up and to investigate abuse.",
         },
       ],

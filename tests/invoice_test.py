@@ -355,11 +355,12 @@ async def test_a_two_rung_invoice_multiplies_out_line_by_line_on_awkward_minutes
         summary = await usage_summary(session, tenant_id=tenant_id)
         invoice = await build_invoice(session, tenant_id=tenant_id)
 
-    assert summary["minutes_used"] == Decimal("10.00")
+    # Billed in 30-second steps per call (D-681): 300.3 s -> 330 s, 299.7 s -> 300 s.
+    assert summary["minutes_used"] == Decimal("10.50")
     assert (
         summary["overage_minutes_premium"] + summary["overage_minutes_value"]
         == summary["overage_minutes"]
-        == Decimal("10.00")
+        == Decimal("10.50")
     ), "the two published rungs must add to the total the client is charged on"
 
     overage_lines = [

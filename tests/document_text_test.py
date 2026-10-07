@@ -316,6 +316,36 @@ def test_a_doctype_is_refused_before_the_xml_parser_is_handed_the_bytes() -> Non
     assert refusal.value.reason == "doctype_declared"
 
 
+@pytest.mark.parametrize(
+    "part",
+    [
+        # A prolog padded past any fixed scan window with a comment.
+        (
+            '<?xml version="1.0"?><!--' + "x" * 20_000 + "-->"
+            '<!DOCTYPE lolz [<!ENTITY lol "lol">]><w:document/>'
+        ).encode(),
+        # The same declaration in UTF-16, where `<!DOCTYPE` is not those bytes at all.
+        '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE lolz [<!ENTITY lol "lol">]>'
+        "<w:document/>".encode("utf-16"),
+    ],
+    ids=["padded-prolog", "utf-16"],
+)
+def test_a_doctype_is_refused_however_the_prolog_is_spelled(part: bytes) -> None:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("word/document.xml", part)
+    with pytest.raises(DocumentUnreadableError) as refusal:
+        extract_document(buffer.getvalue(), "docx")
+    assert refusal.value.reason == "doctype_declared"
+
+
+def test_the_doctype_scan_stops_at_the_root_and_reads_an_ordinary_part() -> None:
+    """A `<!DOCTYPE` written as body TEXT is escaped, so it is not a declaration."""
+    assert not document_text._declares_doctype(
+        b'<?xml version="1.0"?><w:document>&lt;!DOCTYPE x&gt;</w:document>'
+    )
+
+
 def test_an_archive_with_too_many_entries_is_refused_without_reading_one() -> None:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:

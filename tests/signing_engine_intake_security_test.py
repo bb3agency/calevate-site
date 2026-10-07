@@ -163,13 +163,19 @@ async def test_no_delivery_has_ever_been_filed_as_signed() -> None:
     notices if one starts to — including through a path no test in this file walks, which
     is the kind of path that gets added later by someone solving a different problem.
     """
+    # D-678: an engine in `signed_intake.SIGNED_INTAKES` DOES verify its signature, over
+    # the raw body with the agent's own secret, so its rows are legitimately signed.
+    from signed_intake import SIGNED_INTAKES
+
     async with untenanted_session() as session:
         signed = (
             await session.execute(
                 text(
                     "SELECT count(*) FROM webhook_deliveries "
-                    "WHERE direction = 'in' AND signature_valid IS TRUE"
-                )
+                    "WHERE direction = 'in' AND signature_valid IS TRUE "
+                    "AND NOT (source = ANY(:verified))"
+                ),
+                {"verified": sorted(SIGNED_INTAKES)},
             )
         ).scalar()
     assert signed == 0, (

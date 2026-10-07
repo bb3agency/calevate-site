@@ -22,7 +22,7 @@ import { KycSections, PhoneNumbers, WhatWeKeep, kycItem } from "./SubscriberVeri
  *
  * WHY THERE IS NO "BUY A NUMBER" CONTROL ON THIS PAGE: this page is about verification,
  * and the number is ours to provide. Calevate provides the calling number on its own
- * carrier account with Vobiz (the founder's decision, 2 Oct 2026), and a number is
+ * telephony account, naming no provider (white label, founder 6 Oct 2026), and a number is
  * arranged from the phone-number screen. No self-serve provisioning adapter exists
  * either: `campaigns.provisioning.PROVISIONING_IMPLEMENTED = False`.
  *
@@ -54,7 +54,7 @@ import { KycSections, PhoneNumbers, WhatWeKeep, kycItem } from "./SubscriberVeri
  *    `messageable` on the consent screen: the server computes the predicate every gate
  *    asks, and a screen that re-derived it would disagree with the gate on the day it
  *    matters.
- * 5. **Where the number comes from is said plainly: from us, on Vobiz.** The client
+ * 5. **Where the number comes from is said plainly: from us.** No provider is named. The client
  *    opens no operator account and issues us no credentials; their part is passing our
  *    business verification and keeping the details we hold accurate. No price and no
  *    timeline is promised here, because neither is a fact this page can stand behind.
@@ -124,7 +124,7 @@ export default function VerificationPage() {
 
       <div className="space-y-3">
         {kycRecord && (
-          <Disclosure title="Where your calling number comes from" subtitle="From us, on our carrier account with Vobiz.">
+          <Disclosure title="Where your calling number comes from" subtitle="From us, on our own telephony account.">
             <PhoneNumbers record={kycRecord} />
           </Disclosure>
         )}

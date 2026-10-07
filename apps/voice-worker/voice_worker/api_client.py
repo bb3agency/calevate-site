@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 from types import TracebackType
 from typing import Any, Final, Self, TypeVar
 
@@ -112,6 +113,24 @@ AGENTS_PATH: Final[str] = "/v1/worker/agents"
 #: can never name a real agent of any tenant — what the probe wants back is a REFUSAL, and
 #: the one it wants is 404 rather than 401. See `probe`.
 PROBE_REF: Final[str] = "preflight"
+
+#: Sent on every request that names a call or an agent, carrying that ref, so the API binds
+#: it as `trace_id` on every log line it writes for the request and one call can be followed
+#: from this container's lines into the API's.
+CORRELATION_HEADER: Final[str] = "X-Correlation-Id"
+
+#: The ids the API adopts (`apps/api/core/middleware._CALLER_CORRELATION_ID`); anything else
+#: it replaces with a fresh one, so nothing outside it is sent. This container cannot import
+#: the monolith, so the pattern is restated and `tests/voice_worker_api_client_test.py`
+#: holds the two equal.
+CORRELATION_ID_PATTERN: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9._:-]{1,128}")
+
+
+def correlation_headers(ref: str | None) -> dict[str, str]:
+    """`{X-Correlation-Id: ref}` when the API would adopt it, else nothing."""
+    if ref and CORRELATION_ID_PATTERN.fullmatch(ref):
+        return {CORRELATION_HEADER: ref}
+    return {}
 
 
 class WorkerApiError(RuntimeError):
@@ -208,6 +227,7 @@ class WorkerApiClient:
             f"{SESSION_PATH}/{engine_agent_ref}",
             budget_s=SESSION_FETCH_BUDGET_S,
             what="session",
+            correlation_id=engine_agent_ref,
         )
         return self._parse(WorkerSessionOut, body, what="session")
 
@@ -222,6 +242,7 @@ class WorkerApiClient:
             f"{AGENTS_PATH}/{engine_agent_ref}/caller-memory",
             budget_s=budget_s,
             what="caller memory",
+            correlation_id=engine_agent_ref,
             json=CallerMemoryIn(caller_e164=caller_e164).model_dump(mode="json"),
         )
         return self._parse(CallerMemoryOut, body, what="caller memory")
@@ -235,6 +256,7 @@ class WorkerApiClient:
             f"{CALLS_PATH}/{engine_call_id}/observations",
             budget_s=WRITE_BUDGET_S,
             what="observations",
+            correlation_id=engine_call_id,
             attempts=WRITE_ATTEMPTS,
             json=batch.model_dump(mode="json"),
         )
@@ -249,6 +271,7 @@ class WorkerApiClient:
             f"{CALLS_PATH}/{engine_call_id}/settlement",
             budget_s=WRITE_BUDGET_S,
             what="settlement",
+            correlation_id=engine_call_id,
             attempts=WRITE_ATTEMPTS,
             json=request.model_dump(mode="json"),
         )
@@ -262,6 +285,7 @@ class WorkerApiClient:
             f"{CALLS_PATH}/{engine_call_id}/speaking",
             budget_s=SPEAKING_BUDGET_S,
             what="speaking",
+            correlation_id=engine_call_id,
             json=state.model_dump(mode="json"),
         )
         return self._parse(SpeakingStateOut, body, what="speaking")
@@ -280,6 +304,7 @@ class WorkerApiClient:
             f"{AGENTS_PATH}/{engine_agent_ref}/attestation",
             budget_s=WRITE_BUDGET_S,
             what="attestation",
+            correlation_id=engine_agent_ref,
             json=attestation.model_dump(mode="json"),
         )
         return self._parse(AttestationOut, body, what="attestation")
@@ -314,7 +339,15 @@ class WorkerApiClient:
 
     # -- internals -----------------------------------------------------------------------
 
-    async def _send(self, method: str, path: str, *, budget_s: float, **kwargs: Any) -> Any:
+    async def _send(
+        self,
+        method: str,
+        path: str,
+        *,
+        budget_s: float,
+        correlation_id: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
         """One request, under a WALL-CLOCK bound, with the Bearer header. Never parses.
 
         TWO TIMERS, AND THEY MEASURE DIFFERENT THINGS — `memory.py` records the measurement
@@ -329,7 +362,10 @@ class WorkerApiClient:
             return await self._client.request(
                 method,
                 f"{self._base_url}{path}",
-                headers={"Authorization": f"Bearer {self._token}"},
+                headers={
+                    "Authorization": f"Bearer {self._token}",
+                    **correlation_headers(correlation_id),
+                },
                 timeout=budget_s,
                 **kwargs,
             )

@@ -66,6 +66,7 @@ and cross-tenant, which is exactly what an authentication trail needs.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Final, Literal
@@ -147,6 +148,11 @@ STEP_UP: Final = "step_up"
 #: `otp_required` rather than `mfa_required`, because naming it after the MECHANISM is what
 #: stops the next reader looking for an authenticator app that does not exist.
 LoginStatus = Literal["authenticated", "otp_required"]
+
+#: The least time a password-reset request takes to answer, whether or not the address has
+#: an account (`request_password_reset` argues the number's job). Roughly forty times the
+#: known path's measured cost, and short enough that nobody waiting on the form notices.
+RESET_RESPONSE_FLOOR_S: Final = 0.25
 
 
 @dataclass(frozen=True, slots=True)
@@ -547,23 +553,34 @@ async def request_password_reset(
     constant argues why, and the argument is a denial-of-service one rather than a tidiness
     one.
 
-    ═══ WHAT REMAINS UNEQUAL, SAID PLAINLY ═══
+    ═══ THE WALL CLOCK IS A FLOOR, NOT EQUAL WORK ═══
 
-    The wall clock. The known path performs a token invalidation, a token insert, an outbox
-    insert and an audit append (which takes the chain's advisory lock); the unknown path
-    performs neither. Measured on the target hardware that is 8.1ms against 2.4ms — a 3.4x
-    ratio and a 5.7ms absolute gap, against the sign-in path's four-orders-of-magnitude gap
-    that `hashing._dummy_hash` exists to close. This function's docstring used to claim the
-    two paths did "the same quantity of work", and that was never true here; claiming it
-    was the defect, because it stopped anybody measuring.
+    The known path performs a token invalidation, a token insert, an outbox insert and an
+    audit append (which takes the chain's advisory lock, so it slows with platform-wide write
+    load); the unknown path performs none of them. Measured: about 6ms against 1ms, a 5x
+    ratio — an account-existence oracle that averaging a handful of samples reads through
+    network jitter, on the one form that takes a stranger's address as its whole input.
 
-    It is NOT equalised by giving the unknown path an Argon2 verification it has no reason
-    to perform: that is 20-30ms of CPU handed to an unauthenticated caller who supplies the
-    address, i.e. a denial-of-service lever bought to close a gap smaller than ordinary
-    internet jitter. The 429 oracle was the one an attacker could actually read off a
-    response, and it is closed; this one is recorded rather than papered over.
+    Both paths therefore answer no sooner than `RESET_RESPONSE_FLOOR_S` after they start.
+    The rejected alternative is giving the unknown path an Argon2 verification to match the
+    sign-in path: that is CPU handed to an unauthenticated caller. A floor is an
+    `asyncio.sleep` — a parked coroutine, no thread and no CPU — so it closes the gap without
+    becoming a denial-of-service lever. The floor sits far above the known path's cost, so
+    only a database stall longer than the floor itself can show through it.
     """
     _refuse_unknown_realm(realm)
+    started = time.monotonic()
+    try:
+        await _request_password_reset(realm=realm, email=email, ip=ip, now=now)
+    finally:
+        remaining = RESET_RESPONSE_FLOOR_S - (time.monotonic() - started)
+        if remaining > 0:
+            await asyncio.sleep(remaining)
+
+
+async def _request_password_reset(
+    *, realm: str, email: str, ip: str | None, now: datetime | None
+) -> None:
     at = now or datetime.now(UTC)
     subject = await resolve_by_email(realm, email)
     # Before the branch, so that nothing about which arm is taken can be read off the

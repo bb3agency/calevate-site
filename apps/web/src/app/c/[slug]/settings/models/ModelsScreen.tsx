@@ -15,35 +15,23 @@ import { OrganizationDefault } from "./OrganizationDefault";
  *
  * ## Why a client decides this
  *
- * Because they pay for it. Every option carries `client_surcharge_inr_per_minute` — what
- * choosing that model ADDS to this account's bill for every minute it runs (D-455) — and
- * the difference between the cheapest and the dearest is the difference between two phone
- * bills. D-21 reserves what an agent SAYS and what it CAPTURES because both need a
- * regression run against real calls; a price is neither, and the same argument that gives
- * a client their own spending limit (`/c/[slug]/usage`) and their own disclosure switches
- * (D-163) gives them this.
+ * Because they pay for it. Every tier carries `client_surcharge_inr_per_minute` — what
+ * choosing it ADDS to this account's bill for every minute it runs (D-455). D-21 reserves
+ * what an agent SAYS and what it CAPTURES; a price is neither.
  *
- * **THIS SCREEN USED TO SAY THE CHOICE WAS FREE, AND UNTIL D-455 IT WAS.** The sentence
- * was "what you are charged for a call does not change when you switch, because your plan
- * prices a minute of conversation rather than the model behind it" — true, and the defect:
- * `gpt-4.1-mini` costs Calevate 2.7x the default and earned nothing. `plans
- * .llm_model_surcharge` is what a client now pays for the upgrade, so that sentence is
- * false and is gone. The figure this screen shows is theirs; OUR cost to run the model
- * (`platform_cost_inr_per_minute`) stays on the operator's console, because publishing a
- * supplier cost to the account it is a margin on is a different mistake.
+ * A client chooses a TIER and never sees a model or the company behind it (D-679, D-680):
+ * which model answers each tier is ours, resolved on the server. OUR cost to run it stays
+ * on the operator's console.
  *
  * ## The three things this screen must not do
  *
- * 1. **Resolve the default itself.** A tenant with no choice of their own runs on ours,
- *    and which model that is is a live config switch (CLAUDE.md — `gpt-4o-mini` today,
- *    `gpt-4.1-mini` a switch away). `effective_default` is the server's answer and is
- *    rendered as it arrives; `default_llm_model ?? "gpt-4o-mini"` in a browser bundle
- *    would name last quarter's model on the screen where a client checks the price.
- * 2. **Show a model without its price.** That is the whole point of the surface, and it
+ * 1. **Resolve the default itself.** `effective_tier` and the surcharge in force are the
+ *    server's answers and are rendered as they arrive.
+ * 2. **Show a tier without its price.** That is the whole point of the surface, and it
  *    is why an option whose rate the catalogue does not carry renders `—` rather than
  *    being quietly dropped or shown as free.
  * 3. **Look saved before it is.** No optimistic write: the server can refuse a model
- *    (unknown id, one this plan does not include) and the refusal is problem+json with a
+ *    (a tier not switched on yet) and the refusal is problem+json with a
  *    sentence in it. An optimistic picker shows the new price for as long as it takes to
  *    be told no, which on a money control is exactly backwards. §52 governs the rest —
  *    loading is a skeleton, failure is a refusal, and neither is a model name.
@@ -93,21 +81,21 @@ export function ModelsScreen({ slug }: { slug: string }) {
         ? [
             {
               key: "account_choice",
-              label: "The model this account has chosen",
-              value: state.data.default_llm_model ?? "none — it follows the Calevate default",
+              label: "The AI model tier this account has chosen",
+              value: state.data.default_llm_tier ?? "none — it follows the Calevate default",
             },
             {
               key: "effective_default",
-              label: "The model agents actually run on unless given their own",
-              value: state.data.effective_default,
+              label: "The tier agents actually run on unless given their own",
+              value: state.data.effective_tier_label,
             },
             {
               key: "options",
-              label: "Models on offer, and what each adds per minute (INR)",
+              label: "Tiers on offer, and what each adds per minute (INR)",
               value: state.data.available
                 .map(
                   (option) =>
-                    `${option.model} (${option.provider}): ${option.client_surcharge_inr_per_minute} per minute${
+                    `${option.label}: ${option.client_surcharge_inr_per_minute} per minute${
                       option.is_platform_default ? ", the Calevate default" : ""
                     }${option.is_available ? "" : ` — unavailable: ${option.unavailable_reason ?? "no reason given"}`}`,
                 )

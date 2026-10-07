@@ -35,7 +35,12 @@ from apps.api.core.alarm_severity import ALARM_SEVERITY
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
-from calevate_shared.engine import AgentConfig, ModelConfig, compose_engine_prompt
+from calevate_shared.engine import (
+    CONFIDENTIALITY_MARKER,
+    AgentConfig,
+    ModelConfig,
+    compose_engine_prompt,
+)
 from sqlalchemy import text
 from tests.conftest import accept_agreements
 
@@ -219,6 +224,28 @@ async def test_a_config_with_no_truthful_answer_floor_is_refused() -> None:
     finally:
         module.compose_engine_prompt = original  # type: ignore[assignment]
     assert raised.value.code == "agent_config_floor_absent"
+
+
+async def test_a_config_without_the_confidentiality_rule_is_refused() -> None:
+    """D-674 at the mint, for the floor's reason. The stand-in composer keeps the truthful
+    floor and drops only the confidentiality marker, so this refusal can only be the new
+    check's and not the floor's."""
+    tenant_id, agent_id = await _tenant()
+    import apps.api.agents.config_versions as module
+
+    original = module.compose_engine_prompt
+
+    def _without_rule(cfg: AgentConfig, **kw: object) -> str:
+        return original(cfg).replace(CONFIDENTIALITY_MARKER, "")
+
+    module.compose_engine_prompt = _without_rule  # type: ignore[assignment]
+    try:
+        async with tenant_session(tenant_id) as session:
+            with pytest.raises(ProblemError) as raised:
+                await mint_config_version(session, tenant_id, _config(agent_id, tenant_id))
+    finally:
+        module.compose_engine_prompt = original  # type: ignore[assignment]
+    assert raised.value.code == "agent_config_confidentiality_absent"
 
 
 # ---------------------------------------------------------------- attestation

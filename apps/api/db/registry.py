@@ -396,7 +396,12 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "written on at all, while `kb_sources` is FORCE-RLS'd and so can answer neither "
         "the global staleness queue nor the cross-tenant ops summary. Those three hold a "
         "verdict from a fixed six-value vocabulary and two timestamps: no source name, no "
-        "chunk, and no engine handle."
+        "chunk, and no engine handle. Since migration f3a8c61d2e57 (D-678) the row also "
+        "carries the vendor agent's WEBHOOK ENDPOINT: an id, a check timestamp, a rate key "
+        "from a fixed vocabulary, and the endpoint's signing secret as an AES-GCM ENVELOPE "
+        "under the engine intake key — never plaintext. The voice-runtime receiver must "
+        "find that secret with no tenant in hand to verify a signed delivery, which is "
+        "exactly the read this exemption already grants."
     ),
     "engine_kb_routes": (
         "the claim that ties ONE vendor knowledge base to one tenant (migration "
@@ -562,6 +567,18 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "PII, no credential, no tenant data. Append-only (see APPEND_ONLY_TABLES): a "
         "correction is a new effective-dated row, never an edit, so a re-rendered month "
         "resolves the price its minutes were metered at."
+    ),
+    "platform_engine_minute_prices": (
+        "platform-scoped, admin realm only (D-678). The operator-attested rupees per billed "
+        "minute an ENGINE charges us, per rate key, effective-dated — one ThinnestAI account "
+        "for the whole deployment, so there is no tenant whose row this could be and it "
+        "carries no tenant_id. It exists because that engine reports no per-call cost, so "
+        "the only figure that may reach `unit_cost_paid` for its minutes is one a human read "
+        "off an invoice (hard rule 7). `billing/engine_minutes.attest_engine_minute_price` "
+        "is the only writer and requires a step-up-confirmed caller writing the audit row on "
+        "the same session. Holds an engine name, a rate key, one NUMERIC figure, an attester "
+        "id and a source note — no PII, no credential, no tenant data. Append-only (see "
+        "APPEND_ONLY_TABLES)."
     ),
     "platform_tts_plan_fees": (
         "platform-scoped, admin realm only (D-547, Phase D.3). What a voice vendor BILLED US "
@@ -882,6 +899,9 @@ APPEND_ONLY_TABLES = [
     # twin's reason: a fee somebody could edit would silently restate what a closed month
     # cost us, on the one board that compares it against what our own meter attributed.
     "platform_tts_plan_fees",
+    # The attested per-minute engine price (D-678). Append-only for `platform_tts_prices`'
+    # reason: an editable figure would silently re-price minutes already metered against it.
+    "platform_engine_minute_prices",
     # The ADMIN copilot's own AI spend (D-499). Append-only for `usage_events`' reason
     # rather than `platform_model_prices`': it is a LEDGER of money already paid to a
     # provider, and `platform_ai_spend` is the counter derived from it. A row somebody

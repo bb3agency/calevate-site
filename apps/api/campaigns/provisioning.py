@@ -85,6 +85,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import engine_capabilities
+from apps.api.engine.hosted_platform import engine_number_console
 
 log = get_logger(__name__)
 
@@ -259,6 +260,24 @@ def provisioning_not_configured(reason: str | None) -> ProblemError:
             ),
             remediation="Record the written reseller authorisation before buying any number.",
         )
+    if engine_number_console(get_settings().engine) is not None:
+        # A voice platform that rents numbers and attaches them in its own console (D-678):
+        # the Vobiz sentence below would send an operator to a carrier this deployment does
+        # not use.
+        return ProblemError(
+            kind="dependency",
+            code="number_provisioning_not_configured",
+            title="This deployment cannot buy a phone number",
+            detail=(
+                "On this deployment's voice platform, numbers are rented and attached to "
+                "agents in the platform's own console, so a number cannot be bought from here."
+            ),
+            remediation=(
+                "Ask your account manager: the number is rented and attached in the voice "
+                "platform's console, and the client's Numbers page in the admin console "
+                "lists the steps."
+            ),
+        )
     return ProblemError(
         kind="dependency",
         code="number_provisioning_not_configured",
@@ -284,9 +303,10 @@ def self_serve_purchase_refused() -> ProblemError:
     TRUE, and a refusal that is not true teaches a client something they will repeat to
     their carrier.
 
-    It names the one route forward: a number Calevate provides on its own Vobiz carrier
+    It names the one route forward: a number Calevate provides on its own telephony
     account, arranged through their account manager. It promises no price and no timeline
-    — neither is a fact this repository holds.
+    — neither is a fact this repository holds. No provider is named to a client on any
+    engine: the platform is resold under white label (founder, 6 Oct 2026).
     """
     return ProblemError.business_rule(
         "number_purchase_is_operator_led",
@@ -296,8 +316,8 @@ def self_serve_purchase_refused() -> ProblemError:
         ),
         remediation=(
             "Talk to us and your account manager will arrange the number. Calevate "
-            "provides it on our own carrier account with Vobiz, so there is no operator "
-            "account for you to open."
+            "provides it on our own telephony account, so there is no operator account "
+            "for you to open."
         ),
     )
 

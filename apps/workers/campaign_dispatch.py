@@ -130,11 +130,15 @@ from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.redis import get_redis
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.engine.carrier_pacing import dials_through_our_carrier, outbound_line_pool
+from apps.api.engine.carrier_pacing import (
+    dial_backoff_remaining_s,
+    dials_through_our_carrier,
+    outbound_line_pool,
+)
 
 # OUR normalized engine error, not a vendor payload shape — hard rule 2 bounds what
 # may cross this line and an HTTP status is on the safe side of it.
-from apps.api.engine.vendor_http import EngineRejectedError
+from apps.api.engine.vendor_http import RECIPIENT_OPTED_OUT_CODE, EngineRejectedError
 from apps.api.integrations import service as integrations
 from apps.api.worker.service import POSTCALL_DEDUPE_PREFIX
 
@@ -581,6 +585,13 @@ async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
     # line; the per-dial check is what makes it hold for dials this tick does not make.
     in_use = await carrier_lines_in_use() if dials_through_our_carrier() else 0
     global_budget = max(0, pool - max(total_active, in_use))
+    # An engine that answered a dial with `429` for its own call ceiling is held off for the
+    # vendor's `Retry-After` (`carrier_pacing.start_dial_backoff`). Claiming contacts into
+    # that window would only refund each one to a thirty-minute wait, so the tick spends
+    # nothing; the call-back pass below still runs at zero budget to settle what finished.
+    # Always 0.0 on an engine without its own ceiling, so the carrier path is unchanged.
+    if global_budget and await dial_backoff_remaining_s() > 0:
+        global_budget = 0
 
     # CALL-BACKS FIRST, OUT OF THE SAME POOL (D-514). Two decisions in one placement:
     #
@@ -1364,7 +1375,10 @@ async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str) -> None:
     it belongs on. One writer, both refusal shapes, so they can never diverge again.
     """
     record_compliance_block(rule=rule)
-    if rule in PERSON_LEVEL_REFUSALS:
+    # The voice platform's own opt-out or do-not-call list
+    # (`vendor_http.RECIPIENT_OPTED_OUT_CODE`) is a fact about the person too; it is the
+    # vendor's refusal and not the gate's, so it is not a member of the gate's set.
+    if rule in PERSON_LEVEL_REFUSALS or rule == RECIPIENT_OPTED_OUT_CODE:
         settle = "status = 'dnc_blocked'"
     else:
         settle = (

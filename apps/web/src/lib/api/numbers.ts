@@ -162,3 +162,19 @@ export function useReleaseNumber(tenantId: string) {
     },
   });
 }
+
+export type EngineNumbers = components["schemas"]["EngineNumbersOut"];
+
+/**
+ * The numbers held in the voice platform's OWN console, and the steps that rent and attach
+ * one (D-678). `managed_in_engine_console` is false on every engine whose numbers this
+ * console records and routes itself, and the lists are then empty.
+ */
+export function useTenantEngineNumbers(tenantId: string) {
+  return useQuery({
+    queryKey: ["admin", "engine-numbers", tenantId],
+    queryFn: () =>
+      apiRequest<EngineNumbers>(adminSession(), `/v1/admin/numbers/tenants/${tenantId}/engine`),
+    enabled: Boolean(tenantId),
+  });
+}

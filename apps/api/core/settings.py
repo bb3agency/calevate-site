@@ -18,7 +18,7 @@ from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
-from typing import get_args
+from typing import Final, get_args
 from urllib.parse import urlsplit
 
 from calevate_shared.config import (
@@ -316,6 +316,47 @@ ENV_ONLY_REASONS: dict[str, str] = {
         "callbacks with, so voice-runtime needs it and voice-runtime never opens this "
         "credential store. Set VOBIZ_AUTH_TOKEN in the VPS environment; never in the "
         "Pipecat worker's secret set."
+    ),
+    # D-673. Checked by voice-runtime, which never opens the credential store, and written
+    # onto every Vobiz URL by the api and workers; one key in two homes is one an operator
+    # rotates in the wrong one.
+    "vobiz_callback_secret": (
+        "the secret every Vobiz callback URL carries is checked by the voice-runtime "
+        "service, which never opens this credential store. Set VOBIZ_CALLBACK_SECRET "
+        "(`openssl rand -hex 32`) in the VPS environment; never in the Pipecat worker's "
+        "secret set."
+    ),
+    "vobiz_callback_secret_retired": (
+        "the previous callback secret, accepted during a rotation, has the same reader "
+        "and the same reason as VOBIZ_CALLBACK_SECRET. Set it in the VPS environment "
+        "only for the rotation window (runbooks/vobiz-first-live-call.md §11)."
+    ),
+    # D-678. The ThinnestAI pair. The key is full-access (it places calls and messages
+    # customers) and the adapter captures it when it is built, so a console write would not
+    # reach a running process; the base URL decides where that key is sent, so a console
+    # edit to it could hand the key to another host.
+    "thinnest_api_key": (
+        "the ThinnestAI key can place calls and message customers, and the engine adapter "
+        "captures it when the app starts, so a value saved here would not reach a running "
+        "process. Set THINNEST_API_KEY (a full-access `ta_live_` key) in the VPS environment."
+    ),
+    "thinnest_api_base_url": (
+        "it decides which host the ThinnestAI key is sent to, so it must not be editable "
+        "where the key is not. Leave THINNEST_API_BASE_URL unset in production; it exists to "
+        "point a test environment at a double."
+    ),
+    # D-678. Read by voice-runtime, which never opens the credential store and verifies
+    # ThinnestAI deliveries with the secrets this key seals, and by the api and workers.
+    "engine_intake_kek": (
+        "the voice-runtime service opens ThinnestAI webhook signing secrets and seals "
+        "verified deliveries with it, and that service never opens this credential store. "
+        "Set ENGINE_INTAKE_KEK (base64 of 32 random bytes) in the VPS environment, the same "
+        "value for api, workers and voice-runtime."
+    ),
+    "engine_intake_kek_retired": (
+        "the previous engine intake key, kept only to open what it sealed, has the same "
+        "readers and the same reason as ENGINE_INTAKE_KEK. Set it in the VPS environment "
+        "only for a rotation."
     ),
     "gnani_api_key": (
         "the Gnani TTS credential is read by the voice worker's own synthesis leg, inside "
@@ -979,7 +1020,44 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
             missing.append(env_var_for("alerts_email"))
     if cfg.engine == "pipecat":
         missing.extend(key for key in owned_runtime_missing_keys(cfg) if key not in missing)
+    if cfg.engine == "thinnest" and _callback_base_not_public(cfg):
+        # ThinnestAI refuses webhook URLs inside its own network and wants https
+        # (`thinnest-findings/mirror/pages/api-reference/webhooks.md:59-62`), and every
+        # call result reaches us at `<WEBHOOK_BASE_URL>/hooks/v1/engine/thinnest`.
+        missing.append(env_var_for("webhook_base_url"))
+    if _engine_intake_kek_unusable(cfg):
+        missing.append(env_var_for("engine_intake_kek"))
+    if (
+        cfg.engine == "thinnest"
+        and cfg.app_env != "local"
+        and not is_public_callback_base(cfg.engine_actions_base_url)
+    ):
+        # Every agent's in-call actions call back to this origin, the vendor takes https
+        # only, and publish refuses without it (`reliability/engine_actions.py`).
+        missing.append(env_var_for("engine_actions_base_url"))
     return missing
+
+
+def _engine_intake_kek_unusable(cfg: Settings) -> bool:
+    """On ThinnestAI outside `local`, is the engine intake key absent or unusable?
+
+    The api seals each webhook signing secret with it at publish, voice-runtime opens them to
+    verify every delivery, and the worker opens the sealed delivery bodies
+    (`reliability/engine_intake_keys.py`). Without it every call result is refused, so it is a
+    readiness failure for all three services rather than only a deploy-preflight finding.
+    `local` derives a development key, which is why it is skipped there.
+    """
+    if cfg.engine != "thinnest" or cfg.app_env == "local":
+        return False
+    # Imported here: `engine_intake_keys` imports this module.
+    from apps.api.core.errors import ProblemError
+    from apps.api.reliability.engine_intake_keys import build_intake_ring
+
+    try:
+        build_intake_ring(cfg.engine_intake_kek, cfg.engine_intake_kek_retired, cfg.app_env)
+    except ProblemError:
+        return True
+    return False
 
 
 #: Host names that are this machine rather than one a carrier can reach.
@@ -1027,6 +1105,18 @@ def _callback_base_not_public(cfg: Settings) -> bool:
     return cfg.app_env != "local" and not is_public_callback_base(cfg.webhook_base_url)
 
 
+def _vobiz_callback_secret_unusable(cfg: Settings) -> bool:
+    # Under `CARRIER=vobiz` only: the routes refuse every Vobiz request without it outside
+    # `local` whatever the carrier, but a host dialling another carrier is not broken by it.
+    from calevate_shared.carrier import callback_secret_for
+
+    return (
+        cfg.app_env != "local"
+        and cfg.carrier == "vobiz"
+        and callback_secret_for("vobiz", cfg) is None
+    )
+
+
 def _carrier_credential_keys(cfg: Settings, carrier: str) -> list[str]:
     """The env vars to set for an unconfigured carrier, derived from `Settings`.
 
@@ -1065,6 +1155,8 @@ def owned_runtime_missing_keys(cfg: Settings) -> list[str]:
         missing.extend(_carrier_credential_keys(cfg, carrier.name))
     if _caller_claim_key_unusable(cfg):
         missing.append(env_var_for("carrier_claim_secret"))
+    if _vobiz_callback_secret_unusable(cfg):
+        missing.append(env_var_for("vobiz_callback_secret"))
     if _callback_base_not_public(cfg):
         missing.append(env_var_for("webhook_base_url"))
     return missing
@@ -1088,15 +1180,20 @@ def webhook_receiver_missing_keys(settings: Settings | None = None) -> list[str]
     it means is different, because the job is different. This service never calls the
     vendor — it is called BY it — so a vendor API credential is not one of its
     preconditions. Under `ENGINE=pipecat` it answers the carrier, and the answer document
-    it serves is only worth anything with three plain `Settings` values behind it:
+    it serves is only worth anything with these plain `Settings` values behind it:
 
     * **`PIPECAT_STREAM_BASE_URL`** — the worker the document sends the call to. Without
       it the answer route refuses every call.
     * **`CARRIER_CLAIM_SECRET`**, at the worker's own floor — without it the stream URL
       carries no signed caller or call claim, so the worker identifies no caller and
       treats an outbound call as inbound.
+    * **`VOBIZ_CALLBACK_SECRET`** under `CARRIER=vobiz` outside `local` — without it every
+      Vobiz request is refused (`carrier_routes.authenticate`, D-673).
     * **a public `WEBHOOK_BASE_URL`** outside `local` — the hangup and status callbacks
       the carrier is told to use are built on it.
+
+    Under `ENGINE=thinnest` it needs one key: **`ENGINE_INTAKE_KEK`** outside `local`, which
+    opens the sealed per-agent signing secret every delivery is verified against.
 
     `PLATFORM_KEK` IS NOT ONE OF THEM, although this probe used to demand it: the config
     poller here runs `with_secrets=False` (`apps/voice-runtime/main._startup`), so this
@@ -1112,15 +1209,52 @@ def webhook_receiver_missing_keys(settings: Settings | None = None) -> list[str]
     """
     cfg = settings or get_settings()
     missing: list[str] = []
+    if _engine_intake_kek_unusable(cfg):
+        # ThinnestAI: this service opens each agent's sealed signing secret to verify a
+        # delivery, so without the key it refuses every call result.
+        missing.append(env_var_for("engine_intake_kek"))
     if cfg.engine != "pipecat":
         return missing
-    if not (cfg.pipecat_stream_base_url or "").strip():
+    if _stream_base_unusable(cfg):
         missing.append(env_var_for("pipecat_stream_base_url"))
     if _caller_claim_key_unusable(cfg):
         missing.append(env_var_for("carrier_claim_secret"))
+    if _vobiz_callback_secret_unusable(cfg):
+        missing.append(env_var_for("vobiz_callback_secret"))
     if _callback_base_not_public(cfg):
         missing.append(env_var_for("webhook_base_url"))
     return missing
+
+
+#: Pipecat Cloud's region-less telephony host. It routes every stream to `us-west`
+#: (docs.pipecat.ai/pipecat-cloud/guides/regions, read 5 Oct 2026), where our worker is not
+#: deployed (`apps/voice-worker/pcc-deploy.toml`: `region = "ap-south"`), and a US media leg
+#: would also break Vobiz's India media-anchoring rule (OPERATIONS §2 gate V-8). The regional
+#: host is `<region>.api.pipecat.daily.co`.
+PIPECAT_CLOUD_UNREGIONED_HOST: Final = "api.pipecat.daily.co"
+
+
+def is_deployable_stream_base(url: str | None) -> bool:
+    """A `wss://` URL on a host, and not Pipecat Cloud's region-less host.
+
+    The one predicate readiness and the deploy preflight share. Every answer document
+    points the carrier at this base, so a failure here is a call that rings, connects to
+    nothing (or to the wrong continent) and dies in silence.
+    """
+    try:
+        parts = urlsplit((url or "").strip())
+        host = (parts.hostname or "").lower()
+    except ValueError:
+        return False
+    return parts.scheme == "wss" and bool(host) and host != PIPECAT_CLOUD_UNREGIONED_HOST
+
+
+def _stream_base_unusable(cfg: Settings) -> bool:
+    # `local` needs only a value: a developer's worker runs on this machine over ws://.
+    base = (cfg.pipecat_stream_base_url or "").strip()
+    if not base:
+        return True
+    return cfg.app_env != "local" and not is_deployable_stream_base(base)
 
 
 #: Which readiness config probe each service gets, by the name `build_health_router` is
@@ -1153,6 +1287,7 @@ __all__ = [
     "ENV_ONLY_KEYS",
     "ENV_ONLY_REASONS",
     "MIN_HMAC_KEY_BYTES",
+    "PIPECAT_CLOUD_UNREGIONED_HOST",
     "READINESS_CONFIG_PROBES",
     "BootstrapError",
     "apply_platform_overrides",
@@ -1160,6 +1295,7 @@ __all__ = [
     "env_declares",
     "env_var_for",
     "get_settings",
+    "is_deployable_stream_base",
     "is_public_callback_base",
     "owned_runtime_missing_keys",
     "platform_overrides",

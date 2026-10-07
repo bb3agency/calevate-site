@@ -77,6 +77,8 @@ describe("the phone number price panel", () => {
       inr_per_month: "499.00",
       source: "Vobiz order form, 1 Oct 2026",
     });
+    // Step-up confirmed, like every price an operator attests (D-681).
+    expect(sent?.headers["X-Confirm-Action"]).toBe("attest_number_price");
     expect(await screen.findByText(/numbers already bought keep theirs/i)).toBeTruthy();
   });
 

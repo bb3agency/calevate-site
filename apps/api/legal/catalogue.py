@@ -309,6 +309,19 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "and its call records remain a written request. NON-MATERIAL, the "
                 "founder's call (3 Oct 2026): no right or obligation changes.",
             ),
+            # D-679.
+            Revision(
+                "12",
+                True,
+                "Vendor names are removed (D-679): the notice describes sub-processors by "
+                "category and says a named list is available on request. Every disclosure is "
+                "kept without the name: the speech provider's cross-border transfers and "
+                "training terms, the carrier's recording, object storage outside India, the "
+                "language model's United States region and the three model providers. Adds "
+                "that a deployment may run the call on a hosted voice platform that states "
+                "storage in India and a language-model step that may be processed outside "
+                "India. MATERIAL: how recipients are disclosed changes.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -395,6 +408,17 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "platform, and the copies an erasure certificate names include the "
                 "telephone carrier's. NON-MATERIAL, the founder's call (2 Oct 2026): "
                 "factual vendor wording only, and no right or obligation changes.",
+            ),
+            # D-679.
+            # D-679, D-681.
+            Revision(
+                "10",
+                True,
+                "Call time is billed in 30-second steps, each part-step rounded up, and an "
+                "unanswered call is not charged (section 6.1, D-681): MATERIAL, because it "
+                "changes how calls are charged. Also, the definition of Engine and the "
+                "dependency clause say suppliers are listed by category on the sub-processor "
+                "list with a named list on request (D-679).",
             ),
         ),
         effective_date="2026-09-02",
@@ -533,6 +557,18 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "NON-MATERIAL, the founder's call (3 Oct 2026): no right or obligation "
                 "changes.",
             ),
+            # D-679.
+            Revision(
+                "11",
+                True,
+                "Clause 5 and Annex C authorise sub-processors by the categories on the "
+                "sub-processor page plus a named list available on request, and a new company "
+                "in an existing category is notified like a new category (D-679). Clause 9 "
+                "says each category's location rather than each named vendor's, and corrects "
+                "a stale sentence that still said one voice quality is synthesised by the "
+                "speech provider (untrue since 18 Sep 2026). MATERIAL: the authorisation "
+                "clause changes.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -655,6 +691,26 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "day after ours is saved. NON-MATERIAL, the founder's call (3 Oct 2026): "
                 "no new sub-processor is added and no assurance is withdrawn.",
             ),
+            # D-678.
+            Revision(
+                "11",
+                True,
+                "ThinnestAI is added as the platform that runs the whole call (speech, "
+                "language model, voice, numbers and recording) on a deployment switched to "
+                "it, with its published storage location and its own named "
+                "sub-processors. MATERIAL: a new sub-processor.",
+            ),
+            # D-679.
+            Revision(
+                "12",
+                True,
+                "The register becomes a table of sub-processor categories with no vendor "
+                "named except the payment gateway and services a client connects itself; a "
+                "named list is available on request and is what clause 5 notices are given "
+                "against (D-679). Every location, receipt, status, training, retention and "
+                "cross-border fact is kept at category level. MATERIAL: the form of the "
+                "authorised list changes.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -746,6 +802,13 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "the operator cookie is unchanged and still ends with the browser. "
                 "Non-material — a factual description in a notice nobody accepts, and "
                 "the server-side bounds it describes (12h/14d, 30min/8h) did not move.",
+            ),
+            # D-679.
+            Revision(
+                "4",
+                False,
+                "The edge network in front of the site is described by its role rather than "
+                "named (D-679). Non-material: what is recorded and why did not change.",
             ),
         ),
         effective_date="2026-09-02",

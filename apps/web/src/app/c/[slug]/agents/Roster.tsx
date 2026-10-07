@@ -21,7 +21,6 @@ import { Plus } from "lucide-react";
 
 import {
   Disclosure,
-  MonoValue,
   PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
@@ -39,7 +38,7 @@ import {
   type AgentStats,
 } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
-import { agentOwnModel } from "@/lib/api/llmModels";
+import { agentOwnTier } from "@/lib/api/llmModels";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 import { DIRECTION_COPY, LANGUAGE_NAMES, agentGroup, humanise } from "@/lib/agentState";
@@ -149,7 +148,7 @@ function AgentRow({
   const [deleting, setDeleting] = useState(false);
   const direction = lookup(DIRECTION_COPY, agent.direction);
   const language = lookup(LANGUAGE_NAMES, agent.language_primary) ?? agent.language_primary;
-  const ownModel = agentOwnModel(agent);
+  const ownTier = agentOwnTier(agent);
   const open = href(`/c/${slug}/agents/${agent.id}`);
 
   return (
@@ -180,9 +179,9 @@ function AgentRow({
               </>
             )}
             {/* The server's identifier, as the invoice line prints it. */}
-            {ownModel !== null && (
+            {ownTier !== null && (
               <>
-                {" · "}Its own AI model: <MonoValue>{ownModel}</MonoValue>
+                {" · "}Its own AI model: {ownTier}
               </>
             )}
           </span>

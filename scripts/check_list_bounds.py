@@ -81,6 +81,25 @@ class BoundedByConstruction:
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     # --- bounded by a constant or a registry in this repo ---------------------------
+    "GET /v1/ops/engine-minute-prices": BoundedByConstruction(
+        by=(
+            "one row per engine in `billing/engine_minutes.ATTESTED_MINUTE_ENGINES` times "
+            "`ENGINE_RATE_KEYS` (four keys, also a CHECK on `engine_rate_key`), each the "
+            "rate in force now, never the history."
+        )
+    ),
+    "GET /v1/agents/engine-catalogue": BoundedByConstruction(
+        by=(
+            "the vendor's voice and model lists, read through `ThinnestEngine._walk`, which "
+            "stops at `_LISTING_MAX_PAGES` (20) pages and reports the read as incomplete."
+        )
+    ),
+    "GET /v1/admin/numbers/tenants/{tenant_id}/engine": BoundedByConstruction(
+        by=(
+            "the platform's numbers read through `ThinnestEngine._walk` (20-page cap), and "
+            "the client's published agents by `_ENGINE_PUBLISHED_AGENTS` with LIMIT 200."
+        )
+    ),
     "GET /v1/ops/tts-prices/plan-fees": BoundedByConstruction(
         by=(
             "one slot per entry of `ops/model_pricing.PLAN_BILLED_TTS_PROVIDERS`, a constant "
@@ -260,9 +279,9 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     # The model picker (D-454, widened to three legs). `available` is one row per member of
     # `calevate_shared.engine.SELECTABLE_LLM_MODELS` — derived from `LLM_MODELS`, whose keys
     # are the union of three closed `Literal`s — so its length is decided by a decision-log
-    # entry and never by anybody's row count. All four verbs answer with the same
-    # `LlmDefaultsOut`, which is why the write paths are declared too: each returns the
-    # freshly-read state rather than an acknowledgement.
+    # entry and never by anybody's row count. The client's two verbs answer in TIERS
+    # (`ClientLlmDefaultsOut`, D-680), the admin's two in models (`LlmDefaultsOut`); the write
+    # paths are declared too because each returns the freshly-read state.
     #
     # ⚠ THE BOUND MOVED FROM `AZURE_OPENAI_MODELS` TO THE WHOLE CATALOGUE AND IS STILL A
     # BOUND, which is the only property this file is about. Widening a closed set does not
@@ -289,9 +308,9 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     ),
     "GET /v1/usage": BoundedByConstruction(
         by=(
-            "`llm_surcharge_models` names the models this month's minutes actually ran "
-            "on, one entry each, so it is bounded by `LLM_MODEL_NAMES` — the union of "
-            "three closed Literals — and not by how much the tenant called. It is a "
+            "`llm_surcharge_tiers` names the tiers of the models this month's minutes "
+            "actually ran on, one entry each, so it is bounded by `LLM_MODEL_NAMES` — the "
+            "union of three closed Literals — and not by how much the tenant called. It is a "
             "DISTINCT over the same month the totals are read from, so it cannot outgrow "
             "the catalogue even for a tenant that switched model every day of the month. "
             "Stated over the CATALOGUE rather than the selectable set because a historical "
@@ -300,16 +319,19 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         )
     ),
     "GET /v1/organization/llm-defaults": BoundedByConstruction(
-        by="`available` is one row per model in `SELECTABLE_LLM_MODELS`, a derived closed set."
+        by="`available` is one row per `llm_tiers.LLM_TIERS` member — three client-facing tiers."
     ),
     "PUT /v1/organization/llm-defaults": BoundedByConstruction(
-        by="the same `available`, read back after the write — same closed set."
+        by="the same tier `available`, read back after the write — same closed set."
     ),
     "GET /v1/admin/organizations/{org_id}/llm-defaults": BoundedByConstruction(
-        by=("the admin view of the same `available` — one row per `SELECTABLE_LLM_MODELS` member.")
+        by=(
+            "`available` is one row per `SELECTABLE_LLM_MODELS` member, and `agents` is "
+            "capped by `roster.AGENT_ROSTER_LIMIT` in its query."
+        )
     ),
     "PUT /v1/admin/organizations/{org_id}/llm-defaults": BoundedByConstruction(
-        by="the same `available`, read back after the write — same closed set."
+        by="the same `available` and `agents`, read back after the write — same bounds."
     ),
     # The agent's extraction VARIABLES (D-460). `fields` is a curated CONFIG list — the
     # schema an operator or a client owner hand-writes for one agent. It used to be entered

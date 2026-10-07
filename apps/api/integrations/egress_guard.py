@@ -10,30 +10,26 @@ channel is narrow — but `GET /v1/integrations/deliveries` publishes the status
 the error type of every attempt, which is an internal port scanner with a UI, and the
 POST itself is a PII egress channel into the private network whatever it answers.
 
-**Where it is called, and why twice.** Registration (`integrations/routes.py`) and again
-immediately before the request (`integrations/service.deliver`). The second call is the
-one that matters and the one that is easy to leave out: the two events are minutes or
-months apart, and the name a tenant registers is a name THEY control the DNS for. A
-check done only at registration is defeated by answering with a public address once and
-a private address afterwards — DNS rebinding, a time-of-check/time-of-use bug rather
-than a filter bug, and the reason the OWASP SSRF Prevention Cheat Sheet's advice is to
-validate the address the connection will actually use rather than the string a user
-typed. Re-checking at connect narrows the window from "as long as the endpoint row
-lives" to "the gap between our `getaddrinfo` and httpx's", which is the improvement that
-is available without replacing the transport (see PINNING below).
+**Where it is called, and why three times.** Registration (`integrations/routes.py`),
+immediately before the request (`integrations/service.deliver` and every other outbound
+fetch), and AT CONNECT, inside the transport (`egress_client`). The name a tenant
+registers is a name THEY control the DNS for, so any check that resolves the name and
+then lets the HTTP client resolve it again is defeated by DNS rebinding: a TTL-0
+nameserver that answers the first query with a public address and the second with
+`127.0.0.1` or `169.254.169.254` wins every time, not once in a race — the "first then
+second" strategy rebinding tools ship with. The OWASP SSRF Prevention Cheat Sheet's
+advice is to validate the address the connection will actually use, and the only place
+that address exists is the connect call.
 
-**PINNING, considered and NOT done — and what remains open because of it.** The complete
-close is to connect to the vetted IP literal and carry the hostname in `Host` +
-`sni_hostname`, so no second resolution happens at all. It is deliberately not done
-here: it moves this module into httpx's transport layer, changes what certificate
-verification and virtual-host routing see for every legitimate client endpoint, and buys
-a window measured in microseconds against an attacker who must already win a race
-against their own TTL. If a rebinding attempt is ever OBSERVED — the `egress_refused`
-log line below is what would show it — that is the trigger to take it, and it is a
-transport change, not a rewrite of this file. The residual is asserted rather than only
-described: `egress_guard_test.py` pins that a caller connects BY NAME and never by
-`VettedDestination.addresses`, so the day pinning is implemented that test is what says
-this paragraph is out of date.
+**PINNING.** `egress_client` builds an httpx client whose httpcore network backend
+(`_VettingNetworkBackend`) resolves the host itself, judges every answer with the same
+rules as `assert_public_http_url`, and opens the socket to the vetted IP literal. There
+is no second lookup to rebind. TLS is unaffected: httpcore verifies the certificate and
+sends SNI for the URL's host, not for the address the socket reached
+(`httpcore/_async/connection.py::_connect`, `server_hostname`), so a client's endpoint
+behind a CDN or a virtual host behaves exactly as before. The pre-request call to
+`assert_public_http_url` stays because it is what produces a refusal the client can read
+on their delivery screen; the backend is what makes it true.
 
 **THE PARSER, WHICH IS NOT THE SAME PROBLEM AS THE RACE.** Re-judging the pinning trade
 turned up a hole underneath it that needs no race at all: this module used to decide the
@@ -100,10 +96,12 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import socket
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 from urllib.parse import urlsplit
 
+import httpcore
 import httpx
 
 from apps.api.core.errors import ProblemError
@@ -197,11 +195,8 @@ class VettedDestination:
     port: int
     #: Every address the name resolved to, as strings. All of them were vetted — a
     #: round-robin record set that answers with one public and one private address is a
-    #: rebinding attack that needs no second lookup.
-    #:
-    #: NOT what a caller connects to, and that is the residual this module accepts rather
-    #: than an oversight: see PINNING above. `egress_guard_test` asserts a caller uses
-    #: `url` and never these.
+    #: rebinding attack that needs no second lookup. Informational: the connection is
+    #: pinned by `egress_client`'s own resolution at connect time, not by this tuple.
     addresses: tuple[str, ...]
     #: THE EXACT STRING THE CALLER MUST REQUEST. Whitespace-trimmed, and nothing else —
     #: it is the byte sequence this function parsed, so "what was vetted" and "what was
@@ -357,6 +352,27 @@ def _worst(categories: list[str]) -> str:
     return "not_globally_routable"
 
 
+#: `_refused_category`'s answer for an all-loopback answer set where `loopback_is_allowed`.
+_LOCAL_LOOPBACK: Final = "local_loopback"
+
+
+def _refused_category(addresses: Iterable[str]) -> str | None:
+    """Why this answer set may not be connected to, `_LOCAL_LOOPBACK`, or None when it may.
+
+    One judgement for both callers — the pre-request check and the connect-time backend —
+    so the address rules cannot differ between "what the client is told" and "where the
+    socket goes".
+    """
+    answers = tuple(addresses)
+    refused = [category for category in map(_category_of, answers) if category is not None]
+    if not refused:
+        return None
+    category = _worst(refused)
+    if category == "loopback" and len(refused) == len(answers) and loopback_is_allowed():
+        return _LOCAL_LOOPBACK
+    return category
+
+
 def loopback_is_allowed() -> bool:
     """Whether a receiver on THIS MACHINE is a legitimate destination.
 
@@ -464,10 +480,9 @@ async def assert_public_http_url(raw_url: str, *, field: str = "url") -> VettedD
             field=field,
         )
 
-    refused = [category for category in map(_category_of, addresses) if category is not None]
-    if refused:
-        category = _worst(refused)
-        if category == "loopback" and len(refused) == len(addresses) and loopback_is_allowed():
+    category = _refused_category(addresses)
+    if category is not None:
+        if category == _LOCAL_LOOPBACK:
             # Local development only, loopback only, and the port rule goes with it. The
             # parser check below is skipped with them: a laptop's `localhost` is ASCII and
             # the exemption exists so the local loop stays workable.
@@ -527,13 +542,131 @@ async def assert_public_http_url(raw_url: str, *, field: str = "url") -> VettedD
     )
 
 
+async def connectable_addresses(host: str, port: int) -> tuple[str, ...]:
+    """The vetted addresses a socket to `host:port` may open, resolved ONCE, here.
+
+    Raises `httpcore.ConnectError` on any refusal, which httpx surfaces as
+    `httpx.ConnectError` — an `httpx.HTTPError` every outbound caller already treats as a
+    failed attempt. The client-readable refusal is `assert_public_http_url`'s; reaching a
+    refusal HERE after that check passed means the name answered differently the second
+    time, which is the rebinding signature, so it is logged as such.
+    """
+    try:
+        addresses = await resolve_addresses(host, port)
+    except (TimeoutError, OSError, UnicodeError) as exc:
+        raise httpcore.ConnectError("egress destination could not be resolved") from exc
+    if not addresses:
+        raise httpcore.ConnectError("egress destination resolved to no address")
+    category = _refused_category(addresses)
+    if category == _LOCAL_LOOPBACK:
+        return addresses
+    if category is not None or port not in ALLOWED_PORTS:
+        log.warning(
+            "egress_refused",
+            extra={"host": host, "port": port, "reason": category or "port", "stage": "connect"},
+        )
+        raise httpcore.ConnectError("egress destination is not a public address")
+    return addresses
+
+
+def socket_backend() -> httpcore.AsyncNetworkBackend:
+    """The backend that opens the vetted socket. A seam for `resolve_addresses`' reason:
+    with the resolver substituted, the suite's reserved fixture names answer a real public
+    address, and the test session must be able to refuse a socket to it."""
+    return httpcore.AnyIOBackend()
+
+
+class _VettingNetworkBackend(httpcore.AsyncNetworkBackend):
+    """An httpcore backend that connects only to an address it has just vetted.
+
+    httpcore hands `connect_tcp` the URL's host; this resolves it, judges the answers and
+    connects to the IP literal, so the address judged and the address connected to are
+    the same value rather than two lookups of one name. Unix sockets are refused: no
+    outbound destination of ours is one.
+    """
+
+    def __init__(self, inner: httpcore.AsyncNetworkBackend | None = None) -> None:
+        self._inner = inner if inner is not None else socket_backend()
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,  # noqa: ASYNC109 - httpcore's signature, not ours
+        local_address: str | None = None,
+        socket_options: Iterable[Any] | None = None,
+    ) -> httpcore.AsyncNetworkStream:
+        async def _open(address: str) -> httpcore.AsyncNetworkStream:
+            return await self._inner.connect_tcp(
+                address,
+                port,
+                timeout=timeout,
+                local_address=local_address,
+                socket_options=socket_options,
+            )
+
+        *earlier, last = await connectable_addresses(host, port)
+        for address in earlier:
+            try:
+                return await _open(address)
+            except (httpcore.ConnectError, httpcore.ConnectTimeout):
+                continue
+        return await _open(last)
+
+    async def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,  # noqa: ASYNC109 - httpcore's signature, not ours
+        socket_options: Iterable[Any] | None = None,
+    ) -> httpcore.AsyncNetworkStream:
+        raise httpcore.ConnectError("egress over a unix socket is not permitted")
+
+    async def sleep(self, seconds: float) -> None:
+        await self._inner.sleep(seconds)
+
+
+class EgressTransport(httpx.AsyncHTTPTransport):
+    """httpx's own transport with its connection pool rebuilt on `_VettingNetworkBackend`.
+
+    `AsyncHTTPTransport` takes no network backend, so the pool it builds is replaced with
+    one that has ours; `handle_async_request` (exception mapping included) is inherited
+    unchanged. `trust_env=False`: an environment proxy would make the vetted connection the
+    one to the proxy, not to the destination. `egress_guard_test` pins that the pool in use
+    is the vetting one, so an httpx upgrade that renames `_pool` fails CI, not silently.
+    """
+
+    def __init__(self, *, network_backend: httpcore.AsyncNetworkBackend | None = None) -> None:
+        super().__init__(trust_env=False)
+        # httpx's own pool defaults (`httpx._config.DEFAULT_LIMITS`), restated because the
+        # pool is built here rather than by httpx.
+        self._pool = httpcore.AsyncConnectionPool(
+            ssl_context=httpx.create_ssl_context(trust_env=False),
+            max_connections=100,
+            max_keepalive_connections=20,
+            keepalive_expiry=5.0,
+            network_backend=_VettingNetworkBackend(network_backend),
+        )
+
+
+def egress_client(**kwargs: Any) -> httpx.AsyncClient:
+    """THE client for a destination a tenant or a vendor chose. Pins every connection.
+
+    Callers still run `assert_public_http_url` first (it is what gives the client a
+    refusal they can act on) and still follow redirects by hand, re-vetting each hop.
+    """
+    return httpx.AsyncClient(transport=EgressTransport(), trust_env=False, **kwargs)
+
+
 __all__ = [
     "ALLOWED_PORTS",
     "ALLOWED_SCHEMES",
     "DNS_TIMEOUT_S",
     "EgressRefusedError",
+    "EgressTransport",
     "VettedDestination",
     "assert_public_http_url",
+    "connectable_addresses",
+    "egress_client",
     "loopback_is_allowed",
     "resolve_addresses",
 ]

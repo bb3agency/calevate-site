@@ -443,7 +443,7 @@ async def test_the_grant_reaches_the_three_curation_routes_and_stops_there() -> 
         settings = await http.put(
             "/v1/organization/llm-defaults",
             headers=_h(staff, slug),
-            json={"default_llm_model": "gpt-4o-mini"},
+            json={"default_llm_tier": "standard"},
         )
     assert escalation.status_code == 403, "staff must not be able to change the switch"
     assert settings.status_code == 403, (

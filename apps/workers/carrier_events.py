@@ -5,7 +5,8 @@
         [hangup of an answered call] → finalise_unsettled_call, deferred (call_finalise.py)
         [inbound hangup, no row after retries] → write the row → read_carrier_cdr
     read_carrier_cdr → fetch the CDR → record OUR cost for the carrier minute
-    reconcile_carrier_cdrs (cron) → re-enqueue the CDR read for calls still owing one
+    reconcile_carrier_cdrs (cron) → re-enqueue the CDR read for calls still owing one,
+      and for rows still live → a CDR there means a lost hangup: end the row, backstop it
     [RecordStop] → note the carrier's recording id → copy_carrier_recording
       (`carrier_recordings.py`, D-668)
 
@@ -137,6 +138,14 @@ CDR_SWEEP_HORIZON: Final = timedelta(hours=24)
 CDR_SWEEP_PER_TENANT: Final = 50
 CDR_SWEEP_BUDGET: Final = 500
 CDR_SWEEP_MINUTES: Final = frozenset({4, 14, 24, 34, 44, 54})
+
+#: A row still live this long after it began is asked about at the carrier. The carrier
+#: writes a CDR only once a call has ended (`vobiz-findings/mirror/pages/cdr/get-cdr.md:25`),
+#: so a record for a row we still hold live means its hangup callback never reached us. Short,
+#: because such a row holds one of the account's few lines (`carrier_pacing.
+#: LIVE_LINE_HORIZON`, 70 minutes) and owes a settlement backstop nothing else will queue; a
+#: call that is genuinely still up answers 404 and costs one GET per sweep.
+LIVE_PROBE_AFTER: Final = timedelta(minutes=5)
 
 #: Forward order of the live statuses; every terminal status ranks after all of them, and a
 #: terminal status is never replaced — the worker's record of how the conversation ended
@@ -339,14 +348,14 @@ async def _ingest_stages(target: _EventTarget, attempt: int) -> str:
             defer_s=CDR_FIRST_READ_DELAY_S,
         )
         outcome += ":cdr_enqueued"
-        if _owes_settlement(call, event):
+        if _owes_settlement(call.status, event.status):
             await enqueue_finalise(tenant_id=tenant_id, call_id=call.id)
 
     await _close_inbox(target.inbox_row_id)
     return outcome
 
 
-def _owes_settlement(call: _CallRow, event: CarrierCallEvent) -> bool:
+def _owes_settlement(before: str, ended_as: CallStatus | None) -> bool:
     """Did a worker hold this call, so that its settlement is owed?
 
     A call that was live when it hung up and had been answered — the row says so, or the
@@ -354,9 +363,9 @@ def _owes_settlement(call: _CallRow, event: CarrierCallEvent) -> bool:
     worker and has nothing to finalise; a row already terminal was settled (or written by
     `_record_orphan_inbound`, which no worker ever served).
     """
-    if call.status in TERMINAL_STATUSES:
+    if before in TERMINAL_STATUSES:
         return False
-    return call.status == "in_progress" or event.status == "completed"
+    return before == "in_progress" or ended_as == "completed"
 
 
 async def enqueue_finalise(*, tenant_id: UUID, call_id: UUID) -> str | None:
@@ -756,8 +765,8 @@ async def read_carrier_cdr(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         raise
 
 
-async def _carrier_of_call(target: _CdrTarget) -> CarrierName:
-    """The carrier that holds this call's record, from its row (see the module docstring).
+async def _carrier_of_call(target: _CdrTarget) -> tuple[CarrierName, bool]:
+    """The carrier that holds this call's record, from its row, and whether the row is live.
 
     The job payload's carrier is the key the job was queued under, not an authority: a row
     stamped `vobiz` is read from Vobiz whatever the switch says now.
@@ -765,13 +774,86 @@ async def _carrier_of_call(target: _CdrTarget) -> CarrierName:
     async with tenant_session(target.tenant_id) as session:
         row = (
             await session.execute(
-                text("SELECT carrier FROM calls WHERE id = :cid AND tenant_id = :tid"),
+                text("SELECT carrier, status FROM calls WHERE id = :cid AND tenant_id = :tid"),
                 {"cid": target.call_id, "tid": target.tenant_id},
             )
         ).first()
     if row is None:
         raise _cdr_call_mismatch()
-    return carrier_of_record(row[0])
+    return carrier_of_record(row[0]), str(row[1]) not in TERMINAL_STATUSES
+
+
+def status_from_cdr(cdr: CarrierCdr) -> CallStatus:
+    """How a call we never heard end ended, from the carrier's record alone.
+
+    The carrier adapter's own reading of its cause (`CarrierCdr.status`, the mapping its
+    hangup callback uses), so an unanswered dial lands on the busy / no-answer rung a
+    campaign retries. Billed talk time is a conversation whatever the cause says (a network
+    error after ten minutes is still a call that happened), except a voicemail, which is
+    billed because a machine answered. With no mapping, `failed`: the one unanswered status
+    every reader treats as "we cannot say why" (`campaign_dispatch.FAILED_SETTLE_AFTER`).
+    """
+    if cdr.status == "voicemail":
+        return "voicemail"
+    if cdr.billed_seconds > 0:
+        return "completed"
+    if cdr.status in ("busy", "no_answer"):
+        return cdr.status
+    return "failed"
+
+
+async def _close_from_cdr(target: _CdrTarget, cdr: CarrierCdr) -> bool:
+    """End a row we still hold live, because the carrier has a record of the call's end.
+
+    The hangup callback for this call never reached us (voice-runtime down, a delivery the
+    carrier did not retry). Without this the row stays live until the line horizon, holding
+    one of the account's lines, and nothing ever queues the settlement backstop, so an
+    unsettled call is never billed, extracted or filed. Returns True when this moved it.
+
+    Compare-and-swap on a live status, under a row lock, so a hangup or a settlement landing
+    meanwhile wins and this does nothing.
+    """
+    status = status_from_cdr(cdr)
+    async with tenant_session(target.tenant_id) as session:
+        before = (
+            await session.execute(
+                text(
+                    "SELECT status FROM calls WHERE id = :cid AND tenant_id = :tid "
+                    "AND carrier_call_id = :ccid FOR UPDATE"
+                ),
+                {"cid": target.call_id, "tid": target.tenant_id, "ccid": target.carrier_call_id},
+            )
+        ).scalar()
+        if before is None or str(before) in TERMINAL_STATUSES:
+            return False
+        await session.execute(
+            text(
+                "UPDATE calls SET status = :status, updated_at = now(), "
+                "  ended_at = COALESCE(ended_at, CAST(:ended AS timestamptz), now()) "
+                "WHERE id = :cid AND tenant_id = :tid"
+            ),
+            {
+                "status": status,
+                "ended": cdr.ended_at,
+                "cid": target.call_id,
+                "tid": target.tenant_id,
+            },
+        )
+    alert(
+        "WORKER_DELIVERY",
+        "carrier_hangup_never_received",
+        detail=(
+            f"carrier={target.carrier}: this call was still live on our side but the carrier "
+            f"has a record of its end, so its hangup callback never reached us. Ended it as "
+            f"{status} from the call record."
+        ),
+        tenant_id=str(target.tenant_id),
+        call_id=str(target.call_id),
+        carrier_call_id=target.carrier_call_id,
+    )
+    if _owes_settlement(str(before), status):
+        await enqueue_finalise(tenant_id=target.tenant_id, call_id=target.call_id)
+    return True
 
 
 def _cdr_call_mismatch() -> ProblemError:
@@ -784,7 +866,8 @@ def _cdr_call_mismatch() -> ProblemError:
 
 
 async def _read_cdr(target: _CdrTarget, attempt: int) -> str:
-    target = replace(target, carrier=await _carrier_of_call(target))
+    carrier, live = await _carrier_of_call(target)
+    target = replace(target, carrier=carrier)
     try:
         cdr = await get_carrier(target.carrier).fetch_cdr(target.carrier_call_id)
     except ProblemError as exc:
@@ -814,6 +897,10 @@ async def _read_cdr(target: _CdrTarget, attempt: int) -> str:
             },
         )
         return f"refused:{exc.code}"
+    if cdr is None and live:
+        # The call is still up, or its record not yet written: the sweep asks again. Not a
+        # retry and not an alarm, or every long call would page.
+        return "still_live"
     if cdr is None:
         if attempt < WORKER_MAX_TRIES:
             raise Retry(defer=_ladder(CDR_RETRY_BACKOFF_S, attempt))
@@ -830,6 +917,8 @@ async def _read_cdr(target: _CdrTarget, attempt: int) -> str:
         )
         return "cdr_missing"
 
+    if live:
+        await _close_from_cdr(target, cdr)
     verdict = await record_cdr_cost(target, cdr)
     if verdict == "awaiting_metering":
         if attempt < WORKER_MAX_TRIES:
@@ -1003,6 +1092,16 @@ _OWED_CDR_SQL: Final = (
     "ORDER BY COALESCE(c.ended_at, c.updated_at), c.id LIMIT :cap"
 )
 
+#: Rows still live past `LIVE_PROBE_AFTER` that name a carrier call: the ones whose hangup
+#: may have been lost. The CDR job closes each the carrier has a record for (`_close_from_cdr`).
+_LIVE_PAST_PROBE_SQL: Final = (
+    "SELECT c.id, c.carrier_call_id, c.carrier FROM calls c "
+    "WHERE c.carrier_call_id IS NOT NULL AND c.status <> ALL(:terminal) "
+    "AND COALESCE(c.started_at, c.created_at) < now() - :after "
+    "AND c.created_at > now() - :horizon "
+    "ORDER BY c.created_at, c.id LIMIT :cap"
+)
+
 
 async def reconcile_carrier_cdrs(ctx: dict[str, Any]) -> str:
     """Re-enqueue the CDR read for every call whose carrier cost is still unknown.
@@ -1015,14 +1114,19 @@ async def reconcile_carrier_cdrs(ctx: dict[str, Any]) -> str:
     Each call is asked of the carrier recorded on its row (`carrier_of_record`); a row from
     before `calls.carrier` existed falls back to the switch.
 
+    It also asks about every row still live past `LIVE_PROBE_AFTER`: a lost hangup leaves
+    no terminal row for the clause above to find, and the CDR job ends such a row from the
+    carrier's record (`_close_from_cdr`). Counted as `live`, inside the same budget.
+
     One tenant's failure is not the sweep's (R-4); every counter rides the return string.
     """
     started = time.monotonic()
     enqueued = 0
+    live = 0
     unreached = 0
     truncated = False
     for tenant_id in await callable_tenants():
-        if enqueued >= CDR_SWEEP_BUDGET:
+        if enqueued + live >= CDR_SWEEP_BUDGET:
             truncated = True
             break
         try:
@@ -1039,6 +1143,17 @@ async def reconcile_carrier_cdrs(ctx: dict[str, Any]) -> str:
                         },
                     )
                 ).all()
+                live_rows = (
+                    await session.execute(
+                        text(_LIVE_PAST_PROBE_SQL),
+                        {
+                            "terminal": sorted(TERMINAL_STATUSES),
+                            "after": LIVE_PROBE_AFTER,
+                            "horizon": CDR_SWEEP_HORIZON,
+                            "cap": CDR_SWEEP_PER_TENANT,
+                        },
+                    )
+                ).all()
             for call_id, carrier_call_id, carrier in rows:
                 await enqueue_cdr_read(
                     carrier=carrier_of_record(carrier),
@@ -1047,6 +1162,14 @@ async def reconcile_carrier_cdrs(ctx: dict[str, Any]) -> str:
                     call_id=UUID(str(call_id)),
                 )
                 enqueued += 1
+            for call_id, carrier_call_id, carrier in live_rows:
+                await enqueue_cdr_read(
+                    carrier=carrier_of_record(carrier),
+                    carrier_call_id=str(carrier_call_id),
+                    tenant_id=tenant_id,
+                    call_id=UUID(str(call_id)),
+                )
+                live += 1
         except Exception:
             log.exception("carrier_cdr_sweep_failed", extra={"tenant_id": str(tenant_id)})
             unreached += 1
@@ -1062,7 +1185,10 @@ async def reconcile_carrier_cdrs(ctx: dict[str, Any]) -> str:
             ),
         )
     elapsed = time.monotonic() - started
-    return f"enqueued={enqueued} unreached={unreached} truncated={truncated} took={elapsed:.1f}s"
+    return (
+        f"enqueued={enqueued} unreached={unreached} truncated={truncated} live={live} "
+        f"took={elapsed:.1f}s"
+    )
 
 
 __all__ = [
@@ -1072,6 +1198,7 @@ __all__ = [
     "CDR_SWEEP_MINUTES",
     "FINALISE_GRACE_S",
     "FINALISE_JOB",
+    "LIVE_PROBE_AFTER",
     "carrier_cost_inr",
     "cdr_ref",
     "enqueue_cdr_read",
@@ -1081,5 +1208,6 @@ __all__ = [
     "read_carrier_cdr",
     "reconcile_carrier_cdrs",
     "record_cdr_cost",
+    "status_from_cdr",
     "statuses_behind",
 ]

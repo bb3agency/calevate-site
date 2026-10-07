@@ -42,7 +42,11 @@ from apps.api.actions.schema import (
 from apps.api.actions.service import LoadedTool
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import enqueue
-from apps.api.integrations.egress_guard import EgressRefusedError, assert_public_http_url
+from apps.api.integrations.egress_guard import (
+    EgressRefusedError,
+    assert_public_http_url,
+    egress_client,
+)
 
 log = get_logger(__name__)
 
@@ -140,7 +144,7 @@ async def execute_action(
     would surface to the caller as dead air.
     """
     owns = client is None
-    http = client or httpx.AsyncClient(timeout=_TIMEOUT_S, follow_redirects=False)
+    http = client or egress_client(timeout=_TIMEOUT_S, follow_redirects=False)
     try:
         result = await _dispatch(session, tool=tool, received=received, client=http)
     except EgressRefusedError as exc:

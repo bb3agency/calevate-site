@@ -48,6 +48,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
 from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
 from calevate_shared.engine import (
+    CONFIDENTIALITY_RULE,
     TRUTHFUL_ANSWER_DIRECTIVE,
     AgentConfig,
     AgentSnapshot,
@@ -463,7 +464,10 @@ def test_the_prompt_copy_is_reported_but_never_refuses_a_publish() -> None:
     # No prepended line — but the platform rules stay, because D-163 made those a
     # refusal in their own right and dropping both here would prove the wrong thing.
     greeting_only = _snapshot(
-        cfg, system_prompt=f"{cfg.system_prompt}\n\n{TRUTHFUL_ANSWER_DIRECTIVE}"
+        cfg,
+        system_prompt=(
+            f"{cfg.system_prompt}\n\n{CONFIDENTIALITY_RULE}\n\n{TRUTHFUL_ANSWER_DIRECTIVE}"
+        ),
     )
 
     verdict = judge(FakeEngine(), cfg, greeting_only)
@@ -1338,7 +1342,10 @@ def test_a_second_running_prompt_that_kept_the_floor_is_applied() -> None:
     """
     cfg = _cfg()
     translated = _snapshot(
-        cfg, alternate_prompts=(f"మీరు ఒక AI సహాయకుడు.\n\n{TRUTHFUL_ANSWER_DIRECTIVE}",)
+        cfg,
+        alternate_prompts=(
+            f"మీరు ఒక AI సహాయకుడు.\n\n{CONFIDENTIALITY_RULE}\n\n{TRUTHFUL_ANSWER_DIRECTIVE}",
+        ),
     )
 
     assert judge(FakeEngine(), cfg, translated).state == "applied"

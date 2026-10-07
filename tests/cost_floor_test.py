@@ -806,3 +806,79 @@ def test_the_modelled_cartesia_curve_rounds_exactly_once_like_the_measured_one()
             MONEY_Q, rounding=ROUNDING
         )
         assert cartesia_cost_inr_per_call_minute(minutes, usd_inr=live) == rounded_once, minutes
+
+
+# --- THE FLOORS OF THE ENGINE THE DEPLOYMENT RUNS (D-681) ----------------------------
+
+
+def test_pipecat_floors_carry_the_carrier_leg_we_now_own() -> None:
+    """D-474's Model B is retired for the owned runtime: the Vobiz minute (₹0.44) and the
+    recording add-on (₹0.10, D-668) are ours and join both floors.
+
+        Clear   3.1491 + 0.44 + 0.10 = 3.6891
+        Studio  4.7099 + 0.44 + 0.10 = 5.2499
+    """
+    from apps.api.billing.rates import (
+        OWNED_CARRIER_INR_PER_MIN,
+        VOBIZ_OUR_CALL_USAGE,
+        VOBIZ_RECORDING_USAGE,
+        vobiz_rate_inr_per_min,
+    )
+
+    assert (
+        vobiz_rate_inr_per_min(VOBIZ_OUR_CALL_USAGE) + vobiz_rate_inr_per_min(VOBIZ_RECORDING_USAGE)
+        == OWNED_CARRIER_INR_PER_MIN
+    )
+    assert Decimal("0.5400") == OWNED_CARRIER_INR_PER_MIN
+    assert cost_floor_inr_per_min("clear", engine="pipecat") == (
+        SELF_SERVE_COST_FLOOR_INR_PER_MIN + OWNED_CARRIER_INR_PER_MIN
+    )
+    assert cost_floor_inr_per_min("clear", engine="pipecat") == Decimal("3.6891")
+    assert cost_floor_inr_per_min("studio", engine="pipecat") == (
+        CARTESIA_COST_FLOOR_INR_PER_MIN + OWNED_CARRIER_INR_PER_MIN
+    )
+    assert cost_floor_inr_per_min("studio", engine="pipecat") == Decimal("5.2499")
+
+
+def test_the_thinnest_clear_floor_is_the_premium_minute_plus_the_top_up_fee() -> None:
+    """₹2.50 Premium (pay-as-you-go) x 1.10 wallet top-up fee = ₹2.75 — FOUNDER-RELAYED,
+    `docs/evidence/thinnest-ai-evaluation.md` §2a. Studio keeps the Cartesia floor: it is not
+    sold on ThinnestAI while the BYOK answer is pending."""
+    from apps.api.billing.rates import (
+        THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN,
+        THINNEST_PREMIUM_INR_PER_MIN,
+        THINNEST_WALLET_TOPUP_FEE,
+    )
+
+    assert Decimal("2.50") == THINNEST_PREMIUM_INR_PER_MIN
+    assert Decimal("0.10") == THINNEST_WALLET_TOPUP_FEE
+    assert Decimal("2.7500") == THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN
+    assert cost_floor_inr_per_min("clear", engine="thinnest") == Decimal("2.7500")
+    assert cost_floor_inr_per_min("studio", engine="thinnest") == CARTESIA_COST_FLOOR_INR_PER_MIN
+
+
+def test_an_engine_without_floors_of_its_own_is_judged_at_the_base_pair() -> None:
+    for engine in (None, "fake", "cartesia"):
+        assert cost_floor_inr_per_min("clear", engine=engine) == SELF_SERVE_COST_FLOOR_INR_PER_MIN
+        assert cost_floor_inr_per_min("studio", engine=engine) == CARTESIA_COST_FLOOR_INR_PER_MIN
+    with pytest.raises(ValueError):
+        cost_floor_inr_per_min("elevenlabs", engine="pipecat")  # type: ignore[arg-type]
+
+
+def test_the_card_is_judged_at_the_deployments_engine() -> None:
+    """`card_margins` reads the floor of the engine it is told, and of `Settings.engine`
+    otherwise; the card in force clears COST on every engine (thin cells are warned)."""
+    from apps.api.billing.credit_packs import card_margins
+
+    thinnest = {(p, v): m for p, v, m in card_margins(PACK_CATALOGUE, engine="thinnest")}
+    assert thinnest[("starter", "clear")].cost == Decimal("2.7500")
+    assert gross_margin_ratio(rate=Decimal("4.00"), cost=Decimal("2.75")) == Decimal("0.3125")
+    assert not thinnest[("max", "clear")].below_target
+
+    pipecat = {(p, v): m for p, v, m in card_margins(PACK_CATALOGUE, engine="pipecat")}
+    assert pipecat[("starter", "clear")].cost == Decimal("3.6891")
+    assert pipecat[("max", "studio")].cost == Decimal("5.2499")
+    assert pipecat[("max", "studio")].below_target and not pipecat[("max", "studio")].below_cost
+
+    for engine in ("thinnest", "pipecat", "fake"):
+        assert card_refusals(PACK_CATALOGUE, engine=engine) == [], engine

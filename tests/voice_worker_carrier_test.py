@@ -43,9 +43,18 @@ import bot
 import pytest
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
-from calevate_shared.engine import TRUTHFUL_ANSWER_DIRECTIVE, owned_runtime_agent_ref
+from calevate_shared.engine import (
+    CONFIDENTIALITY_RULE,
+    TRUTHFUL_ANSWER_DIRECTIVE,
+    owned_runtime_agent_ref,
+)
 from loguru import logger
-from pipecat.frames.frames import EndWorkerFrame, InputAudioRawFrame, OutputAudioRawFrame
+from pipecat.frames.frames import (
+    EndWorkerFrame,
+    InputAudioRawFrame,
+    InterruptionFrame,
+    OutputAudioRawFrame,
+)
 from pipecat.processors.frame_processor import FrameProcessorSetup
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.plivo import PlivoFrameSerializer
@@ -540,7 +549,8 @@ async def test_a_caller_hanging_up_ends_the_pipeline_the_graceful_way() -> None:
     `idle_timeout_secs=None` means nothing else ends it. Unhandled, a call the caller left
     kept its pipeline — and the container's one session slot — until the duration cap, and
     its terminal status arrived minutes late. An `EndWorkerFrame` drains and ends it as
-    `completed`; a cancel would record every hang-up as `failed`."""
+    `completed`; a cancel would record every hang-up as `failed`. An `InterruptionFrame`
+    goes first so a reply still being generated is not synthesised into a closed socket."""
     transport = ConnectableFakeTransport()
     call = _ArmableCall()
     carrier.arm_first_turn(transport, cast(Any, call), call_id="call-hangup-1")
@@ -548,7 +558,7 @@ async def test_a_caller_hanging_up_ends_the_pipeline_the_graceful_way() -> None:
     await transport.hang_up()
     await _settle()
 
-    assert [type(frame) for frame in call.worker.queued] == [EndWorkerFrame]
+    assert [type(frame) for frame in call.worker.queued] == [InterruptionFrame, EndWorkerFrame]
 
 
 def test_a_transport_that_cannot_say_when_the_caller_left_is_refused() -> None:
@@ -668,8 +678,21 @@ def test_a_published_agent_passes_both_conditions() -> None:
     refuse_unless_disclosed(
         agent_id=uuid.uuid4(),
         ai_disclosure_line="I am an AI assistant.",
-        composed_prompt="You are a receptionist.\n" + _floor(),
+        composed_prompt="You are a receptionist.\n" + CONFIDENTIALITY_RULE + "\n" + _floor(),
     )
+
+
+def test_a_prompt_without_the_confidentiality_rule_may_not_run_a_call() -> None:
+    """D-674. A prompt that carries the truthful floor but not the confidentiality rule was
+    composed by something other than `compose_engine_prompt`, so the worker refuses it."""
+    agent_id = uuid.uuid4()
+    with pytest.raises(AgentNotRunnableError) as refusal:
+        refuse_unless_disclosed(
+            agent_id=agent_id,
+            ai_disclosure_line="I am an AI assistant.",
+            composed_prompt="You are a receptionist.\n" + _floor(),
+        )
+    assert "confidentiality rule" in str(refusal.value)
 
 
 def _floor() -> str:

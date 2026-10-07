@@ -453,6 +453,30 @@ class TestTruthfulAnswerIsNotSwitchable:
         assert guard.truthful_answer_unfalsifiable() == []
 
 
+class TestConfidentialityRuleIsNotWithdrawable:
+    """D-674's prompt rule, guarded the way the truthful answer is."""
+
+    def test_the_shipped_tree_is_clean(self) -> None:
+        assert guard.confidentiality_rule_unwithdrawable() == []
+
+    def test_catches_a_module_that_rebinds_the_rule(self, tmp_path: Path) -> None:
+        (tmp_path / "apps/api/agents").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "apps/api/agents/softener.py").write_text(
+            "CONFIDENTIALITY_RULE = ''\n", encoding="utf-8"
+        )
+        offenders = guard.confidentiality_rule_unwithdrawable(roots=(tmp_path,))
+        assert any("rebinds CONFIDENTIALITY_RULE" in o for o in offenders), offenders
+
+    def test_catches_it_being_passed_as_a_parameter(self, tmp_path: Path) -> None:
+        (tmp_path / "apps/api/agents").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "apps/api/agents/render.py").write_text(
+            "def go(build, prompt):\n    return build(prompt, confidentiality_rule='')\n",
+            encoding="utf-8",
+        )
+        offenders = guard.confidentiality_rule_unwithdrawable(roots=(tmp_path,))
+        assert any("confidentiality_rule=" in o for o in offenders), offenders
+
+
 # ============================================================================
 # the lifecycle half — which agent state may place a call (D-440)
 # ============================================================================

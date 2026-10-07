@@ -639,6 +639,20 @@ def test_a_union_territory_without_a_legislature_gets_utgst() -> None:
     assert "34" not in UT_WITHOUT_LEGISLATURE
 
 
+def test_an_undetermined_supply_is_one_unclassified_head_never_a_split() -> None:
+    """With no registration there is no supplier State, so naming CGST/SGST (or IGST)
+    would invent a classification. `build_invoice` never asks today (it skips the split
+    on an unregistered supplier), so this pins the function's own contract."""
+    place = resolve_place_of_supply(supplier_identity(_settings_with(gstin="", sac="998315")), None)
+    assert place.supply_type == "undetermined"
+
+    components = split_tax(subtotal_inr=Decimal("100.01"), rate_pct=Decimal("18"), place=place)
+
+    assert [(c.label, c.rate_pct, c.amount_inr) for c in components] == [
+        ("GST", Decimal("18"), Decimal("18.00"))
+    ]
+
+
 def test_the_two_halves_always_sum_to_the_published_total() -> None:
     """An odd number of paise cannot be halved. The remainder lands on the SECOND
     component — the same doctrine the last overage line follows — so "CGST + SGST equals

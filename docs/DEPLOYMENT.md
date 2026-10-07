@@ -404,7 +404,10 @@ migration and the swap would manufacture the half-deployed state §4 exists to p
 file changes nothing); the job re-checks `workflow_run.conclusion == 'success'`, because
 `workflow_run` fires on FAILED runs too and that is the classic way a deploy workflow
 ships a red build; `head_branch` must be `main`, or CI on a pull request would deploy the
-PR; and `environment: production` gives a required-reviewer rule somewhere to attach
+PR — and because a fork's pull request can be named `main` too, the triggering run must
+also be a `push` (`workflow_run.event == 'push'`) from this repository
+(`workflow_run.head_repository.full_name == github.repository`); and
+`environment: production` gives a required-reviewer rule somewhere to attach
 without editing the workflow. **No credential is wired** — the runner is on the box, so
 there is no SSH key, and application secrets are read from `.env` on the host.
 
@@ -863,9 +866,10 @@ Stated here with pass conditions, the way §7 does for the backup drill, because
 this has been run**: no image has been built, no container started, no nginx config
 loaded, no migration applied on a VPS.
 
-1. **Pin the uv image by digest.** `Dockerfile` pins `ghcr.io/astral-sh/uv:0.8.17` by
-   tag; a tag is mutable. Resolve the digest on a host with registry access and pin it.
-   *Pass condition*: the `COPY --from=` line names a `sha256:`.
+1. **Pin the images by digest.** ✅ Done: the uv `COPY --from=` line and both
+   `python:3.12-slim-bookworm` `FROM` lines name a `sha256:` (`Dockerfile`), and the
+   weekly `docker` block in `.github/dependabot.yml` brings base-image fixes as pull
+   requests. *Pass condition*: no image reference in `Dockerfile` is a bare tag.
 2. **Build the image once, by hand, and time it.** *Pass condition*: `docker compose -f
    compose.prod.yml build api` succeeds on the target host without an OOM, with 2GB swap
    present.
@@ -2172,11 +2176,15 @@ and `PLIVO_*` only when `CARRIER=plivo`). Everything below is on the VPS.
 | `VOBIZ_API_BASE_URL` | api, workers | default `https://api.vobiz.ai/api/v1` | the REST base; changed only to point at a test double. |
 | `VOBIZ_SIGNATURE_REQUIRED` | voice-runtime | ops console, applies live; default false | refuse a Vobiz callback without a valid `X-Vobiz-Signature-V3`. Turn on only after OPERATIONS §2 gate 55 (b) passes, or every call is refused. |
 | `VOBIZ_CALLBACK_IPS` | voice-runtime | ops console, applies live; unset means Vobiz's published list (`calevate_shared.carrier.VOBIZ_CALLBACK_IPS`) | comma-separated source addresses a Vobiz callback must come from. Gate V-1. |
-| `CARRIER_CPS` | workers | ops console, applies live; default 1 | outbound dials started per second, at most. Set to the account's `cps_limit` (gate V-5); the founder's account showed CPS 1 and 3 concurrent calls (Vobiz console, founder-relayed, 2 Oct 2026, VENDOR-PUBLISHED), so the default matches. Nothing caps live calls at the account's concurrency; see gate V-5. |
+| `VOBIZ_CALLBACK_SECRET` | api, workers, voice-runtime | **generate it on your own machine with `openssl rand -hex 32`** (64 hex characters; hex because it needs no URL escaping anywhere — a base64 value also works, we percent-encode it, but hex leaves nothing for a console or a proxy to mangle), into the VPS `.env` only (`ENV_ONLY`). At least 32 characters; never the same value as `CARRIER_CLAIM_SECRET` or `VOBIZ_AUTH_TOKEN` | the shared secret on every URL we register with Vobiz (`?callback_key=…`, D-673). voice-runtime refuses a Vobiz request without it even from a Vobiz address, because every Vobiz customer sends from those addresses. Outside `local`, an unset or short value refuses every Vobiz request, refuses dials, bindings and transfers before they leave, is named by `/healthz/ready` on api and voice-runtime under `CARRIER=vobiz`, and fails the deploy preflight (`vobiz_callback_secret_unusable`). Vobiz's console and call records show it, so it is a bearer value, not a signing key. Rotation: `runbooks/vobiz-first-live-call.md` §11. |
+| `VOBIZ_CALLBACK_SECRET_RETIRED` | voice-runtime (api and workers ignore it) | the VPS `.env`, only during a rotation | the previous secret, still ACCEPTED so Applications and in-flight calls registered under it keep working until they are re-registered; never written onto a URL. Remove it when the rotation is done. |
+| `CARRIER_CPS` | api, workers | ops console, applies live; default 1 | outbound dials started per second, at most, enforced on every dial in `agents.service.dispatch_call` (`engine/carrier_pacing.py`). Set to the account's `cps_limit` (gate V-5); the founder's account showed CPS 1 and 3 concurrent calls (Vobiz console, founder-relayed, 2 Oct 2026, VENDOR-PUBLISHED), so the default matches. |
+| `CARRIER_CONCURRENCY` | api, workers | ops console, applies live; default 3 | the account's simultaneous calls, inbound and outbound together. Every dial counts the calls holding a line in both directions (`carrier_lines_in_use()`) and is refused with `carrier_lines_busy` when the outbound pool is full. Set to the account's `concurrent_calls_limit` (gate V-5). |
+| `INBOUND_RESERVE_RATIO` | api, workers | ops console; default 0.3 | the share of `CARRIER_CONCURRENCY` kept for callers: `max(1, ceil(lines × ratio))`, so 1 of 3 lines today and an outbound pool of 2 (founder decision, 2 Oct 2026). |
 | `CARRIER_TRANSFER_ENABLED` | api, voice-runtime | ops console, applies live; default false | whether an in-call handoff may transfer the caller through the carrier. Off means the handoff tool answers `not_available`, and voice-runtime refuses to serve a transfer document. |
 | `CARRIER_RECORDING_ENABLED` | api, voice-runtime, workers | ops console, applies on republish; default true | whether Vobiz records calls (D-668). Turning it off stops recording on the next call; turning it on records only agents republished afterwards, because the recording disclosure is fixed at publish. Recordings are copied to our `recordings/` storage and kept 90 days. |
 | `CARRIER_CLAIM_SECRET` | api, voice-runtime (and the worker, §12.2) | the VPS `.env` only (`ENV_ONLY`); the same value goes in the worker's secret set | seals the caller claim and signs the call claim on the stream URL, and keys the sealed transfer token. Under `ENGINE=pipecat`, `/healthz/ready` on both services names it when it is missing or under 32 bytes, and the deploy preflight refuses it (`carrier_claim_secret_unusable`). |
-| `PIPECAT_STREAM_BASE_URL` | voice-runtime | ops console, applies live; set after the worker is deployed, from the Pipecat Cloud dashboard | the worker's WebSocket base the answer document points at. Empty ⇒ the answer route refuses every call, and voice-runtime's `/healthz/ready` names it. |
+| `PIPECAT_STREAM_BASE_URL` | voice-runtime | ops console, applies live; set after the worker is deployed, from the Pipecat Cloud dashboard | the worker's WebSocket base the answer document points at: the REGIONAL Pipecat Cloud endpoint, `wss://ap-south.api.pipecat.daily.co/ws/plivo?serviceHost=<agent>.<org>` (its own query is kept and the call's claims are appended to it). The region-less `api.pipecat.daily.co` routes every stream to `us-west`, where no worker runs. Empty ⇒ the answer route refuses every call (`carrier_stream_base_not_configured`). Empty, not `wss://`, or region-less outside `local` ⇒ voice-runtime's `/healthz/ready` names it and `scripts.check_deploy_env` fails (`pipecat_stream_base_url_unusable`; `settings.is_deployable_stream_base`). |
 | `WEBHOOK_BASE_URL` | api, voice-runtime | ops console (needs republish) | the public hooks origin every answer, hangup and status URL is built on. The signature is checked against the URL rebuilt from it plus the request path, so it must be the exact scheme and host Vobiz calls. Outside `local` it must be https on a host that is not loopback; the field's default (`http://localhost:8100`) is neither, and readiness on both services names it until it is set (`core/settings.is_public_callback_base`). |
 
 **Order of a first carrier deploy.** Each step is one that can be checked before the next.
@@ -2184,7 +2192,8 @@ and `PLIVO_*` only when `CARRIER=plivo`). Everything below is on the VPS.
 1. **Migrate.** Migration `d4a7b2c91e30` adds `phone_numbers.carrier_binding_id` and
    admits `vobiz` in the `carrier_compliance_applications` CHECK; both are additive (hard
    rule 8, nothing dropped), so the normal migrate-then-swap of §4a applies.
-2. **Put `VOBIZ_AUTH_ID` and `VOBIZ_AUTH_TOKEN` in the VPS `.env`** and deploy with
+2. **Put `VOBIZ_AUTH_ID`, `VOBIZ_AUTH_TOKEN` and `VOBIZ_CALLBACK_SECRET`
+   (`openssl rand -hex 32`) in the VPS `.env`** and deploy with
    `scripts/vps-deploy.sh`. The change touches `packages/shared/` and `apps/api/core/`, so
    §4c deploys api, workers and voice-runtime together. *Pass condition*: **Test the
    carrier credentials**, beside the Vobiz rows under *Set outside this console* in the ops
@@ -2196,7 +2205,9 @@ and `PLIVO_*` only when `CARRIER=plivo`). Everything below is on the VPS.
    Re-render and reload as §9.5 describes. *Pass condition*: `nginx -t` passes and a
    request to `/carrier/v1/vobiz/answer/x` from outside Vobiz's addresses is refused by
    voice-runtime, not by nginx (the address check lives in the application, because Vobiz
-   says its addresses change).
+   says its addresses change). The hooks vhost logs with `calevate_redacted`, so a request
+   to `/carrier/v1/vobiz/answer/x?callback_key=test` appears in
+   `/var/log/nginx/access.log` as `callback_key=[redacted]` (D-673).
 4. **The Pipecat worker.** Re-run `scripts/deploy/pipecat-worker-setup.sh secrets` with
    `CARRIER=vobiz`, the VPS's `CARRIER_CLAIM_SECRET` and no `PLIVO_*` values, then
    `deploy`; then set `PIPECAT_STREAM_BASE_URL` in the ops console to the deployed
@@ -2215,6 +2226,29 @@ once; numbers already bound on Vobiz keep answering through Vobiz until rebound,
 both carriers' routes stay served. To stop a Vobiz number answering, detach it in the
 Vobiz console. There is no Plivo account, so `plivo` today means "dial nothing": Plivo's
 side refuses by name.
+
+### 12.7 The ThinnestAI engine (D-678): configuration
+
+`ENGINE=thinnest` is the third selectable engine (`docs/THINNEST-INTEGRATION.md`). It needs
+no fourth deployable and no carrier account: ThinnestAI hosts the agent, the call and the
+number. Vendor facts cite `thinnest-findings/mirror/pages/` (VERIFIED-VENDOR-DOCS).
+
+| Variable | Read by | Where it comes from | What it is for |
+|---|---|---|---|
+| `ENGINE` | api, workers, voice-runtime | ops console (needs republish) | `thinnest` selects the adapter `apps/api/engine/thinnest.py`. Every agent must be republished after the switch. |
+| `THINNEST_API_KEY` | api, workers | ThinnestAI **Settings → API keys**, a **full-access** key (`ta_live_…`; a Build key cannot place calls, `api-reference/authentication.md:29-37`), into the VPS `.env` only | `Authorization: Bearer` on every request. `ENV_ONLY` (`ENV_ONLY_REASONS`): the adapter captures it when the app starts, so a rotation is a new key into `.env`, then `scripts/vps-deploy.sh api workers`, then revoke the old key in ThinnestAI. Absent under `ENGINE=thinnest` ⇒ `/healthz/ready` names it and the deploy preflight refuses (`thinnest_api_key_missing`); a widget key (`pk_…`) in its place is refused in every environment (`thinnest_api_key_unusable`). |
+| `THINNEST_API_BASE_URL` | api, workers | leave unset; default `https://app.thinnest.ai/api/v1` (`api-reference/introduction.md:24-28`) | where the key is sent, so `ENV_ONLY`: a console edit could hand the key to another host. Only a test environment pointing at a double sets it; anything but `https://` is refused by the deploy preflight (`thinnest_api_base_url_unusable`). |
+| `ENGINE_INTAKE_KEK` | api, workers, **voice-runtime** | **generate it on your own machine**: base64 of 32 random bytes (`python -c "import base64,os; print(base64.b64encode(os.urandom(32)).decode())"`), the SAME value in the VPS `.env` for all three; back it up with `PLATFORM_KEK` | seals each agent's ThinnestAI webhook signing secret and the verified delivery bodies queued for the worker (`apps/api/reliability/engine_intake_keys.py`). `ENV_ONLY`: voice-runtime needs it and never opens the credential store, so unlike `PLATFORM_KEK` it is **not** blanked for voice-runtime in `compose.prod.yml`. Losing it loses the stored signing secrets: every agent must be republished so `POST /webhooks` issues new ones. Under `ENGINE=thinnest` outside `local` an unset value is refused by the deploy preflight (`engine_intake_kek_missing`); a value that is not 32 base64 bytes, or is the development key this repository publishes, is refused in every non-local environment (`engine_intake_kek_unusable`). `/healthz/ready` on api, workers and voice-runtime names it in the same cases (D-682). |
+| `ENGINE_INTAKE_KEK_RETIRED` | api, workers, voice-runtime | the VPS `.env`, only during a rotation | the previous intake key, used only to open what it sealed. Equal to `ENGINE_INTAKE_KEK` is refused (`retired_key_equals_active`). |
+| `WEBHOOK_BASE_URL` | api, voice-runtime | ops console (needs republish) | ThinnestAI sends `call.completed` and `call.analysed` to `<WEBHOOK_BASE_URL>/hooks/v1/engine/thinnest` and refuses an address inside its own network (`api-reference/webhooks.md:59-62`). Under `ENGINE=thinnest`, `/healthz/ready` names it when it is not a public `https://` origin. |
+| `THINNEST_BYOK_ENABLED` | api | ops console (needs republish), default `false` | Set to `true` only AFTER all three legs (speech-to-text, language model, voice) are configured with a model each in the ThinnestAI console at **Settings → Your keys** (`/settings/byok`; workspace-wide; since the 7 Oct 2026 snapshot also documented as an API, `snapshots/2026-10-07/pages/api-reference/bring-your-own-keys.md:85-152`, which we do not drive because BYOK calls are not on sale, D-681). On, per-agent catalogue voices and models are locked and every minute is metered at the `platform` rate (the ₹1/min BYOK rate) instead of a voice tier. Republish every agent after changing it. |
+| `THINNEST_MAX_CONCURRENT_CALLS` | api, workers | ops console (applies live), default `5` | The ThinnestAI workspace's simultaneous calls, inbound and outbound together (`snapshots/2026-10-07/pages/api-reference/calls/place-call.md:454-460`). 5 is the pay-as-you-go ceiling (FOUNDER-RELAYED, 7 Oct 2026); set it to the raised figure when ThinnestAI confirms one by email. `INBOUND_RESERVE_RATIO` of it is kept for callers (3 outbound of 5 at the default 0.3), every dial counts our live outbound calls under the same lock as the carrier line check and is refused with `carrier_lines_busy` when the pool is full, and a `429` holds all dials off for the vendor's `Retry-After` (at least 60 s, at most 15 min). |
+| `ENGINE_ACTIONS_BASE_URL` | api | ops console (needs republish), no default | The API's public `https://` origin (e.g. `https://api.calevate.tech`). Under `ENGINE=thinnest` each agent's in-call actions (opt-out, call-back, call-back cancel, handoff) are ThinnestAI custom actions calling `<ENGINE_ACTIONS_BASE_URL>/v1/worker/engine-actions/thinnest/<tool>`; the vendor accepts `https://` only (`snapshots/2026-10-07/pages/api-reference/actions/create-action.md:174-181`). Publish refuses with `engine_actions_url_not_public` while it is unset or not public, and the drift sweep raises `engine_actions_unreachable` when the vendor's test call does not reach it. Not `WEBHOOK_BASE_URL`, which is voice-runtime's host. `/healthz/ready` on api and workers names it under `ENGINE=thinnest` outside `local` while it is unset or not public (D-682). |
+
+Per-agent webhook signing secrets are not configuration: `POST /webhooks` returns each one
+once and it is stored sealed in the database at publish. The rate a ThinnestAI minute is
+priced at is an operator attestation, not an environment variable (hard rule 7,
+`docs/THINNEST-INTEGRATION.md` §5); without it no minute on this engine is sold.
 
 
 Cross-references: TRD §1 (deployables) · OPERATIONS §5–6 (SLOs, drills) ·

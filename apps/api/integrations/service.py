@@ -100,7 +100,11 @@ from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.core.spreadsheet_safety import disarm_for_sheets
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
-from apps.api.integrations.egress_guard import EgressRefusedError, assert_public_http_url
+from apps.api.integrations.egress_guard import (
+    EgressRefusedError,
+    assert_public_http_url,
+    egress_client,
+)
 from apps.api.reliability.service import enqueue_outbox, enqueue_outbox_once
 
 log = get_logger(__name__)
@@ -219,6 +223,8 @@ INBOUND_REFUSAL_ALERTS = (
     "webhook_payload_too_large",
     "webhook_unkeyable",
     "webhook_claim_timeout",
+    # D-678: a signed delivery our side could not verify (intake key, secret lookup).
+    "webhook_intake_unavailable",
 )
 
 
@@ -829,7 +835,7 @@ async def deliver(
         "User-Agent": "Calevate-Webhooks/1",
     }
     owns_client = client is None
-    http = client or httpx.AsyncClient(timeout=DELIVERY_TIMEOUT_S, follow_redirects=False)
+    http = client or egress_client(timeout=DELIVERY_TIMEOUT_S, follow_redirects=False)
     # `vetted.url`, not `url`: the guard parsed and judged the trimmed string, and
     # posting to the untrimmed one would send somewhere it never looked at.
     #

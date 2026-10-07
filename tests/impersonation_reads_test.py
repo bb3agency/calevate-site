@@ -93,6 +93,18 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "impersonated session is a client dashboard, which has no screen showing what "
         "Calevate pays a vendor"
     ),
+    "/v1/admin/numbers/tenants/{tenant_id}/engine": (
+        "the numbers held in the voice platform's OWN console (D-678) and the console steps "
+        "an operator takes there to rent and attach one — an operator's setup screen for "
+        "an account named in the path, which writes an `admin_tenant_read` row. A client "
+        "has no screen for it: renting and attaching happen in a vendor console only an "
+        "operator holds"
+    ),
+    "/v1/ops/engine-minute-prices": (
+        "the per-minute rate OUR account pays a voice platform that reports no call cost "
+        "(D-678) — our supplier cost basis, the same class of fact as /v1/ops/model-prices, "
+        "and not a view of any client's screen"
+    ),
     "/v1/ops/rate-card": (
         "the twelve cells of the self-serve card with OUR cost floor and OUR margin beside "
         "each rate (D-547) — the same class of fact as /v1/ops/model-prices, and the half a "

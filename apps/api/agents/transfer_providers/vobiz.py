@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from calevate_shared.carrier import transfer_path
+from calevate_shared.carrier import callback_secret_for, transfer_path, with_callback_secret
 from calevate_shared.carrier_token import seal, usable_secret
 
 from apps.api.agents.transfer_providers.base import (
@@ -88,6 +88,25 @@ class VobizTransfers:
             raise TransferRefusedError(
                 "a transfer needs CARRIER_CLAIM_SECRET and WEBHOOK_BASE_URL to build its URL"
             )
+        # voice-runtime refuses a Vobiz request without it outside `local` (D-673), and a
+        # redirect it refuses drops the caller mid-call.
+        callback_secret = callback_secret_for("vobiz", settings)
+        if callback_secret is None and settings.app_env != "local":
+            raise TransferRefusedError(
+                "a transfer needs VOBIZ_CALLBACK_SECRET to build a URL Vobiz is admitted on"
+            )
+        # The India-only freeze binds the bridged leg as it binds a dial: the B-leg is a call
+        # we place and pay for, and `check_dispatch` never sees it. Without this, a handover
+        # member on an international premium number turns every inbound call into toll
+        # fraud billed to us for up to `TRANSFER_TIME_LIMIT_S`. Imported here because
+        # `compliance.service` imports `agents.service`.
+        from apps.api.compliance.service import INDIA_E164_PREFIX
+
+        if not request.to_e164.startswith(INDIA_E164_PREFIX):
+            raise TransferRefusedError(
+                "Calevate transfers calls to Indian (+91) numbers only, and this handover "
+                "number is outside India."
+            )
         if not request.call_ref or ":" in request.call_ref:
             # Our own `pipecat:<tenant>:<call>` handle, not the carrier's call id: the
             # carrier cannot address a call by a name it never issued.
@@ -107,7 +126,10 @@ class VobizTransfers:
         carrier = self._carrier if self._carrier is not None else get_carrier("vobiz")
         try:
             await carrier.transfer(
-                request.call_ref, redirect_url=base_url + transfer_path("vobiz", token)
+                request.call_ref,
+                redirect_url=with_callback_secret(
+                    base_url + transfer_path("vobiz", token), callback_secret
+                ),
             )
         except ProblemError as exc:
             log.warning("carrier_transfer_refused", extra={"code": exc.code})

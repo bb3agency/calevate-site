@@ -11,7 +11,8 @@ import {
   packRate,
   rateToTenThousandths,
   tierLabel,
-  UNPRICED_TIER_NOTICE,
+  headlineVoice,
+  voiceNotOfferedNotice,
   VOICE_TIERS,
   type PublicRateCard,
   type VoiceTier,
@@ -90,8 +91,8 @@ const METERED: readonly { title: string; body: string }[] = [
   {
     title: "Talk time",
     body:
-      "The minutes your agents actually spend on calls — not seats, not agents, not " +
-      "numbers configured. A quiet month costs less than a busy one.",
+      "The minutes your agents spend on calls, counted in 30-second steps — not seats, " +
+      "not agents, not numbers configured. A quiet month costs less than a busy one.",
   },
   {
     title: "The voice each agent uses",
@@ -214,7 +215,9 @@ export default async function PricingPage() {
   // than a staleness window on a live price.
   const rateCard = await fetchPublicRateCard();
   // The voice the mockups name is the one an agent can be put on today, by the card's name.
-  const offeredVoice = rateCard === null ? null : tierLabel(rateCard, "studio");
+  const lead = rateCard === null ? null : headlineVoice(rateCard);
+  const other: VoiceTier | null = lead === null ? null : lead === "studio" ? "clear" : "studio";
+  const offeredVoice = rateCard === null || lead === null ? null : tierLabel(rateCard, lead);
   return (
     <MarketingPage>
       {/* THE PRICE IS THE HEADLINE: a buyer's whole reason for arriving is the number, so
@@ -226,17 +229,17 @@ export default async function PricingPage() {
         title={
           rateCard === null
             ? "You are billed for the minutes your agents actually talk"
-            : /* The headline quotes the STUDIO voice because it is the one that can be
-                  bought: the Clear rung has no attested vendor price, so hard rule 7 keeps
-                  every voice in it off the picker (`apps/api/agents/voice_offer.py`). A
-                  headline price must be one somebody can be put on; the other voice is in
-                  the lede, with the notice saying why. */
-              `Talk time on the ${tierLabel(rateCard, "studio")} voice: ${bandSentence(rateCard, "studio")}`
+            : /* The headline quotes the voice somebody can be put on on this deployment
+                  (`headlineVoice`, from the server's `voice_not_offered`: Studio on our own
+                  voices, where hard rule 7 keeps the cheaper rung off the picker; Clear on
+                  an engine that sells only its Premium band, D-681). The other voice is in
+                  the lede, with the server's notice saying why. */
+              `Talk time on the ${tierLabel(rateCard, lead ?? "studio")} voice: ${bandSentence(rateCard, lead ?? "studio")}`
         }
         lede={
           rateCard === null
-            ? "Not per seat, not per agent, not per number — you pay for the minutes your agents actually talk. Our live rate card could not be loaded just now, so there is no figure on this page we can stand behind; reload in a moment."
-            : `The ${tierLabel(rateCard, "clear")} voice is ${bandSentence(rateCard, "clear")} on the same card. ${UNPRICED_TIER_NOTICE} No monthly fee, no per-seat charge — you are billed for the minutes your agents actually talk, and credit does not expire.`
+            ? "Not per seat, not per agent, not per number — you pay for the minutes your agents actually talk, in 30-second steps. Our live rate card could not be loaded just now, so there is no figure on this page we can stand behind; reload in a moment."
+            : `The ${tierLabel(rateCard, other ?? "clear")} voice is ${bandSentence(rateCard, other ?? "clear")} on the same card. ${voiceNotOfferedNotice(rateCard) ?? ""} No monthly fee, no per-seat charge — you are billed for the minutes your agents actually talk, in 30-second steps, and credit does not expire.`
         }
       >
         <div className="mt-8 flex flex-wrap gap-3">
@@ -302,9 +305,10 @@ export default async function PricingPage() {
               <div className="mt-8 rounded-2xl border border-line bg-surface p-4 shadow-card sm:mt-10 sm:p-8 [&>fieldset:first-child]:mt-0">
                 <RateCard card={rateCard} />
                 <p className="mt-6 max-w-2xl text-sm text-pretty text-ink-muted">
-                  Talk time is the minutes your agents actually speak for, not connected
-                  time. Credit is spent oldest purchase first, at the rates that purchase was
-                  made at.
+                  Calls are billed in 30-second steps, rounded up: a 40-second call is one
+                  minute, a 10-second call is half a minute. A call nobody answers costs
+                  nothing. Credit is spent oldest purchase first, at the rates that purchase
+                  was made at.
                 </p>
               </div>
             </>

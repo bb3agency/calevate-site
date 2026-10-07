@@ -29,7 +29,9 @@ from apps.api.actions.calendar import (
     authorize_url,
     calendar_configured,
     calendar_unavailable,
+    mint_oauth_state,
     token_exchange_request,
+    verify_oauth_state,
 )
 from apps.api.actions.execution import execute_action
 from apps.api.compliance.audit import write_audit
@@ -526,24 +528,24 @@ class CalendarConnectOut(Strict):
 async def calendar_connect(
     principal: Principal = Depends(requires("org:read")),
 ) -> CalendarConnectOut:
-    """Start the OAuth flow. `state` carries the tenant so the callback can attribute the
-    refresh token; it is signed context, not a bearer — the callback re-checks it.
-
-    ⚠ The state here is the tenant id; a production hardening is to sign it (HMAC) to stop a
-    forged callback attaching a token to another tenant. Left as a NAMED follow-up because
-    the callback also requires an authenticated `org:manage` session, which already binds
-    the acting tenant — see `calendar_callback`.
-    """
+    """Start the OAuth flow. `state` is signed and bound to this account and this person
+    (`calendar.mint_oauth_state`); the callback refuses a code that arrives without it."""
     assert principal.tenant_id is not None
+    assert principal.user_id is not None
     if not calendar_configured():
         # ONE wording, in `calendar.py` — this site used to carry its own copy of the
         # sentence, addressed to an operator, on a screen only a client reaches.
         raise calendar_unavailable()
-    return CalendarConnectOut(authorize_url=authorize_url(state=str(principal.tenant_id)))
+    state = mint_oauth_state(tenant_id=principal.tenant_id, user_id=principal.user_id)
+    return CalendarConnectOut(authorize_url=authorize_url(state=state))
 
 
 class CalendarCallbackIn(Strict):
     code: str = Field(min_length=1, max_length=2048)
+    #: Google echoes back the `state` the connect step put in the consent URL. Required: an
+    #: authenticated `org:manage` session alone does not stop a planted code, because the
+    #: attack is getting THIS session to redeem a code from somebody else's consent.
+    state: str = Field(min_length=1, max_length=2048)
     label: str = Field(default="Google Calendar", min_length=1, max_length=200)
 
 
@@ -560,9 +562,11 @@ async def calendar_callback(
     principal: Principal = Depends(requires("org:manage")),
 ) -> CredentialOut:
     """Exchange the authorization code and save the refresh token as a `google_calendar`
-    credential. Bound to the authenticated `org:manage` tenant, so a code cannot be
-    redeemed onto another tenant's account."""
+    credential. The `state` is checked BEFORE the code is exchanged, so a code from a consent
+    this person did not start is never redeemed at all."""
     assert principal.tenant_id is not None
+    assert principal.user_id is not None
+    verify_oauth_state(payload.state, tenant_id=principal.tenant_id, user_id=principal.user_id)
     import httpx
 
     req = token_exchange_request(code=payload.code)

@@ -175,6 +175,7 @@ forbidden_modules = [
     # apart, and it is an equality assertion, so landing the module fails the suite until
     # that entry is deleted.
     "apps.api.engine.pipecat",
+    "apps.api.engine.thinnest",
     # The carrier adapters (D-662). Business code reaches a carrier through
     # `apps.api.engine.carrier`, whose `CARRIER_ADAPTER_MODULES` names these two.
     "apps.api.engine.vobiz",
@@ -223,8 +224,9 @@ src = ["apps", "packages"]
 # files), so nothing is lost by excluding it and the verbatim quotes stay verbatim.
 #
 # `vobiz-findings` is the carrier's documentation mirror, hash-pinned the same way
-# (`vobiz-findings/mirror/MANIFEST.json`) and excluded for the same reason.
-extend-exclude = ["alembic/versions", "bolna-findings", "docs/evidence", "vobiz-findings"]
+# (`vobiz-findings/mirror/MANIFEST.json`) and excluded for the same reason, as is
+# `thinnest-findings` (the ThinnestAI docs mirror, D-678).
+extend-exclude = ["alembic/versions", "bolna-findings", "docs/evidence", "thinnest-findings", "vobiz-findings"]
 # `extend-exclude` alone is NOT enough, and the difference is the whole defect. Ruff
 # honours exclusions during directory traversal but IGNORES them for paths handed to it
 # explicitly on the command line — and `.pre-commit-config.yaml` runs `ruff-format` as a

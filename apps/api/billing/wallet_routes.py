@@ -53,6 +53,12 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 
+from apps.api.billing.credit_packs import (
+    PACK_BONUS_CLAWBACK_LABEL,
+    PACK_BONUS_CLAWBACK_META_KIND,
+    PACK_BONUS_LABEL,
+    PACK_BONUS_META_KIND,
+)
 from apps.api.billing.gst import GST_STATUS_SENTENCE, supplier_identity
 from apps.api.billing.lots import read_open_lots
 from apps.api.billing.number_rental import RENTAL_CHARGE_LABEL, RENTAL_CHARGE_META_KIND
@@ -517,6 +523,10 @@ def _entry_label(*, reason: str, kind: object) -> str | None:
     """
     if reason == "usage" and kind == RENTAL_CHARGE_META_KIND:
         return RENTAL_CHARGE_LABEL
+    if reason == "bonus" and kind == PACK_BONUS_META_KIND:
+        return PACK_BONUS_LABEL
+    if reason == "bonus" and kind == PACK_BONUS_CLAWBACK_META_KIND:
+        return PACK_BONUS_CLAWBACK_LABEL
     return None
 
 

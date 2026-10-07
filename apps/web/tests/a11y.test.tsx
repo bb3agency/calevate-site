@@ -115,6 +115,7 @@ import {
   prepaidWallet,
   voiceCatalogue,
   LIVE_CALLS_PATH,
+  clientLlmTiers,
 } from "./fixtures/sharedReads";
 
 /**
@@ -653,6 +654,12 @@ const AGENT = {
   // answers in parallel. Both are REQUIRED on the wire.
   archived_at: null,
   inbound_number_count: 2,
+  // D-680: the agent's AI model as the TIER a client reads, never a model id.
+  llm_tier: null,
+  llm_tier_effective: "standard",
+  llm_tier_label: "Standard",
+  llm_tier_source: "platform",
+  llm_surcharged: false,
   extraction_fields: [
     { key: "name", label: "Name", type: "string", required: true },
   ],
@@ -889,7 +896,7 @@ const USAGE = {
   llm_surcharge_rate_inr: null,
   llm_surcharge_minutes: "0.00",
   llm_surcharge_inr: "0.00",
-  llm_surcharge_models: [],
+  llm_surcharge_tiers: [],
   monthly_fee_inr: "4999.00",
   cap_minutes: null,
   minutes_left: null,
@@ -1656,6 +1663,8 @@ const LLM_DEFAULTS = {
       is_platform_default: false,
     },
   ],
+  // Each agent's real model, which the admin Agents screen reads (D-680).
+  agents: [],
 };
 
 /** One row of the weekly QA spot-check queue (SURFACES §1). */
@@ -1934,6 +1943,7 @@ const CLIENT_SCREENS: Screen[] = [
       />
     ),
     routes: {
+      "/v1/organization/llm-defaults": clientLlmTiers(),
       "/v1/agents/voices": voiceCatalogue("client"),
       "/v1/agents/lanes": LANES,
       "/v1/me": ME,
@@ -2674,26 +2684,7 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <ClientLlmModelPage params={slug} />,
     routes: {
       "/v1/me": ME,
-      "/v1/organization/llm-defaults": {
-        default_llm_model: null,
-        effective_default: "gpt-4o-mini",
-        available: [
-          {
-            model: "gpt-4o-mini",
-            provider: "Azure OpenAI",
-            platform_cost_inr_per_minute: "0.2400",
-            client_surcharge_inr_per_minute: "0",
-            is_platform_default: true,
-          },
-          {
-            model: "gpt-4.1-mini",
-            provider: "Azure OpenAI",
-            platform_cost_inr_per_minute: "0.4830",
-            client_surcharge_inr_per_minute: "1.5000",
-            is_platform_default: false,
-          },
-        ],
-      },
+      "/v1/organization/llm-defaults": clientLlmTiers(),
     },
   },
   {
@@ -3190,6 +3181,14 @@ const ADMIN_SCREENS: Screen[] = [
       },
       "/v1/ops/tts-prices/plan-fees": { month: "2026-10", as_of: "2026-10-02T06:30:00Z", fees: [{ provider: "cartesia", tier_label: "Studio", reference_plan_inr: "440.00", attested: null }] },
       "/v1/ops/model-prices": OPS_MODEL_PRICES,
+      // The per-minute rate panel (D-678), with one rate unattested so its warning is scanned.
+      "/v1/ops/engine-minute-prices": {
+        as_of: "2026-10-02T06:30:00Z",
+        prices: [
+          { engine: "thinnest", rate_key: "platform", inr_per_min: null, effective_from: null, attested_at: null, source_note: null, billable: false, sold_as: null },
+          { engine: "thinnest", rate_key: "standard", inr_per_min: "2.000000", effective_from: "2026-10-01T00:00:00Z", attested_at: "2026-10-01T00:00:00Z", source_note: "plan page, 1 Oct 2026", billable: true, sold_as: null },
+        ],
+      },
       "/v1/ops/dashboard-data-use": OPS_DASHBOARD_DATA_USE,
       "/v1/ops/secrets": OPS_SECRETS,
       "/v1/ops/secrets/kek": OPS_KEK,
@@ -3647,6 +3646,20 @@ const ADMIN_SCREENS: Screen[] = [
       // One number we bought and one the client brought that has NO vendor handle: the
       // second is what renders the "link and route" input, which is the only form on the
       // page and therefore the only thing with a label for axe to judge.
+      // A voice platform that rents numbers in its own console (D-678), so the panel that
+      // lists them and its steps is part of what axe judges.
+      "/v1/admin/numbers/tenants/t1/engine": {
+        managed_in_engine_console: true,
+        platform: "ThinnestAI",
+        steps: ["Open Phone Numbers.", "Set Inbound to the agent."],
+        notes: ["Releasing a rented number is permanent."],
+        numbers: [
+          { e164: "+918012345678", provider: "ThinnestAI", engine_owned: true, agent_id: "a1", agent_name: "Front desk", unassigned: false },
+          { e164: "+918012345679", provider: "ThinnestAI", engine_owned: true, agent_id: null, agent_name: null, unassigned: true },
+        ],
+        other_numbers: 1,
+        agents: [{ agent_id: "a1", name: "Front desk", engine_agent_ref: "ag_123", answers_a_number: true }],
+      },
       "/v1/admin/numbers/tenants/t1": [
         {
           id: "num-1",
@@ -3859,7 +3872,7 @@ const ADMIN_SCREENS: Screen[] = [
     file: "admin/tenants/[tenantId]/agents/page.tsx",
     realm: "admin",
     element: () => <TenantAgentsPage params={tenant} />,
-    routes: TENANT_ROUTES,
+    routes: { ...TENANT_ROUTES, "/v1/admin/organizations/t1/llm-defaults": LLM_DEFAULTS },
   },
   {
     file: "admin/tenants/[tenantId]/kyc/page.tsx",

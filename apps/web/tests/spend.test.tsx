@@ -279,7 +279,7 @@ const HUB_USAGE = {
   llm_surcharge_inr: "0.00",
   llm_surcharge_minutes: "0.0000",
   llm_surcharge_rate_inr: null,
-  llm_surcharge_models: [],
+  llm_surcharge_tiers: [],
   capped: false,
   cap_minutes: null,
   credit_balance_inr: null,

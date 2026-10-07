@@ -63,6 +63,7 @@ from voice_worker.pipeline import (
     CallerIdentityLike,
     NormalizedEventSink,
     SessionConfig,
+    TurnAnalyzers,
     VendorCredentials,
     assemble_call,
     build_vendor_legs,
@@ -208,6 +209,7 @@ async def open_session(
     stop_secs: float = SMART_TURN_STOP_SECS,
     tool_api: CallToolApi | None = None,
     caller: CallerIdentityLike | None = None,
+    turn_analyzers: TurnAnalyzers | None = None,
 ) -> AssembledCall:
     """One assembled call, with its knowledge already in memory.
 
@@ -283,6 +285,7 @@ async def open_session(
         stop_secs=stop_secs,
         tool_api=tool_api,
         caller=caller,
+        turn_analyzers=turn_analyzers,
     )
 
 

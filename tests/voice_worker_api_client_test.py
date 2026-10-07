@@ -113,3 +113,39 @@ async def test_the_session_read_is_not_retried_because_the_caller_is_ringing() -
             await client.session("pipecat:t:a")
 
     assert len(seen) == 1
+
+
+# --------------------------------------------------------------------------------------
+# The correlation id: one call followed from this container's log lines into the API's.
+# --------------------------------------------------------------------------------------
+
+
+async def test_every_call_scoped_request_carries_the_call_ref_as_the_correlation_id() -> None:
+    from calevate_shared.engine import pipecat_call_ref
+
+    call_ref = pipecat_call_ref(uuid.uuid4(), uuid.uuid4())
+    client, seen = _client([_status(200, _SETTLED)])
+    async with client:
+        await client.post_settlement(call_ref, _settlement())
+    assert seen[0].headers[api_client.CORRELATION_HEADER] == call_ref
+    # A real ref is well inside the API's 128-character, colon-permitting pattern.
+    assert api_client.CORRELATION_ID_PATTERN.fullmatch(call_ref)
+
+
+async def test_an_id_the_api_would_not_adopt_is_not_sent() -> None:
+    """Negative control: the API replaces an id outside its pattern, so sending one would
+    only put a value in a header that no log line ever carries. Too long is not truncated."""
+    client, seen = _client([_status(200, _OBSERVED)])
+    async with client:
+        batch = ObservationBatch(agent_id=uuid.uuid4(), direction="inbound")
+        await client.post_observations("x" * 129, batch)
+    assert api_client.CORRELATION_HEADER not in seen[0].headers
+    assert api_client.correlation_headers("bad ref/with space") == {}
+    assert api_client.correlation_headers(None) == {}
+
+
+def test_the_pattern_is_the_one_the_api_adopts() -> None:
+    from apps.api.core import middleware
+
+    assert api_client.CORRELATION_ID_PATTERN.pattern == middleware._CALLER_CORRELATION_ID.pattern
+    assert api_client.CORRELATION_HEADER == middleware.CORRELATION_HEADER

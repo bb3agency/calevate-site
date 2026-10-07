@@ -88,8 +88,8 @@ class ChunkOut(Strict):
     #: question (the form Sarvam's Saaras STT returns) can find a Telugu-script chunk at
     #: all (`apps/api/kb/gloss.py` carries the measurement). It is shown at the review
     #: screen so a reviewer can report a bad one, and `gloss_model` is beside it so the
-    #: screen labels it by the model that wrote it rather than asserting "machine-generated"
-    #: as an unenforced convention.
+    #: screen labels it by the model tier that wrote it (a tier word, never a model id —
+    #: D-680) rather than asserting "machine-generated" as an unenforced convention.
     gloss: str | None = None
     gloss_model: str | None = None
 

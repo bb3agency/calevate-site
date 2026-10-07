@@ -78,6 +78,7 @@ from apps.api.billing.credit_packs import (
     pack_by_id,
     pack_talk_time_minutes,
 )
+from apps.api.billing.engine_minutes import CLIENT_RUNG_OF_RATE_KEY
 from apps.api.billing.list_rates import card_at, card_with_rates, pending_cards
 from apps.api.billing.payments import (
     CREDIT_EVENTS,
@@ -117,6 +118,7 @@ from apps.api.billing.rates import (
     PREPAID_TIERS,
     ROUNDING,
     VALUE_VOICE_TIER,
+    VOICE_TIERS,
     VoiceTier,
     voice_tier_label,
 )
@@ -402,6 +404,13 @@ class CreditPacksOut(Strict):
     clear_tier_label: str
     #: The same for the voice the `cartesia_*` rates price ("Studio").
     studio_tier_label: str
+    #: The voice quality no agent can be put on on this deployment, or null when both can.
+    #: Its rates are still real and still frozen on credit bought today; pages say so with
+    #: `voice_not_offered_notice` beside its table rather than hiding it. Per deployment
+    #: because it follows the voice engine (`voice_tier_not_offered`).
+    voice_not_offered: VoiceTier | None
+    #: The one sentence saying why, rendered verbatim. Null exactly when the field above is.
+    voice_not_offered_notice: str | None
     packs: list[CreditPackOut]
     #: The next SCHEDULED change to these rates, or `null` when none is (the ordinary
     #: state). A client whose next top-up will cost more can see it here before the day
@@ -549,6 +558,36 @@ async def read_credit_packs(session: RateCardSession, _principal: TopUpRead) -> 
     return await rate_card_out(session)
 
 
+#: The cheaper rung's vendor (Gnani since D-629) has no attested invoice figure, so hard rule
+#: 7 keeps every voice in it off the picker on the engine that speaks our own voices.
+_UNPRICED_VOICE_NOTICE: Final = (
+    "Not available to choose yet: the vendor that speaks this voice changed and we have not "
+    "established what one minute of it costs, so we will not put an agent on it. Its rate is "
+    "still fixed on credit you buy today, and it costs you nothing to move an agent onto it "
+    "once it opens."
+)
+#: On an engine whose own voices are sold by band (D-681), a rung no band is sold as.
+_NOT_YET_OPENED_NOTICE: Final = (
+    "Not available to choose yet: this voice is not open on the platform your calls run on "
+    "today, so we will not put an agent on it. Its rate is still fixed on credit you buy "
+    "today, and it costs you nothing to move an agent onto it once it opens."
+)
+
+
+def voice_tier_not_offered(engine: str) -> tuple[VoiceTier, str] | None:
+    """The rung no agent can be put on under `engine`, with the sentence a page shows.
+
+    On an engine that sells its own voices by band, the rungs those bands are sold as are the
+    ones on offer (`engine_minutes.CLIENT_RUNG_OF_RATE_KEY`: ThinnestAI sells Premium as
+    Clear, so Studio is the one held back). Everywhere else the cheaper rung is unpriced.
+    """
+    sold = CLIENT_RUNG_OF_RATE_KEY.get(engine)
+    if sold is not None:
+        held = [tier for tier in VOICE_TIERS if tier not in set(sold.values())]
+        return (held[0], _NOT_YET_OPENED_NOTICE) if held else None
+    return VALUE_VOICE_TIER, _UNPRICED_VOICE_NOTICE
+
+
 async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
     """THE ONE PLACE THE RATE CARD IS PRICED FOR A READER. Both the authenticated `/packs`
     read and the public `/v1/public/rate-card` read call this, so the two surfaces cannot
@@ -575,6 +614,7 @@ async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
     scheduled = await pending_cards(session, at=now)
     packs = [_pack_out(pack) for pack in in_force]
     from_sarvam = min(pack.clear_inr_per_min for pack in packs)
+    not_offered = voice_tier_not_offered(get_settings().engine)
     return CreditPacksOut(
         list_rate_inr_per_min=packs[0].clear_inr_per_min,
         from_inr_per_min=from_sarvam,
@@ -587,6 +627,8 @@ async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
         # its only caller — the wallet and the agent screens are other lanes' files.
         clear_tier_label=voice_tier_label(VALUE_VOICE_TIER),
         studio_tier_label=voice_tier_label(PREMIUM_VOICE_TIER),
+        voice_not_offered=not_offered[0] if not_offered else None,
+        voice_not_offered_notice=not_offered[1] if not_offered else None,
         packs=packs,
         # ONLY THE SOONEST. An operator may have several cards on the books; a client
         # planning a top-up needs to know what changes NEXT, and a ladder of future prices
@@ -1228,6 +1270,11 @@ class RefundOut(Strict):
     # must tell "not yet applied" from "the server did not say" (TopUpIntentOut's argument).
     recorded: bool
     balance_inr: Decimal | None
+    # The pack bonus credit this refund took back with it (pro rata to the share of the
+    # payment refunded), so the operator can see why the balance fell by more than the
+    # refund. "0.00" for a payment that carried no bonus; null while the refund is in flight,
+    # because the clawback is written with the ledger entry and not before.
+    bonus_clawed_back_inr: Decimal | None
     processing_days: int
 
 
@@ -1334,6 +1381,7 @@ async def issue_tenant_refund(
 
     recorded = False
     balance_inr: Decimal | None = None
+    bonus_clawed_back_inr: Decimal | None = None
     if refund.is_processed:
         event = RefundEvent(
             refund_id=refund.refund_id,
@@ -1346,6 +1394,7 @@ async def issue_tenant_refund(
             result = await credit_refund(session, refund=event, ip=ip)
         recorded = result.recorded
         balance_inr = to_paise(result.balance.amount_inr)
+        bonus_clawed_back_inr = to_paise(result.bonus_clawed_back_inr)
 
     async with tenant_session(tenant_id) as session:
         await write_audit(
@@ -1375,6 +1424,7 @@ async def issue_tenant_refund(
         amount_inr=to_paise(amount),
         recorded=recorded,
         balance_inr=balance_inr,
+        bonus_clawed_back_inr=bonus_clawed_back_inr,
         processing_days=REFUND_PROCESSING_DAYS,
     )
 

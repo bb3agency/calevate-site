@@ -172,7 +172,7 @@ export function Handover({ agent }: { agent: Agent }) {
         Rings the first available person on this list when a caller asks for one.
       </p>
 
-      {/* THE TWO LIMITS, STATED PLAINLY AND VISIBLY. Neither is a footnote: a client who
+      {/* THE LIMITS, STATED PLAINLY AND VISIBLY. None is a footnote: a client who
           believed the person answering hears a summary first would tell their own callers
           so. */}
       <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-ink-muted">
@@ -186,6 +186,7 @@ export function Handover({ agent }: { agent: Agent }) {
           offers your caller a call-back instead, and books it for the next time we are
           allowed to ring them.
         </li>
+        <li>Only Indian mobile numbers, starting with +91, can be on this list.</li>
       </ul>
 
       {write.reason && (

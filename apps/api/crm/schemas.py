@@ -1023,9 +1023,10 @@ class UsagePanelOut(Strict):
     llm_surcharge_rate_inr: str | None
     llm_surcharge_minutes: str
     llm_surcharge_inr: str
-    # WHICH models the client chose, so the screen can name the cause of the number rather
-    # than only its size. Empty when nothing this month carried a surcharge.
-    llm_surcharge_models: list[str]
+    # WHICH tiers the client chose, so the screen can name the cause of the number rather
+    # than only its size — tier words, never model ids (D-680). Empty when nothing this
+    # month carried a surcharge.
+    llm_surcharge_tiers: list[str]
     # None until the client has a plan row with a fee (mid-onboarding is a real state).
     monthly_fee_inr: str | None
     # WHAT THIS MONTH COSTS IN TOTAL — the retainer plus the calling, summed by the SERVER.

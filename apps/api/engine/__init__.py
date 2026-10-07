@@ -34,6 +34,12 @@ from apps.api.engine.capabilities import (
     require_capability,
     require_speech_leg,
 )
+from apps.api.engine.catalogue import (
+    CatalogueModel,
+    CatalogueVoice,
+    EngineCatalogue,
+    HoldsCatalogue,
+)
 
 _instances: dict[str, VoiceEngine] = {}
 
@@ -76,6 +82,12 @@ def build_engine(cfg: Settings) -> VoiceEngine:
         # that passes one is the conformance suite, which substitutes the database and the
         # worker together — see the adapter's module docstring.
         return PipecatEngine()
+    if name == "thinnest":
+        from apps.api.engine.thinnest import ThinnestEngine
+
+        # No signing-secret resolver here: the request path never verifies a delivery
+        # (voice-runtime does), and the worker path that does passes its own.
+        return ThinnestEngine(api_key=cfg.thinnest_api_key, base_url=cfg.thinnest_api_base_url)
     from apps.api.engine.fake import FakeEngine
 
     return FakeEngine()
@@ -130,6 +142,7 @@ def all_credential_env_keys() -> tuple[str, ...]:
     from apps.api.engine.cartesia import CartesiaEngine
     from apps.api.engine.fake import FakeEngine
     from apps.api.engine.pipecat import PipecatEngine
+    from apps.api.engine.thinnest import ThinnestEngine
 
     # KEYED OFF EACH ADAPTER'S OWN `name`, and NEVER a literal set of engine names here:
     # `tests/engine_name_drift_test.py` fails a third spelling, because this repo has
@@ -141,6 +154,7 @@ def all_credential_env_keys() -> tuple[str, ...]:
         CartesiaEngine,
         FakeEngine,
         PipecatEngine,
+        ThinnestEngine,
     )
     by_name = {adapter.name: adapter for adapter in adapters}
     # Exhaustiveness against the Literal rather than against the tuple above: an engine
@@ -159,17 +173,31 @@ def all_credential_env_keys() -> tuple[str, ...]:
     return tuple(keys)
 
 
+async def engine_catalogue(engine: VoiceEngine | None = None) -> EngineCatalogue:
+    """The selected engine's OWN voices and models (`engine/catalogue.py`), for the offer
+    seam. Refuses on the `tts` capability where the engine publishes no catalogue of its own:
+    an empty catalogue would read as an account with nothing to offer."""
+    adapter = engine if engine is not None else get_engine()
+    if not isinstance(adapter, HoldsCatalogue):
+        raise engine_lacks("tts", engine=adapter.name)
+    return await adapter.read_catalogue()
+
+
 def reset_engine_cache() -> None:
     """Tests switch engines between cases; production never calls this."""
     _instances.clear()
 
 
 __all__ = [
+    "CatalogueModel",
+    "CatalogueVoice",
     "EngineCapabilities",
     "EngineCapabilityAbsentError",
+    "EngineCatalogue",
     "all_credential_env_keys",
     "build_engine",
     "engine_capabilities",
+    "engine_catalogue",
     "engine_lacks",
     "engine_not_configured",
     "get_engine",

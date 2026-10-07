@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import { useTenant, useTenantAgents } from "@/lib/api/admin";
+import { useAdminLlmDefaults } from "@/lib/api/llmDefaults";
 import { lookup } from "@/lib/lookup";
 
 import { AGENT_STATUS_TONE, StatePill } from "../statePill";
@@ -29,6 +30,15 @@ const DIRECTION: Record<string, string> = {
 export function AgentsScreen({ tenantId }: { tenantId: string }) {
   const slug = useTenant(tenantId).data?.slug ?? "";
   const agents = useTenantAgents(slug);
+  // The REAL model each agent runs. `/v1/agents` is the client realm's roster and carries
+  // only tiers (D-680), so the operator's model column comes from the admin read.
+  const models = useAdminLlmDefaults(tenantId);
+  const modelOf = (agentId: string): string => {
+    if (models.isError) return "model could not be read";
+    if (models.data === undefined) return "reading model…";
+    const row = models.data.agents.find((entry) => entry.agent_id === agentId);
+    return row?.llm_model_effective ?? "model not reported";
+  };
 
   return (
     <div className="space-y-5">
@@ -61,7 +71,7 @@ export function AgentsScreen({ tenantId }: { tenantId: string }) {
                       ? "1 number"
                       : `${agent.inbound_number_count} numbers`}
                     {" · "}
-                    {agent.llm_model_effective}
+                    {modelOf(agent.id)}
                   </span>
                 </span>
                 <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-ink-faint group-hover:text-ink" />

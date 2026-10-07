@@ -225,15 +225,15 @@ export function UsageTab({
               {/* THE MODEL UPGRADE (D-455), on the screen because it is on the statement.
                   A client whose bill grew because they moved their agents onto a dearer
                   AI model has to be able to see WHICH decision did it — the line names the
-                  model, exactly as `build_invoice` does, and multiplies out against the
+                  tier (never the model behind it, D-680), exactly as `build_invoice` does, and multiplies out against the
                   rate beside it. Absent when the plan quotes no surcharge or nothing was
                   upgraded, which is every account today: a ₹0.00 row invites a question
                   about nothing, and is the same rule the overage rows follow. */}
               {hasNonZeroDigit(data.llm_surcharge_inr) && (
                 <Row
                   label={`AI model upgrade${
-                    data.llm_surcharge_models.length > 0
-                      ? `, ${data.llm_surcharge_models.join(", ")}`
+                    data.llm_surcharge_tiers.length > 0
+                      ? `, ${data.llm_surcharge_tiers.join(", ")}`
                       : ""
                   }${
                     /* ⚠ THIS WAS `formatRupeeRate(data.llm_surcharge_rate_inr ?? "0")`,

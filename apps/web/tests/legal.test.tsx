@@ -22,7 +22,10 @@ import {
   resolvePlaceholders,
   unresolvedPlaceholders,
 } from "@/lib/legal/placeholders";
-import { SUBPROCESSOR_NAMES } from "@/lib/legal/subprocessors";
+import {
+  PUBLICLY_NAMED_SUBPROCESSORS,
+  SUBPROCESSOR_CATEGORIES,
+} from "@/lib/legal/subprocessors";
 
 import { expectNoA11yViolations } from "./a11y";
 
@@ -449,32 +452,30 @@ describe("what each document must contain", () => {
 
   it("does not place the carrier in India, and names no former voice platform as a row", () => {
     /*
-     * The narrower version of the test above, on the vendor the caller's audio passes
-     * through. The register used to carry a Bolna row ("Core (primary engine)") placing that
-     * voice platform in the United States; D-639 deleted Bolna from the code, so the row
-     * left the register on the Clerk pattern — gone as a row, named only in the sentence
-     * that records its departure.
-     *
-     * The carrier row is now Vobiz, and the founder's instruction (2 Oct 2026) is that its
-     * processing region is UNKNOWN: the Location cell must say so in those words and must
-     * not name India, because nothing Vobiz publishes that we have read places the data.
+     * The narrower version of the test above, on the category the caller's audio passes
+     * through. Since D-679 the page is a table of CATEGORIES and names no carrier, but the
+     * fact survives the name: the carrier in use states no processing location, so the
+     * Telephony row's Location cell must say so and must not name India (founder's
+     * instruction, 2 Oct 2026). A former voice platform may not come back as a row.
      */
-    const register = bySlug("subprocessors");
-    const rows = blocksOf(register).flatMap((block) =>
+    const rows = blocksOf(bySlug("subprocessors")).flatMap((block) =>
       block.kind === "table" ? block.rows : [],
     );
     expect(
-      rows.filter((row) => (row[0] ?? "").startsWith("Bolna")),
+      rows.filter((row) => /Bolna/.test(row.join(" "))),
       "a former voice platform must not be a live register row",
     ).toHaveLength(0);
-    const carrier = rows.filter((row) => (row[0] ?? "").startsWith("Vobiz"));
+    const carrier = rows.filter((row) => (row[0] ?? "") === "Telephony");
     expect(carrier, "the carrier must have exactly one register row").toHaveLength(1);
     const location = carrier[0]?.[3] ?? "";
-    expect(location).toMatch(/Not stated by the vendor/);
+    expect(location).toMatch(/Not stated by the carrier in use/);
     expect(
       location,
       "the Location cell may not place the carrier in India",
     ).not.toMatch(/India/);
+    // The recording disclosure travels with the category, not with the name.
+    expect(carrier[0]?.[2] ?? "").toMatch(/keep for 90\s+days/);
+    expect(carrier[0]?.[2] ?? "").toMatch(/one day after our copy is saved/);
   });
 
   it("describes the AI disclosure as a client setting with a truthful-answer floor", () => {
@@ -488,31 +489,23 @@ describe("what each document must contain", () => {
     }
   });
 
-  it("keeps the sub-processor register as the only copy of the vendor list", () => {
+  it("keeps the sub-processor page as the only public copy, and names only what it may", () => {
     /*
-     * The register is the single source of truth for the vendor list (docs/legal/
-     * README.md). This test used to pin two HAND-TYPED vendor arrays — one the DPA must
-     * exclude, one the register must contain — and they had already DRIFTED apart: the
-     * exclusion list named Cartesia, the inclusion list named Cloudflare-but-not-Cartesia.
-     * Two literals maintained by hand is the exact mechanism that let a deleted vendor
-     * (Clerk, D-177) and a replaced one (Vertex → Microsoft, D-449) survive in
-     * client-facing copy after they left the register. So both loops now read ONE derived
-     * inventory, `SUBPROCESSOR_NAMES`, built from the same rows the page renders — a
-     * vendor added to or removed from the register moves through here automatically and
-     * cannot be silently missed.
+     * D-679 (founder, 6 Oct 2026): the public page lists sub-processor CATEGORIES and names
+     * a company only where naming is unavoidable and harmless to the white label — the
+     * payment gateway, and services a client connects itself. The named list lives in
+     * `docs/legal/SUBPROCESSOR-REGISTER.md`; `legalVendorNames.test.ts` bans every unnamed
+     * vendor from every document, and `scripts/check_subprocessor_coverage.py` ties that
+     * register to the code and to these category keys.
+     *
+     * What stays from the old version of this test: the DPA's Annex C LINKS rather than
+     * restates, so the DPA names none of the companies the page may name either.
      */
-    expect(
-      SUBPROCESSOR_NAMES.length,
-      "the register exports no vendor names",
-    ).toBeGreaterThan(0);
+    expect(SUBPROCESSOR_CATEGORIES.length, "the page has no categories").toBeGreaterThan(5);
+    expect(PUBLICLY_NAMED_SUBPROCESSORS).toContain("Razorpay");
 
-    /*
-     * The DPA's Annex C must LINK rather than restate: two vendor lists is the drift the
-     * change-notification clause cannot survive. The DPA prose may therefore name NONE of
-     * the register's vendors — every one, not a curated subset that rots out of step.
-     */
     const dpa = textOf(bySlug("dpa"));
-    for (const vendor of SUBPROCESSOR_NAMES) {
+    for (const vendor of PUBLICLY_NAMED_SUBPROCESSORS) {
       expect(
         dpa.includes(vendor),
         `the DPA names ${vendor} — vendor names belong on the sub-processor page only, ` +
@@ -520,59 +513,39 @@ describe("what each document must contain", () => {
       ).toBe(false);
     }
 
-    /*
-     * And the register must actually RENDER every identity it exports: the constant is the
-     * page's own data, so this proves the derivation still reflects the rendered prose
-     * (e.g. the "Google — Gemini API" row really does say "Google") rather than having
-     * drifted from it.
-     */
+    // The page renders every name it declares it may print.
     const register = textOf(bySlug("subprocessors"));
-    for (const vendor of SUBPROCESSOR_NAMES) {
-      expect(register, "sub-processor register").toContain(vendor);
+    for (const vendor of PUBLICLY_NAMED_SUBPROCESSORS) {
+      expect(register, "sub-processor page").toContain(vendor);
     }
 
     /*
-     * GENUINE INVARIANTS, pinned as literals so the two derived loops above cannot decay
-     * into a tautology against their own source. These say what the inventory MUST and
-     * MUST NOT hold whatever shape the rows take:
-     *
-     *  - Microsoft (Azure OpenAI) carries BOTH language legs since D-410, and D-449 left
-     *    the vendor alone when it moved the region to East US 2. It is the sub-processor a
-     *    client reading this page is most likely to be looking for, so its ABSENCE would
-     *    be the real defect — deleting the row fails this line rather than slipping
-     *    through a list that only ever shrinks.
-     *  - Clerk left at D-177, Vertex was replaced at D-449 and Bolna was deleted at D-639;
-     *    Exotel was only ever a candidate carrier with no adapter. "Gemini" is a Google
-     *    PRODUCT the register names in prose but which is NOT a vendor identity (the row's
-     *    identity is "Google"). None may reappear as a canonical name — a re-introduction
-     *    is exactly what those removals guard against.
-     */
-    expect(
-      SUBPROCESSOR_NAMES,
-      "the US language-model vendor must be on the register",
-    ).toContain("Microsoft");
-    for (const gone of ["Clerk", "Vertex", "Gemini", "Bolna", "Exotel"]) {
-      expect(
-        SUBPROCESSOR_NAMES,
-        `${gone} is not a current sub-processor and must not be a register identity`,
-      ).not.toContain(gone);
-    }
-
-    /*
-     * Clerk must also not come back as a live TABLE ROW: it was a Core sub-processor
-     * receiving authentication factors and session state in the United States — a
-     * declared cross-border transfer of auth data to a vendor this product does not use.
-     * A HISTORICAL mention in prose ("until <date> this row named …") is legitimate,
-     * which is why this checks the row first-cells rather than the page text.
+     * GENUINE INVARIANTS, pinned as literals so the derived loops cannot decay into a
+     * tautology: the language-model category is the one a client reading this page is most
+     * likely looking for, so its ABSENCE would be the real defect; the white-label vendors
+     * are not printable; and departed vendors may not return.
      */
     const rows = vendorRowNames(bySlug("subprocessors"));
-    // A `not.toContain` over an empty list passes for the wrong reason, which is the
-    // shape `tests/a11y.ts::assertScreenRendered` exists to refuse. The register is a
-    // table of vendors; if it stops being one, this must fail rather than go quiet.
-    expect(rows, "the register has no vendor rows to check").toContain("Cloudflare");
-    expect(rows, "a sub-processor table row still names Clerk").not.toContain(
-      "Clerk",
+    expect(rows, "the language-model category must be on the page").toContain(
+      "Language models",
     );
+    expect(rows, "the page has no category rows to check").toContain(
+      "Cloud hosting and database",
+    );
+    for (const unnamed of ["Microsoft", "Sarvam", "Vobiz", "Cartesia", "Gnani"]) {
+      expect(
+        PUBLICLY_NAMED_SUBPROCESSORS,
+        `${unnamed} is a white-label vendor and must not be printable`,
+      ).not.toContain(unnamed);
+    }
+    for (const gone of ["Clerk", "Vertex", "Gemini", "Bolna", "Exotel"]) {
+      expect(PUBLICLY_NAMED_SUBPROCESSORS).not.toContain(gone);
+      expect(rows.join(" "), `a row names ${gone}`).not.toContain(gone);
+    }
+
+    // The named list is offered, with a way to ask for it.
+    expect(register).toMatch(/named list of our current sub-processors/);
+    expect(register).toContain("{{DATA_PROTECTION_CONTACT_EMAIL}}");
   });
 
   it("dates the cross-border clause and says section 16 is not yet in force", () => {
@@ -895,27 +868,15 @@ describe("what each document must contain", () => {
    * data-processing agreement UNKNOWN. So this pins both halves: the disclosure is there,
    * and the unknowns have not quietly become a country.
    */
-  it("discloses the voice-synthesis vendor without inventing what is unknown about it", () => {
+  it("discloses the voice-synthesis category without inventing what is unknown about it", () => {
     const register = bySlug("subprocessors");
-    expect(
-      SUBPROCESSOR_NAMES,
-      "the voice-synthesis vendor must be on the register",
-    ).toContain("Cartesia");
-
     const rows = blocksOf(register).flatMap((block) =>
       block.kind === "table"
-        ? block.rows.filter((row) => (row[0] ?? "").startsWith("Cartesia"))
+        ? block.rows.filter((row) => (row[0] ?? "") === "Text-to-speech")
         : [],
     );
-    expect(rows.length, "the vendor's two roles are two rows").toBe(2);
-
-    const synthesis = rows.find((row) =>
-      (row[0] ?? "").includes("voice synthesis"),
-    );
-    expect(
-      synthesis,
-      "no row names the vendor's voice-synthesis role",
-    ).toBeDefined();
+    expect(rows, "the text-to-speech category must have one row").toHaveLength(1);
+    const synthesis = rows[0];
     // What it receives is the agent's words. The three things it must never be said to
     // receive are the three a reader would otherwise assume from "voice".
     expect(synthesis?.[2] ?? "").toMatch(/Not the caller's own audio/);
@@ -1135,21 +1096,21 @@ describe("what each document must contain", () => {
    * sees, on the page whose entire job is saying where data goes.
    */
   it("does not claim the unread-terms provider serves the in-app assistant", () => {
-    const openAiRows = blocksOf(bySlug("subprocessors")).flatMap((block) =>
+    const rows = blocksOf(bySlug("subprocessors")).flatMap((block) =>
       block.kind === "table"
-        ? block.rows.filter((row) => (row[0] ?? "") === "OpenAI")
+        ? block.rows.filter((row) => (row[0] ?? "") === "Language models")
         : [],
     );
-    expect(openAiRows, "the OpenAI register row").toHaveLength(1);
-    const row = openAiRows[0] as readonly string[];
+    expect(rows, "the language-model category row").toHaveLength(1);
+    const row = rows[0] as readonly string[];
     expect(
       row[1] ?? "",
-      "the OpenAI row must say it does not serve the assistant leg",
+      "the row must say one provider does not serve the assistant leg",
     ).toMatch(/does NOT serve the in-app assistant/);
     expect(
       row[2] ?? "",
-      "the OpenAI row must not claim assistant content reaches it",
-    ).toMatch(/Nothing from the in-app assistant reaches it/);
+      "the row must not claim assistant content reaches that provider",
+    ).toMatch(/Nothing from the in-app\s+assistant reaches it/);
 
     // And the page must state the general rule the bar comes from, so the next vendor
     // added is measured against it rather than against this one row.

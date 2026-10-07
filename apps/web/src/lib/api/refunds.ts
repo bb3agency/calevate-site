@@ -202,6 +202,16 @@ export function refundOutcome(result: RefundResult): RefundOutcome {
 }
 
 /**
+ * The pack bonus this refund took back, or null when there was none to report. Read off the
+ * DIGITS (hard rule 7): "0.00" is the payment-carried-no-bonus answer and is not news.
+ */
+export function bonusClawedBack(result: RefundResult): string | null {
+  const amount = result.bonus_clawed_back_inr;
+  if (amount === null || /^0+(\.0+)?$/.test(amount)) return null;
+  return amount;
+}
+
+/**
  * Issue one refund.
  *
  * `admin:tenants` on the ADMIN session with the tenant in the PATH — the permission is

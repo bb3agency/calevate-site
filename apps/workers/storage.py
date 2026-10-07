@@ -42,7 +42,12 @@ from botocore.exceptions import BotoCoreError, ClientError
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
-from apps.api.integrations.egress_guard import EgressRefusedError, assert_public_http_url
+from apps.api.engine.recording_source import RecordingFetchRules
+from apps.api.integrations.egress_guard import (
+    EgressRefusedError,
+    assert_public_http_url,
+    egress_client,
+)
 
 log = get_logger(__name__)
 
@@ -70,6 +75,11 @@ RECORDING_REDIRECT_LIMIT = 3
 #: unbounded body at least as well as it describes an unbounded redirect chain — a
 #: worker's memory is the shared resource in one case and its slot in the other.
 MAX_RECORDING_BYTES = CALL_CAP_MAX_S * 32_000
+#: An empty body is refused. Storing it would set `recording_url`, and a stored copy is what
+#: lets the carrier's copy, then the only real one, be deleted a day later
+#: (`carrier_recordings._expire`). Only emptiness is refused because it is the one size that
+#: is certainly not audio; a floor above it would be a guess about the smallest real file.
+MIN_RECORDING_BYTES = 1
 #: Every hop, every lookup and every byte of one recording copy, inside ONE deadline.
 #:
 #: `DOWNLOAD_TIMEOUT_S` is not this and cannot be: httpx applies it PER OPERATION, so a
@@ -328,11 +338,63 @@ def sniff_audio_content_type(head: bytes) -> str:
     return "audio/wav"
 
 
+class RecordingUnavailableError(Exception):
+    """The source answered that there is NO recording to copy, and waiting will not change
+    that: `not_recorded`, `gone` (deleted by the vendor's retention) or `host_refused` (an
+    address outside the source's own hosts). Not an `arq.Retry`: the caller records the
+    outcome and the rest of the post-call pipeline carries on."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class RecordingNotReadyError(StorageUnavailableError):
+    """The source said the audio has not landed yet and when to ask again. A wait, not a
+    failure: retried after that delay, and not alarmed."""
+
+
+#: The wait taken from a source's "not ready yet" `Retry-After`, bounded so a malformed
+#: header can neither hammer the source nor park the job past the pipeline's patience.
+NOT_READY_MIN_DEFER_S = 15.0
+NOT_READY_MAX_DEFER_S = 300.0
+
+
+def _host_allowed(url: str, hosts: frozenset[str]) -> bool:
+    """Exactly one of `hosts`, over https. No subdomain match: the source names its host."""
+    parsed = httpx.URL(url)
+    return parsed.scheme == "https" and parsed.host.lower().rstrip(".") in hosts
+
+
+def _apply_source_rules(response: httpx.Response, rules: RecordingFetchRules) -> None:
+    """A source's own answers for "not yet", "none" and "deleted", and its audio type."""
+    status = response.status_code
+    if rules.not_ready_status is not None and status == rules.not_ready_status:
+        retry_after = response.headers.get("retry-after")
+        if retry_after is None:
+            raise RecordingUnavailableError("not_recorded")
+        try:
+            wait = float(retry_after.strip())
+        except ValueError:
+            wait = RECORDING_RETRY_DEFER_S
+        raise RecordingNotReadyError(
+            "recording not ready yet",
+            defer_s=min(max(wait, NOT_READY_MIN_DEFER_S), NOT_READY_MAX_DEFER_S),
+        )
+    if rules.gone_status is not None and status == rules.gone_status:
+        raise RecordingUnavailableError("gone")
+    if response.is_success:
+        media_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+        if media_type not in rules.content_types:
+            raise StorageUnavailableError(f"recording served as {media_type or 'nothing'}")
+
+
 async def _fetch_recording(
     source_url: str,
     *,
     auth_headers: Mapping[str, str] | None = None,
     auth_hosts: frozenset[str] = frozenset(),
+    rules: RecordingFetchRules | None = None,
 ) -> bytes:
     """The audio at `source_url`, vetting every hop and refusing an oversized body.
 
@@ -347,10 +409,12 @@ async def _fetch_recording(
     and no bytes, but it is a HINT — a chunked response declares none and a hostile one
     can lie — so the running total is what actually enforces the cap.
     """
-    async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT_S, follow_redirects=False) as client:
+    async with egress_client(timeout=DOWNLOAD_TIMEOUT_S, follow_redirects=False) as client:
         url = source_url
         for _hop in range(RECORDING_REDIRECT_LIMIT + 1):
             vetted = await assert_public_http_url(url, field="recording_url")
+            if rules is not None and not _host_allowed(vetted.url, rules.allowed_hosts):
+                raise RecordingUnavailableError("host_refused")
             # Per hop: a carrier credential goes only to the carrier's own hosts, so a
             # redirect to a presigned link elsewhere is followed without it.
             headers = (
@@ -363,6 +427,8 @@ async def _fetch_recording(
                 if response.is_redirect and response.has_redirect_location:
                     url = str(response.next_request.url) if response.next_request else ""
                     continue
+                if rules is not None:
+                    _apply_source_rules(response, rules)
                 response.raise_for_status()
                 declared = response.headers.get("content-length")
                 if (
@@ -394,6 +460,7 @@ async def copy_recording(
     leg: RecordingLeg = "call",
     auth_headers: Mapping[str, str] | None = None,
     auth_hosts: frozenset[str] = frozenset(),
+    rules: RecordingFetchRules | None = None,
 ) -> str:
     """Stream the engine's recording into our bucket. Returns the object key.
 
@@ -436,6 +503,10 @@ async def copy_recording(
     The key keeps its `.wav` suffix whatever the container, because the key is a pure
     function of (tenant, call) and every erasure and sweep derives it; the CONTENT TYPE is
     decided from the bytes (`sniff_audio_content_type`), which is what a player reads.
+
+    `rules` are an engine's own source rules (`engine/recording_source.py`): every hop on
+    its hosts, its audio type, its "not ready" answer as a deferred retry, and
+    `RecordingUnavailableError` for "no recording" and "deleted", which no retry fixes.
     """
     settings = get_settings()
     key = (
@@ -450,7 +521,7 @@ async def copy_recording(
         # timeout, holds the job until arq cancels the entire pipeline.
         async with asyncio.timeout(RECORDING_FETCH_DEADLINE_S):
             audio = await _fetch_recording(
-                source_url, auth_headers=auth_headers, auth_hosts=auth_hosts
+                source_url, auth_headers=auth_headers, auth_hosts=auth_hosts, rules=rules
             )
     except TimeoutError as exc:
         raise StorageUnavailableError(
@@ -464,6 +535,10 @@ async def copy_recording(
         raise StorageUnavailableError(f"recording source refused: {exc.code}") from exc
     except httpx.HTTPError as exc:
         raise StorageUnavailableError(f"recording fetch failed: {type(exc).__name__}") from exc
+    if len(audio) < MIN_RECORDING_BYTES:
+        # Raised as a storage failure so it takes the same retry ladder: a carrier still
+        # writing the file answers better a minute later.
+        raise StorageUnavailableError("recording body is empty")
 
     def _put() -> None:
         _client().put_object(
@@ -594,19 +669,10 @@ def kb_object_key(*, tenant_id: UUID, upload_id: UUID, slot: str, suffix: str) -
     names, so an enumeration must be possible, and an enumeration can only work from a key
     that names its subject.
 
-    ⚠ **THAT IS A PROPERTY OF THE KEY AND NOT A CLAIM THAT ANYTHING USES IT, AND THIS
-    DOCSTRING USED TO MAKE THE CLAIM** (18 Sep 2026). It said "a DPDP erasure or an account
-    offboarding must be able to enumerate it", which reads as a statement that one does.
-    Neither does. The ONLY caller of `kb_upload_prefix` is `kb/uploads.py::remove_upload` —
-    the client deleting their own upload — and `execute_tenant_erasure` has no arm over
-    this prefix at all: its own certificate says the knowledge base is "not searched and
-    not changed". So an account that offboards leaves its uploaded documents in the bucket
-    until the bucket-wide 7-year ceiling reaches them (`infra/README.md` §"kb-uploads/",
-    which already says the ceiling is not a retention mechanism). That is now DISCLOSED
-    rather than implied — `tenant_erasure.TENANT_ERASURE_LIMITATIONS` names the uploaded
-    files — and disclosure is the honest half of the gap. The other half is an erasure arm
-    over this prefix in `workers/retention.py::execute_tenant_erasure`, which is where
-    every other object-store arm of that erasure already lives.
+    Two readers enumerate it: `kb/uploads.py::remove_upload` (one upload, through
+    `kb_upload_prefix`) and `workers/retention.py::execute_tenant_erasure` (the whole
+    account, through `kb_tenant_prefix`). The per-subject DPDP erasure does not, because
+    a subject is a phone number and nothing in this key names one.
 
     `slot` is `original` or `document` — the two artefacts of one upload (what the client
     sent, and what the engine was handed; the same object twice when the client sent a
@@ -724,6 +790,22 @@ async def read_kb_object(key: str) -> bytes | None:
     except BotoCoreError as exc:
         log.warning("kb_object_read_failed", extra={"reason": type(exc).__name__})
         raise StorageUnavailableError("Object storage is unavailable") from exc
+
+
+async def read_engine_payload(key: str) -> bytes | None:
+    """An archived engine document (`archive_payload`), or None when it is GONE.
+
+    `read_kb_object`'s contract on the other prefix. Its one reader rebuilds a snapshot for
+    a call the engine will not serve by id (an inbound ThinnestAI call, D-678), where the
+    archived signed delivery is the only record left.
+    """
+    if not key.startswith(f"{ENGINE_PAYLOAD_PREFIX}/"):
+        raise ValueError("not an engine payload key")
+    try:
+        return await read_kb_object(key)
+    except StorageUnavailableError:
+        log.warning("engine_payload_read_failed", extra={"prefix": ENGINE_PAYLOAD_PREFIX})
+        raise
 
 
 # --- carrier compliance documents (reseller stage; evidence doc §5.2) ---------

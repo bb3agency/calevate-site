@@ -73,9 +73,13 @@
 # new secret-bearing parameter would then default to being logged, which is the wrong
 # direction for a default to fail in. `token` is the ONE name `console_links.py` mints;
 # add to this alternation in the same change that mints a second.
+#
+# `callback_key` is the second name: the shared secret on every URL we register with Vobiz
+# (`calevate_shared.carrier.CALLBACK_SECRET_PARAM`, D-673), logged by the `hooks.` vhost.
 map $request_uri $calevate_logged_uri {
-    default                                            $request_uri;
-    "~^(?<calevate_log_path>[^?]*)\?(?:.*&)?token="    "$calevate_log_path?token=[redacted]";
+    default                                                   $request_uri;
+    "~^(?<calevate_log_path>[^?]*)\?(?:.*&)?token="           "$calevate_log_path?token=[redacted]";
+    "~^(?<calevate_log_cbpath>[^?]*)\?(?:.*&)?callback_key="  "$calevate_log_cbpath?callback_key=[redacted]";
 }
 
 # THE SAME SECRET ARRIVES THROUGH THE FIELD BESIDE IT, AND THIS FILE USED TO LOG THAT ONE

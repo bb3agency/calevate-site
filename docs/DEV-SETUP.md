@@ -5,11 +5,12 @@ Version 1.0. From zero to a running local stack. Target machine: Linux/macOS/WSL
 ## 1. Prerequisites
 
 Docker + Compose v2 · Python 3.12 + `uv` · Node 20 + `pnpm` · `terraform` (infra work
-only) · accounts/keys: Bolna (API key, D-31), Sarvam (₹1,000 free credits), an **Azure
+only) · accounts/keys (none is needed for `ENGINE=fake`, the default): Sarvam, Cartesia,
+Gnani, Pipecat Cloud and Vobiz for the owned runtime (D-592/D-662), plus an **Azure
 subscription with an Azure OpenAI resource created in East US 2 and a `gpt-4o-mini`
 deployment** (`AZURE_OPENAI_RESOURCE` + `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_DEPLOYMENT`
-— D-410, region per D-449; **not** an OpenAI platform key — not adopted, and note that the
-old reason for refusing it, that OpenAI offers no Indian inference, is spent since D-449), Cloudflare R2 or DO
+— D-410, region per D-449), and OpenAI and Google keys for the other two LLM legs
+(D-456), Cloudflare R2 or DO
 Spaces (local dev uses MinIO instead). Authentication is first-party and needs no vendor
 account (D-165/D-170/D-177 — Clerk is deleted).
 
@@ -145,7 +146,7 @@ pnpm -C apps/web dev                  # :3000 — /admin and /c/<slug> route gro
 Smoke test: `make smoke` (= `uv run pytest -m smoke`) — creates a tenant and agent, posts
 a completed-execution event to the real voice-runtime app at `/hooks/v1/engine/fake`,
 asserts the ack is under 500ms and that a Lead appears with extraction populated. **No
-HMAC is involved**: the local engine is `fake`, and Bolna does not sign at all (D-31) —
+HMAC is involved**: the local engine is `fake`, which does not sign —
 the source-IP allowlist is exercised separately in `tests/voice_runtime_security_test.py`,
 and the per-engine choice of authenticity method (allowlist vs HMAC, and the refusal to
 fall back from one to the other) in `tests/signing_engine_intake_security_test.py`.
@@ -226,7 +227,7 @@ named refusal — `ENGINE=fake`, the console/dev sinks for SMTP, WhatsApp and Sh
 derived constant for each HMAC secret. The API boots and reports `/healthz/ready` on the
 8 alone against a migrated database (verified, D-95 phase 6). When you do
 need a real vendor key locally, either add the line to your own `.env` (env wins) or set
-it in the console against your local database; a real Sarvam or Bolna key is worth
+it in the console against your local database; a real Sarvam or Cartesia key is worth
 adding to `.env` rather than typing into a screen every reset.
 
 **The browser's variables are a SECOND file: `apps/web/.env.example`.** Next loads `.env*`

@@ -233,6 +233,15 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_rejected": "attention",
     "engine_rate_limited": "attention",
     "engine_bad_response": "attention",
+    # ThinnestAI (D-678). A paged list stopped short, so a publish was refused rather than
+    # risk a second live agent, or a knowledge read could not be completed. Retryable and
+    # nobody's line is down.
+    "engine_listing_incomplete": "attention",
+    # ThinnestAI could not index approved knowledge; the agent keeps answering from what it
+    # already had, so it is somebody's next task rather than an outage.
+    "engine_kb_ingest_failed": "attention",
+    "engine_kb_part_failed": "attention",
+    "engine_facts_replace_failed": "attention",
     # HARD RULE 5. A live agent running a script we did not publish is an agent whose
     # AI-disclosure and recording-notice lines are not ours — the invariant that "no
     # column, config row or client-authored script can withdraw it" is exactly what has
@@ -243,6 +252,10 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # `verification.judge`, the drift sweep) assumes the floor is already there and scores
     # accordingly. A composer that can drop it once is one none of them can trust.
     "agent_config_floor_absent": "page",
+    # D-674's twin of the above. Nothing reached a caller, but the composer emits the rule
+    # unconditionally, so this firing means it no longer does — and then no agent anywhere
+    # can be minted a config version, which is every publish stopped.
+    "agent_config_confidentiality_absent": "page",
     # The mint path collided on a row it then could not read. Degraded, not dangerous: the
     # client is told to retry and nothing was written. `attention` rather than `page`
     # because the usual cause is a tenant-scope mistake on our side, which is a bug to fix
@@ -298,6 +311,11 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "recording_copy_failed": "attention",
     # Hard rule 7: a call metered with no attested price for the voice it spoke.
     "cartesia_call_without_attested_tts_price": "page",
+    # The same failure on an engine priced by attested minute (D-678): minutes metered
+    # with no cost.
+    "engine_minute_rate_unattested": "page",
+    # A call on an engine voice band that is not on sale (D-681): billed at the Clear rung.
+    "engine_rate_key_not_sold": "attention",
     "call_billable_without_cost": "page",
     "calls_never_finished": "attention",
     # Bookkeeping caveats on another alarm's number ("this count is a FLOOR"), not
@@ -315,6 +333,29 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "reconciliation_fetch_failed": "record",
     "reconciliation_probe_incomplete": "record",
     "reconciliation_listing_incomplete": "attention",
+    # D-678: the vendor switched an agent's webhook endpoint off and the sweep put it back;
+    # deliveries in the gap were lost (the call list settles them, without transcripts
+    # for inbound calls). One agent, bounded, recovered: attention.
+    "engine_webhook_reenabled": "attention",
+    "engine_webhook_sweep_incomplete": "attention",
+    "engine_call_settled_without_delivery": "attention",
+    # D-678 phase 2, call lifecycle. The vendor deleted (or pointed away) a recording we
+    # had not copied: unrecoverable against our 90-day floor.
+    "recording_source_gone": "page",
+    # Every ThinnestAI dial is refused until a human acts: the workspace balance is empty,
+    # or the API key is not a full key. Campaigns stall, nobody is rung, nothing is lost.
+    "engine_balance_exhausted": "page",
+    "engine_key_cannot_place_calls": "page",
+    # The attested per-minute rate no longer matches what the vendor charges (money is
+    # being metered wrong on every call), or the call log matches nothing of ours.
+    "engine_charge_mismatch": "page",
+    "engine_charge_unmatched": "attention",
+    # D-678 phase 2, in-call actions. Repaired is recovered and bounded; unreachable means a
+    # live agent's callers cannot opt out mid-call (the post-call transcript pass still
+    # can), which is the compliance tool, so it pages.
+    "engine_actions_repaired": "attention",
+    "engine_actions_unreachable": "page",
+    "engine_actions_not_retired": "attention",
     # THE BIG RED SWITCH FAMILY, AND ALL OF IT PAGES. Outbound was halted — by an
     # operator, or by a regulator's complaint — and these five each say some version of
     # "dials the vendor already holds may still go out". A halt nobody can prove landed is
@@ -404,6 +445,13 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "webhook_source_rejected": "record",
     "webhook_payload_too_large": "record",
     "webhook_unkeyable": "attention",
+    # A SIGNED delivery we could not verify because OUR side failed (the intake key, the
+    # secret lookup): every delivery 503s and counts towards the vendor switching the
+    # endpoint off (D-678).
+    "webhook_intake_unavailable": "page",
+    # The engine intake key (D-678) is absent or malformed: no ThinnestAI delivery can be
+    # verified and no webhook secret sealed. A credential that is unusable pages.
+    "engine_intake_kek_unusable": "page",
     "webhook_body_timeout": "record",
     "webhook_ack_slow": "attention",
     "webhook_claim_timeout": "attention",
@@ -648,6 +696,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # spoofed path and pages; the rest lose a status or a cost row, which the CDR sweep
     # recovers.
     "carrier_source_rejected": "attention",
+    # D-675: the carrier fell back because an answer URL failed, so a real caller was
+    # turned away with a busy tone. Every one is a lost call.
+    "carrier_answer_fallback_served": "page",
     "carrier_event_ingest_abandoned": "page",
     "carrier_event_call_unresolved": "attention",
     "carrier_event_call_mismatch": "page",
@@ -691,6 +742,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # occurrence needs reading, not waking; a run of them shows on the board as a count.
     # The abandoned finalise is the exception: nothing else will promise that pipeline.
     "inbound_call_never_reached_worker": "attention",
+    "answered_call_never_reached_worker": "attention",
+    "carrier_hangup_never_received": "attention",
     "worker_settlement_missing": "attention",
     "call_finalise_abandoned": "page",
     "carrier_binding_not_retired": "attention",

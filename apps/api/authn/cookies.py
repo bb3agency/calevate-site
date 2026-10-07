@@ -433,9 +433,11 @@ def cross_site_refusal(
         return _cross_site()
     if not origin:
         return None
-    from apps.api.core.bootstrap import cors_origins_for_env
+    from apps.api.core.bootstrap import credentialed_origins_for_path
 
-    allowed = {o.rstrip("/") for o in cors_origins_for_env()}
+    # Per path: an admin-realm path accepts the admin console's origin only, so a page on
+    # the client console or the marketing site cannot drive an operator's session.
+    allowed = {o.rstrip("/") for o in credentialed_origins_for_path(path)}
     if own_origin:
         allowed.add(own_origin.rstrip("/"))
     if origin.rstrip("/") in allowed:
@@ -478,8 +480,10 @@ def enforce_same_origin(request: Request) -> None:
     not in `DEFAULT_CORS_ORIGINS` (that list names the marketing site and the two
     consoles), so without this the tightening would refuse a legitimate same-origin call.
 
-    The allowlist is `core/bootstrap.DEFAULT_CORS_ORIGINS` — the SAME list the CORS
-    middleware is installed with, deliberately, rather than a second one to keep in step.
+    The allowlist is `core/bootstrap.credentialed_origins_for_path` — the same origins,
+    split on the same admin-realm path prefixes, that the CORS middleware is installed
+    with, deliberately, rather than a second list to keep in step: `DEFAULT_CORS_ORIGINS`
+    for client paths, the admin console alone for `rbac.ADMIN_ORIGIN_PREFIXES`.
     That list already carries the invariant this check depends on: `install_middleware`
     raises if it contains a wildcard, because `allow_credentials=True` and `*` cannot both
     be true, so there is no configuration in which this falls through to "allow anything".

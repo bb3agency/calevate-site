@@ -287,10 +287,12 @@ independent mechanisms, so that no single omission collapses it:
    and 4 are the boundary.
 4. **Per-realm origin enforcement.** `admin.calevate.tech` and `app.calevate.tech` are
    *different origins* but the *same site* (`calevate.tech` is the registrable domain), so
-   `SameSite` does not separate them and CORS must. The admin dependency refuses any request
-   whose `Origin` is not the admin console's, and vice versa; `Sec-Fetch-Site: cross-site`
-   is refused outright on both. A per-realm allowlist rather than one shared list, for the
-   same reason the two frontend realm modules refuse to share a file.
+   `SameSite` does not separate them and CORS must. Admin-realm paths accept only the
+   admin console's `Origin`, in CORS and in the CSRF check both
+   (`core/bootstrap.credentialed_origins_for_path`); `Sec-Fetch-Site: cross-site` is
+   refused outright on both realms. The reverse is deliberately NOT enforced: client paths
+   accept the admin console's origin, because view-as (D-22) is the admin console calling
+   client paths. SECURITY-COMPLIANCE §5 states the enforced rule.
 
 **Two deploys stay two deploys.** `apps/web` renders the realms as disjoint route trees
 with disjoint providers, and `clerkRuntime.tsx` already records the uncomfortable fact that
@@ -470,7 +472,7 @@ not language-bound. What changes shape:
 | Threat | Control | Residual |
 |---|---|---|
 | **Credential stuffing** | Argon2id makes verification expensive for us AND the attacker; per-IP and per-caller limits (`core/ratelimit.py`) with a dedicated `auth` profile; identical timing and identical response for unknown-account and wrong-password | **No breached-password check and no bot detection on day one (C-23, C-24).** A stuffing run against known-good credential pairs succeeds at whatever rate the limiter allows. Turnstile + a HIBP range-API check are the named closers |
-| **User enumeration** | `verify_password_blocking(pw, None)` performs a real Argon2 verification against a dummy hash rather than returning early — the difference is otherwise four orders of magnitude and measurable over the network. Sign-up and reset must answer identically for known and unknown addresses | The invitation flow's `invitation_wrong_recipient` refusal is a deliberate exception, and it stays: it is reachable only by someone holding a valid invite token, and the alternative is an honest invitee with no way to understand the refusal |
+| **User enumeration** | `verify_password_blocking(pw, None)` performs a real Argon2 verification against a dummy hash rather than returning early — the difference is otherwise four orders of magnitude and measurable over the network. Sign-up and reset must answer identically for known and unknown addresses; the reset request answers no sooner than `authn.service.RESET_RESPONSE_FLOOR_S` (0.25 s) after it starts, on both paths, so the known path's extra work does not show in the response time — a floor rather than an Argon2 verification on the unknown path, which would hand CPU to an unauthenticated caller | The invitation flow's `invitation_wrong_recipient` refusal is a deliberate exception, and it stays: it is reachable only by someone holding a valid invite token, and the alternative is an honest invitee with no way to understand the refusal |
 | **Session fixation** | The session identifier is regenerated on every privilege change (`rotate_session`); a session is never created from a client-supplied identifier — there is no code path that accepts one | — |
 | **Session theft / replay** | `HttpOnly` (no JavaScript read), `Secure`, `__Host-` prefix, absolute timeout, and family-wide revocation on replay of a superseded token | Binding to IP or User-Agent is **deliberately not done**: the reference implementation removed IP binding after carrier-grade NAT made it a logout generator, and a UA is spoofable by anyone who has the cookie |
 | **Privilege escalation across realms** | Four independent mechanisms (§3), of which the hash domain is structural rather than procedural | The shared API host means both cookies reach one origin; mechanisms 1, 2 and 4 are what stop that mattering, and `tests/realm_boundary_test.py` is what stops it silently stopping |

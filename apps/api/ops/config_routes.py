@@ -986,11 +986,10 @@ class RateCardCellOut(BaseModel):
     #: The gross margin as a PERCENTAGE string ("17.22"). `null` only where no margin is
     #: defined (a non-positive rate), which is a real state and not a zero.
     gross_margin_pct: str | None
-    #: Under the target but above cost — a warning. EIGHT of the twelve approved cells are
-    #: deliberately in this band since the founder's card of 14 Sep 2026 — the whole Clear
-    #: column at 17.2% and the two deepest Studio rungs at 18.8% and 14.4% — so a console
-    #: that treated it as an error would refuse the founder's own card. ⚠ This said "the
-    #: approved Sarvam column ... down to 8.4%", which was one voice and a different card.
+    #: Under the target but above cost — a warning. Several approved cells are deliberately
+    #: in this band, which ones depending on the engine's floors (`credit_packs` module
+    #: docstring, D-681), so a console that treated it as an error would refuse the
+    #: founder's own card.
     below_target: bool
     #: Below cost. `card_refusals` refuses the write; nothing may be sold here.
     below_floor: bool

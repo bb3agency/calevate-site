@@ -36,6 +36,7 @@ import sys
 import uuid
 from typing import Any
 
+import httpcore
 import httpx
 import pytest
 from apps.api.core.logging import JsonFormatter
@@ -43,7 +44,11 @@ from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.integrations import egress_guard, service
-from apps.api.integrations.egress_guard import EgressRefusedError, assert_public_http_url
+from apps.api.integrations.egress_guard import (
+    EgressRefusedError,
+    assert_public_http_url,
+    egress_client,
+)
 from apps.api.integrations.routes import ENDPOINT_CREATED
 from apps.api.main import app
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
@@ -348,39 +353,115 @@ async def test_a_public_ipv6_only_answer_is_a_destination_we_will_use(
     assert vetted.addresses == ("2606:2800:220:1:248:1893:25c8:1946",)
 
 
-async def test_the_guard_vets_a_name_and_the_caller_connects_by_that_name(
+class _SocketRecorder(httpcore.AsyncNetworkBackend):
+    """Stands in for the socket layer under `egress_client`: records which ADDRESS a
+    connection was opened to, then fails it, so no test here touches the network."""
+
+    def __init__(self) -> None:
+        self.opened: list[tuple[str, int]] = []
+
+    async def connect_tcp(self, host: str, port: int, **_: Any) -> httpcore.AsyncNetworkStream:
+        self.opened.append((host, port))
+        raise httpcore.ConnectError("recorded, not connected")
+
+    async def sleep(self, seconds: float) -> None:
+        return None
+
+
+def _sockets(monkeypatch: pytest.MonkeyPatch) -> _SocketRecorder:
+    recorder = _SocketRecorder()
+    monkeypatch.setattr(egress_guard, "socket_backend", lambda: recorder)
+    return recorder
+
+
+def _deliver_own_client(url: str = "https://crm.example/hook") -> Any:
+    """`deliver` as the outbox worker calls it: no client passed, so it builds its own."""
+    return service.deliver(
+        url=url,
+        secret=SECRET,
+        event="lead.created",
+        envelope={"id": str(uuid7()), "data": {"lead_id": "1"}},
+    )
+
+
+async def test_the_socket_is_opened_to_the_address_that_was_vetted_not_to_the_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """THE KNOWN LIMIT, asserted rather than only described.
-
-    `egress_guard`'s PINNING paragraph says the residual is the gap between our
-    `getaddrinfo` and httpx's — and that sentence is only true while callers connect by
-    NAME. This pins both halves of it: the vetted addresses exist, and none of them is
-    what goes on the wire. The day someone implements pinning, this test is what tells
-    them the docstring is now wrong, which is the whole reason a limit gets a test rather
-    than a paragraph.
-    """
+    """Pinning: the connection goes to the IP literal the backend judged, never to a name
+    the socket layer would resolve a second time."""
     _deployed(monkeypatch)
     _resolves(monkeypatch, (PUBLIC,))
-    asked: list[httpx.Request] = []
+    sockets = _sockets(monkeypatch)
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        asked.append(request)
-        return httpx.Response(200, json={"ok": True})
+    result = await _deliver_own_client()
 
-    vetted = await assert_public_http_url("https://crm.example/hook")
-    assert vetted.addresses == (PUBLIC,), "an address WAS proved public"
+    assert sockets.opened == [(PUBLIC, 443)], "connected to the vetted address, by address"
+    assert result.delivered is False and result.error == "ConnectError"
 
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        await service.deliver(
-            url="https://crm.example/hook",
-            secret=SECRET,
-            event="lead.created",
-            envelope={"id": str(uuid7()), "data": {"lead_id": "1"}},
-            client=client,
-        )
-    assert [r.url.host for r in asked] == ["crm.example"], "connected by name — the residual"
-    assert PUBLIC not in str(asked[0].url), "and not by the address that was vetted"
+
+async def test_a_name_that_rebinds_between_the_check_and_the_connect_is_refused_at_connect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DNS rebinding with a TTL-0 nameserver: public for the pre-request check, the cloud
+    metadata address for the connection. Before pinning, the second lookup was httpx's own
+    and was never judged; now it is the backend's and is refused before any socket."""
+    _deployed(monkeypatch)
+    resolver = _resolves(monkeypatch, (PUBLIC,), ("169.254.169.254",))
+    sockets = _sockets(monkeypatch)
+
+    result = await _deliver_own_client()
+
+    assert len(resolver.calls) == 2, "the connect-time lookup is ours, and it was judged"
+    assert sockets.opened == [], "no socket was opened to the rebound address"
+    assert result.delivered is False and result.error == "ConnectError"
+
+
+async def test_one_internal_answer_at_connect_refuses_every_address_of_the_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _deployed(monkeypatch)
+    _resolves(monkeypatch, (PUBLIC, "10.0.0.5"))
+    with pytest.raises(httpcore.ConnectError):
+        await egress_guard.connectable_addresses("crm.example", 443)
+
+
+async def test_the_connect_time_check_holds_the_port_rule_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _deployed(monkeypatch)
+    _resolves(monkeypatch, (PUBLIC,))
+    with pytest.raises(httpcore.ConnectError):
+        await egress_guard.connectable_addresses("crm.example", 6379)
+    assert await egress_guard.connectable_addresses("crm.example", 443) == (PUBLIC,)
+
+
+async def test_the_next_address_is_tried_when_one_will_not_connect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _deployed(monkeypatch)
+    other = "93.184.215.15"
+    _resolves(monkeypatch, (PUBLIC, other))
+    sockets = _sockets(monkeypatch)
+
+    with pytest.raises(httpcore.ConnectError):
+        await egress_guard._VettingNetworkBackend().connect_tcp("crm.example", 443)
+    assert sockets.opened == [(PUBLIC, 443), (other, 443)]
+
+
+async def test_a_unix_socket_is_never_an_egress_destination() -> None:
+    with pytest.raises(httpcore.ConnectError):
+        await egress_guard._VettingNetworkBackend(_SocketRecorder()).connect_unix_socket("/x")
+
+
+def test_the_transport_in_use_is_the_vetting_one() -> None:
+    """`EgressTransport` replaces httpx's private `_pool`. If an httpx release renames it,
+    the replacement would silently stop being the pool requests use; this is that alarm."""
+    client = egress_client()
+    transport = client._transport
+    assert isinstance(transport, egress_guard.EgressTransport)
+    pool = transport._pool
+    assert isinstance(pool, httpcore.AsyncConnectionPool)
+    assert isinstance(pool._network_backend, egress_guard._VettingNetworkBackend)
 
 
 # ------------------------------------------------------------------ refusal classes

@@ -248,20 +248,28 @@ code = admin console, client dashboards,
 schema-driven lead extraction/CRM, RAG knowledge bases, metering/billing, compliance
 (TRAI/DLT/DPDP). Latency-critical voice path is isolated in `apps/voice-runtime`.
 
+**Telephony is Vobiz (D-662), behind a carrier switch.** Calls are placed and answered
+through `apps/api/engine/carrier.py` (`vobiz.py`; `plivo_carrier.py` is the fallback),
+chosen by `Settings.carrier` (`CARRIER`, console-managed, default `vobiz`). Vobiz records
+the call and our copy is kept 90 days (D-668/D-670); every URL we give Vobiz carries
+`VOBIZ_CALLBACK_SECRET` until Vobiz signs callbacks (D-673, OPERATIONS §2 gate 55). It
+carries the founder's own test calls only until Vobiz consents in writing to client
+traffic (gate V-10).
+
 ## Repo layout
 
 ```
 apps/web            Next.js 15 (App Router) + TS — admin.calevate.tech + app.calevate.tech
 apps/api            FastAPI modular monolith — tenancy, agents, crm, billing, kb, ...
-apps/voice-runtime  FastAPI — engine webhooks, in-call tool endpoints. LATENCY-CRITICAL.
-apps/workers        ARQ workers — post-call pipeline, embeddings, campaigns, retention
+apps/voice-runtime  FastAPI — carrier answer documents and status callbacks, engine
+                    webhooks. LATENCY-CRITICAL. (Its in-call tool routes went with
+                    D-650; the worker reaches `/v1/worker/**` on the api instead.)
+apps/workers        ARQ workers — post-call pipeline, carrier events and recordings,
+                    embeddings, campaigns, number rental, retention
 apps/voice-worker   Pipecat conversation loop — our own container on Pipecat Cloud
                     ap-south. Python package `voice_worker`; everything an operator types
-                    is `pipecat-worker`. ⚠ THIS BLOCK LISTED THE OTHER FOUR APPS AND NOT
-                    THIS ONE (added 19 Sep 2026) — the directory landed with D-592 on
-                    13 Sep 2026 and the layout was never widened, while hard rule 2 below
-                    names it as the third home for vendor imports. That is exactly the
-                    "leaving a fourth deployable unnamed" the rule argues against.
+                    is `pipecat-worker`. Hard rule 2 names it as the third home for
+                    vendor imports (D-592).
 packages/shared     Pydantic models, VoiceEngine protocol, normalized events
 infra/              nginx templates, backup units + wal-g config, object-lifecycle policy,
                     and Terraform whose ONLY resource is that S3 lifecycle configuration.
@@ -676,8 +684,9 @@ passes its own test.
 
 ## Domain vocabulary (use these exact terms)
 
-tenant/organization (client business) · agent (a configured voice AI) · engine (rented
-voice platform) · extraction schema (per-agent field list driving CRM columns) ·
+tenant/organization (client business) · agent (a configured voice AI) · engine (the voice
+runtime `ENGINE` selects; our own Pipecat loop since D-592) · carrier (Vobiz, D-662) ·
+extraction schema (per-agent field list driving CRM columns) ·
 T0–T4 (RAG tiers, TRD §6) · PE/TM (DLT Principal Entity = client, Telemarketer = Calevate) ·
 140/160-series (promotional vs service number classes) · compliance gate (campaign launch
 blocker) · big red switch (global outbound halt).
@@ -751,7 +760,22 @@ is `transport.input() -> STT -> user aggregator -> LLM -> TTS -> transport.outpu
 assistant aggregator`, and **the assistant aggregator goes AFTER `transport.output()`** so it
 records what was actually spoken rather than what was generated. Their words: *"Getting this
 order wrong is a common, subtle bug."* `pipeline.py` already has it right, with the reason
-cited; keep it.
+cited; keep it. Ours adds two processors to their cascade: `language_tap` before the user
+aggregator, and **`output_guard` (`voice_worker/output_guard.PromptLeakGuard`) between the
+LLM and the TTS** — it takes over the TTS's own sentence aggregation and checks every
+sentence before it can be spoken (D-674, below).
+
+**An agent never reveals its instructions (D-674).** Two layers, because a prompt rule
+alone fails to an adaptive attacker and a filter alone cuts the agent off mid-sentence.
+`calevate_shared.engine.CONFIDENTIALITY_RULE` is composed by `compose_engine_prompt` after
+the client's fence and before the truthful-answer block, and is verified like that block:
+`mint_config_version` refuses without it, the publish verifier refuses an engine prompt
+missing `CONFIDENTIALITY_MARKER`, and the drift sweep reports it — so an agent published
+before D-674 reads as drift until republished. `PromptLeakGuard` suppresses a sentence that
+reproduces platform text, a turn that reproduces the client's instructions, or a machine
+identifier, speaks one decline and drops the rest of the turn; it logs ids and a reason
+only. Never weaken either layer to make a prompt change pass, and keep hard rule 5's two
+truthful answers outside both (SECURITY-COMPLIANCE §6.1, PROMPT-GUIDE §1.6).
 
 **Change a running pipeline by PUSHING A FRAME, never by calling a method on an object in
 it** (`AGENTS.md:153`). Reaching in directly jumps the queue ahead of frames already in

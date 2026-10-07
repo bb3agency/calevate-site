@@ -36,10 +36,12 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 import pytest
+from apps.api.billing.rates import CLIENT_PULSE_EFFECTIVE_FROM, client_billed_minutes
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.workers import pipeline
@@ -131,6 +133,18 @@ async def _ledger(tenant_id: UUID, call_id: UUID) -> dict[str, Any]:
     }
 
 
+def _billed_once(snapshot: Any) -> Decimal:
+    """The minutes ONE metering of this call puts on the cap counter.
+
+    The fake engine ends the call now, which is after the D-681 cutover, so 95 s bills
+    ceil(95/30) = 4 steps x 0.5 = 2.0 min (by the second it would have been 1.5833).
+    """
+    assert snapshot.ended_at >= CLIENT_PULSE_EFFECTIVE_FROM, "these cases bill post-cutover"
+    minutes = client_billed_minutes(Decimal(snapshot.duration_s or 0), at=snapshot.ended_at)
+    assert minutes == Decimal("2.0"), f"the fixture call is 95 s; got {snapshot.duration_s} s"
+    return minutes
+
+
 async def _outbox_count(job: str, matcher: dict[str, Any]) -> int:
     async with untenanted_session() as session:
         return int(
@@ -194,14 +208,14 @@ async def test_the_spend_cap_counts_the_call_once(monkeypatch: pytest.MonkeyPatc
     """
     tenant_id, execution_id, call_id = await _staged("cap")
     snapshot = await get_engine().get_execution(execution_id)
-    minutes = (snapshot.duration_s or 0) / 60
+    minutes = _billed_once(snapshot)
 
     await _both(lambda: pipeline._meter(tenant_id, call_id, snapshot))
 
     ledger = await _ledger(tenant_id, call_id)
     assert ledger["minutes"] is not None
-    assert float(ledger["minutes"]) == pytest.approx(minutes, abs=0.01), (
-        f"one call of {minutes:.4f} minutes was counted as {ledger['minutes']}"
+    assert ledger["minutes"] == minutes, (
+        f"one call of {minutes} billed minutes was counted as {ledger['minutes']}"
     )
     assert float(ledger["spend"]) == pytest.approx(float(snapshot.cost.total_inr), abs=0.01)
 
@@ -345,7 +359,7 @@ async def test_the_harness_catches_an_unguarded_check_then_write(
         f"{ledger['usage_rows']} usage rows survived the refused run; the abort was "
         "supposed to take the entire second metering with it"
     )
-    assert float(ledger["minutes"]) == pytest.approx((snapshot.duration_s or 0) / 60, abs=0.01), (
+    assert ledger["minutes"] == _billed_once(snapshot), (
         "spend_state moved for both runs, so the refused transaction committed part of "
         "itself and the tenant's cap is armed against a number that never happened"
     )

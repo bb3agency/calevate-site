@@ -25,6 +25,7 @@ from collections.abc import Mapping
 from typing import Final
 
 from apps.api.core.alerting import alert
+from apps.api.core.logging import get_logger
 from apps.api.core.queue import job_id_for
 from apps.api.reliability.service import body_hash
 from calevate_shared.carrier import CARRIER_EVENT_JOB
@@ -39,6 +40,8 @@ from carrier_routes import (
 from engine_intake import keyable
 from fastapi import APIRouter, Request, Response
 from webhook_routes import InboxWork, WebhookAckOut, acknowledge_ignored, measured, settle
+
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/carrier/v1", tags=["carrier"])
 
@@ -85,6 +88,8 @@ _KEPT_FIELDS: Final = frozenset(
         "DialBLegBillDuration",
         "DialBLegHangupCause",
         "MachineDetection",
+        # The verdict `vobiz.parse_event` reads (`call/machine-detection.md:162`).
+        "Machine",
         # `RecordStop` (`xml/record/stream-with-record.md:54-78`, `xml/record.md:43-62`).
         # Ids, durations, epoch milliseconds and a reason word: an epoch in ms is thirteen
         # digits and a uuid can hold a seven-digit run, so the value test below would drop
@@ -161,12 +166,32 @@ async def _receive(
     contract, verdict = admit(carrier, request, surface=surface)
     if not contract.status_callbacks:
         raise refuse("status_callbacks_not_supported", carrier=carrier, surface=surface)
-    parse_ref(ref, carrier=carrier, surface=surface)
+    tenant_id, agent_id = parse_ref(ref, carrier=carrier, surface=surface)
     ours = parse_call_id(call_id, carrier=carrier, surface=surface) if call_id else None
     params, readable = await read_params(request, carrier=carrier)
 
     carrier_call_id = keyable(params.get("CallUUID", ""))
     event = keyable(params.get("Event") or "unknown")
+    # Gate 55 records the signature outcome of the hangup and RecordStop callbacks from this
+    # line, as it does the answer request's from `carrier_answer_served`. Ids and labels only;
+    # `carrier_call_id` joins it to that answer line, the worker's session and the CDR.
+    correlation = {
+        "carrier": carrier,
+        "tenant_id": str(tenant_id),
+        "agent_id": str(agent_id),
+        "call_id": ours,
+        "carrier_call_id": carrier_call_id,
+        "event": event or "unkeyable",
+    }
+    log.info(
+        "carrier_event_admitted",
+        extra={
+            **correlation,
+            "outbound": ours is not None,
+            "auth_method": verdict.method,
+            "auth_reason": verdict.reason,
+        },
+    )
     if carrier_call_id is None or event is None:
         # Acked: a callback we cannot key we can never dedupe, and a non-200 would only
         # make the vendor send it three more times.
@@ -179,7 +204,7 @@ async def _receive(
             meter=CARRIER_ACK,
         )
 
-    return await settle(
+    acked = await settle(
         InboxWork(
             provider=carrier,
             key_id=carrier_call_id,
@@ -205,6 +230,18 @@ async def _receive(
         meter=CARRIER_ACK,
         signed=verdict.method == "signature",
     )
+    # One line per delivery with its outcome and latency: `accepted` vs `duplicate` is how a
+    # carrier retry reads in the log, and `ack_ms` is the per-event figure behind the
+    # `webhook_ack_ms` series.
+    log.info(
+        "carrier_event_acked",
+        extra={
+            **correlation,
+            "status": acked.get("status"),
+            "ack_ms": response.headers.get("X-Ack-Ms"),
+        },
+    )
+    return acked
 
 
 def params_digest(params: Mapping[str, str]) -> bytes:

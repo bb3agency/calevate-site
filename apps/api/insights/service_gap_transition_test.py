@@ -99,10 +99,9 @@ async def test_a_second_teach_is_refused_and_seeds_no_second_draft() -> None:
         drafts = int(
             (
                 await session.execute(
-                    text(
-                        "SELECT count(*) FROM kb_sources WHERE agent_id = :a "
-                        "AND status = 'pending_approval'"
-                    ),
+                    # Every status: an owner's teach is approved on submission (D-658), so
+                    # the duplicate would be a live source, not one waiting for review.
+                    text("SELECT count(*) FROM kb_sources WHERE agent_id = :a"),
                     {"a": agent_id},
                 )
             ).scalar_one()
@@ -112,7 +111,7 @@ async def test_a_second_teach_is_refused_and_seeds_no_second_draft() -> None:
                 text("SELECT resolution FROM knowledge_gaps WHERE id = :id"), {"id": gap_id}
             )
         ).scalar_one()
-    assert drafts == 1, "the refused teach rolled its own draft back — no orphan in the queue"
+    assert drafts == 1, "the refused teach rolled its own source back — no orphan"
     assert answer == "Consultation is 500 rupees.", "the winner's answer stands"
 
 

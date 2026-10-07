@@ -40,6 +40,7 @@ from typing import Any
 import pytest
 from apps.api.admin import intake
 from apps.api.admin import service as admin_service
+from apps.api.agents.handoff import HANDOFF_NUMBER_NOT_INDIA
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import iter_api_routes
 from apps.api.db.session import admin_session, tenant_session
@@ -162,6 +163,37 @@ async def test_a_structurally_invalid_draft_is_refused_and_stores_nothing() -> N
     # a nicer error message on top.
     assert reopened.json()["saved_at"] is None
     assert reopened.json()["prose_answers"] is None
+
+
+@pytest.mark.asyncio
+async def test_an_escalation_contact_outside_india_is_refused_on_draft_and_submit() -> None:
+    """Escalation contacts become the agent's handover roster at submit, so they carry the
+    client route's India-only rule (`agents.handoff.india_handoff_number`) on both writes:
+    a foreign number would sit on a list the transfer provider refuses to ring."""
+    tenant_id, agent_id = await _tenant()
+    headers = await _operator_headers()
+    path = {"tenant_id": tenant_id, "agent_id": agent_id}
+    foreign = {
+        **PARTIAL,
+        "escalation_contacts": [{"name": "Reception", "phone_e164": "+447700900123"}],
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        draft = await http.post(DRAFT_PATH.format(**path), json=foreign, headers=headers)
+        submit = await http.post(INTAKE_PATH.format(**path), json=foreign, headers=headers)
+
+    for refused in (draft, submit):
+        assert refused.status_code == 422, refused.text
+        by_field = {f["field"]: f["message"] for f in refused.json()["fields"]}
+        assert by_field == {"escalation_contacts.0.phone_e164": HANDOFF_NUMBER_NOT_INDIA}
+    async with tenant_session(tenant_id) as session:
+        stored = (
+            await session.execute(
+                text("SELECT count(*) FROM agent_handoff_members WHERE agent_id = :aid"),
+                {"aid": agent_id},
+            )
+        ).scalar_one()
+    assert stored == 0
 
 
 @pytest.mark.asyncio

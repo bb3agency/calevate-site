@@ -138,6 +138,12 @@ class CarrierCdr:
     ended_at: datetime | None
     hangup_cause: str | None = None
     raw_fields: tuple[str, ...] = field(default=())
+    #: The carrier's numeric hangup code, when the record carries one.
+    hangup_cause_code: int | None = None
+    #: How the call ended in our vocabulary, read by the carrier's own adapter from its
+    #: cause name and code (the same mapping its hangup callback uses). None when the
+    #: adapter has no mapping to offer.
+    status: CallStatus | None = None
 
 
 class CarrierClient(Protocol):
@@ -315,7 +321,15 @@ def _identity(cfg: Settings, name: CarrierName) -> tuple[object, ...]:
     except RuntimeError:
         loop = None
     if name == "vobiz":
-        return (loop, cfg.vobiz_auth_id, cfg.vobiz_auth_token, cfg.vobiz_api_base_url)
+        # The last two build the fallback answer URL the client registers (D-675).
+        return (
+            loop,
+            cfg.vobiz_auth_id,
+            cfg.vobiz_auth_token,
+            cfg.vobiz_api_base_url,
+            cfg.webhook_base_url,
+            cfg.vobiz_callback_secret,
+        )
     return (loop,)
 
 

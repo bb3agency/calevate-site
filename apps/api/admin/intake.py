@@ -69,10 +69,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -150,7 +150,15 @@ class StaffMember(_Strict):
 
 class EscalationContact(_Strict):
     name: str = Field(min_length=1, max_length=120)
-    phone_e164: str = Field(pattern=r"^\+[1-9]\d{7,18}$")
+    #: Lands on `agent_handoff_members` at submit, so it is held to the client route's
+    #: India-only rule. A stored sheet holding an older foreign number then fails to
+    #: parse and `_sheet_answers` falls back to the derived columns, which is the
+    #: designed degradation for an unreadable sheet.
+    phone_e164: Annotated[
+        str,
+        Field(pattern=r"^\+[1-9]\d{7,18}$"),
+        AfterValidator(handoff_service.india_handoff_number),
+    ]
     hours: str | None = Field(default=None, max_length=60)
 
 

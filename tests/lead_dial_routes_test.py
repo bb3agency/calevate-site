@@ -1008,6 +1008,96 @@ async def test_a_callback_the_engine_may_have_started_says_so_and_does_not_offer
     await _settle_calls(tenant_id)
 
 
+async def test_a_callback_whose_gate_raised_can_be_pressed_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gate raising (a dropped connection, a statement timeout) dialled nobody, so the
+    claim keyed on the parent call is released: the next press is a fresh attempt, not
+    "already in flight" for the whole lease."""
+    tenant_id, agent_id, _slug, headers = await _dialable_tenant()
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    parent = await _finished_call(tenant_id, agent_id, lead_id, phone)
+
+    async def gate_down(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("gate read failed")
+
+    original_gate = routes.check_dispatch
+    monkeypatch.setattr(routes, "check_dispatch", gate_down)
+    async with _no_reraise_client() as http:
+        failed = await http.post(f"/v1/calls/{parent}/callback", headers=headers)
+    assert failed.status_code >= 500, failed.text
+    assert await _outbound_calls(tenant_id) == [(phone, "completed")], "nothing was dialled"
+
+    # Restored by name: `monkeypatch.undo()` would also revert the autouse daytime pin.
+    monkeypatch.setattr(routes, "check_dispatch", original_gate)
+    async with _client() as http:
+        again = await http.post(f"/v1/calls/{parent}/callback", headers=headers)
+    assert again.json()["status"] == "queued", again.text
+    assert await _outbound_calls(tenant_id) == [(phone, "completed"), (phone, "queued")]
+    await _settle_calls(tenant_id)
+
+
+async def test_a_callback_refused_before_any_line_was_seized_can_be_pressed_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A throttle proves nothing rang, so the callback's claim is released and the next
+    press dials afresh — `call_lead`'s rule, on the button whose key the client cannot
+    change."""
+    tenant_id, agent_id, _slug, headers = await _dialable_tenant()
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    parent = await _finished_call(tenant_id, agent_id, lead_id, phone)
+
+    async def throttled(self: object, ref: str, to: str, ctx: object) -> str:
+        raise ProblemError(kind="dependency", code="engine_rate_limited", title="x", detail="x")
+
+    original_dial = FakeEngine.start_outbound_call
+    monkeypatch.setattr(FakeEngine, "start_outbound_call", throttled)
+    async with _client() as http:
+        refused = await http.post(f"/v1/calls/{parent}/callback", headers=headers)
+        # Restored by name: `monkeypatch.undo()` would also revert the autouse daytime pin.
+        monkeypatch.setattr(FakeEngine, "start_outbound_call", original_dial)
+        again = await http.post(f"/v1/calls/{parent}/callback", headers=headers)
+
+    assert refused.json()["type"].endswith("/engine_rate_limited"), refused.text
+    assert again.status_code == 200, again.text
+    assert again.json()["status"] == "queued"
+    assert [row for row in await _outbound_calls(tenant_id) if row[1] == "queued"] == [
+        (phone, "queued")
+    ]
+    await _settle_calls(tenant_id)
+
+
+async def test_a_callback_failing_after_the_vendor_answered_keeps_the_claim_held(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure that does not prove no line was seized keeps the claim: the phone may be
+    ringing, so the second press is refused as in flight rather than dialled again."""
+    tenant_id, agent_id, _slug, headers = await _dialable_tenant()
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    parent = await _finished_call(tenant_id, agent_id, lead_id, phone)
+    real_dispatch = agent_service.dispatch_call
+
+    async def dial_then_fail(*args: object, **kwargs: object) -> str:
+        await real_dispatch(*args, **kwargs)  # type: ignore[arg-type]
+        raise RuntimeError("lead stamp failed after the vendor answered")
+
+    monkeypatch.setattr(agent_service, "dispatch_call", dial_then_fail)
+    async with _no_reraise_client() as http:
+        first = await http.post(f"/v1/calls/{parent}/callback", headers=headers)
+    assert first.status_code >= 500, first.text
+
+    # Restored by name: `monkeypatch.undo()` would also revert the autouse daytime pin.
+    monkeypatch.setattr(agent_service, "dispatch_call", real_dispatch)
+    async with _no_reraise_client() as http:
+        again = await http.post(f"/v1/calls/{parent}/callback", headers=headers)
+    assert again.status_code == 409, again.text
+    assert again.json()["type"].endswith("/idempotent_request_in_flight"), again.text
+    assert await _outbound_calls(tenant_id) == [(phone, "completed"), (phone, "queued")], (
+        "the second press rang a customer whose phone may already have been ringing"
+    )
+    await _settle_calls(tenant_id)
+
+
 async def test_a_failure_after_the_phone_rang_does_not_let_the_same_key_dial_again(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

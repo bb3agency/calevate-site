@@ -451,3 +451,27 @@ async def test_a_halt_the_memo_has_not_seen_still_stops_the_callback(
     # Deferred, not settled: a halt is not a fact about the person.
     assert row["status"] == "scheduled"
     assert row["last_refusal_rule"] == "big_red_switch"
+
+
+async def test_a_platform_opt_out_settles_the_promise_instead_of_retrying(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The voice platform refusing the PERSON is a fact waiting cannot lift, so the
+    call-back is settled `refused` on the first refusal, like the gate's person-level
+    refusals, rather than re-asked until `GRACE` runs out."""
+    from apps.api.engine.vendor_http import RECIPIENT_OPTED_OUT_CODE, recipient_opted_out_error
+
+    tenant_id, agent_id = await _dialable_tenant()
+    callback_id = await _book(tenant_id, agent_id)
+
+    async def _opted_out(*_args: object, **_kwargs: object) -> None:
+        raise recipient_opted_out_error()
+
+    monkeypatch.setattr(get_engine(), "start_outbound_call", _opted_out)
+    outcome = await dispatch_due_callbacks(tenant_id, slots=5)
+    assert outcome == {"dialled": 0, "blocked": 1, "settled": 0}
+
+    row = await _row(tenant_id, callback_id)
+    assert row["status"] == "refused"
+    assert row["last_refusal_rule"] == RECIPIENT_OPTED_OUT_CODE
+    assert row["settled_at"] is not None

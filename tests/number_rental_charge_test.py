@@ -121,6 +121,33 @@ async def test_a_zero_price_is_refused_rather_than_charged() -> None:
         )
 
 
+async def test_a_collection_for_a_day_that_is_not_a_renewal_date_is_refused() -> None:
+    # The invoiced route has no anchor of its own, so `collect_number_rental` is the only
+    # check standing between a mis-dated period and a statement line.
+    with pytest.raises(ValueError, match="renewal date"):
+        await collect_number_rental(
+            None,  # type: ignore[arg-type] - refused before the session is touched
+            tenant_id=uuid.uuid4(),
+            number_id=uuid.uuid4(),
+            recorded_at=datetime(2026, 3, 14, 6, 0, tzinfo=UTC),
+            charged_from=None,
+            period_start=date(2026, 3, 20),
+            inr_per_month=Decimal("499.00"),
+        )
+
+
+@pytest.mark.parametrize("price", ["0", "-499.00"])
+async def test_a_non_positive_price_is_refused_rather_than_invoiced(price: str) -> None:
+    with pytest.raises(ValueError, match="must be positive"):
+        await number_rental.invoice_number_rental(
+            None,  # type: ignore[arg-type] - refused before the session is touched
+            tenant_id=uuid.uuid4(),
+            number_id=uuid.uuid4(),
+            period_start=date(2026, 3, 14),
+            inr_per_month=Decimal(price),
+        )
+
+
 def test_the_renewal_alarm_is_classified() -> None:
     """`scripts/check_alarm_wiring.py` also requires the index row; this is the cheap half."""
     assert ALARM_SEVERITY["number_rental_renewals_unrecorded"] == "attention"

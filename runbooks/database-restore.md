@@ -79,12 +79,13 @@ docker compose -p calevate -f compose.prod.yml stop api workers voice-runtime
 pm2 stop calevate-web
 ```
 
-`hooks.calevate.tech` will now 502 engine webhooks. That is acceptable and expected:
-Bolna is at-most-once and does not retry (TRD §5), and the List-Executions poller is the
-guarantee of record — it recovers missed executions once the workers are back
-(`runbooks/webhook-delivery-failures.md`). **If the outage will exceed the poller's
-window, throw the big red switch** so no campaign dials into a system that cannot record
-the outcome (`runbooks/calls-stopped.md` §1).
+With api, workers and voice-runtime stopped, Vobiz cannot fetch an answer document, the
+voice worker cannot read its session or post its settlement, and nothing records a call: an
+inbound caller fails and a call that ends now is not recorded. Carrier callbacks to
+`hooks.calevate.tech` are retried by Vobiz up to 3 times (`docs/evidence/vobiz-api-contract.md`
+§6) and then lost. **Throw the big red switch before running the stop above** (it is an api
+call), so no campaign dials into a system
+that cannot record the outcome (`runbooks/calls-stopped.md` §1).
 
 ## 2. Pick the recovery target, and write it in a format PostgreSQL accepts
 

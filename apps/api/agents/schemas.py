@@ -21,6 +21,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
+from calevate_shared.engine import LlmTier
 from calevate_shared.extraction import ExtractionField
 from pydantic import BaseModel, ConfigDict
 
@@ -102,18 +103,27 @@ class AgentOut(BaseModel):
     #: bindings too — they are what activating it would start answering — and the engine
     #: is told to release them on deactivate and archive.
     inbound_number_count: int
-    #: WHAT WAS CHOSEN ON THIS AGENT, and `null` means "inherit the account's default"
-    #: rather than "no model" (D-454). It is deliberately not the same field as
-    #: `llm_model_effective` below: a screen that showed only the effective value could
-    #: not tell an owner whether clearing this input would change anything.
-    llm_model: str | None
-    #: WHAT WILL ACTUALLY RUN, after `agent -> organization -> platform`. Never null:
-    #: there is always an answer, and the field that says WHERE it came from is beside it
-    #: so the screen never has to present a platform default as the client's own choice.
-    llm_model_effective: str
-    #: Which rung supplied `llm_model_effective`. A closed vocabulary, so a generated
-    #: client can switch on it exhaustively (`agents/llm_models.LlmModelSource`).
-    llm_model_source: LlmModelSource
+    #: THE AGENT'S AI MODEL, AS THE TIER A CLIENT CHOSE IT BY (D-680) — never a model id or a
+    #: provider (D-679); `agents/llm_tiers.py` maps the stored model to the tier it is shown as.
+    #: `llm_tier` is what was chosen ON THIS AGENT, `null` meaning "inherit the account's
+    #: default" (D-454), kept apart from the tier in force so a screen can tell an owner
+    #: whether clearing it would change anything.
+    llm_tier: LlmTier | None
+    #: The tier in force after `agent -> organization -> platform`. Never null.
+    llm_tier_effective: LlmTier
+    llm_tier_label: str
+    #: Which rung supplied it (`agents/llm_models.LlmModelSource`).
+    llm_tier_source: LlmModelSource
+    #: Does the plan's model surcharge apply to this agent's minutes — the model in force is
+    #: an upgrade AND the client chose it (`billing/rates.llm_surcharge_applies`). The rupee
+    #: figure is `upgrade_surcharge_inr_per_minute` on the account's model settings.
+    llm_surcharged: bool
+    #: A voice and a model from the voice platform's OWN catalogue (D-678), or `null` for
+    #: the platform's default. Only meaningful where `GET /v1/agents/engine-catalogue`
+    #: answers `available: true`. The model is the catalogue's OPAQUE id
+    #: (`llm_tiers.engine_model_token`), never the engine's own model name.
+    engine_voice_id: str | None = None
+    engine_model_id: str | None = None
     extraction_fields: list[ExtractionField] = []
 
 

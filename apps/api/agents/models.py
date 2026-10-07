@@ -252,6 +252,16 @@ class Agent(PKMixin, TimestampMixin, Base):
             f"AND max_call_duration_s <= {CALL_CAP_MAX_S})",
             name="ck_agents_max_call_duration_range",
         ),
+        # A floor, not the offer (migration b7e2d94f1a30): which ids may be chosen is a
+        # live catalogue read decided at publish by `agents/engine_choice.py`.
+        CheckConstraint(
+            "engine_voice_id IS NULL OR engine_voice_id ~ '^[^[:space:]]{1,128}$'",
+            name="engine_voice_id_shape",
+        ),
+        CheckConstraint(
+            "engine_model_id IS NULL OR engine_model_id ~ '^[^[:space:]]{1,128}$'",
+            name="engine_model_id_shape",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -272,6 +282,12 @@ class Agent(PKMixin, TimestampMixin, Base):
     # (`agents/llm_models.resolve_llm_model`). Bounded by
     # `ck_agents_llm_model_allowed` above.
     llm_model: Mapped[str | None] = mapped_column(Text)
+    # A voice and a model from the ENGINE'S OWN catalogue, on an engine that dictates its
+    # speech and model legs (ThinnestAI, D-678); NULL is the engine's default. Separate
+    # from `tts_voice`/`llm_model`, which name OUR catalogue: the two vocabularies share
+    # no value, and one column holding either would send one engine's id to the other.
+    engine_voice_id: Mapped[str | None] = mapped_column(Text)
+    engine_model_id: Mapped[str | None] = mapped_column(Text)
     # THE SENT VOICE: what `publish_agent` last handed the engine, as opposed to
     # `tts_voice`, which is what an operator CONFIGURED (migration c8b3f14e7a29). The
     # two are allowed to differ — `voice_routes.set_agent_voice` writes the row and

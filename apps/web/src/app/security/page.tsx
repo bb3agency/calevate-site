@@ -236,8 +236,9 @@ export default function SecurityPage() {
               <p className="mt-2 text-base text-pretty text-ink-muted">
                 We hold no security certification — no SOC 2, no ISO 27001, no HIPAA
                 — and this page will not imply one. What we have instead is the list
-                above, the documents below, and a sub-processor page that names each
-                vendor before you sign rather than after.
+                above, the documents below, and a sub-processor page that says what each
+                kind of vendor receives and where, before you sign rather than after, with
+                a named list on request.
               </p>
             </div>
           </div>

@@ -455,7 +455,13 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # It carries its OWN prefix (`attest_embedding_price:<model>`) rather than the model
     # one, so a header captured while pricing a chat model cannot be replayed against the
     # encoder that decides how every published knowledge pack is built.
-    assert sites == 38, f"found {sites} step-up call sites, expected 38; the census went stale"
+    #
+    # THE THIRTY-NINTH AND FORTIETH are the two remaining price attestations, for the same
+    # reason: `ops/engine_minute_routes.py` prices a voice platform's minute per rate key
+    # (D-678/D-681, prefix carries engine and key), and `campaigns/number_pricing_routes.py`
+    # prices the client's monthly number rental (D-681). Both write append-only figures that
+    # reach `unit_cost_paid` or a client's bill.
+    assert sites == 40, f"found {sites} step-up call sites, expected 40; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

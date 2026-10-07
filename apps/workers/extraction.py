@@ -1226,12 +1226,14 @@ ASSIST_QUOTA_ENFORCED: Final = True
 #: What each substitution means, in the words the client reads — keyed by **(who answered,
 #: why)** rather than by the reason alone.
 #:
-#: **THE KEY GREW A FIRST HALF BECAUSE ONE REASON NOW HAS TWO ANSWERERS.** Every sentence
-#: here used to begin "This was written by Sarvam", which was safe while Sarvam was the only
-#: leg a substitution could land on. It is not any more: when a client's own provider cannot
-#: serve this leg, the PLATFORM's assistant model answers instead, and that is a substitution
-#: under D-127 G-7 exactly as a Sarvam answer is. Keying on the reason alone would have
-#: printed "written by Sarvam" over an answer Azure wrote.
+#: **THE KEY GREW A FIRST HALF BECAUSE ONE REASON HAS TWO ANSWERERS.** The standby (the
+#: speech provider's model) and the PLATFORM's assistant model can both stand in for a
+#: client's own provider, and each is a substitution under D-127 G-7; keying on the reason
+#: alone would attribute one's answer to the other.
+#:
+#: Neither is named. D-127 G-6 requires the sentence to say that a DIFFERENT model wrote the
+#: answer, and both sentences still do; which company that model belongs to is D-679's
+#: named list, given on request, and not something a client reads in chat.
 #:
 #: Written once, here, rather than composed at each surface: a disclosure assembled per
 #: screen is one that eventually says something different on two screens about one event.
@@ -1241,21 +1243,21 @@ ASSIST_QUOTA_ENFORCED: Final = True
 #: `assist_unavailable` and to the ops console's own reason string.
 _FALLBACK_DISCLOSURE: Final[dict[tuple[str, str], str]] = {
     (SARVAM_PROVIDER, NO_CREDENTIAL_REASON): (
-        "This was written by Sarvam, not the assistant model, because the assistant model "
-        "is not switched on for this account yet."
+        "This was written by our standby model, not the assistant model, because the "
+        "assistant model is not switched on for this account yet."
     ),
     (SARVAM_PROVIDER, QUOTA_EXHAUSTED_REASON): (
-        "This was written by Sarvam, not the assistant model, because this month's "
-        "included assistant usage is used up."
+        "This was written by our standby model, not the assistant model, because this "
+        "month's included assistant usage is used up."
     ),
     (SARVAM_PROVIDER, PROVIDER_UNAVAILABLE_REASON): (
-        "This was written by Sarvam, not the assistant model, because the assistant model "
-        "did not answer."
+        "This was written by our standby model, not the assistant model, because the "
+        "assistant model did not answer."
     ),
     (SARVAM_PROVIDER, TENANT_PROVIDER_UNSUPPORTED_REASON): (
-        "This was written by Sarvam, not the AI model you chose for your account: your "
-        "chosen model runs your phone agents, but it cannot be used for the in-app "
-        "assistant."
+        "This was written by our standby model, not the AI model you chose for your "
+        "account: your chosen model runs your phone agents, but it cannot be used for "
+        "the in-app assistant."
     ),
     (AZURE_PROVIDER, TENANT_PROVIDER_UNSUPPORTED_REASON): (
         "This was written by Calevate's own assistant model, not the AI model you chose "
@@ -1284,8 +1286,8 @@ _FALLBACK_DISCLOSURE: Final[dict[tuple[str, str], str]] = {
 #: the true and useful half; it just does not attribute the model to the reader.
 _PLATFORM_DEFAULT_DISCLOSURE: Final[dict[tuple[str, str], str]] = {
     (SARVAM_PROVIDER, TENANT_PROVIDER_UNSUPPORTED_REASON): (
-        "This was written by Sarvam, not the AI model on your account: that model runs "
-        "your phone agents, but it cannot be used for the in-app assistant."
+        "This was written by our standby model, not the AI model on your account: that "
+        "model runs your phone agents, but it cannot be used for the in-app assistant."
     ),
     (AZURE_PROVIDER, TENANT_PROVIDER_UNSUPPORTED_REASON): (
         "This was written by Calevate's own assistant model, not the AI model on your "

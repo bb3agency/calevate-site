@@ -316,9 +316,9 @@ export const PRIVACY_POLICY: LegalDocument = {
               text:
                 "What is unavoidably recorded is the ordinary web request: your IP " +
                 "address, the page requested, the time, the referring page and your " +
-                "browser's user-agent string, in the logs of our web server and of " +
-                "Cloudflare, which sits in front of the site and provides TLS and " +
-                "protection against attack. Those logs exist to keep the site up and to " +
+                "browser's user-agent string, in the logs of our web server and of the " +
+                "edge network provider that sits in front of the site and provides TLS " +
+                "and protection against attack. Those logs exist to keep the site up and to " +
                 "investigate abuse. They are not used to profile you and they are not " +
                 "combined with anything else.",
             },
@@ -845,8 +845,8 @@ export const PRIVACY_POLICY: LegalDocument = {
             "agent on the other voice quality. That is withdrawn rather than reworded: " +
             "since 18 September 2026 there is no voice quality that is spoken by a " +
             "company we can place, so there is no longer a choice of voice that keeps " +
-            "synthesis away from one. Section 3.6 of the sub-processor page names both " +
-            "companies and carries the rest, including what nobody has established " +
+            "synthesis away from one. Section 3.6 of the sub-processor page describes " +
+            "both companies and carries the rest, including what nobody has established " +
             "about each.",
         },
       ],
@@ -859,9 +859,10 @@ export const PRIVACY_POLICY: LegalDocument = {
           kind: "para",
           text:
             "We use a small number of specialist suppliers to run the service. Each of " +
-            "them is a sub-processor, each is named, and each is listed with what data " +
-            "reaches it and where it processes it, on the sub-processor page. That page " +
-            "is part of this notice.",
+            "them is a sub-processor. The sub-processor page lists them by category, with " +
+            "what data reaches each category and where it is processed, and that page is " +
+            "part of this notice. A named list of the companies currently in each " +
+            "category is available on request from the contact in section 14.",
         },
         {
           kind: "para",
@@ -918,7 +919,7 @@ export const PRIVACY_POLICY: LegalDocument = {
             "turn while you are still speaking. We will not put our own answer to an " +
             "undecided question in front of you. We do the thing that is right under " +
             "either answer: call audio is handled as though it may be sensitive personal " +
-            "data, every place it goes is named on the sub-processor page, and the " +
+            "data, every category of recipient it reaches is on the sub-processor page, and the " +
             "question is on the list for the advocate whose review these documents are " +
             "waiting on. Clause 9 of the Data Processing Addendum states it in the " +
             "operative contract text, and it is the same question, not a second one.",
@@ -958,17 +959,19 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "vendor's terms permit. The language model on both AI legs — " +
                 "the model that holds the conversation during a call, and the in-app " +
                 "assistant a client opens from their own dashboard — runs on one of " +
-                "several " +
-                "providers you can choose between: Microsoft's Azure OpenAI service " +
-                "(configured for the East US 2 region, in the United States, and the one " +
-                "we run by default), OpenAI (the United States), or Google's Gemini API " +
-                "(which names no region we can request). Not all three serve both legs, " +
+                "three " +
+                "providers you can choose between: a hyperscale cloud provider's service " +
+                "(configured for its East US 2 region, in the United States, and the one " +
+                "we run by default), a second provider in the United States, or a third " +
+                "whose developer service names no region we can request. Not all three " +
+                "serve both legs, " +
                 "and that is a limit of ours rather than of theirs: the in-app assistant " +
                 "runs only on a provider whose published position on training with what " +
                 "it receives someone here has actually read and, where the answer turns " +
                 "on which plan our own account is on, recorded against that account. " +
-                "OpenAI is not one of them today, so a client whose agents run an " +
-                "OpenAI model still gets the assistant, answered by the provider we run " +
+                "The second of those is not one of them today, so a client whose agents " +
+                "run one of its models still gets the assistant, answered by the provider " +
+                "we run " +
                 "by default, and the screen tells them so rather than leaving them to " +
                 "assume. Read that at the speed the call " +
                 "runs at: on the in-call leg what you say leaves India as text on every " +
@@ -1037,7 +1040,7 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "⚠ Until 18 September 2026 this entry told you that keeping your agents " +
                 "on the other voice quality kept an unplaceable company out of your " +
                 "calls. There is no such quality now, and that is withdrawn rather than " +
-                "reworded. Section 3.6 of the sub-processor page names both companies " +
+                "reworded. Section 3.6 of the sub-processor page describes both companies " +
                 "and lists what nobody here has established about each.",
             },
             {
@@ -1077,23 +1080,27 @@ export const PRIVACY_POLICY: LegalDocument = {
             {
               term: "Recordings, exports and archived call documents",
               detail:
-                "Stored in Cloudflare R2. We ask Cloudflare to place the bucket in its " +
-                "Asia-Pacific region — that is a placement preference Cloudflare " +
-                "applies where it can, not a residency commitment, and R2 does not " +
+                "Stored with an object-storage provider. We ask it to place the bucket in " +
+                "its Asia-Pacific region — that is a placement preference the provider " +
+                "applies where it can, not a residency commitment, and it does not " +
                 "offer an India-only jurisdiction. So this data is stored outside " +
-                "India, and asking for Asia-Pacific does not change that. Cloudflare " +
+                "India, and asking for Asia-Pacific does not change that. The provider " +
                 "publishes no datacentre for that region, so we do not name a country " +
                 "for it either.",
             },
             {
               term: "The call itself",
               detail:
-                "The conversation runs as a program of ours on a hosting platform, " +
-                "Pipecat Cloud, in a region that vendor calls “ap-south”; nobody " +
-                "here has established which country that is. The sound of the call reaches " +
-                "that program through our telephone carrier, Vobiz, which does not state " +
-                "where it processes or stores call data. Vobiz also records the call, and " +
-                "we copy the recording into our own storage. So the live audio and the " +
+                "The conversation runs as a program of ours on a hosting platform, in a " +
+                "region that platform names only by its own label; nobody here has " +
+                "established which country that is. The sound of the call reaches that " +
+                "program through our telephone carrier, which does not state where it " +
+                "processes or stores call data. The carrier also records the call, and " +
+                "we copy the recording into our own storage. Where a deployment is " +
+                "switched to a hosted voice platform instead, that platform carries the " +
+                "whole call: its published policy says it stores data in India and that " +
+                "its language-model step may be processed outside India. So the live " +
+                "audio and the " +
                 "transcript produced from it should not be assumed to stay in India while " +
                 "the call is happening. Our own copies are the system of record and are " +
                 "held as described above. The sub-processor page carries the detail.",
@@ -1101,9 +1108,10 @@ export const PRIVACY_POLICY: LegalDocument = {
             {
               term: "Transactional email and error monitoring",
               detail:
-                "Resend and Sentry are operated from outside India. They receive email " +
-                "addresses and — for Sentry — error reports that pass through a " +
-                "redaction hook before they leave the process. Sign-in is no longer on " +
+                "Our email-delivery and error-monitoring providers are operated from " +
+                "outside India. The first receives email addresses; the second receives " +
+                "error reports that pass through a redaction hook before they leave the " +
+                "process. Sign-in is no longer on " +
                 "this list: it used to be operated by an overseas provider and is now " +
                 "ours, running on the same server as the rest of the application.",
             },
@@ -1151,8 +1159,8 @@ export const PRIVACY_POLICY: LegalDocument = {
         {
           kind: "para",
           text:
-            "Our copies of call recordings are kept for 90 days and then deleted. Vobiz, " +
-            "our telephone carrier, also records the call; its copy is deleted one day " +
+            "Our copies of call recordings are kept for 90 days and then deleted. Our " +
+            "telephone carrier also records the call; its copy is deleted one day " +
             "after we have saved ours, and it never keeps a copy longer than its own " +
             "limit of up to 30 days. The database refuses to store a shorter recording period, and the " +
             "retention job refuses to act on one if it somehow existed. Clients in " +

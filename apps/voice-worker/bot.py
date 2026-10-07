@@ -67,6 +67,7 @@ from voice_worker.boot import (
     open_runtime,
 )
 from voice_worker.carrier import (
+    CarrierCredentialsMissingError,
     ClaimedCall,
     UnroutableCallError,
     call_claim_from_stream_url,
@@ -75,6 +76,7 @@ from voice_worker.carrier import (
     route_of,
 )
 from voice_worker.lifecycle import ReadinessFile, SessionRegistry, ShutdownSignal
+from voice_worker.vobiz_serializer import VobizMediaFormatError
 
 #: Process-scoped, built once, guarded by a lock because the platform may — and we cannot
 #: verify that it does not — start a session before a previous one's boot has finished.
@@ -251,11 +253,38 @@ async def bot(runner_args: RunnerArguments) -> None:
     `ModelConfig.llm_provider`, which is read inside `run_call`; resolving it out here is
     what forced the duplicate in the first place.
     """
+    try:
+        await _serve(runner_args)
+    except (UnroutableCallError, CarrierCredentialsMissingError, VobizMediaFormatError) as refusal:
+        # The carrier hangs up when the socket closes, so this line is the only trace of a
+        # call refused before it began. The messages are ours and never echo wire values.
+        logger.error("carrier session refused", reason=type(refusal).__name__, detail=str(refusal))
+        raise
+
+
+async def _serve(runner_args: RunnerArguments) -> None:
+    """The body of `bot`, separated so a refusal is logged in one place."""
     runtime, registry = await container()
     config = runtime.config
     engine_agent_ref = _route_token(runner_args)
     identity = await resolve_call_identity(runner_args, claim_key=config.caller_claim_key)
     call_id = identity.call_id
+    # The line gate V-3 is read from: which agent the path routed to, and whether an outbound
+    # call claim verified. Ids and words only (hard rule 6).
+    logger.info(
+        "carrier session routed",
+        call_id=call_id,
+        tenant_id=str(identity.tenant_id),
+        agent_id=str(identity.agent_id),
+        direction=identity.direction,
+        call_claim=(
+            "unverified"
+            if identity.unverified_claim is not None
+            else "verified"
+            if identity.direction == "outbound"
+            else "absent"
+        ),
+    )
 
     # THE SLOT IS TAKEN BEFORE ANY IO, and that ordering is the fix rather than a tidy-up.
     # This used to admit only after the transport, the session read and the whole pipeline

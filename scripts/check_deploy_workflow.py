@@ -125,6 +125,16 @@ SAFETY_PROPERTIES: tuple[tuple[str, str], ...] = (
         "CI running on a pull request would otherwise deploy the PR's code",
     ),
     (
+        "github.event.workflow_run.event == 'push'",
+        "`head_branch` is the PR's SOURCE branch, so a pull request from a fork's own "
+        "`main` passes the branch check; only a push to this repository is a deploy",
+    ),
+    (
+        "github.event.workflow_run.head_repository.full_name == github.repository",
+        "a fork's run reports the fork as its head repository; the self-hosted production "
+        "runner must never be started by one",
+    ),
+    (
         "cancel-in-progress: false",
         "cancelling a deploy between the migration and the swap manufactures the exact "
         "half-migrated state the script is written to avoid",

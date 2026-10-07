@@ -24,7 +24,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.engine import carrier_pacing, vendor_http
+from apps.api.engine import carrier_pacing, reset_engine_cache, vendor_http
 from apps.api.engine.carrier_pacing import (
     LINES_BUSY_RULE,
     LIVE_LINE_HORIZON,
@@ -36,6 +36,7 @@ from apps.api.engine.carrier_pacing import (
 )
 from apps.api.engine.vendor_http import is_line_limit, vendor_request
 from sqlalchemy import text
+from tests.callback_dispatch_test import _dialable_tenant
 
 pytestmark = pytest.mark.anyio
 
@@ -283,6 +284,40 @@ async def test_a_full_pool_refuses_the_dial_before_its_row_exists(
     monkeypatch.setattr(agents_service, "_count_carrier_lines", _one_free)
     async with untenanted_session() as session:
         await agents_service._hold_carrier_line(session, carrier="vobiz")
+
+
+async def test_dispatch_call_holds_the_carrier_line_before_writing_its_row(
+    monkeypatch: pytest.MonkeyPatch, lines: None
+) -> None:
+    """The line check is wired into the one outbound entry point: a full carrier pool
+    refuses the dial with nothing written, so no `queued` row holds a line for an hour."""
+    reset_engine_cache()
+    tenant_id, agent_id = await _dialable_tenant()
+
+    async def _slot() -> float:
+        return 0.0
+
+    async def _full(*_: Any, **__: Any) -> int:
+        return 2
+
+    monkeypatch.setattr(agents_service, "outbound_carrier", lambda: "vobiz")
+    monkeypatch.setattr(agents_service, "await_dial_slot", _slot)
+    monkeypatch.setattr(agents_service, "_count_carrier_lines", _full)
+    phone = f"+9198766{uuid.uuid4().int % 10**5:05d}"
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as raised:
+            await agents_service.dispatch_call(
+                session, tenant_id=tenant_id, agent_id=agent_id, lead_id=None, phone_e164=phone
+            )
+    assert raised.value.code == LINES_BUSY_RULE
+    assert dial_was_not_placed(raised.value) is True
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text("SELECT count(*) FROM calls WHERE to_e164 = :p"), {"p": phone}
+            )
+        ).scalar_one()
+    assert rows == 0
 
 
 def test_the_horizons_follow_the_ring_timeout_and_the_call_cap() -> None:

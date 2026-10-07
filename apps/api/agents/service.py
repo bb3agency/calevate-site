@@ -82,6 +82,7 @@ from uuid import UUID
 
 from calevate_shared.call_script import substitute_variables
 from calevate_shared.calling_window import IST
+from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER
 from calevate_shared.engine import (
     LLM_MODELS,
     SARVAM_STT_PROVIDER,
@@ -109,6 +110,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
 from apps.api.agents import handoff as handoff_module
+from apps.api.agents.engine_choice import byok_in_force, engine_rate_key_for
+from apps.api.agents.engine_facts import sync_business_facts
+from apps.api.agents.engine_limits import refuse_over_engine_limits, refuse_unpriced_engine
 from apps.api.agents.languages import published_extra_languages
 from apps.api.agents.llm_models import (
     ResolvedLlmModel,
@@ -118,6 +122,7 @@ from apps.api.agents.llm_models import (
     resolve_llm_model,
     unofferable_reason,
 )
+from apps.api.agents.llm_tiers import client_model_label
 from apps.api.agents.models import (
     AGENT_DIRECTIONS,
     CALL_CAP_DEFAULT_S,
@@ -125,9 +130,15 @@ from apps.api.agents.models import (
     series_for_e164,
 )
 from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
+from apps.api.agents.t0_block import block_of, without_block
 from apps.api.agents.verification import verify_publish
 from apps.api.agents.voices import get_voice, speech_for_voice_id, voice_id_of
 from apps.api.agents.write_guard import archived_refusal, assert_agent_writable
+from apps.api.billing.engine_minutes import (
+    ATTESTED_MINUTE_ENGINES,
+    EngineRateKey,
+    record_engine_rate_key,
+)
 from apps.api.compliance.caller_memory import recall
 from apps.api.compliance.carrier_application import assert_carrier_application_accepted
 from apps.api.core.alerting import alert
@@ -143,20 +154,32 @@ from apps.api.engine.capabilities import ENGINE_COMPLIANCE_FLOOR_ABSENT
 from apps.api.engine.carrier import RetiresAgentBindings
 from apps.api.engine.carrier_pacing import (
     CARRIER_LINES_LOCK_KEY,
+    ENGINE_LINE_HORIZON,
     LINES_BUSY_RULE,
     LIVE_LINE_HORIZON,
     PACING_RULE,
     RING_LINE_HORIZON,
     DialPacingTimeoutError,
     await_dial_slot,
+    dial_backoff_remaining_s,
     dials_through_our_carrier,
+    engine_backoff_refusal,
+    engine_concurrency_cap,
     lines_busy,
     outbound_line_pool,
     pacing_timed_out,
+    start_dial_backoff,
 )
-from apps.api.engine.vendor_http import EngineRejectedError
+from apps.api.engine.hosted_platform import hosted_agent_limits
+from apps.api.engine.vendor_http import (
+    RECIPIENT_OPTED_OUT_CODE,
+    EngineRateLimitedError,
+    EngineRejectedError,
+)
 from apps.api.legal.service import assert_agreements_accepted
 from apps.api.ops.maintenance import read_open_window
+from apps.api.reliability.engine_actions import ensure_agent_actions, retire_agent_actions
+from apps.api.reliability.engine_webhooks import ensure_agent_webhook
 from apps.api.tenancy.lifecycle import assert_account_open
 
 # THE ONE READER OF THE THREE `azure_openai_*` CREDENTIAL FIELDS, imported rather than
@@ -240,6 +263,10 @@ DIAL_NOT_PLACED_CODES = frozenset(
         # intent row is written, or by the carrier's own `429` naming its concurrency limit.
         PACING_RULE,
         LINES_BUSY_RULE,
+        # The voice platform refused to call this person (opted out with it, or on its own
+        # do-not-call list): refused before dialling, and person-level
+        # (`compliance.service.PERSON_LEVEL_REFUSALS`), so the contact is settled.
+        RECIPIENT_OPTED_OUT_CODE,
     }
 )
 
@@ -356,6 +383,10 @@ class AgentRow(TypedDict):
     organization_llm_model: str | None
     tts_provider: str | None
     tts_voice: str | None
+    #: A voice and a model from the engine's OWN catalogue (D-678), NULL for its default.
+    #: Reach `AgentConfig` only on an engine that dictates the leg (`_engine_choice`).
+    engine_voice_id: str | None
+    engine_model_id: str | None
     engine: str
     #: NULL until the first successful publish, which is what `agent_not_published` means.
     engine_agent_ref: str | None
@@ -440,7 +471,7 @@ async def _load_agent(
                 # fallback is decided from these two columns together, and two statements
                 # would let a concurrent change to the account default land between them —
                 # a published config whose two halves came from different moments.
-                "o.default_llm_model, a.languages_extra "
+                "o.default_llm_model, a.languages_extra, a.engine_voice_id, a.engine_model_id "
                 "FROM agents a LEFT JOIN prompt_versions pv "
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -505,6 +536,8 @@ async def _load_agent(
         "business_hours": row[23],
         "organization_llm_model": row[24],
         "languages_extra": row[25],
+        "engine_voice_id": row[26],
+        "engine_model_id": row[27],
     }
 
 
@@ -817,11 +850,13 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
             code="llm_model_not_deployed",
             title="This agent's language model isn't available right now",
             detail=(
-                f"This agent is set to run {model}, and that model isn't switched on for "
-                "this account yet — publishing it would put calls on a model we cannot run."
+                # The TIER, never the model id: this reaches the client's go-live button.
+                f"This agent is set to the {client_model_label(model)} AI model tier, and it "
+                "isn't switched on for this account yet — publishing it would put calls on "
+                "a model we cannot run."
             ),
             remediation=(
-                "Choose an available model, or ask your Calevate team to switch this one on."
+                "Choose an available tier, or ask your Calevate team to switch this one on."
             ),
         )
 
@@ -968,6 +1003,29 @@ def in_call_speech(agent: AgentRow, *, engine: VoiceEngine) -> InCallSpeech:
     )
 
 
+def _model_legs(agent: AgentRow, *, engine: VoiceEngine) -> dict[str, Any]:
+    """The LLM and speech fields of `ModelConfig`, for the legs this engine lets us choose.
+
+    The LLM leg is resolved, not read (`in_call_llm`, D-410); both speech legs go through
+    `in_call_speech`. A leg the engine DICTATES (ThinnestAI's model and voice, D-678) gets
+    nothing from us: `in_call_llm` always names a provider, and `require_speech_leg`
+    refuses any value on a dictated leg, so filling it would make every agent on such an
+    engine unpublishable. Our pickers do not offer a choice on a dictated leg
+    (`voices.voice_selection_capability`), so nothing a client chose is dropped.
+    """
+    caps = engine.capabilities
+    legs: dict[str, Any] = {}
+    if caps.is_ours("llm"):
+        legs.update(in_call_llm(chosen_llm_model(agent)))
+    speech = in_call_speech(agent, engine=engine)
+    if caps.is_ours("tts"):
+        legs["tts_provider"] = agent["tts_provider"]
+    else:
+        speech["tts_model"] = speech["tts_voice"] = speech["tts_voice_label"] = None
+    legs.update(speech)
+    return legs
+
+
 def _to_config(
     tenant_id: UUID,
     agent: AgentRow,
@@ -990,7 +1048,8 @@ def _to_config(
         languages_extra=published_extra_languages(
             str(agent["language_primary"]), agent["languages_extra"]
         ),
-        system_prompt=_assert_has_a_script(agent),
+        system_prompt=_script_for(engine, _assert_has_a_script(agent)),
+        facts_in_knowledge=hosted_agent_limits(engine).facts_in_knowledge,
         # WHAT THE AGENT VOLUNTEERS FIRST, composed from this agent's two toggles by the
         # one composer (D-163). Empty is a legitimate answer — both notices switched off
         # — and is NOT the old "missing disclosure" state: the AI sentence is still
@@ -1026,13 +1085,10 @@ def _to_config(
             # request aimed at a provider we have not configured, changing live agent
             # bodies on an unanswered vendor question. An EXPLICIT choice is
             # different: somebody asked for it, so it goes.
-            **in_call_llm(chosen_llm_model(agent)),
-            tts_provider=agent["tts_provider"],
-            # BOTH SPEECH LEGS THROUGH ONE RESOLVER, for `in_call_llm`'s reason: the STT
-            # default is engine-conditional and the TTS pair is a split, and either one
-            # spelled inline here would be a second expression of it in the drift path.
-            **in_call_speech(agent, engine=engine),
+            **_model_legs(agent, engine=engine),
         ),
+        engine_voice_id=_engine_choice(agent, engine=engine)[0],
+        engine_model_id=_engine_choice(agent, engine=engine)[1],
         webhook_url=f"{settings.webhook_base_url}/hooks/v1/engine/{settings.engine}",
         # The cost-runaway guard. Resolved here rather than defaulted in the model, so
         # an agent that has never been given a cap is still published with one.
@@ -1164,6 +1220,75 @@ async def _reclaim_orphan(engine: VoiceEngine, agent_id: UUID, ref: str, reason:
         )
         return
     log.warning("engine_agent_orphan_reclaimed", extra=ids)
+
+
+async def _ensure_results_webhook(
+    engine: VoiceEngine,
+    *,
+    ref: str,
+    agent_id: UUID,
+    created: bool,
+    session: AsyncSession,
+    rate_key: EngineRateKey,
+) -> None:
+    """Register (or confirm) the endpoint this vendor agent reports its calls to (D-678).
+
+    A no-op on an engine that does not sign deliveries per endpoint. Called after the
+    `engine_agent_routes` row is written, in the same transaction, because the endpoint's
+    sealed secret is stored on that row. A failure fails the publish rather than leaving an
+    agent live whose calls never report back; the vendor agent this publish created is
+    reclaimed first, for `_reclaim_orphan`'s reason. On an engine metered by the minute it
+    also stamps the rate key the agent's minutes are metered at (`billing/engine_minutes`).
+    """
+    try:
+        await ensure_agent_webhook(session, engine=engine.name, engine_agent_ref=ref)
+    except Exception:
+        if created:
+            await _reclaim_orphan(engine, agent_id, ref, "results_webhook_not_registered")
+        raise
+    if engine.name in ATTESTED_MINUTE_ENGINES:
+        # The chosen voice's band, or the base rate (`agents/engine_choice.py`).
+        await record_engine_rate_key(
+            session, engine=engine.name, engine_agent_ref=ref, rate_key=rate_key
+        )
+
+
+async def _ensure_in_call_actions(
+    engine: VoiceEngine, session: AsyncSession, *, agent_id: UUID, ref: str, created: bool
+) -> None:
+    """Register (or converge) the vendor agent's in-call actions — opt-out, call-back,
+    call-back cancel, handoff — on an engine that reaches our tools that way
+    (`reliability/engine_actions.py`). A no-op elsewhere. A failure fails the publish,
+    reclaiming a vendor agent this publish created, for `_reclaim_orphan`'s reason: an agent
+    live without its opt-out tool is one a caller cannot be removed from mid-call."""
+    try:
+        await ensure_agent_actions(session, engine=engine.name, engine_agent_ref=ref)
+    except Exception:
+        if created:
+            await _reclaim_orphan(engine, agent_id, ref, "in_call_actions_not_registered")
+        raise
+
+
+async def _publish_business_facts(
+    engine: VoiceEngine,
+    session: AsyncSession,
+    *,
+    agent_id: UUID,
+    ref: str,
+    created: bool,
+    script: str | None,
+) -> None:
+    """Push the script's [T0 FACTS] block as the vendor agent's facts document, on an engine
+    that keeps facts out of the prompt (`agents/engine_facts.py`). A failure fails the
+    publish, reclaiming a vendor agent this publish created, for `_reclaim_orphan`'s reason."""
+    try:
+        await sync_business_facts(
+            session, engine, agent_id=agent_id, ref=ref, facts=block_of(script)
+        )
+    except Exception:
+        if created:
+            await _reclaim_orphan(engine, agent_id, ref, "business_facts_not_published")
+        raise
 
 
 #: Every number an admin has pointed at this agent (`phone_numbers.agent_id`), with the
@@ -1349,6 +1474,29 @@ async def _apply_inbound_bindings(
         },
     )
     return InboundRouting(bound=bound, released=released, failed=failed, unsupported=0)
+
+
+async def retire_in_call_actions(*, agent_id: UUID, ref: str | None) -> int:
+    """Remove the vendor agent's in-call actions when the agent stops being published.
+
+    A failure alarms and does not undo the pause or archive, `retire_agent_carrier_bindings`'
+    contract: the actions would still reach our endpoint, which keeps answering for the
+    route, so what is left is a vendor object to tidy rather than a caller misled.
+    """
+    engine = get_engine()
+    try:
+        return await retire_agent_actions(engine=engine.name, engine_agent_ref=ref)
+    except ProblemError as exc:
+        alert(
+            "CORE_LOGIC",
+            "engine_actions_not_retired",
+            detail=(
+                "an unpublished agent's in-call actions are still on the voice platform; "
+                f"remove them in its console or republish and pause again. Refusal: {exc.code}."
+            ),
+            agent_id=str(agent_id),
+        )
+        return 0
 
 
 async def retire_agent_carrier_bindings(*, agent_id: UUID, ref: str | None) -> bool:
@@ -2261,6 +2409,13 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
         }
     )
 
+    # Before the vendor write: an engine whose fields cannot hold this agent as composed
+    # refuses here rather than truncating (see `agents/engine_limits.py`). A no-op on an
+    # engine that declares no limits.
+    refuse_over_engine_limits(engine, config)
+    await refuse_unpriced_engine(session, engine)
+    rate_key = await engine_rate_key_for(session, engine, config)
+
     existing_ref = agent["engine_agent_ref"]
     created = not (isinstance(existing_ref, str) and existing_ref)
     if isinstance(existing_ref, str) and existing_ref:
@@ -2365,6 +2520,13 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
         ),
         {"engine": engine.name, "ref": ref, "tid": tenant_id, "aid": agent_id},
     )
+    await _ensure_results_webhook(
+        engine, ref=ref, agent_id=agent_id, created=created, session=session, rate_key=rate_key
+    )
+    await _publish_business_facts(
+        engine, session, agent_id=agent_id, ref=ref, created=created, script=agent["prompt"]
+    )
+    await _ensure_in_call_actions(engine, session, agent_id=agent_id, ref=ref, created=created)
     # THE INBOUND HALF OF PUBLISHING (D-420). Publishing is "make the engine hold what our
     # database says", and until now that covered the agent and stopped short of the one
     # fact that decides whether a client's number rings anything at all. It runs AFTER the
@@ -2423,6 +2585,30 @@ _VARIANT_CONFIG_SQL = (
 )
 
 
+def _script_for(engine: VoiceEngine, body: str) -> str:
+    """The script as `engine` holds it: without the [T0 FACTS] block where the engine keeps
+    the business facts in its knowledge base (`agents/engine_facts.py`), unchanged otherwise."""
+    return without_block(body) if hosted_agent_limits(engine).facts_in_knowledge else body
+
+
+def _engine_choice(agent: AgentRow, *, engine: VoiceEngine) -> tuple[str | None, str | None]:
+    """The engine-catalogue voice and model, each only on a leg the engine dictates.
+
+    On a leg that is ours the engine takes our catalogue's ids (`_model_legs`), so a stored
+    engine-catalogue id is not sent there: it would name a voice or model in the wrong
+    vocabulary. `.get` because test fixtures build partial rows.
+    """
+    if byok_in_force(engine):
+        # The workspace's own keys run every leg; a stored catalogue choice is kept on the
+        # row and not sent (`Settings.thinnest_byok_enabled`).
+        return None, None
+    caps = engine.capabilities
+    return (
+        None if caps.is_ours("tts") else agent.get("engine_voice_id"),
+        None if caps.is_ours("llm") else agent.get("engine_model_id"),
+    )
+
+
 def _variant_config(
     tenant_id: UUID,
     agent: AgentRow,
@@ -2456,7 +2642,7 @@ def _variant_config(
         update={
             "agent_id": str(variant_id),
             "name": f"{agent['name']} [variant {label}]",
-            "system_prompt": body,
+            "system_prompt": _script_for(engine, body),
             # THE ARM'S OWN AI SENTENCE, THROUGH THE AGENT'S OWN TOGGLES (D-163). A
             # variant carries its own `disclosure_line` (NOT NULL, non-empty) because an
             # A/B test of a script legitimately tests its opening; the POSTURE — whether
@@ -2527,6 +2713,11 @@ async def publish_variant(
         engine=engine,
         handoff=handoff,
     )
+    # An arm's script lands in the same engine fields as its agent's, so it fits the same
+    # ceilings or is refused before the write (`agents/engine_limits.py`).
+    refuse_over_engine_limits(engine, config)
+    await refuse_unpriced_engine(session, engine)
+    rate_key = await engine_rate_key_for(session, engine, config)
     if existing_ref:
         await engine.update_agent(existing_ref, config)
         ref = existing_ref
@@ -2576,6 +2767,22 @@ async def publish_variant(
             "updated_at = now()"
         ),
         {"engine": engine.name, "ref": ref, "tid": tenant_id, "aid": agent_id},
+    )
+    # An arm is its own vendor agent and its calls report through their own endpoint.
+    await _ensure_results_webhook(
+        engine,
+        ref=ref,
+        agent_id=agent_id,
+        created=not existing_ref,
+        session=session,
+        rate_key=rate_key,
+    )
+    # The arm's own vendor agent holds the facts its own script carries.
+    await _publish_business_facts(
+        engine, session, agent_id=agent_id, ref=ref, created=not existing_ref, script=body
+    )
+    await _ensure_in_call_actions(
+        engine, session, agent_id=agent_id, ref=ref, created=not existing_ref
     )
     log.info(
         "agent_variant_published",
@@ -2726,6 +2933,10 @@ CARRIER_SPELLINGS: Final[dict[str, str]] = {
     "plivo.com": "plivo",
     "plivo inc": "plivo",
     "www.plivo.com": "plivo",
+    # A number rented and attached in ThinnestAI's console (migration a3d9e6f1c204).
+    "thinnest": "thinnest",
+    "thinnestai": "thinnest",
+    "thinnest.ai": "thinnest",
 }
 
 
@@ -2744,6 +2955,17 @@ def outbound_carrier() -> str | None:
     """The carrier an outbound header must be held on, or None when the engine dials on
     an account of its own and the question is not ours."""
     return get_settings().carrier if dials_through_our_carrier() else None
+
+
+def outbound_number_provider() -> str | None:
+    """The provider an outbound header must be recorded under, or None when unconstrained.
+
+    Our carrier when we dial through one (unchanged); otherwise the provider an engine that
+    dials on its own account requires (`calevate_shared.carrier.ENGINE_NUMBER_PROVIDER`):
+    on ThinnestAI only a ThinnestAI number can be presented, since it is the vendor that
+    places the call. None for an engine with no such rule.
+    """
+    return outbound_carrier() or ENGINE_NUMBER_PROVIDER.get(get_settings().engine)
 
 
 # The client-facing wording of the two ways a non-campaign outbound dial (an instant
@@ -2809,7 +3031,7 @@ async def agent_outbound_number_blocker(
     registered = [row for row in rows if str(row[0]) == "registered"]
     if not registered:
         return ("number_not_registered", CALLBACK_NUMBER_NOT_REGISTERED_REASON)
-    carrier = outbound_carrier()
+    carrier = outbound_number_provider()
     if carrier is None:
         return None
     on_carrier = [row for row in registered if row[1] == carrier]
@@ -2829,7 +3051,7 @@ async def agent_registered_numbers(session: AsyncSession, *, agent_id: UUID) -> 
     """
     rows = (
         await session.execute(
-            text(_AGENT_CALLER_ID_SQL), {"aid": agent_id, "carrier": outbound_carrier()}
+            text(_AGENT_CALLER_ID_SQL), {"aid": agent_id, "carrier": outbound_number_provider()}
         )
     ).all()
     return [str(row[0]) for row in rows]
@@ -3115,12 +3337,19 @@ async def dispatch_call(
             await await_dial_slot()
         except DialPacingTimeoutError as exc:
             raise pacing_timed_out() from exc
+    # THE SAME TWO LIMITS ON AN ENGINE THAT RUNS CALLS ON ITS OWN ACCOUNT (ThinnestAI): the
+    # vendor's hold-off after a 429, then its call ceiling under the same lock.
+    engine_capped = carrier is None and engine_concurrency_cap() is not None
+    if engine_capped and await dial_backoff_remaining_s() > 0:
+        raise engine_backoff_refusal()
 
     call_id = uuid7()
     intent_engine_call_id = unconfirmed_engine_call_id(call_id)
     async with tenant_session(tenant_id) as intent:
         if carrier is not None:
             await _hold_carrier_line(intent, carrier=carrier)
+        elif engine_capped:
+            await _hold_engine_line(intent)
         await intent.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
@@ -3189,6 +3418,8 @@ async def dispatch_call(
         # cancellation survivable — the contact stays `dialing` pointing at an
         # unconfirmed call, and `_reap_stuck_dialing` settles it without a second ring.
         code = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
+        if engine_capped and isinstance(exc, EngineRateLimitedError):
+            await start_dial_backoff(exc.retry_after_s)
         if dial_was_not_placed(exc):
             await _close_unplaced_dial(
                 tenant_id,
@@ -3263,6 +3494,47 @@ async def _hold_carrier_line(session: AsyncSession, *, carrier: str) -> None:
         log.info(
             "dial_refused_lines_busy",
             extra={"carrier": carrier, "lines_in_use": in_use, "outbound_pool": pool},
+        )
+        raise lines_busy()
+
+
+#: Outbound rows holding a line on an engine-capped account, platform-wide: the sum of
+#: `dispatch_scan()`'s per-tenant count (migration d8f31a7c2409), which loops the tenants
+#: under each one's own policies and restores the caller's GUC — the construction
+#: `carrier_lines_in_use()` uses, read without a migration. Outbound only: the engine's
+#: inbound calls reach us when they end, which is what the inbound reserve is for.
+_ENGINE_LINES_IN_USE_SQL = text(
+    "SELECT coalesce(sum(active_outbound), 0) FROM dispatch_scan(:statuses, "
+    "make_interval(secs => :horizon))"
+)
+_ENGINE_LINE_STATUSES = ["queued", "ringing", "in_progress"]
+
+
+async def _hold_engine_line(session: AsyncSession) -> None:
+    """`_hold_carrier_line` for an engine with its own call ceiling (`engine_concurrency_cap`).
+
+    Same lock, so a ThinnestAI dial and the count before it are serialised exactly as a
+    carrier dial is; same refusal, so every caller already treats it as not placed.
+    """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:key)"), {"key": CARRIER_LINES_LOCK_KEY}
+    )
+    in_use = int(
+        (
+            await session.execute(
+                _ENGINE_LINES_IN_USE_SQL,
+                {
+                    "statuses": _ENGINE_LINE_STATUSES,
+                    "horizon": ENGINE_LINE_HORIZON.total_seconds(),
+                },
+            )
+        ).scalar_one()
+    )
+    pool = outbound_line_pool()
+    if in_use >= pool:
+        log.info(
+            "dial_refused_lines_busy",
+            extra={"engine": get_engine().name, "lines_in_use": in_use, "outbound_pool": pool},
         )
         raise lines_busy()
 
@@ -3843,6 +4115,7 @@ __all__ = [
     "dispatch_call",
     "effective_call_cap",
     "outbound_carrier",
+    "outbound_number_provider",
     "provision_number",
     "publish_agent",
     "publish_variant",

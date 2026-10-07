@@ -99,24 +99,25 @@ function routes(series: string, attestation: unknown, extra: Routes = {}): Route
       title: "A phone number cannot be bought from this screen.",
       detail:
         "A phone number cannot be bought from this screen. Numbers are arranged with your account manager as part of setting your agent up.",
-      // A mirror of `self_serve_purchase_refused()`'s remediation, kept equal to the
-      // replacement handed to the API owner: the number is Calevate's, on Vobiz.
+      // A mirror of `self_serve_purchase_refused()`'s remediation: the number is Calevate's,
+      // and no provider is named (white label, founder 6 Oct 2026).
       remediation:
-        "Talk to us and your account manager will arrange the number. Calevate provides it on our own carrier account with Vobiz, so there is no operator account for you to open.",
+        "Talk to us and your account manager will arrange the number. Calevate provides it on our own telephony account, so there is no operator account for you to open.",
     }),
     ...extra,
   };
 }
 
 describe("where a recorded number comes from", () => {
-  it("says Calevate provides it on Vobiz, not that the client holds it with an operator", async () => {
+  it("says Calevate provides it, names no provider, and never says the client holds it", async () => {
     // Was "Numbers you hold yourself … connections in your own name with your own
     // operator", which the founder's decision of 2 Oct 2026 made untrue.
     await renderClientPage(<PhoneNumberPage />, routes("standard", state()));
 
     expect(await screen.findByRole("heading", { name: /numbers your agents call out from/i })).toBeTruthy();
     const tip = await readInfoTip("Where these numbers come from");
-    expect(tip).toMatch(/Vobiz/);
+    expect(tip).toMatch(/our own telephony account/);
+    expect(tip).not.toMatch(/Vobiz|Plivo|Thinnest|Pipecat/i);
     expect(tip).not.toMatch(/your own operator|account holder/i);
   });
 });

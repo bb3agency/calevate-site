@@ -37,6 +37,7 @@ import {
   formatCallCap,
 } from "@/components/ui";
 import { SettingRow } from "@/components/console/settingRow";
+import { ClientEngineCatalogue } from "@/components/engineCatalogueList";
 import { useLanes, useSetMyCallCap, type PendingState } from "@/lib/api/publishing";
 import { useClientSession } from "@/lib/api/session";
 import { useSetMyAgentVoice, useVoiceCatalogue } from "@/lib/api/voices";
@@ -76,7 +77,12 @@ export function VoiceChoice({ agentId, state }: { agentId: string; state: Pendin
   }
   if (!catalogue.data.selectable) {
     // The deployment working as intended, so the server's own words and not an error card.
-    return <p className="text-sm text-ink-muted">{catalogue.data.note}</p>;
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-ink-muted">{catalogue.data.note}</p>
+        <ClientEngineCatalogue session={session} agentId={agentId} />
+      </div>
+    );
   }
 
   return (

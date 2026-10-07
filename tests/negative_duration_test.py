@@ -43,6 +43,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from apps.api.billing.rates import CLIENT_PULSE_EFFECTIVE_FROM
 from apps.api.billing.service import tier_usage, usage_summary
 from apps.api.db.session import tenant_session
 from apps.workers.pipeline import _meter
@@ -120,23 +121,40 @@ async def test_the_negative_duration_is_announced_and_not_swallowed() -> None:
     assert ids["duration_s"] == "-1"
 
 
-async def test_the_panels_still_render_after_one() -> None:
+@pytest.mark.parametrize(
+    ("side", "expected"),
+    [
+        # D-681: ceil(307/30) = 11 steps x 0.5 = 5.50 min; the clamped call bills 0 steps.
+        ("after", Decimal("5.50")),
+        # By the second: 307/60 = 5.1167, published as 5.12.
+        ("before", Decimal("5.12")),
+    ],
+)
+async def test_the_panels_still_render_after_one(side: str, expected: Decimal) -> None:
     """`allocate_paise` refuses a breakdown whose parts cannot add to its total, so a
     negative bucket is not merely a wrong number on the usage panel — it is a 500 on it.
-    Both readers are exercised because they allocate the same minutes."""
+    Both readers are exercised because they allocate the same minutes.
+
+    One case each side of the 30-second cutover: the clamp has to hold under both rules.
+    """
     tenant_id, agent_id, _ref = await _tenant(f"ngp{uuid.uuid4().hex[:6]}")
     await _plan(tenant_id, included_min=0)
     await _premium_voice(tenant_id, agent_id)
-    now = datetime.now(UTC)
-    await _bill(tenant_id, agent_id, seconds=307, spend="10.0000", ended=now)
+    if side == "after":
+        ended, month = datetime.now(UTC), None
+        assert ended >= CLIENT_PULSE_EFFECTIVE_FROM
+    else:
+        # Noon IST on 15 Sep 2026, before the cutover.
+        ended, month = datetime(2026, 9, 15, 6, 30, tzinfo=UTC), "2026-09"
+    await _bill(tenant_id, agent_id, seconds=307, spend="10.0000", ended=ended)
     call_id = await _call_row(tenant_id, agent_id)
-    await _meter(tenant_id, call_id, _snapshot(seconds=-1, spend="1.0000", ended=now))
+    await _meter(tenant_id, call_id, _snapshot(seconds=-1, spend="1.0000", ended=ended))
 
     async with tenant_session(tenant_id) as session:
-        summary = await usage_summary(session, tenant_id=tenant_id)
-        tiers = await tier_usage(session, tenant_id=tenant_id)
+        summary = await usage_summary(session, tenant_id=tenant_id, month=month)
+        tiers = await tier_usage(session, tenant_id=tenant_id, month=month)
 
-    assert summary["minutes_used"] == Decimal("5.12"), "307 seconds, and nothing negative"
+    assert summary["minutes_used"] == expected, "307 seconds, and nothing negative"
     assert (
         tiers["minutes_premium"] + tiers["minutes_value"] + tiers["minutes_unattributed"]
         == summary["minutes_used"]

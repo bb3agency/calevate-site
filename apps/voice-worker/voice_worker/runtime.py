@@ -76,6 +76,7 @@ Pipecat Cloud image is part of step 6 rather than of this seam.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
@@ -99,7 +100,12 @@ from voice_worker.knowledge import PackCache, PackFetcher, QueryEmbedder
 from voice_worker.latency import CallLatencyRecorder
 from voice_worker.memory import ApiCallerMemoryReader
 from voice_worker.meter import CallMeter, CarrierCdr, RuntimeUsage
-from voice_worker.pipeline import CallerIdentityLike, SessionConfig, VendorCredentials
+from voice_worker.pipeline import (
+    CallerIdentityLike,
+    SessionConfig,
+    VendorCredentials,
+    build_turn_analyzers,
+)
 from voice_worker.session import AssembledCall, knowledge_report, open_session, pack_cache
 from voice_worker.sink import (
     DEFAULT_TURN_BATCH_SIZE,
@@ -296,14 +302,22 @@ class WorkerRuntime:
         # own task: nothing below awaits it, and a failure costs the indicator, never the call.
         speaking = SpeakingTracker(self._api, engine_call_id=pipecat_call_ref(tenant_id, call_id))
 
-        config = await load_session_config(
-            self._api,
-            call_id=call_id,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            direction=direction,
-            engine_agent_ref=engine_agent_ref,
-        )
+        # THE ONNX ANALYZERS ARE BUILT IN A THREAD WHILE THE SESSION IS READ, not inside
+        # `assemble_call` after it: the caller is connected and hearing nothing until the
+        # greeting, and the two loads are independent (`pipeline.TurnAnalyzers`).
+        setup_started = time.monotonic()
+        analyzers = asyncio.create_task(asyncio.to_thread(build_turn_analyzers))
+        try:
+            config = await load_session_config(
+                self._api,
+                call_id=call_id,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                direction=direction,
+                engine_agent_ref=engine_agent_ref,
+            )
+        finally:
+            turn_analyzers = await analyzers
         call = await open_session(
             config=config,
             credentials=credentials_for(config.models.llm_provider),
@@ -328,6 +342,7 @@ class WorkerRuntime:
             # ringing (`session.load_caller_memory`); the number travels no further.
             memory_reader=ApiCallerMemoryReader(self._api),
             caller_e164=caller.e164 if caller is not None and caller.is_known else None,
+            turn_analyzers=turn_analyzers,
         )
 
         # WHETHER THIS CALL HAS ITS CLIENT'S KNOWLEDGE, HANDED TO THE SINK AND NOT SENT.
@@ -340,6 +355,12 @@ class WorkerRuntime:
         # gets through costs the report and never the call.
         sink.report_knowledge(knowledge_report(call.knowledge))
         timings.bind(call.pipeline)
+        pipeline_started: list[float] = []
+
+        async def _on_pipeline_started(_worker: object, _frame: object) -> None:
+            pipeline_started.append(time.monotonic())
+
+        call.worker.add_event_handler("on_pipeline_started", _on_pipeline_started)
 
         if on_assembled is not None:
             # THE CONTAINER LEARNS ABOUT THE CALL THE MOMENT IT EXISTS, so a SIGTERM
@@ -442,6 +463,23 @@ class WorkerRuntime:
             # extraction, the CRM columns and the lead for that call are with somebody
             # else's promise or with nobody's.
             post_call_enqueued=settlement.post_call_enqueued,
+        )
+        # THE CALLER-FACING TIMINGS, BY ID AND IN MILLISECONDS ONLY. `setup_ms` is the socket
+        # handed to us until the pipeline ran (session read, pack, memory, vendor connects);
+        # `greeting_first_audio_ms` is the carrier connecting until the agent's first audio;
+        # `median_turn_ms` is caller silence to the agent speaking, over the call's turns.
+        latency = timings.call_latency()
+        logger.info(
+            "call timings",
+            call_id=call_id,
+            setup_ms=(
+                round((pipeline_started[0] - setup_started) * 1000.0, 1)
+                if pipeline_started
+                else None
+            ),
+            greeting_first_audio_ms=timings.greeting_first_audio_ms,
+            median_turn_ms=latency.time_to_first_audio_ms if latency is not None else None,
+            turns=len(latency.turns) if latency is not None else 0,
         )
         return CallOutcome(call_id=call_id, drained=drained, settlement=settlement)
 

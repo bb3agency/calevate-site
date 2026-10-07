@@ -266,3 +266,20 @@ def test_the_event_fields_drop_the_file_url_and_keep_the_recording_ids() -> None
     assert kept["RecordingID"] == "a1234567-89ab-4cde-8f01-234567890abc"
     assert kept["RecordingStartMs"] == "1716112335000"
     assert json.dumps(kept)  # serialisable into the job payload as is
+
+
+async def test_an_empty_recording_is_refused_and_never_stored(
+    monkeypatch: pytest.MonkeyPatch, s3: FakeS3
+) -> None:
+    """A 200 with no body is not a recording. Stored, it would set `recording_url`, and a day
+    later the carrier's copy, the only real one, would be deleted on the strength of it."""
+
+    async def _empty(*_args: object, **_kwargs: object) -> bytes:
+        return b""
+
+    monkeypatch.setattr(storage, "_fetch_recording", _empty)
+    with pytest.raises(storage.StorageUnavailableError):
+        await copy_recording(
+            source_url="https://media.vobiz.ai/r.mp3", tenant_id=uuid.uuid4(), call_id=uuid.uuid4()
+        )
+    assert s3.objects == {}

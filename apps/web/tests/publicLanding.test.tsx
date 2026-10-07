@@ -224,9 +224,9 @@ describe("the landing page's claims", () => {
     expect(text).toContain(
       "The VOICE your caller hears is a different vendor again",
     );
-    expect(text).toContain(
-      "Microsoft Azure OpenAI account in the United States",
-    );
+    expect(text).toContain("account in the United States, in its East US 2 region");
+    // D-679: the provider behind it is on the named list given on request, not on this page.
+    expect(text).not.toMatch(/(microsoft|azure|openai)/i);
     expect(text).not.toMatch(
       /(recordings?|transcripts?|database|servers?)[^.]{0,40}\bin india\b/i,
     );
@@ -280,7 +280,9 @@ describe("the landing page's claims", () => {
      * in a privacy policy nobody reads). So the qualifying clause is asserted, not
      * merely permitted.
      */
-    expect(text).toContain("runs it on US infrastructure today");
+    expect(text).toContain(
+      "The platform the call runs on has not been established to run it in India",
+    );
   });
 
   /**

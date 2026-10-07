@@ -7,23 +7,21 @@ the admin realm's `/v1/admin/organizations/{org_id}/llm-defaults` — so a share
 could only describe one of them. Same resolution, and the same reason, as `agents/
 routes.py` and `agents/voice_routes.py`, which both say so.
 
-WHY THE TWO REALMS ARE ONE MODULE AND NOT TWO
----------------------------------------------
-They are the SAME resource with two doors, and the thing that must never differ between
-them is the allow-list, the price and the resolution — which is exactly what would drift
-if the operator's screen and the client's screen were served by two files. Both doors
-call one reader (`_read_defaults`) and one writer (`_write_default`); what differs is who
-is admitted and whose account is named, which is a `Depends` and a path parameter, not a
-second implementation. `compliance/first_campaign_routes.py` and
-`billing/spend_routes.py` already pair a client router with an admin one this way.
+THE TWO REALMS SPEAK DIFFERENT VOCABULARIES OVER ONE WRITER (D-680)
+-------------------------------------------------------------------
+A client chooses a TIER (`agents/llm_tiers.py`) and never reads a model id or a provider
+(D-679); an operator chooses and reads real models. So the two doors have two response
+shapes — `ClientLlmDefaultsOut` and `LlmDefaultsOut` — and still share what must not differ:
+the offer predicate (`offerable_models`), the plan surcharge read, the resolver and the one
+writer (`_write_default`). A tier is turned into a model before the writer sees it, so the
+column, the publish path and the bill are exactly what they were before tiers existed.
 
 WHY IT LIVES UNDER `agents/`
 ----------------------------
 The value is a property of the AGENTS an account runs, the resolver it feeds is
-`agents/llm_models.py`, and the agent detail route reports the same three facts. Putting
-it in `tenancy/` would have separated the column's writer from its only reader by a
-module boundary, and `tenancy/routes.py` is session and identity — `/me`, members,
-invitations — not account configuration.
+`agents/llm_models.py`, and the agent detail route reports the same facts. Putting it in
+`tenancy/` would have separated the column's writer from its only reader by a module
+boundary, and `tenancy/routes.py` is session and identity, not account configuration.
 
 WHAT IS DELIBERATELY NOT HERE: a per-agent route. An agent's own choice is one more field
 on `PATCH /v1/agents/{agent_id}`, because it is edited on the same screen as its name and
@@ -37,6 +35,7 @@ from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
+from calevate_shared.engine import LlmTier
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
@@ -44,13 +43,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.llm_models import (
     QUOTED_CALL_MINUTES,
-    LlmReasonAudience,
+    LlmModelSource,
     available_models,
     resolve_llm_model,
+    unofferable_reason,
     validate_llm_model,
 )
+from apps.api.agents.llm_tiers import (
+    LLM_TIER_DESCRIPTIONS,
+    LLM_TIER_LABELS,
+    available_tiers,
+    resolve_tier_choice,
+    tier_label,
+    tier_of_model,
+)
+from apps.api.agents.roster import AGENT_ROSTER_LIMIT
 from apps.api.agents.service import publish_agent
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
+from apps.api.billing.rates import llm_surcharge_applies
 from apps.api.billing.service import rate_to_display
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
@@ -64,18 +74,19 @@ router = APIRouter(tags=["agents"])
 
 Session = Annotated[AsyncSession, Depends(db)]
 
-# The three principals this module admits, as `Annotated` aliases rather than `Depends()`
-# in an argument default — the idiom every `*_routes.py` module here uses, because ruff's
-# B008 exemption is scoped to files literally named `routes.py` and an alias needs no
-# exemption at all. Each one is the permission the route also DECLARES in
-# `openapi_extra`, so the lock and the label cannot come apart.
+# `Annotated` aliases rather than `Depends()` in an argument default — the idiom every
+# `*_routes.py` module here uses, because ruff's B008 exemption is scoped to files literally
+# named `routes.py`. Each one is the permission the route also DECLARES in `openapi_extra`.
 Reader = Annotated[Principal, Depends(requires("org:read"))]
 Owner = Annotated[Principal, Depends(requires("org:manage"))]
 Operator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
 
 
+# --- The admin realm's shapes: real models ---------------------------------------------
+
+
 class LlmModelOptionOut(BaseModel):
-    """One model an account may choose, with what a minute of it costs.
+    """One model an account may run, with what a minute of it costs. ADMIN REALM ONLY.
 
     Every field is required on the wire: a Pydantic default here would generate an
     OPTIONAL TypeScript property and the screen would have to branch on a case the server
@@ -87,71 +98,64 @@ class LlmModelOptionOut(BaseModel):
     #: The identifier stored in `organizations.default_llm_model` / `agents.llm_model`,
     #: and the one to send back on a PUT.
     model: str
-    #: OUR word for where the leg runs, not the vendor's — read from the declared
-    #: residency posture so a posture move cannot leave a stale provider name on a screen.
+    #: OUR word for where the leg runs (`azure_openai`, `openai`, `google`).
     provider: str
-    #: INR per minute of a `QUOTED_CALL_MINUTES`-minute call, as a STRING (hard rule 7):
-    #: the value is a `Decimal` and a JSON float cannot hold a rupee amount exactly. It is
-    #: struck at a reference call length because the in-call language cost is NOT constant
-    #: per minute — the conversation is resent on every turn, so cost grows quadratically
-    #: with duration (TRD §6.1). Derived from the rate card, never a figure typed here.
+    #: The tier a client sees this model as (`llm_tiers.tier_of_model`), so an operator can
+    #: tell which client-facing word a choice made here will read as.
+    tier: LlmTier | None
+    #: INR per minute of a `QUOTED_CALL_MINUTES`-minute call, as a STRING (hard rule 7). Struck
+    #: at a reference length because the language cost grows with call length (TRD §6.1).
     #:
-    #: ⚠ **THIS IS OUR SUPPLIER COST AND IT IS NOT WHAT THE CLIENT PAYS.** The field that
-    #: answers that is `client_surcharge_inr_per_minute` below. The two are different
-    #: KINDS and differ by more than an order of magnitude (`billing/rates.py`), so a
-    #: screen that prints this one as a client price states a number nobody is charged AND
-    #: publishes our margin to the account it is a margin on. The ADMIN console shows
-    #: both, labelled; the client's own pickers show only the surcharge.
+    #: ⚠ **THIS IS OUR SUPPLIER COST AND IT IS NOT WHAT THE CLIENT PAYS** — that is
+    #: `client_surcharge_inr_per_minute`. The client realm never receives this figure.
     platform_cost_inr_per_minute: str
-    #: **WHAT CHOOSING THIS MODEL ADDS TO THIS ACCOUNT'S BILL, PER MINUTE** (D-455), as a
-    #: STRING for `platform_cost_inr_per_minute`'s reason.
-    #:
-    #: `"0"` on the base-rate model always, and `"0"` on an upgraded model whenever this
-    #: account's plan quotes no surcharge — which is every plan until a founder sets one,
-    #: and is the honest client-facing answer either way: choosing it costs them nothing
-    #: extra. The NULL-is-not-zero distinction that matters on `plans.llm_model_surcharge`
-    #: deliberately does not survive to this surface: a client asks what they will be
-    #: charged, and "nothing" is the answer to that in both states.
-    #:
-    #: **IT IS THE SURCHARGE FOR CHOOSING IT EXPLICITLY.** An account that FOLLOWS the
-    #: platform default is never surcharged, however dear that default becomes
-    #: (`rates.CLIENT_CHOSEN_LLM_SOURCES`), so a screen rendering an "inherit" row quotes
-    #: `"0"` for it rather than the row of the model it happens to resolve to.
+    #: What choosing this model adds to this account's bill per minute (D-455), as a STRING.
+    #: `"0"` on a model that is not an upgrade, and on every plan that quotes no surcharge.
+    #: It is the surcharge for choosing it EXPLICITLY: an account that follows the platform
+    #: default is never surcharged (`rates.CLIENT_CHOSEN_LLM_SOURCES`).
     client_surcharge_inr_per_minute: str
-    #: True for the model this deployment runs when nobody chooses — the row a picker
-    #: marks as the default rather than inventing its own label for.
+    #: True for the model this deployment runs when nobody chooses.
     is_platform_default: bool
-    #: CAN THIS PLATFORM ACTUALLY RUN IT. False rows are shown and NOT selectable: a model
-    #: with no Azure deployment behind it would be quoted at its own price and answered by
-    #: a different model, so `PUT` refuses it with `llm_model_not_deployed`. A screen
-    #: should render these disabled with `unavailable_reason` beside them rather than
-    #: hiding them, so an operator can see what is left to configure.
+    #: Can this platform actually run it. False rows are shown and NOT selectable, with
+    #: `unavailable_reason` beside them, so an operator can see what is left to configure.
     is_available: bool
     #: Why not — `null` exactly when `is_available` is true.
     unavailable_reason: str | None
 
 
-class LlmDefaultsOut(BaseModel):
-    """What this account has chosen, what that resolves to, and what else it could pick."""
+class AgentLlmModelOut(BaseModel):
+    """Which model one of the account's agents runs, for the operator. The client realm
+    reads the same facts as tiers on `AgentOut`."""
 
     model_config = ConfigDict(extra="forbid")
 
-    #: The account's own choice. `null` means it has never chosen and follows the
-    #: platform — NOT "no model".
+    agent_id: UUID
+    #: The agent's own choice, `null` when it inherits.
+    llm_model: str | None
+    llm_model_effective: str
+    llm_model_source: LlmModelSource
+
+
+class LlmDefaultsOut(BaseModel):
+    """What this account has chosen, what that resolves to, and what else it could run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The account's own choice. `null` means it follows the platform — NOT "no model".
     default_llm_model: str | None
     #: What agents that name no model of their own will actually run. Never null.
     effective_default: str
     available: list[LlmModelOptionOut]
+    #: Every non-archived agent on the account with the model it runs, at most
+    #: `AGENT_ROSTER_LIMIT` — the roster's own bound.
+    agents: list[AgentLlmModelOut]
 
 
 class LlmDefaultIn(BaseModel):
     """The account's choice, or `null` to go back to following the platform.
 
     REQUIRED RATHER THAN OPTIONAL, and that is what makes this a PUT rather than a PATCH:
-    the body states the whole of the resource, so `null` is unambiguously "clear it" and
-    there is no third "field omitted" case to interpret. `PATCH /v1/agents/{id}` has to
-    carry that third case because it edits four properties at once; this one carries a
-    single value and does not.
+    the body states the whole of the resource, so `null` is unambiguously "clear it".
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -159,53 +163,113 @@ class LlmDefaultIn(BaseModel):
     default_llm_model: str | None
 
 
-#: THIS ACCOUNT'S MODEL SURCHARGE, at the instant it is being asked about (D-455).
-#:
-#: `NOW_SQL` and not a month's pricing instant: this screen answers "what will it cost me
-#: if I choose this", which is a question about the terms in force NOW. A closed month's
-#: statement resolves its own instant (`billing/plans.py::month_pricing_instant`) and is
-#: not this reader. Through the SHARED resolver either way, so the rate a client is quoted
-#: here is the rate on the row a bill would actually pick.
+# --- The client realm's shapes: tiers, never models ---------------------------------------
+
+
+class LlmTierOptionOut(BaseModel):
+    """One tier a client may choose. No model id and no provider: which model answers a tier
+    is ours, and changing it must not be a client-visible rename (D-679, D-680)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tier: LlmTier
+    label: str
+    description: str
+    #: What choosing this tier adds to the account's bill per minute, as a STRING — the
+    #: plan's `llm_model_surcharge` when the tier's model is an upgrade, else `"0"`.
+    client_surcharge_inr_per_minute: str
+    #: The tier the Calevate default runs on.
+    is_platform_default: bool
+    is_available: bool
+    #: The client sentence (`llm_models.CLIENT_UNAVAILABLE_REASON`), never the operator
+    #: ground. `null` exactly when `is_available`.
+    unavailable_reason: str | None
+
+
+class ClientLlmDefaultsOut(BaseModel):
+    """The client's model settings, in tiers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The tier the account chose, or `null` when it follows the Calevate default.
+    default_llm_tier: LlmTier | None
+    #: The tier its agents run when they choose nothing themselves. Never null.
+    effective_tier: LlmTier
+    effective_tier_label: str
+    #: Is the model behind `effective_tier` switched on? False is a real state: the platform
+    #: default is a live setting and its credential and price are live properties.
+    effective_is_available: bool
+    #: What the tier in force adds to every minute, as the meter will apply it — `"0"` when
+    #: the account follows the Calevate default, whatever that resolves to.
+    in_force_surcharge_inr_per_minute: str
+    #: The plan's per-minute surcharge for an upgraded tier, `"0"` when the plan quotes none.
+    #: An agent that `llm_surcharged` pays this; a screen multiplies nothing.
+    upgrade_surcharge_inr_per_minute: str
+    available: list[LlmTierOptionOut]
+
+
+class ClientLlmDefaultIn(BaseModel):
+    """The tier for every agent that chooses none, or `null` to follow the Calevate default.
+    Required for `LlmDefaultIn`'s reason. A `Literal` here is right where a model allow-list
+    was not: the tier vocabulary is ours and closed, and which model each tier runs is not
+    on the wire at all."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    default_llm_tier: LlmTier | None
+
+
+#: THIS ACCOUNT'S MODEL SURCHARGE, at the instant it is being asked about (D-455). `NOW_SQL`
+#: because this screen answers "what will it cost me if I choose this"; through the shared
+#: resolver, so the rate quoted is the rate on the row a bill would pick.
 _PLAN_SURCHARGE = plan_in_effect_sql("llm_model_surcharge", at=NOW_SQL)
 
+#: The account's own row. RLS scopes it (`organizations`' policy matches on `id`), so no
+#: `WHERE` on the tenant is wanted; `deleted_at IS NULL` is the same predicate the writer
+#: carries, so a closed account is a 404 on the GET as well as the PUT.
+_ORG_DEFAULT = "SELECT id, default_llm_model FROM organizations WHERE deleted_at IS NULL"
 
-async def _read_defaults(session: AsyncSession, *, audience: LlmReasonAudience) -> LlmDefaultsOut:
-    """The one reader behind both realms' GET.
+#: The operator's per-agent view. Bounded by the roster's own limit, archived agents left
+#: out as the roster leaves them out.
+_AGENT_MODELS = (
+    "SELECT id, llm_model FROM agents WHERE deleted_at IS NULL AND status <> 'archived' "
+    "ORDER BY created_at LIMIT :limit"
+)
 
-    `audience` is the ONE thing the two realms genuinely differ on in this reader: the
-    client realm passes `"client"` so an unavailable model's `unavailable_reason` reads as
-    the client's one action ("ask your Calevate team"), and the admin realm passes
-    `"operator"` so it keeps the ground an operator fixes. The allow-list, the prices and the
-    resolution are identical for both, which is the whole reason this stays one reader — only
-    the wording of a blocked row's reason forks, and it forks here rather than in two copies.
 
-    RLS does the scoping: `organizations`' policy matches on `id`, so this reads exactly
-    the account the session is scoped to and a wrong id is zero rows, not a neighbour's
-    row (hard rule 1). No `WHERE` on the tenant is needed or wanted — one would be a
-    second, weaker expression of the isolation the policy already enforces.
-
-    `deleted_at IS NULL` IS NOT SCOPING AND IS NOT REDUNDANT WITH IT: it is the same
-    predicate `_write_default` carries, and it was missing here. Without it a closed
-    account answered 200 on the GET and 404 on the PUT of the very same resource, so an
-    operator's screen rendered a settings form for an account no write could reach.
-    """
-    row = (
-        await session.execute(
-            # `id` as well as the choice, because the plan read below needs a tenant to
-            # bind and taking it from THIS row is stricter than taking it from a caller:
-            # the row RLS just returned is by definition the account being described, so
-            # the terms quoted cannot belong to a different one than the choice shown.
-            text("SELECT id, default_llm_model FROM organizations WHERE deleted_at IS NULL")
-        )
-    ).first()
+async def _org_default(session: AsyncSession) -> tuple[UUID, str | None]:
+    row = (await session.execute(text(_ORG_DEFAULT))).first()
     if row is None:
         raise ProblemError.not_found("Organization")
-    chosen: str | None = row[1]
+    return UUID(str(row[0])), row[1]
+
+
+async def _upgrade_surcharge(session: AsyncSession, tenant_id: UUID) -> Decimal:
+    """The plan's per-minute surcharge for an upgrade, as a display rate. An account with no
+    plan row and one whose plan quotes none are both ₹0 — "an upgrade adds nothing"."""
+    plan = (await session.execute(text(_PLAN_SURCHARGE), {"tid": tenant_id})).first()
+    if plan is None or plan[0] is None:
+        return Decimal("0")
+    return rate_to_display(Decimal(str(plan[0])))
+
+
+async def _read_defaults(session: AsyncSession) -> LlmDefaultsOut:
+    """The admin realm's reader: real models, with the operator's ground on a blocked row."""
+    tenant_id, chosen = await _org_default(session)
     resolved = resolve_llm_model(agent_model=None, organization_model=chosen)
-    # An account with no plan row, and one whose plan quotes no surcharge, are quoted the
-    # SAME ₹0 — both mean "choosing an upgrade adds nothing to your bill".
-    plan = (await session.execute(text(_PLAN_SURCHARGE), {"tid": row[0]})).first()
-    surcharge = Decimal(str(plan[0])) if plan is not None and plan[0] is not None else None
+    upgrade = await _upgrade_surcharge(session, tenant_id)
+    agent_rows = (await session.execute(text(_AGENT_MODELS), {"limit": AGENT_ROSTER_LIMIT})).all()
+    agents = []
+    for agent_id, own in agent_rows:
+        in_force = resolve_llm_model(agent_model=own, organization_model=chosen)
+        agents.append(
+            AgentLlmModelOut(
+                agent_id=agent_id,
+                llm_model=own,
+                llm_model_effective=in_force.model,
+                llm_model_source=in_force.source,
+            )
+        )
     return LlmDefaultsOut(
         default_llm_model=chosen,
         effective_default=resolved.model,
@@ -213,92 +277,103 @@ async def _read_defaults(session: AsyncSession, *, audience: LlmReasonAudience) 
             LlmModelOptionOut(
                 model=option.model,
                 provider=option.provider,
-                # Stringified HERE, at the boundary, and nowhere earlier: the value is a
-                # `Decimal` everywhere inside the process.
+                tier=tier_of_model(option.model),
+                # Stringified HERE, at the boundary: a `Decimal` everywhere inside.
                 platform_cost_inr_per_minute=str(option.inr_per_minute),
-                # The surcharge applies to the models that ARE upgrades and to no others,
-                # and the PLAN supplies the number. Both halves come from the one place
-                # that owns each; nothing here is derived from the cost figure above.
                 client_surcharge_inr_per_minute=str(
-                    rate_to_display(surcharge)
-                    if option.is_surcharged and surcharge is not None
-                    else Decimal("0")
+                    upgrade if option.is_surcharged else Decimal("0")
                 ),
                 is_platform_default=option.is_platform_default,
                 is_available=option.is_available,
                 unavailable_reason=option.unavailable_reason,
             )
-            for option in available_models(audience=audience)
+            for option in available_models(audience="operator")
+        ],
+        agents=agents,
+    )
+
+
+async def _read_client_defaults(session: AsyncSession) -> ClientLlmDefaultsOut:
+    """The client realm's reader: tiers, and the client's sentence on a blocked row."""
+    tenant_id, chosen = await _org_default(session)
+    resolved = resolve_llm_model(agent_model=None, organization_model=chosen)
+    upgrade = await _upgrade_surcharge(session, tenant_id)
+    effective = tier_of_model(resolved.model)
+    if effective is None:
+        # Both columns are CHECKed to the catalogue and `platform_llm_model` is typed to it,
+        # and every catalogue model has a cost tier — so this is a broken invariant, not a
+        # state to render.
+        raise RuntimeError("the model in force has no tier")
+    in_force = (
+        upgrade
+        if llm_surcharge_applies(model=resolved.model, source=resolved.source)
+        else Decimal("0")
+    )
+    return ClientLlmDefaultsOut(
+        default_llm_tier=tier_of_model(chosen),
+        effective_tier=effective,
+        effective_tier_label=tier_label(effective),
+        effective_is_available=unofferable_reason(resolved.model) is None,
+        in_force_surcharge_inr_per_minute=str(in_force),
+        upgrade_surcharge_inr_per_minute=str(upgrade),
+        available=[
+            LlmTierOptionOut(
+                tier=option.tier,
+                label=LLM_TIER_LABELS[option.tier],
+                description=LLM_TIER_DESCRIPTIONS[option.tier],
+                client_surcharge_inr_per_minute=str(
+                    upgrade if option.is_surcharged else Decimal("0")
+                ),
+                is_platform_default=option.is_platform_default,
+                is_available=option.is_available,
+                unavailable_reason=option.unavailable_reason,
+            )
+            for option in available_tiers(audience="client")
         ],
     )
 
 
 #: The account's own row, LOCKED, so the "has this actually changed?" read and the write
-#: that depends on it are one atomic step. RLS scopes it to this session's account
-#: (`organizations`' policy matches on `id`), so no `WHERE` on the tenant is wanted.
+#: that depends on it are one atomic step.
 _ORG_MODEL_FOR_UPDATE = (
     "SELECT default_llm_model FROM organizations WHERE deleted_at IS NULL FOR UPDATE"
 )
 
 #: The agents this account's default actually MOVES: live, known to the engine, and with
-#: no choice of their own (`resolve_llm_model`'s middle rung). An agent that named its own
-#: model is unaffected by definition, and a draft or paused one has nothing published to
-#: correct.
-#:
-#: `ORDER BY id` is not cosmetic. `publish_agent` takes `FOR UPDATE` on each row, so two
-#: transactions republishing overlapping sets in different orders would deadlock; a total
-#: order over the same key every writer uses makes that impossible.
+#: no choice of their own. `ORDER BY id` because `publish_agent` takes `FOR UPDATE` on each
+#: row, and a total order over the key every writer uses makes a deadlock impossible.
 _INHERITING_LIVE_AGENTS = (
     "SELECT id FROM agents WHERE deleted_at IS NULL AND status = 'live' "
     "AND engine_agent_ref IS NOT NULL AND llm_model IS NULL ORDER BY id"
 )
 
 
-async def _write_default(session: AsyncSession, *, tenant_id: UUID, model: str | None) -> bool:
-    """The one writer behind both realms' PUT. Answers whether anything moved.
-
-    The caller has already validated `model` against the allow-list.
-
-    **THE ROW IS LOCKED FIRST, and that is what makes the read-then-write safe** rather
-    than a race dressed as an optimisation. Deciding "did this actually change?" requires
-    reading the current value, and a read-then-write without a lock is the shape
-    BACKEND-PATTERNS §5 exists to refuse: two operators choosing at the same moment would
-    each read the old value, each conclude they had changed it, and each republish — the
-    second overwriting the first's push with a config built from a value it never saw.
-    `FOR UPDATE` serialises them on the account row, so the loser blocks, re-reads the
-    winner's value, and either agrees (no push) or moves on from it. It is the same
-    instrument `lifecycle.update_agent` uses on `agents` and for the same reason.
-
-    **AND IT REPUBLISHES THE AGENTS THIS MOVES.** This used to write the column and stop,
-    which made it the only writer of an engine-bound configuration value in this tree that
-    did not push — `set_call_cap`, `set_disclosure_posture` and `lifecycle.update_agent`
-    all re-publish a live agent in the same transaction. The consequence was not cosmetic:
-    `_to_config` resolves the account default at PUBLISH time, so every live agent
-    inheriting it kept calling the deployment it was last published against while this
-    account's screen, the agent screen and the admin console all reported the new model as
-    the one in force — the screen and the phone line disagreeing about which model is
-    running, which is the one failure `agents/llm_models.py` exists to prevent. It also
-    made the client screen's "This takes effect on the next call" false.
-
-    Ordering is the guarantee, and it is `set_call_cap`'s: the column write happens first
-    and the engine push second, inside ONE transaction, so a vendor failure rolls the row
-    back with it and our record never claims a model the engine was not sent.
-
-    NO ROW TO LOCK IS A 404 and not a silent success: under RLS an account that is not
-    this session's is indistinguishable from one that does not exist, and answering 200
-    for a write that stored nothing is how a console reports a setting it never made. The
-    refusal moved onto the SELECT with the lock — one statement decides both whether the
-    account is reachable and what it currently holds, where a rowcount on the UPDATE could
-    only answer the first.
-    """
+async def _locked_org_default(session: AsyncSession) -> str | None:
     current = (await session.execute(text(_ORG_MODEL_FOR_UPDATE))).first()
     if current is None:
         raise ProblemError.not_found("Organization")
-    if current[0] == model:
-        # Re-asserting the value already on file is a success that touches nothing. A PUT
-        # states the whole resource, so a repeat is idempotent by construction — and
-        # pushing every live agent to the vendor again for a request that changed no byte
-        # would make a double-clicked Save a fleet-wide republish.
+    return None if current[0] is None else str(current[0])
+
+
+async def _write_default(session: AsyncSession, *, tenant_id: UUID, model: str | None) -> bool:
+    """The one writer behind both realms' PUT. Answers whether anything moved.
+
+    The caller has already validated `model` (a model, or a tier resolved to one).
+
+    **THE ROW IS LOCKED FIRST**: deciding "did this change?" reads the current value, and
+    without a lock two writers would each read the old value, each conclude they changed it
+    and each republish (BACKEND-PATTERNS §5). Re-taking the lock in a transaction that
+    already holds it is free.
+
+    **AND IT REPUBLISHES THE AGENTS THIS MOVES**, in the same transaction and after the
+    column write, as `set_call_cap` does: `_to_config` resolves the account default at
+    PUBLISH time, so an unpublished change would leave every inheriting live agent on the
+    old model while every screen reported the new one. A vendor failure rolls the row back.
+
+    Re-asserting the value already on file touches nothing — a double-clicked Save must not
+    become a fleet-wide republish.
+    """
+    if await _locked_org_default(session) == model:
         return False
 
     await session.execute(
@@ -313,23 +388,31 @@ async def _write_default(session: AsyncSession, *, tenant_id: UUID, model: str |
     return True
 
 
-_DESCRIPTION = (
-    "The language model this account's agents run when the agent itself names none.\n\n"
+_CLIENT_DESCRIPTION = (
+    "The AI model tier this account's agents run when the agent itself names none: "
+    "`standard`, `plus` or `pro`. Which model answers each tier is Calevate's, and is not "
+    "part of this response.\n\n"
     "Resolution is three levels: the agent's own choice, then this account default, then "
-    "the platform's model. `effective_default` is what an agent that has chosen nothing "
-    "will run, and each agent reports its own resolved model and which level supplied it."
-    f"\n\nEach row carries TWO figures and they are different kinds. "
-    "`client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's "
-    "bill for every minute it runs — the plan's own `llm_model_surcharge`, `0` when the "
-    "plan quotes none and `0` on the model this platform's rates are struck at. "
-    "`platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list "
-    f"price, per minute of a {QUOTED_CALL_MINUTES}-minute call: the language leg is "
-    "resent the whole conversation on every turn, so its cost per minute rises with call "
-    "length and a single figure has to say which length it is for. A client-facing screen "
-    "shows the surcharge; the supplier cost is an operator's figure."
-    "\n\nA row with `is_available: false` cannot be chosen — this platform has no "
-    "deployment for it, so choosing it would price one model and run another. "
-    "`unavailable_reason` says what is missing."
+    "Calevate's default. `effective_tier` is what an agent that has chosen nothing runs.\n\n"
+    "`client_surcharge_inr_per_minute` on each tier is what choosing it ADDS to this "
+    "account's bill for every minute it runs — the plan's own model surcharge, `0` when the "
+    "plan quotes none and `0` on a tier that is not an upgrade. "
+    "`in_force_surcharge_inr_per_minute` is what the tier in force adds now; following "
+    "Calevate's default is never surcharged.\n\n"
+    "A tier with `is_available: false` cannot be chosen yet; `unavailable_reason` says so."
+)
+
+_ADMIN_DESCRIPTION = (
+    "The language model one client's agents run when the agent itself names none, with "
+    "the real model identifiers the client realm never sees (it reads tiers).\n\n"
+    "Each row carries TWO figures of different kinds. `client_surcharge_inr_per_minute` is "
+    "what choosing that model ADDS to the client's bill per minute. "
+    "`platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, "
+    f"per minute of a {QUOTED_CALL_MINUTES}-minute call. `tier` is the word the client "
+    "reads for the model. `agents` lists each agent with the model it runs and the level "
+    "that chose it.\n\n"
+    "A row with `is_available: false` cannot be chosen; `unavailable_reason` says what is "
+    "missing."
 )
 
 _APPLIES_NOW = (
@@ -342,45 +425,43 @@ _APPLIES_NOW = (
 
 @router.get(
     "/v1/organization/llm-defaults",
-    response_model=LlmDefaultsOut,
-    # `org:read`, not `org:manage`: reading which model you run is not the authority to
-    # change it, and every role in both realms holds `org:read` — so an impersonating
-    # operator can see the same screen the client sees when explaining a bill (D-22).
+    response_model=ClientLlmDefaultsOut,
+    # `org:read`: reading which tier you run is not the authority to change it, and an
+    # impersonating operator sees exactly the client's screen (D-22).
     openapi_extra=permission_meta("org:read"),
-    summary="Which language model this account's agents run, and what else it could run",
-    description=_DESCRIPTION,
+    summary="Which AI model tier this account's agents run, and which tiers it could choose",
+    description=_CLIENT_DESCRIPTION,
 )
-async def get_organization_llm_defaults(session: Session, _: Reader) -> LlmDefaultsOut:
-    # Client realm: a blocked model's reason must be the client's one action, never the
-    # operator ground (a key, a deployment, a price) they cannot touch.
-    return await _read_defaults(session, audience="client")
+async def get_organization_llm_defaults(session: Session, _: Reader) -> ClientLlmDefaultsOut:
+    return await _read_client_defaults(session)
 
 
 @router.put(
     "/v1/organization/llm-defaults",
-    response_model=LlmDefaultsOut,
-    # `org:manage` — the OWNER's permission, for the reason the agent lifecycle routes
-    # give: this decides what every agent on the account costs and how well it answers,
-    # which is an owner's decision and not a support ticket.
+    response_model=ClientLlmDefaultsOut,
+    # `org:manage` — the OWNER's permission: this decides what every agent on the account
+    # costs and how well it answers.
     openapi_extra=permission_meta("org:manage"),
-    summary="Choose the language model this account's agents run by default",
+    summary="Choose the AI model tier this account's agents run by default",
     description=(
-        f"{_DESCRIPTION}\n\nSend `null` to go back to following the platform's model. A "
-        "model this platform does not run at all is refused with "
-        "`llm_model_not_available`; one it supports but has no deployment for is refused "
-        f"with `llm_model_not_deployed` — the same rows `available` marks "
-        f"`is_available: false`.{_APPLIES_NOW}"
+        f"{_CLIENT_DESCRIPTION}\n\nSend `null` to go back to following Calevate's default. "
+        "A tier that is not switched on yet is refused with `llm_tier_not_available`. "
+        "Choosing the tier the account is already on changes nothing."
+        f"{_APPLIES_NOW}"
     ),
 )
 async def set_organization_llm_default(
-    payload: LlmDefaultIn,
+    payload: ClientLlmDefaultIn,
     session: Session,
     request: Request,
     principal: Owner,
-) -> LlmDefaultsOut:
+) -> ClientLlmDefaultsOut:
     assert principal.tenant_id is not None  # client realm; `requires()` resolves it
-    model = validate_llm_model(
-        payload.default_llm_model, field="default_llm_model", audience="client"
+    # Locked before resolving: "the tier this account is already on" is read from the value
+    # the writer will compare against, so the two cannot see different rows.
+    current = await _locked_org_default(session)
+    model = resolve_tier_choice(
+        payload.default_llm_tier, current_model=current, field="default_llm_tier"
     )
     changed = await _write_default(session, tenant_id=principal.tenant_id, model=model)
     await write_audit(
@@ -391,19 +472,16 @@ async def set_organization_llm_default(
         object_type="organization",
         object_id=str(principal.tenant_id),
         ip=client_request_ip(request),
-        # THE VALUE, not just the field name, and the distinction from `agent.updated`'s
-        # summary is deliberate: a model identifier is a configuration constant, not a
-        # client's business copy or anyone's personal data (hard rule 6), and WHICH model
-        # was selected is the entire fact an auditor reconstructing a bill or a quality
-        # complaint needs. `null` is recorded as itself — "went back to the platform
-        # default" is a decision somebody took.
-        #
-        # `changed` is beside it because a PUT is idempotent: re-sending the value already
-        # on file is a request somebody made and a change nobody made, and an auditor
-        # reading a run of identical entries needs to know which one moved the phone line.
-        summary={"default_llm_model": model, "changed": changed},
+        # The resolved MODEL beside the tier the client named: the tier is what they chose
+        # and the model is what a bill dispute turns on. Neither is personal data (hard
+        # rule 6); `changed` tells an auditor which of a run of repeats moved a phone line.
+        summary={
+            "default_llm_tier": payload.default_llm_tier,
+            "default_llm_model": model,
+            "changed": changed,
+        },
     )
-    return await _read_defaults(session, audience="client")
+    return await _read_client_defaults(session)
 
 
 admin_router = APIRouter(prefix="/v1/admin", tags=["admin"])
@@ -414,22 +492,17 @@ admin_router = APIRouter(prefix="/v1/admin", tags=["admin"])
     response_model=LlmDefaultsOut,
     openapi_extra=permission_meta("admin:tenants"),
     summary="Which language model one client's agents run",
-    description=_DESCRIPTION,
+    description=_ADMIN_DESCRIPTION,
 )
 async def admin_get_llm_defaults(
     org_id: UUID, request: Request, principal: Operator
 ) -> LlmDefaultsOut:
     """THE ACCOUNT IS NAMED IN THE PATH AND ENTERED EXPLICITLY, never inferred from a
-    session — the same resolution `agents/routes.py::publish` records. An admin principal
-    carries no tenant of its own, and the one way it can carry one (impersonation) is
-    READ-ONLY by D-22, so a route that inferred the tenant would be un-callable for the
-    PUT below and inconsistent with it here."""
+    session: an admin principal carries no tenant of its own, and impersonation is
+    READ-ONLY by D-22, so a route that inferred the tenant could not serve the PUT."""
     async with tenant_session(org_id) as scoped:
-        # Admin realm: the operator keeps the actionable ground for each blocked model.
-        defaults = await _read_defaults(scoped, audience="operator")
-        # D-482 L-1: a direct per-tenant admin read leaves its own ledger row. Reading
-        # which model a client runs is reading their account's configuration without
-        # impersonation, so this is the only place it can be recorded.
+        defaults = await _read_defaults(scoped)
+        # D-482 L-1: a direct per-tenant admin read leaves its own ledger row.
         await record_admin_tenant_read(
             scoped, request=request, principal=principal, tenant_id=org_id
         )
@@ -442,9 +515,12 @@ async def admin_get_llm_defaults(
     openapi_extra=permission_meta("admin:tenants"),
     summary="Set the language model one client's agents run by default",
     description=(
-        f"{_DESCRIPTION}\n\nSend `null` to put the account back on the platform's model. "
-        "Recorded in the audit ledger against the client's account, because it changes "
-        f"what their calls cost and how their agents answer.{_APPLIES_NOW}"
+        f"{_ADMIN_DESCRIPTION}\n\nSend `null` to put the account back on the platform's "
+        "model. A model this platform does not run is refused with "
+        "`llm_model_not_available`; one it supports but cannot serve yet with "
+        "`llm_model_not_deployed`. Recorded in the audit ledger against the client's "
+        f"account, because it changes what their calls cost and how their agents answer."
+        f"{_APPLIES_NOW}"
     ),
 )
 async def admin_set_llm_default(
@@ -458,9 +534,8 @@ async def admin_set_llm_default(
     )
     async with tenant_session(org_id) as scoped:
         changed = await _write_default(scoped, tenant_id=org_id, model=model)
-        # In the SAME transaction as the write (`write_audit` appends in the caller's),
-        # so "an operator changed which model this client's calls run on" cannot be
-        # missing for a change that happened.
+        # In the SAME transaction as the write, so the entry cannot be missing for a change
+        # that happened.
         await write_audit(
             scoped,
             action="admin.organization_llm_default_set",
@@ -471,4 +546,7 @@ async def admin_set_llm_default(
             ip=client_request_ip(request),
             summary={"default_llm_model": model, "changed": changed},
         )
-        return await _read_defaults(scoped, audience="operator")
+        return await _read_defaults(scoped)
+
+
+__all__ = ["admin_router", "router"]

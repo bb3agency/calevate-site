@@ -273,7 +273,8 @@ Client realm (`/c/<slug>/…`)
   is an account-level pool and no per-agent number could be true) and its lifetime call
   figures from `GET /v1/agents/stats`. **`/agents/new`** builds one: name, direction,
   language and the cost-runaway cap, and nothing else — both disclosure sentences are
-  written server-side from the language templates with both toggles on, so no field on that
+  written server-side from the language templates with both toggles OFF (D-669: a new agent
+  opens with its greeting only), so no field on that
   form can reach the compliance floor. **`/agents/<id>`** is the one agent: its publishing
   state (the §2b **unsaved-changes banner** from `GET /v1/agents/{agent_id}/pending`, with
   BOTH version pointers as labelled data), the cost-runaway guard read as "longest one call
@@ -327,8 +328,23 @@ Client realm (`/c/<slug>/…`)
   `/usage`: that panel is what the CLIENT is billed for, this is what Calevate absorbs
   until a ceiling, and merging them would put a figure a client never pays into the
   screen they check their bill on).
+- **Statement history and daily spend** (`GET /v1/billing/statements`, `GET
+  /v1/billing/spend/daily`, D-660). **Phone number rental** is its own line everywhere a
+  client reads money (D-665): a fourth wallet drawdown bucket (`number_rental_inr` on the
+  wallet summary and the daily series), a `label` on the ledger entry, and a statement line
+  in the month it was debited. A prepaid account's statement prints its calling from the
+  wallet's call splits, one line per voice and lot rate (D-671). A refunded pack's bonus
+  taken back reads "Pack bonus taken back after a refund" on the ledger (D-672).
+- **`call.recording_ready`** — a webhook-only event carrying a signed link to OUR copy of
+  the recording, for endpoints opted into `include_recording_url` (D-670, WEBHOOKS §1).
 
 Admin realm (`/admin/…`)
+- **Carrier-era operations** (D-662..D-672): recording a number takes its carrier, direction
+  (`provider` required, `direction` default `inbound`, platform reference optional; `POST
+  /v1/admin/tenants/{tenant_id}/numbers`; an inbound-only
+  number is refused as an outbound caller ID); closing an account detaches its numbers at
+  the carrier and the undo re-attaches them (D-671); a credit refund's answer carries
+  `bonus_clawed_back_inr`, which the refund panel names (D-672).
 - **Begin a view-as session** (`POST /v1/admin/impersonation-grants`,
   `admin:impersonate`, admin realm) — takes a tenant SLUG and returns the short-lived
   signed grant every impersonated request must carry as `X-Impersonation-Grant` beside
@@ -667,6 +683,14 @@ identifier IS the personal data, and a number in a URL lands in access logs, pro
 referrers and browser history (hard rule 6).
 
 ## 3. Integration Layer (our site ⇄ engine [Bolna, D-31]) — DECIDED doctrine
+
+> Bolna was deleted by D-639; the engine is our own Pipecat loop (D-592), which reaches the
+> api over `/v1/worker/**` with a Bearer token rather than by webhook, and the carrier's
+> callbacks (Vobiz, D-662) are the events that arrive from outside. The doctrine below —
+> verify, inbox, ack fast, process idempotently, reconcile — is what those callbacks follow
+> (`apps/voice-runtime/carrier_routes.py`, `apps/workers/carrier_events.py`); the Bolna
+> specifics are the record of the engine it was written for. Carrier-callback
+> authentication is SECURITY-COMPLIANCE §5.
 
 The verified vendor surface lives in TRD §5 (events, HMAC, rate limits, Get Call).
 This section fixes HOW we consume it. No compromises means: no lost events, no

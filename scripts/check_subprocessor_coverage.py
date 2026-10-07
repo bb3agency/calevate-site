@@ -1,22 +1,26 @@
-"""Guardrail: every vendor the CODE can send client data to is on the published register.
+"""Guardrail: every vendor the CODE can send client data to is registered and disclosed.
 
-**THE FAILURE THIS EXISTS FOR.** `apps/web/src/lib/legal/subprocessors.ts` is the
-authorised sub-processor list — clause 5 of the DPA makes it the list we notify changes
-against, and the Privacy Policy incorporates it. It is checked today by
-`apps/web/tests/legal.test.tsx`, which asks two questions: does the DPA avoid restating
-the vendor list, and does the register render every identity it exports. Both compare the
-register **against itself**. A vendor that is in the tree and on neither document is
-perfectly consistent and completely invisible, and that is exactly how Supermemory came to
-be two complete adapters (`apps/api/retrieval/supermemory.py`,
-`supermemory_index.py`) whose settings `apps/api/core/platform_config.py` marks `LIVE` —
-an operator can select it from the ops console with no deploy, at which point it receives
-every published knowledge passage — while appearing nowhere on the page that tells a
-client where their data goes.
+**THE TWO DOCUMENTS (D-679).** The authorised sub-processor list has two halves since the
+founder's decision of 6 Oct 2026 that the public legal pages name no telephony or voice
+vendor (Calevate resells a voice platform under a white-label programme):
 
-The register's own header records an August 2026 audit that walked the same direction by
-hand and found three missing vendors. This file is that audit as a gate, because the
-August one closed the copy and left the MECHANISM open in its own words: *"nothing in the
-tree can notice when our actual vendors and this list diverge."*
+* `docs/legal/SUBPROCESSOR-REGISTER.md` — the INTERNAL named register, one row per company
+  per role, each filed under one or more category keys. It is what a request for the named
+  list is answered from, and DPA clause 5 notices are given against it.
+* `apps/web/src/lib/legal/subprocessors.ts` — the PUBLIC page, a table of categories
+  (`SUBPROCESSOR_CATEGORIES`, each with a `key`) naming only the companies in its `named`
+  lists.
+
+This guard holds the CODE to the register and the register to the page: a vendor the tree
+can reach must have a register row; every category a row names must be published; every
+published category must have a vendor behind it; and the names the page prints must be
+exactly the rows the register marks public.
+
+**THE FAILURE THIS EXISTS FOR.** A vendor that is in the tree and on no list is perfectly
+consistent with every check that compares the lists to each other, and that is how
+Supermemory came to be two complete adapters whose settings the ops console can switch at
+runtime while appearing nowhere a client could read. The register being private now makes
+this guard the ONLY thing between a new integration and an undisclosed recipient.
 
 **HOW VENDOR IDENTITY IS DERIVED FROM CODE, AND WHY THIS SHAPE.** Two signals, both
 structural, both chosen because they are what a vendor integration cannot exist without:
@@ -38,8 +42,8 @@ thing here, and it is small, one-directional and checked from both ends.
 
 **BOTH DIRECTIONS, on `check_erasure_coverage`'s terms.**
 
-* A token with no register identity fails — the missing-vendor direction, the one that
-  costs a client their disclosure.
+* A token with no register row fails — the missing-vendor direction, the one that costs a
+  client their disclosure.
 * A token deliberately outside the register is in `NOT_A_SUBPROCESSOR` with a reason (our
   own infrastructure, our own signing secrets, a vendor we only ever RECEIVE from).
 * A register identity with no code signal at all is in `REGISTER_ONLY` with a reason —
@@ -69,7 +73,8 @@ from calevate_shared.config import EngineName
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 SETTINGS_SOURCE = REPO_ROOT / "packages" / "shared" / "src" / "calevate_shared" / "config.py"
-REGISTER_SOURCE = REPO_ROOT / "apps" / "web" / "src" / "lib" / "legal" / "subprocessors.ts"
+REGISTER_SOURCE = REPO_ROOT / "docs" / "legal" / "SUBPROCESSOR-REGISTER.md"
+PUBLIC_PAGE_SOURCE = REPO_ROOT / "apps" / "web" / "src" / "lib" / "legal" / "subprocessors.ts"
 ADAPTER_DIRECTORIES: tuple[Path, ...] = (
     REPO_ROOT / "apps" / "api" / "engine",
     REPO_ROOT / "apps" / "api" / "retrieval",
@@ -97,9 +102,8 @@ _CREDENTIAL_SUFFIXES = (
     "_dsn",
 )
 
-#: token -> the identity the register publishes for it, or None when the token is a real
-#: vendor reach whose identity the register deliberately does not name (the not-yet-chosen
-#: hosting provider is the only such row today: `names: []`).
+#: token -> the register's Identity cell for it, or None when the token is a real vendor
+#: reach with no company behind it yet (the unconfigured tracing collector).
 #:
 #: THE MAP IS ONE-DIRECTIONAL AND IT IS THE ONLY HAND-MAINTAINED THING HERE. A token this
 #: map does not know fails rather than being skipped, so adding a vendor to the tree costs
@@ -118,24 +122,23 @@ VENDOR_OF: dict[str, str | None] = {
     "pipecat_worker_api": "Pipecat Cloud",
     # R2 is Cloudflare's object storage; the endpoint is how we address it.
     "object_store": "Cloudflare",
-    # NO IDENTITY, DELIBERATELY, and this is the one value in the map that means "the
-    # register carries a row with no vendor name". An OTLP collector address is whatever
-    # an operator points it at — our own box, or a hosted tracing vendor — so there is no
-    # brand to publish, exactly as there is none for the hosting provider row. ⚠ THE LIMIT
-    # IS WORTH STATING: a `None` here cannot be checked BY NAME against the register, so
-    # the unnamed row it refers to is held by `apps/web/tests/legal.test.tsx`'s structural
-    # checks and by a reader, not by this scan.
+    # NO IDENTITY, DELIBERATELY. An OTLP collector address is whatever an operator points
+    # it at — our own box, or a hosted tracing vendor — so there is no company to register.
+    # The public `monitoring` category describes it; choosing a vendor for it adds a
+    # register row and replaces this `None`.
     "otel_exporter_otlp": None,
     "plivo": "Plivo",
     # The carrier the switch selects by default (D-662): its credential pair and its API base.
     "vobiz": "Vobiz",
     "vobiz_api": "Vobiz",
+    # `Settings.thinnest_api_base_url` (D-678); the engine token itself is derived below.
+    "thinnest_api": "ThinnestAI",
     "razorpay": "Razorpay",
     "resend": "Resend",
     "sentry": "Sentry",
     "openai": "OpenAI",
-    # Azure OpenAI is Microsoft's product; the register names the COMPANY in `names` and
-    # the product in the Vendor cell, which is why these two tokens do not agree.
+    # Azure OpenAI is Microsoft's product; the register's Identity cell is the COMPANY and
+    # the product is in its Role cell, which is why these two tokens do not agree.
     "azure_openai": "Microsoft",
     # Three Google services, one identity. `gemini_api_key` is the model leg,
     # `google_oauth_client_secret` the Sheets and Calendar legs.
@@ -155,6 +158,11 @@ NOT_A_SUBPROCESSOR: dict[str, str] = {
         "OUR OWN public address, used to build the callback URLs we publish to clients and "
         "to vendors. Nothing of a client's is sent anywhere by its existence: an address we "
         "are reached AT is not a vendor we send to."
+    ),
+    "engine_actions": (
+        "OUR OWN public API origin, which the voice platform's in-call actions call back "
+        "(D-682). Like `webhook`, an address we are reached AT: the voice platform that "
+        "calls it is already registered as the engine."
     ),
     # ⚠ THIS ENTRY IS TRUE TODAY AND IS THE ONE HERE THAT CAN STOP BEING TRUE. The entry
     # above describes an address we are REACHED AT, which no configuration can turn into
@@ -181,13 +189,18 @@ NOT_A_SUBPROCESSOR: dict[str, str] = {
 }
 
 #: Register identities with no signal in the tree, each with the argument for keeping them
-#: published. The other direction of the same rule: a vendor that left the code and stayed
-#: on the page is the Clerk/Vertex drift the register's own header records.
+#: registered. The other direction of the same rule: a vendor that left the code and stayed
+#: on the list is the Clerk/Vertex drift that once kept departed vendors in client copy.
 REGISTER_ONLY: dict[str, str] = {
     "Cohere": (
-        "A contingency embedding vendor, and the register's own header already records that "
-        "it 'appears nowhere in the code at all, which is what Contingency. Not selected. "
-        "should look like'. Kept as a declared alternative under the DPA's change clause."
+        "A contingency embedding vendor that appears nowhere in the code at all, which is "
+        "what a contingency nobody has selected should look like. Kept as a declared "
+        "alternative under the DPA's change clause."
+    ),
+    "Hostinger": (
+        "The application host chosen by D-180 and not yet provisioned. A server is reached "
+        "by deploying to it rather than through a credential in Settings, so no code signal "
+        "can exist for it; it holds the whole database once provisioned."
     ),
     "AiSensy": (
         "A WhatsApp Business Solution Provider reached with a credential the CLIENT supplies "
@@ -226,9 +239,11 @@ def _engine_vendor(engine: str) -> str | None:
         return "Cartesia"
     if engine == "pipecat":
         return "Pipecat Cloud"
+    if engine == "thinnest":
+        return "ThinnestAI"
     raise ValueError(
         f"{engine!r} is a declared engine with no vendor identity here. Add it, and add "
-        "its row to apps/web/src/lib/legal/subprocessors.ts — an engine is a company that "
+        "its row to docs/legal/SUBPROCESSOR-REGISTER.md — an engine is a company that "
         "receives client data."
     )
 
@@ -240,8 +255,26 @@ VENDOR_OF.update({name: _engine_vendor(name) for name in get_args(EngineName)})
 
 SETTINGS_ANCHORS = frozenset({"sarvam", "sentry"})
 REGISTER_ANCHORS = frozenset({"Cartesia", "Microsoft", "Sarvam"})
+PUBLIC_ANCHORS = frozenset({"language-models", "speech-to-text", "telephony"})
 
 _FIELD = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+@dataclass(frozen=True)
+class RegisterRow:
+    """One company in one role, as `docs/legal/SUBPROCESSOR-REGISTER.md` files it."""
+
+    identity: str
+    categories: frozenset[str]
+    named_publicly: bool
+
+
+@dataclass(frozen=True)
+class PublicPage:
+    """What `/legal/subprocessors` publishes: its category keys and the names it prints."""
+
+    categories: frozenset[str]
+    named: frozenset[str]
 
 
 @dataclass
@@ -327,25 +360,54 @@ def code_vendors() -> CodeVendors:
     return found
 
 
-def register_identities(path: Path = REGISTER_SOURCE) -> set[str]:
-    """Every identity the published register exports, read out of its `names` arrays.
+def register_rows(path: Path = REGISTER_SOURCE) -> list[RegisterRow]:
+    """Every row of the internal register's machine-read table.
 
-    The TypeScript is parsed the shallow way on purpose: `names: [...]` is the field the
-    register's own `SUBPROCESSOR_NAMES` is derived from, it is a literal in every row, and
-    a real TS parser in a Python guard would be a second toolchain to keep alive. The
-    anchors below are what makes the shallow read safe — if the shape ever changes, this
-    stops finding its anchors and refuses to score.
+    Only the lines between the `register:start` and `register:end` markers are read, so the
+    prose around the table can say anything. A table whose shape changed stops yielding the
+    anchors and the scan refuses to score rather than reporting everything uncovered.
     """
     text = path.read_text(encoding="utf-8")
-    identities: set[str] = set()
-    for block in re.findall(r"^\s*names:\s*\[([^\]]*)\]", text, re.MULTILINE):
-        identities |= set(re.findall(r'"([^"]+)"', block))
-    return identities
+    start = text.find("<!-- register:start -->")
+    end = text.find("<!-- register:end -->")
+    if start < 0 or end < start:
+        return []
+    rows: list[RegisterRow] = []
+    for line in text[start:end].splitlines():
+        if not line.startswith("|") or line.startswith("|---"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 4 or cells[0] == "Identity":
+            continue
+        rows.append(
+            RegisterRow(
+                identity=cells[0],
+                categories=frozenset(c.strip() for c in cells[2].split(",") if c.strip()),
+                named_publicly=cells[3].lower() == "yes",
+            )
+        )
+    return rows
+
+
+def public_page(path: Path = PUBLIC_PAGE_SOURCE) -> PublicPage:
+    """The category keys and printable names `/legal/subprocessors` declares.
+
+    Shallow on purpose: `key: "..."` and `named: [...]` are literals in every category row,
+    and a TypeScript parser in a Python guard would be a second toolchain to keep alive.
+    The anchors make the shallow read safe.
+    """
+    text = path.read_text(encoding="utf-8")
+    keys = frozenset(re.findall(r'^\s*key:\s*"([^"]+)"', text, re.MULTILINE))
+    named: set[str] = set()
+    for block in re.findall(r"^\s*named:\s*\[([^\]]*)\]", text, re.MULTILINE):
+        named |= set(re.findall(r'"([^"]+)"', block))
+    return PublicPage(categories=keys, named=frozenset(named))
 
 
 def evaluate(
     found: CodeVendors,
-    published: set[str],
+    register: list[RegisterRow],
+    page: PublicPage,
     *,
     vendor_of: dict[str, str | None] | None = None,
     not_a_subprocessor: dict[str, str] | None = None,
@@ -355,6 +417,7 @@ def evaluate(
     known = dict(VENDOR_OF if vendor_of is None else vendor_of)
     internal = dict(NOT_A_SUBPROCESSOR if not_a_subprocessor is None else not_a_subprocessor)
     register_only_reasons = dict(REGISTER_ONLY if register_only is None else register_only)
+    registered = {row.identity for row in register}
     failures: list[str] = []
 
     # 1. THE DIRECTION THAT COSTS A CLIENT THEIR DISCLOSURE.
@@ -366,43 +429,73 @@ def evaluate(
         if identity is ...:
             failures.append(
                 f"{token}: this deployment can reach a vendor by this name ({where}) and "
-                "nothing here knows who it is. Map it in VENDOR_OF to the identity the "
-                "sub-processor register publishes, or register it in NOT_A_SUBPROCESSOR "
-                "with why nothing of a client's reaches anybody through it."
+                "nothing here knows who it is. Map it in VENDOR_OF to its register "
+                "identity, or register it in NOT_A_SUBPROCESSOR with why nothing of a "
+                "client's reaches anybody through it."
             )
             continue
-        if identity is not None and identity not in published:
+        if identity is not None and identity not in registered:
             failures.append(
                 f"{identity}: reachable from this tree ({where}) and ABSENT from the "
-                "sub-processor register. That register is the authorised list the DPA "
-                "notifies changes against and the Privacy Policy incorporates, so a "
-                "vendor missing from it is an undisclosed recipient of client data. Add "
-                "the row — including its Status, which is where 'configured but not "
-                "selected' is said honestly."
+                "internal sub-processor register (docs/legal/SUBPROCESSOR-REGISTER.md). "
+                "That register is the named list DPA clause 5 notices are given against, "
+                "so a vendor missing from it is an undisclosed recipient of client data. "
+                "Add its row, filed under a category the public page publishes."
             )
 
-    # 2. The reverse: a vendor on the page with nothing behind it.
+    # 2. The reverse: a registered vendor with nothing behind it.
     identities_in_code = {
         known[token]
         for token in found.tokens
         if token not in internal and known.get(token) is not None
     }
-    for identity in sorted(published):
+    for identity in sorted(registered):
         if identity in identities_in_code or identity in register_only_reasons:
             continue
         failures.append(
-            f"{identity}: published on the sub-processor register and reachable from "
-            "nothing in this tree. A vendor that left the code and stayed on the page is "
-            "the drift that kept Clerk and Vertex in client-facing copy after they were "
-            "replaced. Remove the row, or register it in REGISTER_ONLY with why it is "
-            "right that a client still sees it."
+            f"{identity}: in the sub-processor register and reachable from nothing in this "
+            "tree. A vendor that left the code and stayed on the list is the drift that "
+            "kept Clerk and Vertex in client-facing copy after they were replaced. Remove "
+            "the row, or register it in REGISTER_ONLY with why it still belongs."
         )
 
-    # 3. Both registers stay honest, `check_erasure_coverage`'s rule 4 exactly.
-    for identity, reason in sorted(register_only_reasons.items()):
-        if identity not in published:
+    # 3. The register and the public page describe the same categories.
+    for row in register:
+        if not row.categories:
+            failures.append(f"{row.identity}: a register row files this vendor under no category.")
+        for category in sorted(row.categories - page.categories):
             failures.append(
-                f"{identity}: STALE REGISTER_ONLY entry — no such identity on the "
+                f"{row.identity}: filed under category {category!r}, which the public "
+                "sub-processor page does not publish. A client could not learn from the "
+                "page that a company of this kind receives their data. Add the category "
+                "to SUBPROCESSOR_CATEGORIES, or file the vendor under one that is there."
+            )
+    backed = {category for row in register for category in row.categories}
+    for category in sorted(page.categories - backed):
+        failures.append(
+            f"{category}: published as a sub-processor category with no vendor in the "
+            "register behind it. Remove it from the page or register its vendor."
+        )
+
+    # 4. The page prints exactly the names the register marks public.
+    public = {row.identity for row in register if row.named_publicly}
+    for name in sorted(page.named - public):
+        failures.append(
+            f"{name}: printed by the public sub-processor page and not marked 'Named "
+            "publicly: yes' in the register. D-679 keeps vendor names off the public pages "
+            "unless the register records why naming is harmless."
+        )
+    for name in sorted(public - page.named):
+        failures.append(
+            f"{name}: marked public in the register and printed by no category on the page. "
+            "Either name it there or mark the row 'no'."
+        )
+
+    # 5. Both exemption lists stay honest, `check_erasure_coverage`'s rule 4 exactly.
+    for identity, reason in sorted(register_only_reasons.items()):
+        if identity not in registered:
+            failures.append(
+                f"{identity}: STALE REGISTER_ONLY entry — no such identity in the "
                 "register. Remove it; a dead exemption hides the next real gap."
             )
         elif identity in identities_in_code:
@@ -431,14 +524,16 @@ def evaluate(
 
 def main() -> int:
     found = code_vendors()
-    published = register_identities()
+    register = register_rows()
+    page = public_page()
 
     # THE BLIND-SPOT ARM RUNS FIRST and exits 2, `check_erasure_coverage`'s convention:
     # "I could not see my subject" is a different answer from "I looked and this is
     # wrong", and a guard that cannot tell them apart has a green that means nothing.
     missing_settings = sorted(SETTINGS_ANCHORS - set(found.tokens))
-    missing_register = sorted(REGISTER_ANCHORS - published)
-    if found.blind_spots or missing_settings or missing_register:
+    missing_register = sorted(REGISTER_ANCHORS - {row.identity for row in register})
+    missing_page = sorted(PUBLIC_ANCHORS - page.categories)
+    if found.blind_spots or missing_settings or missing_register or missing_page:
         print("SUBPROCESSOR COVERAGE: REFUSED TO SCORE")
         for blind in found.blind_spots:
             print(f"  - {blind}")
@@ -449,12 +544,17 @@ def main() -> int:
             )
         if missing_register:
             print(
-                f"  - the register scan found {len(published)} identit(ies) and none of "
-                f"{missing_register}; `names:` no longer parses"
+                f"  - the register scan found {len(register)} row(s) and none of "
+                f"{missing_register}; the table between the register markers no longer parses"
+            )
+        if missing_page:
+            print(
+                f"  - the public page scan found {len(page.categories)} categor(ies) and none "
+                f"of {missing_page}; `key:` no longer parses"
             )
         return 2
 
-    failures = evaluate(found, published)
+    failures = evaluate(found, register, page)
     if failures:
         print("SUBPROCESSOR COVERAGE: FAIL")
         for failure in failures:
@@ -462,8 +562,9 @@ def main() -> int:
         return 1
     print(
         f"SUBPROCESSOR COVERAGE: OK ({len(found.tokens)} vendor token(s) in the tree; "
-        f"{len(published)} identit(ies) published; {len(NOT_A_SUBPROCESSOR)} internal, "
-        f"{len(REGISTER_ONLY)} published with no code signal)"
+        f"{len({row.identity for row in register})} registered identit(ies) in "
+        f"{len(page.categories)} published categor(ies), {len(page.named)} named publicly; "
+        f"{len(NOT_A_SUBPROCESSOR)} internal, {len(REGISTER_ONLY)} with no code signal)"
     )
     return 0
 

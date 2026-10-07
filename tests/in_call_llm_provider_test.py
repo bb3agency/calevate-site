@@ -414,7 +414,11 @@ def test_a_model_this_platform_has_no_deployment_for_is_refused_not_substituted(
     with caplog.at_level(logging.ERROR), pytest.raises(ProblemError) as raised:
         service.in_call_llm(undeployed)
     assert raised.value.code == "llm_model_not_deployed"
-    assert undeployed in raised.value.detail
+    # The client reads the TIER, never the model id (D-680); the id is on the operator's log.
+    from apps.api.agents.llm_tiers import client_model_label
+
+    assert undeployed not in raised.value.detail
+    assert client_model_label(undeployed) in raised.value.detail
     # THE AUDIENCE SPLIT (regression guard). Publish is a client action, so the message a
     # client reaches names only what THEY can do and NOT the operator ground — a client
     # cannot create a deployment, install a key or attest a price. The ground is not lost:

@@ -496,8 +496,57 @@ async def test_the_entrypoint_releases_the_slot_when_the_carrier_leg_is_refused(
 
     monkeypatch.setattr(bot, "container", _container)
 
-    with pytest.raises(carrier.CarrierCredentialsMissingError):
-        await bot.bot(cast(Any, _Args(_Socket(PLIVO_START, "{}", url=_stream_url(ref)))))
+    from loguru import logger as loguru_logger
+
+    records: list[dict[str, Any]] = []
+    sink = loguru_logger.add(
+        lambda message: records.append(message.record),
+        filter=lambda record: record["message"] == "carrier session refused",
+    )
+    try:
+        with pytest.raises(carrier.CarrierCredentialsMissingError):
+            await bot.bot(cast(Any, _Args(_Socket(PLIVO_START, "{}", url=_stream_url(ref)))))
+    finally:
+        loguru_logger.remove(sink)
 
     assert runtime.calls.seen == {}
     assert registry.reserved == registry.released
+    # The carrier just hangs up on a refused socket; this line is the operator's only trace.
+    assert [r["extra"]["reason"] for r in records] == ["CarrierCredentialsMissingError"]
+
+
+async def test_the_entrypoint_logs_the_route_and_the_call_claim_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Gate V-3 is read off this line on a live call (`runbooks/vobiz-first-live-call.md`
+    §6): the agent the path routed to, the direction, and whether a call claim verified.
+    No number may appear in it (hard rule 6)."""
+    from loguru import logger as loguru_logger
+
+    ref = _ref()
+    call_id = str(uuid.uuid4())
+    runtime, registry = _Runtime(config=_Config()), _Registry()
+
+    async def _container() -> tuple[_Runtime, _Registry]:
+        return runtime, registry
+
+    monkeypatch.setattr(bot, "container", _container)
+    records: list[dict[str, Any]] = []
+    sink = loguru_logger.add(
+        lambda message: records.append(message.record),
+        filter=lambda record: record["message"] == "carrier session routed",
+    )
+    try:
+        good = _stream_url(ref, carrier="vobiz", **_call_claim(ref, call_id=call_id))
+        await bot.bot(cast(Any, _Args(_Socket(_vobiz_start(), VOBIZ_MEDIA, url=good))))
+        forged = _stream_url(
+            ref, carrier="vobiz", **_call_claim(ref, call_id=call_id, key=b"z" * 32)
+        )
+        await bot.bot(cast(Any, _Args(_Socket(_vobiz_start(), VOBIZ_MEDIA, url=forged))))
+    finally:
+        loguru_logger.remove(sink)
+
+    verdicts = [(r["extra"]["direction"], r["extra"]["call_claim"]) for r in records]
+    assert verdicts == [("outbound", "verified"), ("inbound", "unverified")]
+    assert records[0]["extra"]["call_id"] == call_id
+    assert all(r["extra"]["agent_id"] for r in records)

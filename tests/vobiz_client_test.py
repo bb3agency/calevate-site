@@ -281,7 +281,10 @@ def test_malformed_cdr_numbers_read_as_nothing() -> None:
         ({"HangupCause": "NORMAL_CLEARING"}, "hangup", "completed"),
         ({"EndTime": "2026-10-02 10:00:00"}, "hangup", "failed"),
         ({}, "other", None),
-        ({"Event": "MachineDetection"}, "machine", "voicemail"),
+        # The verdict is the `Machine` field (`call/machine-detection.md:162`): the same
+        # event reports a person as `false`, so the event name alone is not a voicemail.
+        ({"Event": "MachineDetection", "Machine": "true"}, "machine", "voicemail"),
+        ({"Event": "MachineDetection"}, "other", None),
         ({"Event": "StartStream"}, "stream", None),
         ({"Event": "StopStream"}, "stream", None),
         ({"Event": "Redirect"}, "other", None),

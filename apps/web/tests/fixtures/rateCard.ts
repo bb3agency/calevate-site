@@ -44,6 +44,9 @@ export const RATE_CARD = {
   from_studio_inr_per_min: "5.5000",
   clear_tier_label: "Clear",
   studio_tier_label: "Studio",
+  voice_not_offered: "clear",
+  voice_not_offered_notice:
+    "Not available to choose yet: the vendor that speaks this voice changed and we have not established what one minute of it costs, so we will not put an agent on it. Its rate is still fixed on credit you buy today, and it costs you nothing to move an agent onto it once it opens.",
   packs: [
     { pack_id: "starter", amount_inr: "2000.00", paid_credits: "2000.00", bonus_credits: "0.00", total_credits: "2000.00", bonus_pct: "0", clear_inr_per_min: "4.0000", studio_inr_per_min: "7.0000", clear_minutes: 500, studio_minutes: 285, effective_rate_inr_per_min: "4.0000", talk_time_minutes: 500, best_value: false },
     { pack_id: "growth", amount_inr: "5000.00", paid_credits: "5000.00", bonus_credits: "0.00", total_credits: "5000.00", bonus_pct: "0", clear_inr_per_min: "4.0000", studio_inr_per_min: "6.7000", clear_minutes: 1250, studio_minutes: 746, effective_rate_inr_per_min: "4.0000", talk_time_minutes: 1250, best_value: false },

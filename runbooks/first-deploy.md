@@ -282,6 +282,11 @@ VOBIZ_AUTH_ID=<MA_… from the Vobiz console>
 VOBIZ_AUTH_TOKEN=<from the Vobiz console>
 # Env-only too. The same value goes into the Pipecat secret set (DEPLOYMENT §12.2).
 CARRIER_CLAIM_SECRET=<32 random bytes>
+# Env-only, D-673. `openssl rand -hex 32` on your own machine. It rides every URL we give
+# Vobiz, so it must differ from CARRIER_CLAIM_SECRET and VOBIZ_AUTH_TOKEN, and it never goes
+# into the Pipecat secret set. The preflight below refuses the deploy without it, and
+# voice-runtime refuses every Vobiz request (DEPLOYMENT §12.6).
+VOBIZ_CALLBACK_SECRET=<openssl rand -hex 32>
 ```
 
 **Do not put `CARRIER` in this file.** It is set in the ops console (Platform
@@ -525,10 +530,20 @@ host's `.env`, `CARRIER=vobiz`, and the read-only knowledge-pack R2 token from �
 calevate-pipecat-worker`.
 
 **4. Point the answer document at the worker.** Set `PIPECAT_STREAM_BASE_URL` in the ops
-console to the `wss://` base Pipecat Cloud gives the deployed agent. ⚠ That hostname
-scheme is not documented anywhere this repository can read (DEPLOYMENT §12, `docs.pipecat.ai`
-is not reachable from the development container), so take it from the Pipecat Cloud
-dashboard for `calevate-pipecat-worker`; do not construct it.
+console to Pipecat Cloud's telephony endpoint for the deployed agent, in this shape:
+
+```
+wss://ap-south.api.pipecat.daily.co/ws/plivo?serviceHost=calevate-pipecat-worker.<ORG>
+```
+
+`<ORG>` is your Pipecat Cloud organization name (`pipecat cloud organizations list`). The
+shape is Pipecat's (`docs.pipecat.ai/pipecat-cloud/guides/telephony/plivo-websocket` and
+`/guides/regions`, read 5 Oct 2026). `plivo` is right for Vobiz: Vobiz speaks Plivo's stream
+protocol. **The `ap-south.` prefix is not optional.** The endpoint without a region routes to
+`us-west`, where this agent is not deployed, and a US media leg would also break Vobiz's
+India media-anchoring rule (OPERATIONS gate V-8). voice-runtime appends the agent ref to the
+path and its own claims to the query, and keeps `serviceHost`. If the dashboard shows a
+different URL for the agent, use the dashboard's and record the difference under gate V-3.
 
 **5. Check readiness on both services.** It names, by key, whatever is still missing:
 
@@ -538,8 +553,9 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8100/healthz/ready   #
 ```
 
 Under `ENGINE=pipecat` the api is not ready without the worker token, the Vobiz pair, a
-usable `CARRIER_CLAIM_SECRET` and a public `WEBHOOK_BASE_URL`; voice-runtime is not ready
-without `PIPECAT_STREAM_BASE_URL`, the claim key and the public `WEBHOOK_BASE_URL`. A 503
+usable `CARRIER_CLAIM_SECRET`, `VOBIZ_CALLBACK_SECRET` (on Vobiz) and a public
+`WEBHOOK_BASE_URL`; voice-runtime is not ready without `PIPECAT_STREAM_BASE_URL`, the claim
+key, `VOBIZ_CALLBACK_SECRET` (on Vobiz) and the public `WEBHOOK_BASE_URL`. A 503
 writes `health_not_ready` to the service's log with `missing_config_keys`, which is where
 the names are. Then press **Test the carrier credentials** beside the Vobiz rows under
 *Set outside this console* in the ops console: it asks Vobiz whether the pair this

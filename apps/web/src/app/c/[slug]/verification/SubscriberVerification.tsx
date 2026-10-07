@@ -225,9 +225,9 @@ function Affected({
 }
 
 /**
- * Where the calling number comes from: us, on our own carrier account with Vobiz.
+ * Where the calling number comes from: us, on our own telephony account.
  *
- * The founder's decision of 2 Oct 2026 (D-662's carrier, "ours, on Vobiz"): Calevate
+ * The number is ours (founder, 2 Oct 2026) and no provider is named (white label, 6 Oct 2026): Calevate
  * provides the number and the carrier connection; the client's part is our business
  * verification and keeping the details we hold accurate. The card is a sentence and not a
  * control: getting a number is the phone-number screen's job, not this page's.
@@ -239,9 +239,8 @@ export function PhoneNumbers({ record }: { record: KycRecord }) {
   return (
     <div>
       <p className="text-sm text-ink-muted">
-        Calevate provides your calling number. It is connected on our own carrier account
-        with <span className="font-medium text-ink">Vobiz</span>, and we look after the
-        connection, so there is no operator account for you to open.
+        Calevate provides your calling number. It is connected on our own telephony account, and we
+        look after the connection, so there is no operator account for you to open.
       </p>
       <ul className={`mt-3 ${LIST}`}>
         <li>

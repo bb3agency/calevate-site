@@ -131,6 +131,7 @@ function refundResult(over: Partial<RefundResult> = {}): RefundResult {
     amount_inr: "2500.00",
     recorded: true,
     balance_inr: "0.00",
+    bonus_clawed_back_inr: "0.00",
     processing_days: 7,
     ...over,
   };
@@ -286,6 +287,33 @@ describe("refunding a payment", () => {
     });
     expect(document.body.textContent).toContain("matching entry is on this wallet");
     expect(document.body.textContent).toContain("rfnd_QK9xLm77");
+  });
+
+  it("names the pack bonus a refund took back", async () => {
+    await render({
+      [`POST ${REFUND_PATH}`]: refundResult({ balance_inr: "0.00", bonus_clawed_back_inr: "150.00" }),
+    });
+
+    await fillRefund();
+    fireEvent.click(button(REFUND_SUBMIT));
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("refunded to Sri Traders");
+    });
+    // The balance fell by more than the refund; the sentence is what says why.
+    expect(document.body.textContent).toContain("₹150.00 of the pack's bonus credit was taken back");
+  });
+
+  it("does not mention a bonus on a refund of a payment that carried none", async () => {
+    await render({ [`POST ${REFUND_PATH}`]: refundResult() });
+
+    await fillRefund();
+    fireEvent.click(button(REFUND_SUBMIT));
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("refunded to Sri Traders");
+    });
+    expect(document.body.textContent).not.toContain("bonus credit was taken back");
   });
 
   it("states the absence when the answer carried no balance, rather than printing ₹0.00", async () => {

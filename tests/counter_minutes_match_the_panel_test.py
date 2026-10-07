@@ -26,6 +26,13 @@ guarantees its parts sum to `to_paise(total_seconds / 60)`, the increments teles
 precisely the figure the panel prints — and every increment is a two-decimal value the
 column stores without rounding at all.
 
+EACH CASE NAMES ITS SIDE OF THE D-681 CUTOVER. From `CLIENT_PULSE_EFFECTIVE_FROM` a call
+bills `ceil(seconds / 30) x 0.5` minutes; before it, the exact seconds. These tests used
+to bill at `datetime.now()` and assert by-the-second figures, so they changed meaning on
+the cutover date. A post-cutover case bills at the current instant (asserted to be after
+the cutover — the gate reads the open month, so it cannot be a fixed date); a pre-cutover
+case bills at a fixed instant in September 2026 and reads that month.
+
 Run: uv run pytest -q tests/counter_minutes_match_the_panel_test.py
 """
 
@@ -37,15 +44,27 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
+from apps.api.billing.rates import CLIENT_PULSE_EFFECTIVE_FROM
 from apps.api.billing.service import usage_summary
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
 from tests.spend_caps_test import _bill, _plan, _spend_state, _tenant
 
-#: Durations that do NOT divide by 60. A fixture of whole minutes cannot show this
-#: defect, which is why the suite had not — the same trap `tests/money_walk_test.py`
+#: Durations that do NOT divide by 60 or by 30. A fixture of whole minutes cannot show
+#: this defect, which is why the suite had not — the same trap `tests/money_walk_test.py`
 #: names about round rates.
 _AWKWARD_SECONDS = (3847, 2913, 611, 137, 89, 1451)
+
+#: Noon IST on 15 Sep 2026: before the cutover, in a month of its own.
+_BEFORE_CUTOVER = datetime(2026, 9, 15, 6, 30, tzinfo=UTC)
+_BEFORE_MONTH = "2026-09"
+
+
+def _after_cutover() -> datetime:
+    """Now, which must be on the 30-second side of D-681."""
+    now = datetime.now(UTC)
+    assert now >= CLIENT_PULSE_EFFECTIVE_FROM, "a post-cutover case needs a post-cutover clock"
+    return now
 
 
 async def _voice(tenant_id: UUID, agent_id: UUID) -> None:
@@ -60,8 +79,21 @@ async def _voice(tenant_id: UUID, agent_id: UUID) -> None:
         )
 
 
+#: Post-cutover, per call: ceil(s/30) steps of 0.5 min —
+#:   3847 -> 129 -> 64.5   2913 -> 98 -> 49.0   611 -> 21 -> 10.5
+#:    137 ->   5 ->  2.5     89 ->  3 ->  1.5  1451 -> 49 -> 24.5   total 152.50
+#: Pre-cutover: 3847+2913+611+137+89+1451 = 9048 s / 60 = 150.80.
+_SIDES = pytest.mark.parametrize(
+    ("side", "expected"),
+    [("after", Decimal("152.50")), ("before", Decimal("150.80"))],
+)
+
+
+@_SIDES
 @pytest.mark.parametrize("tier", ["managed", "self_serve"])
-async def test_the_counter_and_the_panel_report_the_same_minutes(tier: str) -> None:
+async def test_the_counter_and_the_panel_report_the_same_minutes(
+    tier: str, side: str, expected: Decimal
+) -> None:
     """Both motions, because the minute counter is the ceiling's for BOTH of them and
     the two took different branches through the meter."""
     tenant_id, agent_id, _ref = await _tenant(f"cm{uuid.uuid4().hex[:6]}")
@@ -71,38 +103,57 @@ async def test_the_counter_and_the_panel_report_the_same_minutes(tier: str) -> N
             text("UPDATE organizations SET plan_tier = :t WHERE id = :i"),
             {"t": tier, "i": tenant_id},
         )
-    now = datetime.now(UTC)
+    ended, month = (_after_cutover(), None) if side == "after" else (_BEFORE_CUTOVER, _BEFORE_MONTH)
     await _voice(tenant_id, agent_id)
     for seconds in _AWKWARD_SECONDS:
-        await _bill(tenant_id, agent_id, seconds=seconds, spend="1.0000", ended=now)
+        await _bill(tenant_id, agent_id, seconds=seconds, spend="1.0000", ended=ended)
 
-    _month, counter_minutes, _spend, _capped, _billed = await _spend_state(tenant_id)
+    counter_month, counter_minutes, _spend, _capped, _billed = await _spend_state(tenant_id)
     async with tenant_session(tenant_id) as session:
-        panel_minutes = (await usage_summary(session, tenant_id=tenant_id))["minutes_used"]
+        summary = await usage_summary(session, tenant_id=tenant_id, month=month)
+    assert counter_month == summary["month"]
+    panel_minutes = summary["minutes_used"]
 
     assert counter_minutes == panel_minutes, (
         f"the ceiling is judged against {counter_minutes} while the client is shown {panel_minutes}"
     )
-    # And it is the honest figure, not merely a matching one: 9048 seconds is 150.80 min.
-    assert panel_minutes == Decimal("150.80")
+    # And it is the billed figure, not merely a matching one.
+    assert panel_minutes == expected
 
 
-async def test_the_counters_minutes_are_stored_without_rounding() -> None:
+@pytest.mark.parametrize(
+    ("side", "expected"),
+    [
+        # ceil(137/30) = 5 steps x 0.5 = 2.50 min.
+        ("after", Decimal("2.50")),
+        # 137/60 = 2.2833 min, published as 2.28 — the case that needs the paise increment.
+        ("before", Decimal("2.28")),
+    ],
+)
+async def test_the_counters_minutes_are_stored_without_rounding(
+    side: str, expected: Decimal
+) -> None:
     """The increment is a paise figure, so NUMERIC(14,4) holds it exactly. A counter that
     only matched after quantization would drift again the moment a reader compared the
     raw column, which is what `over_cap_sql` does."""
     tenant_id, agent_id, _ref = await _tenant(f"cq{uuid.uuid4().hex[:6]}")
     await _plan(tenant_id, included_min=0)
-    await _bill(tenant_id, agent_id, seconds=137, spend="1.0000", ended=datetime.now(UTC))
+    ended = _after_cutover() if side == "after" else _BEFORE_CUTOVER
+    await _bill(tenant_id, agent_id, seconds=137, spend="1.0000", ended=ended)
 
     _month, counter_minutes, _spend, _capped, _billed = await _spend_state(tenant_id)
-    assert counter_minutes == Decimal("2.28"), "137s is 2.2833 min, published as 2.28"
+    assert counter_minutes == expected
     assert counter_minutes.as_tuple().exponent >= -4, "the column must not have rounded it"
 
 
 async def test_the_gate_and_the_panel_agree_at_the_ceiling() -> None:
     """The consequence the arithmetic exists for: `minutes_left` reaching zero and the
-    dial gate refusing are the same event, not two events a rounding apart."""
+    dial gate refusing are the same event, not two events a rounding apart.
+
+    Post-cutover only: the gate judges the open month, and every open month from here on
+    is on the 30-second side. Two 61 s calls bill ceil(61/30) = 3 steps = 1.5 min each,
+    3.00 min — the ceiling exactly — where by-the-second they would be 122 s = 2.03 min and
+    the gate would still dial. So the gate is shown to count the billed minutes."""
     from apps.api.compliance.service import check_dispatch
 
     async def gate(tenant_id: UUID, agent_id: UUID) -> bool:
@@ -115,16 +166,16 @@ async def test_the_gate_and_the_panel_agree_at_the_ceiling() -> None:
             ).allowed
 
     tenant_id, agent_id, _ref = await _tenant(f"cg{uuid.uuid4().hex[:6]}")
-    # A ceiling of 3 minutes, approached by calls that do not divide by 60.
+    # A ceiling of 3 minutes, approached by calls that divide by neither 60 nor 30.
     await _plan(tenant_id, cap_min=3, included_min=0)
-    now = datetime.now(UTC)
-    for seconds in (61, 61, 61):
+    now = _after_cutover()
+    for seconds in (61, 61):
         await _bill(tenant_id, agent_id, seconds=seconds, spend="0.5000", ended=now)
 
     async with tenant_session(tenant_id) as session:
         summary = await usage_summary(session, tenant_id=tenant_id)
     allowed = await gate(tenant_id, agent_id)
 
-    assert summary["minutes_used"] == Decimal("3.05")
+    assert summary["minutes_used"] == Decimal("3.00")
     assert summary["minutes_left"] == 0
     assert not allowed, "the panel says no minutes are left and the gate must agree"

@@ -123,7 +123,12 @@ knowledge base.
    "holds nothing".
 
    **What the handle in that listing IS depends on the engine, and this is the one thing to
-   get right before you delete anything.** On Bolna it is the `vector_id` referenced from
+   get right before you delete anything.** On the owned runtime (`ENGINE=pipecat`) it is
+   our own linkage row: `attach_kb` pushes no text anywhere, because the text is already
+   in `kb_documents`/`kb_chunks`, and `list_kb` reads the agent's rows back
+   (`engine/pipecat.py`). The rest of this paragraph is the rented engine's case, kept
+   for the `cartesia` adapter's class of engine: on Bolna (deleted by D-639) it was the
+   `vector_id` referenced from
    the AGENT's own config (`llm_agent.llm_config.vector_store.provider_config.vector_ids`)
    — NOT the `rag_id` that `GET /knowledgebase/all` returns, which is a different
    identifier in a different namespace. Reading the account-wide listing and filtering it

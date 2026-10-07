@@ -1,7 +1,7 @@
 """The conversation loop, assembled: `docs/PIPECAT-MIGRATION.md` §4, step 4 of §6.
 
-    transport.input() -> STT -> user aggregator -> LLM -> TTS -> transport.output()
-                                                             -> assistant aggregator
+    transport.input() -> STT -> user aggregator -> LLM -> output guard -> TTS
+                                        -> transport.output() -> assistant aggregator
 
 That ordering is the shipped one, not a guess: `examples/voice/voice-cartesia.py:86-96`
 in the `pipecat-ai==1.10.0` tree, with the ASSISTANT aggregator after `transport.output()`
@@ -67,6 +67,7 @@ from pipecat.frames.frames import (
     CancelFrame,
     EndWorkerFrame,
     Frame,
+    LLMMessagesAppendFrame,
     LLMRunFrame,
     TranscriptionFrame,
     TTSSpeakFrame,
@@ -93,6 +94,13 @@ from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from voice_worker.call_tools import CallToolApi, build_call_tools
 from voice_worker.knowledge import DEFAULT_TOP_K, QueryEmbedder, SessionKnowledge
+from voice_worker.output_guard import PromptLeakGuard, build_leak_reference, decline_for
+from voice_worker.recovery import (
+    CallerIdleHandler,
+    IdleCallerPolicy,
+    VendorFaultResponder,
+    phrase_for,
+)
 from voice_worker.vendor_logging import install_vendor_log_guard
 
 # ---------------------------------------------------------------------------------------
@@ -113,6 +121,15 @@ OPENING_SPOKEN_GREETING_INSTRUCTION: Final[str] = (
     "Do not repeat or paraphrase it. Continue with your greeting as your instructions "
     "direct."
 )
+
+#: The developer message `CallDurationCap` sends `WRAP_UP_LEAD_S` before the cap.
+WRAP_UP_INSTRUCTION: Final[str] = (
+    "This call is close to its time limit. Bring it to a close now: answer briefly, confirm "
+    "any next step in one sentence, and say goodbye."
+)
+
+#: How long before the cap the model is asked to wrap up: room for one more exchange.
+WRAP_UP_LEAD_S: Final[float] = 30.0
 
 #: Smart turn v3's hard silence fallback, in seconds.
 #:
@@ -168,6 +185,25 @@ SMART_TURN_STOP_SECS: Final[float] = INHERITED_TURN_DETECTION_MS / 1000.0
 #: 100 ms and is what the endpoint is held to (CLAUDE.md, "measure it"). A ceiling equal to
 #: the budget would fire on every slow-but-successful lookup.
 FUNCTION_CALL_TIMEOUT_SECS: Final[float] = 2.0
+
+#: Seconds the LLM client waits on any one network phase (connect, the response, the gap
+#: between two streamed chunks) before the turn fails.
+#:
+#: The OpenAI SDK's own default is 600 s with a 5 s connect, and two automatic retries that
+#: honour a server's `Retry-After` for up to 120 s (`openai/_constants.py`
+#: `DEFAULT_TIMEOUT`, `DEFAULT_MAX_RETRIES`, `MAX_RETRY_AFTER_DELAY`;
+#: `_base_client._calculate_retry_timeout`, openai 3.13.0 as pinned). Pipecat passes neither
+#: (`services/openai/base_llm.py` `create_client`). On a phone call that is minutes of dead
+#: air behind one hung request or one 429. Five seconds is several times a healthy first
+#: chunk on the declared models and still short enough that the caller hears
+#: `recovery.VendorFaultResponder`'s apology instead of silence.
+LLM_REQUEST_TIMEOUT_S: Final[float] = 5.0
+
+#: No SDK-level retries. Rejected: one retry with backoff. A retry is safe for a completion
+#: (no side effect), but the SDK's wait is the server's `Retry-After` when one is sent, which
+#: puts an unbounded silence on the turn; the caller's own repeat after the apology is the
+#: retry, and it is bounded by this timeout.
+LLM_MAX_RETRIES: Final[int] = 0
 
 #: The telephony leg's rate. Plivo is 8 kHz; Silero VAD supports 8 kHz and 16 kHz natively
 #: (`pipecat/audio/vad/silero.py:134-135`) so nothing resamples for VAD, and smart turn v3
@@ -513,6 +549,14 @@ class NormalizedEventBoundary:
         self._started_at = datetime.now(UTC)
         await self._sink.on_call_event(self._event("in_progress", ended_at=None))
 
+    def mark_failed(self) -> None:
+        """Record that the call ended because a vendor leg failed, whatever frame ends it.
+
+        `recovery.VendorFaultResponder` ends a call after repeated transient failures with an
+        `EndWorkerFrame`, which on its own would be recorded as `completed`.
+        """
+        self._leg_failed = True
+
     async def call_ended(self, *, status: CallStatus = "completed") -> None:
         """Emit a terminal event exactly once.
 
@@ -665,9 +709,9 @@ class NormalizedEventBoundary:
             whether to apply the policy at all with `frame.fatal` or `frame.processor and
             not frame.processor.is_usable` (`worker.py:1496-1501`), and this asks exactly
             that, so a transient error the pipeline shrugs off does not become a failed
-            call here. It runs BEFORE the policy does — `_call_event_handler(
-            "on_pipeline_error", ...)` is awaited at `:1493`, `_handle_unusable_processor`
-            at `:1500` — so the flag is always set before the `EndFrame` it explains.
+            call here. The worker runs this handler as a task (`on_pipeline_error` is not
+            registered `sync`), so it may finish after the policy queues its `EndFrame`; the
+            flag is read only in `on_pipeline_finished`, after that frame has drained.
 
             Nothing about the error is logged here: the vendor already logs the processor
             (`worker.py:1520`), and an `ErrorFrame`'s message can carry the text a service
@@ -914,6 +958,29 @@ def _trap_request_extra(traps: Sequence[LlmModelTrapName]) -> dict[str, Any]:
     return {}
 
 
+class BoundedAzureLLMService(AzureLLMService):
+    """`AzureLLMService` whose client carries `LLM_REQUEST_TIMEOUT_S` and no SDK retries.
+
+    `create_client` is the vendor's seam for configuring the client (its docstring says
+    subclasses customise it), and `with_options` is the SDK's public way to copy a client
+    with other limits, so nothing private is reached into.
+    """
+
+    def create_client(self, *args: Any, **kwargs: Any) -> Any:
+        # The vendor method is unannotated; the client it returns is an `AsyncOpenAI`.
+        client = super().create_client(*args, **kwargs)  # type: ignore[no-untyped-call]
+        return client.with_options(timeout=LLM_REQUEST_TIMEOUT_S, max_retries=LLM_MAX_RETRIES)
+
+
+class BoundedOpenAILLMService(OpenAILLMService):
+    """`OpenAILLMService` (the `openai` and `google` legs) with the same bounds."""
+
+    def create_client(self, *args: Any, **kwargs: Any) -> Any:
+        # The vendor method is unannotated; the client it returns is an `AsyncOpenAI`.
+        client = super().create_client(*args, **kwargs)  # type: ignore[no-untyped-call]
+        return client.with_options(timeout=LLM_REQUEST_TIMEOUT_S, max_retries=LLM_MAX_RETRIES)
+
+
 def _build_llm(config: SessionConfig, credentials: VendorCredentials) -> FrameProcessor:
     """The BYOK LLM leg, on whichever of our three declared providers the config names.
 
@@ -983,7 +1050,7 @@ def _build_llm(config: SessionConfig, credentials: VendorCredentials) -> FramePr
     if provider == "azure_openai":
         if base_url is None:  # pragma: no cover - ModelConfig's validator gets here first
             raise ValueError("the azure_openai leg needs llm_base_url (azure_openai_base_url())")
-        return AzureLLMService(
+        return BoundedAzureLLMService(
             endpoint=base_url,
             api_key=credentials.llm_api_key,
             # On Azure this is the DEPLOYMENT id an operator chose, never a model name —
@@ -992,7 +1059,7 @@ def _build_llm(config: SessionConfig, credentials: VendorCredentials) -> FramePr
             function_call_timeout_secs=FUNCTION_CALL_TIMEOUT_SECS,
         )
     if provider == "openai":
-        return OpenAILLMService(
+        return BoundedOpenAILLMService(
             api_key=credentials.llm_api_key,
             base_url=base_url,
             settings=OpenAILLMService.Settings(model=model, extra=extra),
@@ -1004,7 +1071,7 @@ def _build_llm(config: SessionConfig, credentials: VendorCredentials) -> FramePr
         # exactly one endpoint this product may address for Gemini, and a parameter would
         # be a caller's chance to vary the one value that decides where a caller's words
         # are sent. Azure's endpoint is per-resource and therefore config; Google's is not.
-        return OpenAILLMService(
+        return BoundedOpenAILLMService(
             api_key=credentials.llm_api_key,
             base_url=google_openai_compat_base_url(),
             settings=OpenAILLMService.Settings(model=model, extra=extra),
@@ -1270,8 +1337,35 @@ def build_knowledge_tool(
 # ---------------------------------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
+class TurnAnalyzers:
+    """One call's VAD and smart-turn analyzers, built before the call is assembled.
+
+    Each loads an ONNX session synchronously on construction: about 36 ms (Silero) and
+    29 ms (smart turn v3.2) warm, 55 ms and 52 ms on the first call of a process, measured
+    in the development container on 6 Oct 2026. Built inside `assemble_call` that time is
+    spent on the event loop while the caller is already connected and hearing nothing, so
+    `runtime.WorkerRuntime.run_call` builds them in a thread concurrently with the session
+    read and hands them in. Neither depends on the agent's configuration.
+    """
+
+    vad: SileroVADAnalyzer
+    smart_turn: LocalSmartTurnAnalyzerV3
+
+
+def build_turn_analyzers(stop_secs: float = SMART_TURN_STOP_SECS) -> TurnAnalyzers:
+    """Fresh analyzers for one call. Never shared: both hold per-stream state."""
+    return TurnAnalyzers(
+        vad=SileroVADAnalyzer(sample_rate=TELEPHONY_SAMPLE_RATE_HZ),
+        smart_turn=LocalSmartTurnAnalyzerV3(params=SmartTurnParams(stop_secs=stop_secs)),
+    )
+
+
 def build_user_aggregator_params(
     stop_secs: float = SMART_TURN_STOP_SECS,
+    *,
+    analyzers: TurnAnalyzers | None = None,
+    idle_timeout_s: float = 0.0,
 ) -> LLMUserAggregatorParams:
     """VAD and turn detection, both of which live HERE and not where you would look for them.
 
@@ -1295,18 +1389,17 @@ def build_user_aggregator_params(
     Setting it `False` takes transcripts off the latency path, which is tempting on a
     650 ms budget — rejected because it would let the LLM answer a turn whose words we do
     not have yet, and Sarvam's `saaras:v4` emits no interim transcripts to fall back on.
+
+    `idle_timeout_s` arms the aggregator's own caller-silence timer (`user_idle_timeout`,
+    0 = off); `recovery.CallerIdleHandler` answers the event it fires.
     """
+    built = analyzers or build_turn_analyzers(stop_secs)
     return LLMUserAggregatorParams(
-        vad_analyzer=SileroVADAnalyzer(sample_rate=TELEPHONY_SAMPLE_RATE_HZ),
+        vad_analyzer=built.vad,
         user_turn_strategies=UserTurnStrategies(
-            stop=[
-                TurnAnalyzerUserTurnStopStrategy(
-                    turn_analyzer=LocalSmartTurnAnalyzerV3(
-                        params=SmartTurnParams(stop_secs=stop_secs),
-                    ),
-                )
-            ],
+            stop=[TurnAnalyzerUserTurnStopStrategy(turn_analyzer=built.smart_turn)],
         ),
+        user_idle_timeout=idle_timeout_s,
     )
 
 
@@ -1339,14 +1432,35 @@ class CallDurationCap:
     while the phone is still ringing, and a cap that counted the knowledge-pack fetch would
     be shorter than the one the client set. Disarming on finish is what stops a task
     outliving the call it belongs to in a container Pipecat Cloud reuses across sessions.
+
+    **THE CALLER HEARS WHY.** Thirty seconds before the cap the model is told, by a developer
+    message pushed as a frame, to bring the call to a close, so most capped calls end in the
+    model's own words. At the cap a fixed goodbye is spoken ahead of the `EndWorkerFrame`
+    (`recovery.PHRASES["cap_goodbye"]`), so a call the model did not close still ends with a
+    sentence rather than a click. Retell's equivalent setting documents no warning
+    (`max_call_duration_ms` "will force end the call",
+    docs.retellai.com/api-references/create-agent, read 6 Oct 2026); the wrap-up message
+    rides the model's next turn and costs no extra model call.
     """
 
-    __slots__ = ("_call_id", "_limit_s", "_task", "_worker")
+    __slots__ = ("_call_id", "_goodbye", "_limit_s", "_task", "_worker", "_wrap_up_lead_s")
 
-    def __init__(self, *, worker: PipelineWorker, limit_s: int, call_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        worker: PipelineWorker,
+        limit_s: float,
+        call_id: str,
+        goodbye: str = "",
+        wrap_up_lead_s: float = 0.0,
+    ) -> None:
         self._worker = worker
         self._limit_s = limit_s
         self._call_id = call_id
+        self._goodbye = goodbye.strip()
+        # A lead longer than half the cap would tell the model to wrap up before the call
+        # has properly started; such a short cap gets the goodbye only.
+        self._wrap_up_lead_s = wrap_up_lead_s if 0 < wrap_up_lead_s * 2 <= limit_s else 0.0
         self._task: asyncio.Task[None] | None = None
 
     @property
@@ -1355,7 +1469,7 @@ class CallDurationCap:
         return self._task is not None and not self._task.done()
 
     @property
-    def limit_s(self) -> int:
+    def limit_s(self) -> float:
         """The cap this call is held to, so a reader can prove it came from the agent."""
         return self._limit_s
 
@@ -1390,8 +1504,25 @@ class CallDurationCap:
             await task
 
     async def _expire(self) -> None:
-        """Wait out the cap, then end the call by pushing a frame."""
-        await asyncio.sleep(self._limit_s)
+        """Warn the model, wait out the cap, then end the call by pushing frames."""
+        if self._wrap_up_lead_s:
+            await asyncio.sleep(self._limit_s - self._wrap_up_lead_s)
+            logger.info(
+                "call duration cap approaching; asking the agent to wrap up",
+                call_id=self._call_id,
+                seconds_left=self._wrap_up_lead_s,
+            )
+            await self._worker.queue_frames(
+                [
+                    LLMMessagesAppendFrame(
+                        messages=[{"role": "developer", "content": WRAP_UP_INSTRUCTION}],
+                        run_llm=False,
+                    )
+                ]
+            )
+            await asyncio.sleep(self._wrap_up_lead_s)
+        else:
+            await asyncio.sleep(self._limit_s)
         # Ids and a number that is a duration, never a party (hard rule 6). WARNING and not
         # INFO: a call that ran to its cap is a conversation somebody was cut out of, and
         # an operator reading a complaint needs to find it.
@@ -1400,9 +1531,11 @@ class CallDurationCap:
             call_id=self._call_id,
             max_call_duration_s=self._limit_s,
         )
-        await self._worker.queue_frames(
-            [EndWorkerFrame(reason=f"call duration cap of {self._limit_s}s reached")]
-        )
+        frames: list[Frame] = []
+        if self._goodbye:
+            frames.append(TTSSpeakFrame(text=self._goodbye))
+        frames.append(EndWorkerFrame(reason=f"call duration cap of {self._limit_s}s reached"))
+        await self._worker.queue_frames(frames)
 
 
 @dataclass(slots=True)
@@ -1430,6 +1563,12 @@ class AssembledCall:
     #: The agent's `max_call_duration_s`, armed when the pipeline starts. `None` only where
     #: there is no cap to enforce, which nothing in production reaches.
     cap: CallDurationCap | None = field(default=None)
+    #: The D-674 output guard in this call's pipeline, held so a caller can read its counts.
+    output_guard: PromptLeakGuard | None = field(default=None)
+    #: Answers the caller going quiet (`recovery.CallerIdleHandler`); `None` when switched off.
+    idle: CallerIdleHandler | None = field(default=None)
+    #: Turns a vendor failure into words and a clean end (`recovery.VendorFaultResponder`).
+    faults: VendorFaultResponder | None = field(default=None)
 
     async def start_conversation(self) -> bool:
         """Make the agent speak first, if this agent does.
@@ -1494,8 +1633,16 @@ def assemble_call(
     stop_secs: float = SMART_TURN_STOP_SECS,
     tool_api: CallToolApi | None = None,
     caller: CallerIdentityLike | None = None,
+    turn_analyzers: TurnAnalyzers | None = None,
+    idle: IdleCallerPolicy | None = None,
+    wrap_up_lead_s: float = WRAP_UP_LEAD_S,
 ) -> AssembledCall:
     """Assemble the §4 pipeline for one call.
+
+    `idle` defaults to `IdleCallerPolicy()` (remind once after ten seconds of silence, then
+    end politely); pass `IdleCallerPolicy(timeout_s=0)` to switch it off.
+    `turn_analyzers` lets the entrypoint build the ONNX analyzers off the event loop
+    (`TurnAnalyzers`); `None` builds them here.
 
     `transport` is an argument rather than something built here because the Plivo leg is
     step 6 and gated on an account in the India data region — and because a pipeline that
@@ -1543,6 +1690,7 @@ def assemble_call(
     argument and the structural reason the arm is unreachable without it anyway.
     """
     install_vendor_log_guard()
+    idle_policy = idle if idle is not None else IdleCallerPolicy()
 
     pack_configured = config.knowledge_pack_sha256 is not None
     if pack_configured and knowledge is None:
@@ -1589,8 +1737,7 @@ def assemble_call(
             caller_identity_ground=caller.ground,
         )
 
-    context = LLMContext(
-        messages=[{"role": "system", "content": spoken_prompt}],
+    tools = [
         # THE KNOWLEDGE SEARCH, ALWAYS, PLUS THE FOUR IN-CALL ACTS AND THE HANG-UP WHEN THERE
         # IS AN API TO PERFORM THEM (`call_tools.build_call_tools`). `LLMContext` normalises
         # a plain list into a `ToolsSchema` itself
@@ -1601,27 +1748,44 @@ def assemble_call(
         # ⚠ **THE FOUR IN-CALL ACTS MUST BE HERE, NOT ONLY THE SEARCH.** With the
         # knowledge tool alone — one tool here against four on the rented engine — a caller
         # saying "stop calling me" reaches nothing at all on this leg.
-        tools=[
-            build_knowledge_tool(knowledge, pack_configured=pack_configured, embedder=embedder),
-            *build_call_tools(
-                tool_api,
-                tenant_id=config.tenant_id,
-                call_id=config.call_id,
-                # THE IGNORE IS THE PRICE OF THE PROTOCOL AND IS THE CHEAPER SIDE OF THE
-                # TRADE. `CallerIdentityLike.state` is declared `str` because a structural
-                # Protocol is what avoids a `pipeline` -> `carrier` import cycle, while
-                # `build_call_tools` takes the closed `CallerIdentityState` so the wire
-                # vocabulary is checked everywhere else. Pydantic validates the value on
-                # the way into `CallerIdentityIn` either way, so a state neither module
-                # knows is refused rather than sent.
-                caller_state=caller.state if caller is not None else "not_read",  # type: ignore[arg-type]
-                caller_e164=caller.e164 if caller is not None else None,
-            ),
-        ],
+        build_knowledge_tool(knowledge, pack_configured=pack_configured, embedder=embedder),
+        *build_call_tools(
+            tool_api,
+            tenant_id=config.tenant_id,
+            call_id=config.call_id,
+            # THE IGNORE IS THE PRICE OF THE PROTOCOL AND IS THE CHEAPER SIDE OF THE
+            # TRADE. `CallerIdentityLike.state` is declared `str` because a structural
+            # Protocol is what avoids a `pipeline` -> `carrier` import cycle, while
+            # `build_call_tools` takes the closed `CallerIdentityState` so the wire
+            # vocabulary is checked everywhere else. Pydantic validates the value on
+            # the way into `CallerIdentityIn` either way, so a state neither module
+            # knows is refused rather than sent.
+            caller_state=caller.state if caller is not None else "not_read",  # type: ignore[arg-type]
+            caller_e164=caller.e164 if caller is not None else None,
+        ),
+    ]
+    context = LLMContext(
+        messages=[{"role": "system", "content": spoken_prompt}],
+        tools=[*tools],
+    )
+    # D-674's enforcement half. Built over the ATTESTED prompt (`config.system_prompt`, slot
+    # unfilled), so the caller's own remembered facts are never in what it guards.
+    output_guard = PromptLeakGuard(
+        reference=build_leak_reference(
+            system_prompt=config.system_prompt,
+            opening_line=config.opening_line,
+            tools=tools,
+        ),
+        decline=decline_for(config.language),
+        call_id=config.call_id,
+        tenant_id=config.tenant_id,
+        agent_id=config.agent_id,
     )
     aggregators = LLMContextAggregatorPair(
         context,
-        user_params=build_user_aggregator_params(stop_secs),
+        user_params=build_user_aggregator_params(
+            stop_secs, analyzers=turn_analyzers, idle_timeout_s=idle_policy.timeout_s
+        ),
     )
 
     language_tap = TranscriptLanguageTap()
@@ -1634,6 +1798,10 @@ def assemble_call(
             language_tap,
             aggregators.user(),
             legs.llm,
+            # Between the model and the voice: every sentence is checked before it can be
+            # synthesised (`output_guard.py`). It takes over the TTS's own sentence
+            # aggregation rather than adding a second one in front of it.
+            output_guard,
             legs.tts,
             transport.output(),
             # AFTER the output, per the shipped ordering — placing it before would record
@@ -1687,8 +1855,30 @@ def assemble_call(
     # observers at construction and there is no adding a handler to a pipeline somebody
     # else assembled, so the one function that builds the worker is the one that can arm
     # anything against it.
-    cap = CallDurationCap(worker=worker, limit_s=config.max_call_duration_s, call_id=config.call_id)
+    cap = CallDurationCap(
+        worker=worker,
+        limit_s=config.max_call_duration_s,
+        call_id=config.call_id,
+        goodbye=phrase_for("cap_goodbye", config.language),
+        wrap_up_lead_s=wrap_up_lead_s,
+    )
     cap.attach(worker)
+
+    idle_handler: CallerIdleHandler | None = None
+    if idle_policy.enabled:
+        idle_handler = CallerIdleHandler(
+            worker=worker, policy=idle_policy, language=config.language, call_id=config.call_id
+        )
+        idle_handler.attach(aggregators.user())
+
+    faults = VendorFaultResponder(
+        worker=worker,
+        voice=legs.tts,
+        language=config.language,
+        call_id=config.call_id,
+        mark_failed=boundary.mark_failed,
+    )
+    faults.attach({"stt": legs.stt, "llm": legs.llm, "tts": legs.tts}, aggregators.assistant())
 
     observed = recompute_prompt_sha256(config.system_prompt)
     return AssembledCall(
@@ -1703,6 +1893,9 @@ def assemble_call(
         opening_line=config.opening_line,
         knowledge=knowledge,
         cap=cap,
+        output_guard=output_guard,
+        idle=idle_handler,
+        faults=faults,
     )
 
 
@@ -1714,21 +1907,29 @@ __all__ = [
     "KNOWLEDGE_TOOL_DESCRIPTION",
     "KNOWLEDGE_TOOL_NAME",
     "KNOWLEDGE_TOOL_QUESTION_PARAM",
+    "LLM_MAX_RETRIES",
+    "LLM_REQUEST_TIMEOUT_S",
     "OPENING_SPOKEN_GREETING_INSTRUCTION",
     "SMART_TURN_STOP_SECS",
     "STT_MODEL",
     "TELEPHONY_SAMPLE_RATE_HZ",
+    "WRAP_UP_INSTRUCTION",
+    "WRAP_UP_LEAD_S",
     "AssembledCall",
+    "BoundedAzureLLMService",
+    "BoundedOpenAILLMService",
     "CallDurationCap",
     "CallerIdentityLike",
     "NormalizedEventBoundary",
     "NormalizedEventSink",
     "SessionConfig",
     "TranscriptLanguageTap",
+    "TurnAnalyzers",
     "VendorCredentials",
     "VendorLegs",
     "assemble_call",
     "build_knowledge_tool",
+    "build_turn_analyzers",
     "build_user_aggregator_params",
     "build_vendor_legs",
     "knowledge_tool_payload",

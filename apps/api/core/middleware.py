@@ -23,10 +23,12 @@ a server span still carries the correlation id.
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
+from typing import Any
 
 from calevate_shared.client_address import client_ip
 from fastapi import FastAPI
@@ -36,6 +38,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from apps.api.core.alerting import alert
+from apps.api.core.console_links import ADMIN_ORIGIN_PREFIXES
 from apps.api.core.context import (
     IMPERSONATE_HEADER,
     IMPERSONATION_GRANT_HEADER,
@@ -68,6 +71,11 @@ from apps.api.core.settings import get_settings
 log = get_logger(__name__)
 
 CORRELATION_HEADER = "X-Correlation-Id"
+#: What a caller-sent correlation id may look like before we adopt it. It is written
+#: unredacted into every log line (`trace_id`), every problem body and the response
+#: header, so an anonymous caller must not choose its length or its characters; anything
+#: else is replaced with a fresh id. The web client sends 32 hex characters.
+_CALLER_CORRELATION_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 MAX_BODY_BYTES = 2 * 1024 * 1024  # 2 MiB; CSV import gets its own streaming route
 
 SECURITY_HEADERS = {
@@ -194,7 +202,10 @@ class CorrelationIdMiddleware:
             return
 
         headers = _headers(scope)
-        correlation_id = headers.get(CORRELATION_HEADER.lower()) or uuid.uuid4().hex
+        sent = headers.get(CORRELATION_HEADER.lower())
+        correlation_id = (
+            sent if sent and _CALLER_CORRELATION_ID.fullmatch(sent) else uuid.uuid4().hex
+        )
         token = correlation_id_var.set(correlation_id)
         # Explicitly cleared on the way IN as well: a request that never authenticates
         # must not read as the previous one.
@@ -778,9 +789,50 @@ class UnhandledExceptionMiddleware:
             await unhandled_problem_response(str(scope.get("path", "")), exc)(scope, receive, send)
 
 
-def install_middleware(app: FastAPI, *, cors_origins: list[str]) -> None:
-    """Added innermost-first; Starlette makes the last one outermost."""
-    if "*" in cors_origins:
+class RealmCorsMiddleware(CORSMiddleware):
+    """Starlette's CORS, with admin-realm paths answered from the admin origins only.
+
+    One `CORSMiddleware` per realm rather than a re-implementation: every preflight and
+    response header is still Starlette's, and the only decision added here is which
+    allowlist a path is judged against. A request to `ADMIN_ORIGIN_PREFIXES` from the
+    client console or the marketing site gets no `Access-Control-Allow-Origin` (and a
+    400 preflight), so the browser neither sends the mutation nor hands the page the
+    response. The CSRF `Origin` check splits on the same prefixes
+    (`core/bootstrap.credentialed_origins_for_path`), so a non-browser path around CORS
+    still meets the refusal.
+    """
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        /,
+        *,
+        admin_origins: Sequence[str],
+        admin_path_prefixes: tuple[str, ...],
+        **cors: Any,
+    ) -> None:
+        super().__init__(app, **cors)
+        self.admin_path_prefixes = admin_path_prefixes
+        self.admin = CORSMiddleware(app, **{**cors, "allow_origins": admin_origins})
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and str(scope.get("path", "")).startswith(
+            self.admin_path_prefixes
+        ):
+            await self.admin(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+
+def install_middleware(
+    app: FastAPI, *, cors_origins: list[str], admin_cors_origins: list[str]
+) -> None:
+    """Added innermost-first; Starlette makes the last one outermost.
+
+    `admin_cors_origins` is what `ADMIN_ORIGIN_PREFIXES` accept and `cors_origins` what
+    every other path accepts; see `RealmCorsMiddleware`.
+    """
+    if "*" in cors_origins or "*" in admin_cors_origins:
         # REFUSED AT BOOT, because the failure it prevents is silent. Starlette does not
         # reject `allow_origins=["*"]` alongside `allow_credentials=True`: it echoes the
         # request's own `Origin` back with `Access-Control-Allow-Credentials: true`
@@ -812,8 +864,10 @@ def install_middleware(app: FastAPI, *, cors_origins: list[str]) -> None:
     # `ServerErrorMiddleware` exactly like a handler crash.
     app.add_middleware(UnhandledExceptionMiddleware)
     app.add_middleware(
-        CORSMiddleware,
+        RealmCorsMiddleware,
         allow_origins=cors_origins,
+        admin_origins=admin_cors_origins,
+        admin_path_prefixes=ADMIN_ORIGIN_PREFIXES,
         allow_credentials=True,
         # PUT WAS MISSING AND FIVE ROUTES WERE UNREACHABLE FROM A BROWSER: `PUT
         # /v1/billing/caps` (a client's own spend cap), `PUT …/feature-flags/{flag}`,
@@ -861,6 +915,7 @@ __all__ = [
     "CorrelationIdMiddleware",
     "LoadShedMiddleware",
     "RateLimitMiddleware",
+    "RealmCorsMiddleware",
     "SecurityHeadersMiddleware",
     "UnhandledExceptionMiddleware",
     "install_middleware",

@@ -65,6 +65,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.engine.carrier_pacing import LINES_BUSY_RULE, PACING_RULE
+from apps.api.engine.vendor_http import RECIPIENT_OPTED_OUT_CODE
 from apps.api.integrations import service as integrations
 
 log = get_logger(__name__)
@@ -614,6 +615,15 @@ async def ingest_lead(
         )
         return {"lead_id": resolved_lead, "dispatched": None, "call_id": unconfirmed.call_id}
     except ProblemError as refused:
+        if refused.code == RECIPIENT_OPTED_OUT_CODE:
+            # The voice platform will not call this person, and nothing rang. Recorded like
+            # a gate refusal and committed: raising would roll the lead back, and the
+            # sender's retry would ask to dial the same person again.
+            await _timeline(
+                session, config.tenant_id, resolved_lead, "blocked", {"rule": refused.code}
+            )
+            record_speed_to_lead(time.time() - received_at, outcome=f"blocked_{refused.code}")
+            return {"lead_id": resolved_lead, "dispatched": False, "blocked": refused.code}
         if refused.code not in LINE_REFUSALS:
             raise
         # Every line, or every dial slot this second, was taken: nothing rang, and the

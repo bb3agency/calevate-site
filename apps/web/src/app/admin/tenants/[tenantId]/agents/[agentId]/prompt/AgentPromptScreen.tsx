@@ -205,6 +205,7 @@ export function AgentPromptScreen({ tenantId, agentId }: { tenantId: string; age
                   tenantId={tenantId}
                   agentId={agentId}
                   slug={slug}
+                  agent={agent}
                   pending={pending.data}
                   tenantLoading={tenant.isLoading || pending.isLoading}
                   write={write}

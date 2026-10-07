@@ -35,6 +35,7 @@ from calevate_shared.qa_report import QaReport
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.llm_tiers import client_model_label
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
@@ -65,7 +66,14 @@ async def list_quality_reports(
     limit: int = Query(12, ge=1, le=60),
     _: Principal = Depends(requires("agents:read")),
 ) -> list[QaReport]:
-    return await service.list_reports(session, limit=limit)
+    # The client reads the TIER the extraction model is, never its id (D-679, D-680). The
+    # stored report keeps the id: it is what the regression run was measured against.
+    return [
+        report.model_copy(
+            update={"model": client_model_label(report.model, unclassified="Calevate")}
+        )
+        for report in await service.list_reports(session, limit=limit)
+    ]
 
 
 __all__ = ["router"]

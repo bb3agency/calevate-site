@@ -148,6 +148,9 @@ const PACK_CARD = {
   from_studio_inr_per_min: "6.00",
   clear_tier_label: "Clear",
   studio_tier_label: "Studio",
+  voice_not_offered: "clear",
+  voice_not_offered_notice:
+    "Not available to choose yet: the vendor that speaks this voice changed and we have not established what one minute of it costs, so we will not put an agent on it. Its rate is still fixed on credit you buy today, and it costs you nothing to move an agent onto it once it opens.",
   packs: [
     {
       pack_id: "starter",

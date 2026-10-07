@@ -170,8 +170,8 @@ export const DPA: LegalDocument = {
               "quality kept your callers' data away from this leg entirely; that is " +
               "WITHDRAWN rather than reworded, because since 18 September 2026 there is " +
               "no voice quality spoken by a company whose position anybody has read. " +
-              "Section 3.6 of the sub-processor page names both companies and carries " +
-              "the rest.",
+              "Section 3.6 of the sub-processor page describes both companies and " +
+              "carries the rest.",
             "We do not pool it across clients, sell it, or share it for anyone's marketing.",
             "The in-app assistant we provide inside your dashboard reads your account to " +
               "answer your own people's questions about it, and it can PROPOSE a small " +
@@ -267,8 +267,10 @@ export const DPA: LegalDocument = {
         {
           kind: "para",
           text:
-            "You authorise us to engage the sub-processors listed on the sub-processor " +
-            "page, which is incorporated into this Addendum. Each one is engaged under a " +
+            "You authorise us to engage the sub-processors in the categories listed on " +
+            "the sub-processor page, which is incorporated into this Addendum, and named " +
+            "in the list of current sub-processors that page makes available to you on " +
+            "request. Each one is engaged under a " +
             "written contract imposing data protection obligations equivalent to these, " +
             "and we remain responsible to you for their performance.",
         },
@@ -530,7 +532,8 @@ export const DPA: LegalDocument = {
             "recording. We are not willing to put our own answer to an undecided question " +
             "into a contract. So we do the thing that is right under either answer: call " +
             "audio is treated as though it may be sensitive personal data, every place it " +
-            "goes is named on the sub-processor page, and the question is on the list for " +
+            "goes is listed by category on the sub-processor page, and the question is on the " +
+            "list for " +
             "the advocate whose review this document is waiting on. Read it as a question " +
             "about the LIVE call and not only about the stored file: the audio is carried " +
             "by a platform outside India while the call is happening, the speech " +
@@ -550,7 +553,8 @@ export const DPA: LegalDocument = {
         {
           kind: "para",
           text:
-            "The sub-processor page states, for each vendor, where it processes. The " +
+            "The sub-processor page states, for each category of sub-processor, where it " +
+            "processes. The " +
             "material facts, stated here so they are in the contract and not only in a " +
             "notice: speech recognition and the first pass that reads " +
             "the transcript run on an Indian provider — voice synthesis did too, for " +
@@ -576,7 +580,7 @@ export const DPA: LegalDocument = {
             "there is no longer a voice quality that does; " +
             "the language model on " +
             "both AI legs runs on one of several providers a client can choose between, " +
-            "each named on the sub-processor page with where it processes — the one we " +
+            "each described on the sub-processor page with where it processes — the one we " +
             "run by default is a hyperscale provider's service configured for a United " +
             "States region, which our build constrains but cannot prove — see the " +
             "paragraphs below, which are part of this clause; for object storage we ask " +
@@ -603,7 +607,7 @@ export const DPA: LegalDocument = {
             "nothing about who processed your callers' data or in which country. That " +
             "is no longer true, and we will not keep the sentence alive with " +
             "qualifiers. The models we now offer run with more than one provider and in " +
-            "more than one place — each named, with where it processes, on the " +
+            "more than one place — each described, with where it processes, on the " +
             "sub-processor page — so your choice of model is also a choice of which " +
             "provider handles the language leg and where it runs. The single-vendor, " +
             "single-region promise this clause used to make about that leg is " +
@@ -616,10 +620,10 @@ export const DPA: LegalDocument = {
             "not unaffected by every choice you make, and since 7 September 2026 it " +
             "follows the VOICE QUALITY you set on an agent, which is a separate setting " +
             "from the model. " +
-            "The first quality is synthesised by that same Indian provider; the second " +
-            "is synthesised by another company, described above and on the sub-processor " +
-            "page, and choosing it is a choice about which company hears what your agent " +
-            "says. What the figure beside each model is, and whether choosing a " +
+            "Neither quality is synthesised by that Indian provider any more: since " +
+            "18 September 2026 each is synthesised by a different company, described " +
+            "above and on the sub-processor page, and choosing between them is a choice " +
+            "about which company hears what your agent says. What the figure beside each model is, and whether choosing a " +
             "model changes what you pay, is set out in clause 6.1 of the Terms of " +
             "Service.",
         },
@@ -667,7 +671,7 @@ export const DPA: LegalDocument = {
             "leg's processing without any of it becoming false. That is why the two " +
             "facts that leg's region actually depends on are held by a person and not " +
             "by the build — that the resource we are configured to use is in the United " +
-            "States region named on the sub-processor page, and that its model " +
+            "States region stated on the sub-processor page, and that its model " +
             "deployment is the regional kind rather than the provider's worldwide " +
             "default. Both are confirmed by a named person against the provider's " +
             "console, dated and retained as evidence, and available to you under clause " +
@@ -966,7 +970,10 @@ export const DPA: LegalDocument = {
           text:
             "The authorised list is the sub-processor page, which is incorporated into " +
             "this Addendum and is maintained as a single register rather than restated " +
-            "here. Clause 5 governs changes to it.",
+            "here. It lists sub-processors by category; the named list of current " +
+            "sub-processors is available to you on request from the contact below, and a " +
+            "new company in an existing category is a change under clause 5 exactly as a " +
+            "new category is. Clause 5 governs changes to both.",
         },
       ],
     },

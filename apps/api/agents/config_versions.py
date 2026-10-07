@@ -81,6 +81,7 @@ from uuid import UUID
 from calevate_shared.engine import (
     AgentConfig,
     ModelConfig,
+    carries_confidentiality_rule,
     carries_truthful_answer_floor,
     compose_engine_prompt,
 )
@@ -225,6 +226,23 @@ async def mint_config_version(
             detail=(
                 "The agent's script is not carrying the rules that make it answer "
                 "truthfully about being an AI and about recording, so it was not saved."
+            ),
+            remediation="Contact us — this is a fault on our side, not something you can fix.",
+        )
+    # D-674's rule, refused here for the floor's reason: on `owned_runtime` the worker runs
+    # exactly this row, so a version minted without it can never be repaired by a read-back.
+    if not carries_confidentiality_rule(compose_engine_prompt(cfg)):
+        log.error(
+            "agent_config_version_missing_confidentiality_rule",
+            extra={"agent_id": cfg.agent_id, "tenant_id": cfg.tenant_id},
+        )
+        raise ProblemError(
+            kind="internal",
+            code="agent_config_confidentiality_absent",
+            title="This agent cannot be published",
+            detail=(
+                "The agent's script is not carrying the rule that stops it revealing its "
+                "instructions to callers, so it was not saved."
             ),
             remediation="Contact us — this is a fault on our side, not something you can fix.",
         )

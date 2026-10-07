@@ -1,0 +1,97 @@
+# ThinnestAI
+
+> One AI agent that answers on your website, WhatsApp and Telegram — and remembers the same customer across all of them.
+
+- [Introduction](https://docs.thinnest.ai/introduction.md): One agent, answering on your website, WhatsApp and Telegram — from your own material.
+- [Quickstart](https://docs.thinnest.ai/quickstart.md): An agent answering on your website, from your own pages, in about ten minutes.
+- [How the pieces fit](https://docs.thinnest.ai/concepts.md): Workspace, agent, channel, contact — and which one owns what.
+- [Knowledge](https://docs.thinnest.ai/agent/knowledge.md): What the agent answers from, and what it will refuse to guess at.
+- [Behaviour](https://docs.thinnest.ai/agent/behaviour.md): Tone, language, opening line, model and when to fetch a human.
+- [Leads and contacts](https://docs.thinnest.ai/agent/leads.md): Ending the conversation with somebody to call, not just a closed ticket.
+- [Actions](https://docs.thinnest.ai/agent/actions.md): Letting the agent do things, not only say them — safely.
+- [Calendar](https://docs.thinnest.ai/agent/calendar.md): Your agent reads your real availability and books meetings into your Cal.com.
+- [Spreadsheet](https://docs.thinnest.ai/agent/spreadsheet.md): Your agent writes what it learns into your spreadsheet while it is still talking, and can look things up in it.
+- [Call your own API](https://docs.thinnest.ai/agent/custom-api.md): Give the agent one narrow endpoint of yours, and every rule that keeps it safe.
+- [Escalation](https://docs.thinnest.ai/agent/escalation.md): How the agent hands a conversation to a person — including when an action fails.
+- [Channels overview](https://docs.thinnest.ai/channels/overview.md): Where customers talk to your agent, and what each channel can carry.
+- [Website widget](https://docs.thinnest.ai/channels/website.md): The chat window on your own pages.
+- [WhatsApp](https://docs.thinnest.ai/channels/whatsapp.md): The same agent, answering on WhatsApp — plus what Meta's rules mean for you.
+- [Connect External Agent/CRM](https://docs.thinnest.ai/whatsapp/external-agents.md): Answer WhatsApp customers from your own CRM or agent platform. ThinnestAI runs the WhatsApp side — the number, the inbox, templates and opt-outs.
+- [Telegram](https://docs.thinnest.ai/channels/telegram.md): The quickest channel to connect — no approvals, no templates, no waiting.
+- [Voice](https://docs.thinnest.ai/channels/voice.md): Your agent answers the phone — with the same memory of each customer it has everywhere else.
+- [Voice Clone](https://docs.thinnest.ai/channels/voice-clone.md): Record a short sample and your agent can speak in that voice — a founder's own, or someone from your team.
+- [Calling campaigns](https://docs.thinnest.ai/channels/voice-campaigns.md): Your agent rings a list and has the conversation itself.
+- [Phone numbers](https://docs.thinnest.ai/channels/phone-numbers.md): Get a number your customers ring, or point one you already own at your agent.
+- [Shopify](https://docs.thinnest.ai/install/shopify.md): A theme app embed — no code, no paste, and no theme edits to undo.
+- [WordPress and WooCommerce](https://docs.thinnest.ai/install/wordpress.md): One file, three steps, and signed-in customers recognised.
+- [PrestaShop](https://docs.thinnest.ai/install/prestashop.md): A proper module — survives a theme change, and signs your customers.
+- [Wix, Squarespace, Webflow and anything else](https://docs.thinnest.ai/install/other-platforms.md): The script tag, where it goes on each platform, and which ones can recognise a customer.
+- [Recognise signed-in customers](https://docs.thinnest.ai/install/signed-in-customers.md): Four lines on your server, and a logged-in customer stops being a stranger.
+- [Templates](https://docs.thinnest.ai/whatsapp/templates.md): The only thing that reaches a customer outside the 24-hour window.
+- [One-time codes](https://docs.thinnest.ai/whatsapp/one-time-codes.md): OTP over WhatsApp — Meta writes the message, you choose how it behaves.
+- [Send a message](https://docs.thinnest.ai/whatsapp/send.md): One approved template, to a handful of numbers, without building a campaign.
+- [Broadcasts](https://docs.thinnest.ai/whatsapp/broadcasts.md): One approved template, to everybody who agreed to hear from you.
+- [Sequences](https://docs.thinnest.ai/whatsapp/sequences.md): A series of messages triggered by something that happened, not by a date.
+- [Your products in the chat](https://docs.thinnest.ai/whatsapp/products.md): The agent can show what you sell, with your real prices and pictures, without the customer leaving WhatsApp.
+- [When a message isn't delivered](https://docs.thinnest.ai/whatsapp/not-delivered.md): What WhatsApp said, what it means, and what to do about it.
+- [Adding a payment method in Meta](https://docs.thinnest.ai/whatsapp/payment-method.md): Why Meta blocks your number for a payment method, where to add a card, which cards work, and what happens next.
+- [WhatsApp calls](https://docs.thinnest.ai/whatsapp/calls.md): Customers call your business from WhatsApp, and your agent answers.
+- [Meta's rules, in one place](https://docs.thinnest.ai/meta/overview.md): What WhatsApp allows, who decides it, and which limits are ours versus Meta's.
+- [Windows and what gets charged](https://docs.thinnest.ai/meta/windows-and-pricing.md): The 24-hour window, the 72-hour free entry point, and why answering costs far less than starting.
+- [Template review and approval](https://docs.thinnest.ai/meta/template-review.md): How Meta reviews a template, why they get rejected, and how to fix each cause.
+- [Quality ratings and messaging limits](https://docs.thinnest.ai/meta/quality-and-limits.md): How many people you can reach, how to reach more, and how to lose the ability.
+- [Business verification](https://docs.thinnest.ai/meta/verification.md): What it unlocks, what it costs you in time, and what stays locked without it.
+- [Inbox](https://docs.thinnest.ai/workspace/inbox.md): Every conversation, and how a person takes one over.
+- [Helpdesk](https://docs.thinnest.ai/workspace/helpdesk.md): Escalations as tickets in Zendesk or Salesforce, with replies coming back.
+- [Analytics](https://docs.thinnest.ai/workspace/analytics.md): Whether the agent did its job — every figure a count you could verify yourself.
+- [Usage](https://docs.thinnest.ai/workspace/usage.md): What your agents did, what it cost, and every call you can open and listen to.
+- [Notifications](https://docs.thinnest.ai/workspace/notifications.md): Be told when a call comes in, without logging in — in the console, and by email from your own Resend.
+- [White label](https://docs.thinnest.ai/white-label/overview.md): Sell AI voice and WhatsApp agents to your clients as your own product — your name, your logo, your domain, your prices.
+- [Clients](https://docs.thinnest.ai/white-label/clients.md): Create a workspace for each client, share your call lines between them, and fund them by hand if you bill them yourself.
+- [Brand and domains](https://docs.thinnest.ai/white-label/brand-and-domains.md): Put your name, logo and colour on everything, serve it from your own domain, and bring your own sign-in check and email sender.
+- [Your prices](https://docs.thinnest.ai/white-label/prices.md): Set your own prices on top of ours, get paid into your own Razorpay account, and keep the difference.
+- [Partner referrals](https://docs.thinnest.ai/partners/referrals.md): Refer a business to ThinnestAI, and earn a share of what they spend on voice and on Scale.
+- [Guides](https://docs.thinnest.ai/guides/overview.md): Worked, end-to-end tutorials — real code, and the mistakes marked.
+- [Cut the "I don't know" answers](https://docs.thinnest.ai/guides/reduce-i-dont-know.md): A weekly loop using the gaps report — the highest-return half hour in the product.
+- [Serve customers in their own language](https://docs.thinnest.ai/guides/multilingual.md): One knowledge base, 37 languages — and how templates differ from chat.
+- [Make your agent sound right on the phone](https://docs.thinnest.ai/guides/how-your-agent-sounds.md): Why a reply that reads well can sound wrong, and the handful of changes that fix it.
+- [Take bookings over the phone](https://docs.thinnest.ai/guides/phone-bookings.md): A clinic line that answers, gathers four details and reads them back — built in about twenty minutes.
+- [Turn a calling list into a filled spreadsheet](https://docs.thinnest.ai/guides/calls-into-a-spreadsheet.md): Ring a list of leads and get their answers back in the rows you started with, with a line about each call.
+- [Create a survey agent](https://docs.thinnest.ai/guides/survey-agent.md): Ask the same questions of a thousand people and get answers you can count, not a thousand transcripts.
+- [Call leads from your CRM](https://docs.thinnest.ai/guides/leads-from-your-crm.md): A lead lands in your CRM, your agent rings them within minutes, and the summary, their answers and the recording go back to the same record.
+- [Answer "where is my order?"](https://docs.thinnest.ai/guides/order-status.md): A worked example: your API, one action, and an agent that stops saying it doesn't know.
+- [Recognise signed-in customers on a Next.js site](https://docs.thinnest.ai/guides/nextjs-identity.md): A complete, copy-able implementation — server component, App Router, no secret in the browser.
+- [Send your first broadcast](https://docs.thinnest.ai/guides/first-campaign.md): Start to finish, with the mistakes that cost real money marked.
+- [Recover abandoned carts](https://docs.thinnest.ai/guides/abandoned-cart.md): An event from your shop, a two-step sequence, and messages that stop when the customer buys.
+- [MCP server](https://docs.thinnest.ai/mcp/overview.md): Run your workspace from Claude Code, Cursor or VS Code — build agents, connect your systems, read conversations, build dashboards.
+- [Connect your assistant](https://docs.thinnest.ai/mcp/connect.md): Add the ThinnestAI MCP server to Claude Code, Cursor, VS Code or Claude Desktop with an API key.
+- [Tools](https://docs.thinnest.ai/mcp/tools.md): Every tool the ThinnestAI MCP server offers, and what each one does.
+- [Safety](https://docs.thinnest.ai/mcp/safety.md): What needs your approval, why, and how repeated sends are prevented.
+- [Keep your data in your database](https://docs.thinnest.ai/mcp/own-database.md): Use your own database and ThinnestAI's agents — the agent looks your data up live instead of us holding a copy.
+- [Build a dashboard](https://docs.thinnest.ai/mcp/dashboards.md): Have your assistant build a dashboard or an internal tool on your workspace's data.
+- [API reference](https://docs.thinnest.ai/api-reference/introduction.md): The transactional API — the messages your systems send, not the ones your marketing does.
+- [Authentication](https://docs.thinnest.ai/api-reference/authentication.md): Bearer keys, and the one place they must never go.
+- [Send a message](https://docs.thinnest.ai/api-reference/send-message.md): POST /api/v1/messages — one approved template to one customer. The send API for your own software; no agent needed.
+- [Reply to a conversation](https://docs.thinnest.ai/api-reference/reply-to-conversation.md): POST /api/v1/conversations/{id}/reply — your own agent answers a WhatsApp customer.
+- [Conversations](https://docs.thinnest.ai/api-reference/conversations.md): GET /api/v1/conversations and /conversations/{id}/messages — read threads and catch up on anything your webhook missed.
+- [Send a one-time code](https://docs.thinnest.ai/api-reference/send-a-code.md): Authentication templates — what Meta writes for you, and the one thing everybody gets wrong.
+- [Place a call](https://docs.thinnest.ai/api-reference/place-call.md): POST /api/v1/calls — your agent rings a customer, says why, and reports back what it learned.
+- [Get a call's results](https://docs.thinnest.ai/api-reference/get-call.md): GET /api/v1/calls/{id} and the call.analysed webhook — the summary, the details you asked for, the transcript and a recording link.
+- [Call many people](https://docs.thinnest.ai/api-reference/batch-calls.md): POST /api/v1/calls/batch — up to 200 calls in one request, paced by us.
+- [List calls](https://docs.thinnest.ai/api-reference/list-calls.md): GET /api/v1/calls — every call your agents made or took, newest first.
+- [Agents](https://docs.thinnest.ai/api-reference/agents.md): Create, read, update and delete agents — everything the console's Agent page does, from your own code.
+- [Knowledge](https://docs.thinnest.ai/api-reference/knowledge.md): What an agent knows — list, add a page or text, remove.
+- [Actions](https://docs.thinnest.ai/api-reference/actions.md): Let an agent call your own API — create, test, switch on, change and remove its actions.
+- [Test chat](https://docs.thinnest.ai/api-reference/test-chat.md): Talk to your own agent and read its reply — to check a change works without opening the console.
+- [Voices, models and numbers](https://docs.thinnest.ai/api-reference/voices-and-models.md): The lists an agent is configured from — GET /api/v1/voices, /models and /phone-numbers.
+- [Contacts](https://docs.thinnest.ai/api-reference/contacts.md): Keep your customer list in step from a CRM — create, read, update, delete, and record consent with its source.
+- [Templates and sequences](https://docs.thinnest.ai/api-reference/templates-and-sequences.md): Look up the template names and sequence ids the sending endpoints take.
+- [Campaigns](https://docs.thinnest.ai/api-reference/campaigns.md): Read your WhatsApp broadcasts' and calling campaigns' results, and pause, resume or cancel them.
+- [Usage and analytics](https://docs.thinnest.ai/api-reference/usage-and-analytics.md): Read your usage, balance, agent analytics, call totals and WhatsApp totals — the numbers to build a dashboard on.
+- [Webhooks](https://docs.thinnest.ai/api-reference/webhooks.md): Add, list, change and remove the endpoints an agent's events are sent to.
+- [Report an event](https://docs.thinnest.ai/api-reference/report-event.md): POST /api/v1/events — tell us something happened, and we decide what to send.
+- [Enrol in a sequence](https://docs.thinnest.ai/api-reference/enrol-in-sequence.md): POST /api/v1/sequences/{id}/enrolments — put one person into a sequence, with their own data.
+- [Errors](https://docs.thinnest.ai/api-reference/errors.md): What each status means, and whether retrying will help.
+
+
+This documentation is built and hosted on [Mintlify](https://mintlify.com), a developer documentation platform.

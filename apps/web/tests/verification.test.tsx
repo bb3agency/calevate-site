@@ -187,8 +187,8 @@ describe("the verification gate under failure", () => {
   });
 
   it("tells a verified client where their number comes from, and never offers to get one", async () => {
-    // The founder's decision of 2 Oct 2026: the number is ours, on our Vobiz account. The
-    // card must say so and name the client's part (verification, accurate details), still
+    // The number is ours to provide (founder, 2 Oct 2026), and no provider is named to a
+    // client (founder, 6 Oct 2026: white label). The card must say so and name the client's part (verification, accurate details), still
     // offer no control on this page, and never send the client to open an operator
     // account or hand us credentials — the model this card used to describe.
     const { container } = await renderClientPage(<VerificationPage />, {
@@ -203,12 +203,10 @@ describe("the verification gate under failure", () => {
     await screen.findByText(SCREEN);
     const text = container.textContent ?? "";
     expect(text).toContain("Calevate provides your calling number.");
-    expect(text).toContain("our own carrier account");
-    expect(text).toContain("Vobiz");
-    // Vobiz is the one carrier in use; Plivo is a code fallback, not something a client
-    // chooses, and Exotel has no adapter at all.
-    expect(text).not.toContain("Exotel");
-    expect(text).not.toContain("Plivo");
+    expect(text).toContain("our own telephony account");
+    for (const provider of ["Vobiz", "Plivo", "Exotel", "Thinnest", "Pipecat"]) {
+      expect(text).not.toContain(provider);
+    }
     // The superseded model: the client as subscriber of record on their own account.
     expect(text).not.toContain("subscriber of record");
     expect(text).not.toContain("Calevate does not sell, rent or supply");

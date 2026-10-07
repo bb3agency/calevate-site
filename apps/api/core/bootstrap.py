@@ -26,6 +26,7 @@ from fastapi import FastAPI, Request
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from apps.api.core.alerting import alert
+from apps.api.core.console_links import ADMIN_CONSOLE_BASE, ADMIN_ORIGIN_PREFIXES, CONSOLE_BASE
 from apps.api.core.errors import ProblemError
 from apps.api.core.health import HealthDetailGate, build_health_router
 from apps.api.core.logging import configure_logging, get_logger
@@ -54,7 +55,9 @@ _Handler = Callable[[int, FrameType | None], Any] | int | signal.Handlers | None
 # `Origin` allowlist, deliberately, so that there is not a second list to keep in step. A
 # missing origin therefore fails a request twice over — the browser refuses the response
 # for want of `Access-Control-Allow-Origin`, and the API would refuse the request as
-# cross-site even if the browser did not.
+# cross-site even if the browser did not. Both readers go through
+# `credentialed_origins_for_path`, which narrows admin-realm paths to the admin console's
+# origin alone (`admin_origins_for_env`); this list is what every other path accepts.
 #
 # THE APEX WAS MISSING, AND IT BROKE SIGN-IN, PASSWORD RESET AND THE MARKETING HEADER.
 # Reported from the live site as "we could not reach Calevate" on correct credentials —
@@ -74,8 +77,8 @@ _Handler = Callable[[int, FrameType | None], Any] | int | signal.Handlers | None
 # widens the CSRF allowlist for nothing.
 DEFAULT_CORS_ORIGINS = [
     "https://calevate.tech",
-    "https://app.calevate.tech",
-    "https://admin.calevate.tech",
+    CONSOLE_BASE,
+    ADMIN_CONSOLE_BASE,
 ]
 
 #: The development origin, which is NOT in the constant above and used to be.
@@ -106,10 +109,41 @@ def cors_origins_for_env() -> list[str]:
     the CORS layer and the CSRF Origin check call this, so the two can never disagree —
     which they would the first time somebody filtered the list at one of the two sites.
     """
-    origins = list(DEFAULT_CORS_ORIGINS)
+    return _with_local_dev(DEFAULT_CORS_ORIGINS)
+
+
+def admin_origins_for_env() -> list[str]:
+    """The origins allowed to send credentialed requests to an ADMIN-REALM path.
+
+    Only the admin console. `DEFAULT_CORS_ORIGINS` is the union every client path accepts,
+    and using it for `/v1/admin/**`, `/v1/ops/**` and `/v1/auth/admin/**` would let a page
+    on the marketing site or the client console — script injected into either is the
+    foothold — drive an operator's session, whose cookie the browser attaches to any
+    credentialed request to the API host. Binding each realm's paths to its own origin is
+    what the separate hostnames (D-177) are for. Locally both consoles share one dev
+    server, so the dev origin is admitted here too.
+    """
+    return _with_local_dev([ADMIN_CONSOLE_BASE])
+
+
+def credentialed_origins_for_path(path: str) -> list[str]:
+    """The origin allowlist for a request to `path`, as the CSRF `Origin` check
+    (`authn.cookies.cross_site_refusal`) applies it.
+
+    The CORS layer (`core.middleware.RealmCorsMiddleware`) is installed from the same two
+    functions and splits on the same `ADMIN_ORIGIN_PREFIXES`, so the two agree path by
+    path; `tests/realm_origin_binding_test.py` drives both with the same requests.
+    """
+    if path.startswith(ADMIN_ORIGIN_PREFIXES):
+        return admin_origins_for_env()
+    return cors_origins_for_env()
+
+
+def _with_local_dev(origins: list[str]) -> list[str]:
+    widened = list(origins)
     if get_settings().app_env == "local":
-        origins.append(_LOCAL_DEV_ORIGIN)
-    return origins
+        widened.append(_LOCAL_DEV_ORIGIN)
+    return widened
 
 
 def _install_signal_handlers() -> None:
@@ -442,7 +476,11 @@ def create_app(
     if tracing_enabled():
         app.add_middleware(TracingMiddleware, trust_incoming_traceparent=not minimal)
     if not minimal:
-        install_middleware(app, cors_origins=cors_origins or cors_origins_for_env())
+        install_middleware(
+            app,
+            cors_origins=cors_origins or cors_origins_for_env(),
+            admin_cors_origins=admin_origins_for_env(),
+        )
 
     # ADDED LAST, SO IT IS THE OUTERMOST, and that position is the whole point: the
     # configuration a request runs on has to be fixed before any other layer reads it,
@@ -478,6 +516,8 @@ def create_app(
 __all__ = [
     "DEFAULT_CORS_ORIGINS",
     "SettingsScopeMiddleware",
+    "admin_origins_for_env",
     "cors_origins_for_env",
     "create_app",
+    "credentialed_origins_for_path",
 ]

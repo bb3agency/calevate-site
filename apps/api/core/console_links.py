@@ -43,6 +43,29 @@ CLIENT_ACCEPT_INVITE_PATH = "/auth/accept-invitation"
 #: so the secret is not left in browser history or in a screenshot.
 TOKEN_PARAM = "token"
 
+#: `owner` holds `org:manage`, `agents:write` and `kb:write` — the same strings a dozen
+#: `/v1/admin/**` routes declare. What refuses them is `requires(..., realm="admin")`,
+#: which resolves the caller against `admin_users` instead of `memberships`; a route
+#: that declares the permission and omits the realm reads as guarded in the schema, in
+#: the generated client and in review, and is open to every tenant owner on the platform.
+#:
+#: Asserted one-directionally: an admin-realm route may live outside these prefixes
+#: (`/v1/organizations/{org_id}/llm-defaults`, the billing and compliance admin routers),
+#: and this says nothing about those. What it forbids is the reverse — a route sitting
+#: under the console's own paths that any signed-in client could call.
+ADMIN_REALM_PREFIXES: tuple[str, ...] = ("/v1/admin/", "/v1/ops/")
+
+#: The admin realm's own sign-in surface, `authn/routes._realm_router("admin")`.
+ADMIN_AUTH_PREFIX = "/v1/auth/admin/"
+
+#: Paths only the admin console calls, so a credentialed browser request to one is
+#: accepted from the admin console's origin alone (`core/bootstrap.admin_origins_for_env`),
+#: by CORS and by the CSRF `Origin` check both. Path-based because both layers run before
+#: routing; `tests/realm_origin_binding_test.py` asserts every admin-realm route sits
+#: under one of these, so an admin route mounted elsewhere fails CI rather than quietly
+#: accepting the client console's origin.
+ADMIN_ORIGIN_PREFIXES: tuple[str, ...] = (*ADMIN_REALM_PREFIXES, ADMIN_AUTH_PREFIX)
+
 
 def console_base(realm: str) -> str:
     """The hostname for `realm`. Anything that is not `admin` is the client console —
@@ -79,8 +102,11 @@ def accept_invitation_link(token: str) -> str:
 
 
 __all__ = [
+    "ADMIN_AUTH_PREFIX",
     "ADMIN_BOOTSTRAP_PATH",
     "ADMIN_CONSOLE_BASE",
+    "ADMIN_ORIGIN_PREFIXES",
+    "ADMIN_REALM_PREFIXES",
     "ADMIN_RESET_PASSWORD_PATH",
     "CLIENT_ACCEPT_INVITE_PATH",
     "CLIENT_RESET_PASSWORD_PATH",

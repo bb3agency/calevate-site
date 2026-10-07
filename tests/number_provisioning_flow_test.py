@@ -122,7 +122,7 @@ async def _headers(org: dict[str, Any]) -> dict[str, str]:
 
 
 async def _admin_user() -> uuid.UUID:
-    """A `users` row the price attestation's FK can point at.
+    """An `admin_users` row the price attestation's FK can point at: an operator attests it.
 
     The attestation is written directly here rather than through the admin route because
     what is under test is the PRICE gate, not the console: the route has its own realm and
@@ -132,10 +132,10 @@ async def _admin_user() -> uuid.UUID:
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, email, created_at, updated_at) "
-                "VALUES (:id, :email, now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', 'superadmin', now(), now())"
             ),
-            {"id": user_id, "email": f"{user_id}@example.com"},
+            {"id": user_id},
         )
     return user_id
 

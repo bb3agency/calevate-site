@@ -1,8 +1,9 @@
 """Is a carrier's HTTP request really the carrier's? Pure checks: no IO, no settings.
 
-`carrier_routes.authenticate` applies two independent controls in a fixed order — the
-source-address allowlist, then the request signature — and decides the policy (which key,
-whether a signature is required). This module only answers the two questions.
+`carrier_routes.authenticate` applies three independent controls in a fixed order — the
+source-address allowlist, then our shared callback secret (D-673), then the request
+signature — and decides the policy (which key, whether a signature is required). This
+module only answers the three questions.
 
 THE VOBIZ SIGNATURE (VERIFIED-VENDOR-DOCS, `vobiz-findings/mirror/pages/concepts/
 validating-callbacks.md:15-52`): `X-Vobiz-Signature-V3 = base64(HMAC-SHA256(auth_token,
@@ -27,17 +28,20 @@ import base64
 import hashlib
 import hmac
 import ipaddress
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Final, Literal
 from urllib.parse import quote, unquote
 
 #: How a request was admitted, for the log line and the forensic row. Ordered by strength.
-AuthMethod = Literal["signature", "source_ip", "none"]
+AuthMethod = Literal["signature", "callback_secret", "source_ip", "none"]
 
 #: What a signature check found. `unverifiable` is a signature we hold no key for.
 SignatureOutcome = Literal["verified", "absent", "invalid", "unverifiable"]
+
+#: What the callback-secret check found. `unconfigured` is a carrier we hold no secret for.
+CallbackSecretOutcome = Literal["matched", "absent", "invalid", "unconfigured"]
 
 IpNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 
@@ -95,6 +99,28 @@ def check_signature(
         if any(hmac.compare_digest(value.encode(), expected) for value in presented):
             return "verified"
     return "invalid"
+
+
+def check_callback_secret(
+    presented: Sequence[str], accepted: Sequence[str]
+) -> CallbackSecretOutcome:
+    """Does the one secret the request carries equal one we accept? Constant-time compare.
+
+    More than one value is `invalid`: which copy a framework hands back is its choice, and
+    a request that repeats the parameter is not one we minted. Every accepted secret is
+    compared, so the time taken does not say which generation matched.
+    """
+    if not accepted:
+        return "unconfigured"
+    if not presented:
+        return "absent"
+    if len(presented) != 1:
+        return "invalid"
+    value = presented[0].encode()
+    matched = False
+    for secret in accepted:
+        matched |= hmac.compare_digest(value, secret.encode())
+    return "matched" if matched else "invalid"
 
 
 def signed_base_urls(public_base: str, *, raw_path: bytes | None, path: str) -> tuple[str, ...]:
@@ -158,9 +184,11 @@ def ip_in(source_ip: str, networks: Iterable[IpNetwork]) -> bool:
 __all__ = [
     "VOBIZ_SIGNATURE_V3",
     "AuthMethod",
+    "CallbackSecretOutcome",
     "IpNetwork",
     "SignatureOutcome",
     "SignatureScheme",
+    "check_callback_secret",
     "check_signature",
     "ip_in",
     "parse_networks",

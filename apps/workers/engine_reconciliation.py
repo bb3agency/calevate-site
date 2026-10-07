@@ -98,6 +98,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
+from apps.api.reliability.engine_actions import check_agent_actions
 
 log = get_logger(__name__)
 
@@ -272,6 +273,38 @@ async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | N
         log.info(
             "inbound_truthful_answer_reconciled",
             extra={"agent_id": str(candidate.agent_id), "outcome": silence},
+        )
+
+    # THE IN-CALL ACTIONS (D-678 phase 2), on an engine whose tools are vendor-side actions:
+    # converged back to ours and probed end to end. A no-op on every other engine.
+    actions = await check_agent_actions(
+        tenant_id=candidate.tenant_id,
+        engine=engine_name,
+        engine_agent_ref=candidate.engine_agent_ref,
+    )
+    if actions == "repaired":
+        alert(
+            "WORKER_STALL",
+            "engine_actions_repaired",
+            detail=(
+                f"engine={engine_name}: this live agent's in-call actions (opt-out, call-back, "
+                "handoff) were missing, changed or switched off at the voice platform and "
+                "are ours again"
+            ),
+            agent_id=str(candidate.agent_id),
+            tenant_id=str(candidate.tenant_id),
+        )
+    elif actions == "probe_failed":
+        alert(
+            "WORKER_STALL",
+            "engine_actions_unreachable",
+            detail=(
+                f"engine={engine_name}: the voice platform's test call to this live agent's "
+                "in-call actions did not reach our API, so callers cannot opt out or book a "
+                "call-back mid-call. Check ENGINE_ACTIONS_BASE_URL and the /v1/worker/ route"
+            ),
+            agent_id=str(candidate.agent_id),
+            tenant_id=str(candidate.tenant_id),
         )
 
     if state == TRUTHFUL_ANSWER_MISSING:

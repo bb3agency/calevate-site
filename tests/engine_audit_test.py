@@ -1586,6 +1586,15 @@ _VENDOR_ONLY_KEYS = frozenset(
         # Ordinary-looking English words, banned for `introduction`'s reason.
         "start_time",
         "end_time",
+        # ThinnestAI (D-678): camelCase instants and their list cursor. Ours are
+        # `started_at`/`ended_at` and no cursor crosses the adapter boundary.
+        "startedAt",
+        "endedAt",
+        "analysedAt",
+        "nextCursor",
+        # Their per-call charge in integer micro-units (usage call log). Ours is
+        # `unit_cost_paid` in NUMERIC rupees; the vendor field never crosses the adapter.
+        "costMicro",
     }
 )
 # `next_page` was here and is gone with the Cartesia listing rewrite (D-270): their page
@@ -1607,6 +1616,12 @@ _VENDOR_ONLY_KEYS = frozenset(
 #: vocabulary is a guard somebody switches off.
 _SHARED_PAYLOAD_KEYS = frozenset(
     {
+        # `title` is a knowledge document's name on ThinnestAI and `KBSourceRef.title` in
+        # our own contract, so it proves nothing about where a payload came from.
+        "title",
+        # `using` is GET /byok's on/off flag, and an everyday English word our own code
+        # uses too, so it proves nothing about a payload's origin.
+        "using",
         # THE VOICE-CONFIG LISTING'S FOUR SHARED WORDS (D-585). `items` is Bolna's
         # pagination envelope, `providers` their top-level array and `models` the array on
         # each provider row — and every one is a word this product already uses in its own
@@ -1781,6 +1796,29 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "tts",
         "updated_at",
         "webhook_url",
+        # ThinnestAI's ordinary English words (D-678). Each is a word this product also
+        # uses — `fields` on extraction, `metadata` and `reference` on our own models,
+        # `from`/`phone`/`number` on every telephony row, `recording`, `seconds`, `tier`
+        # on voice tiers, `variables` in the call script, `greeting`/`instructions` in
+        # prompts, `cursor` in our own paging, `hangup` in `carrier_events` — so none proves
+        # where a payload came from.
+        "available",
+        "cursor",
+        "fields",
+        "from",
+        "greeting",
+        "hangup",
+        "instructions",
+        "metadata",
+        "mine",
+        "number",
+        "phone",
+        "ready",
+        "recording",
+        "reference",
+        "seconds",
+        "tier",
+        "variables",
     }
 )
 
@@ -1811,6 +1849,7 @@ _ADAPTER_PACKAGE = "apps/api/engine"
 _ADAPTER_SOURCES = (
     "apps/api/engine/cartesia.py",
     "apps/api/engine/fake.py",
+    "apps/api/engine/thinnest.py",
 )
 
 

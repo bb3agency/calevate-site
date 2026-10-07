@@ -28,7 +28,12 @@ from typing import Any, Final
 from urllib.parse import quote
 
 import httpx
-from calevate_shared.carrier import CarrierName
+from calevate_shared.carrier import (
+    CarrierName,
+    callback_secret_for,
+    fallback_path,
+    with_callback_secret,
+)
 from calevate_shared.config import Settings
 from calevate_shared.engine import ProvisionedNumber
 from calevate_shared.events import CallDirection, CallStatus
@@ -36,6 +41,7 @@ from pydantic import ValidationError
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import is_public_callback_base
 from apps.api.engine.capabilities import engine_not_configured
 from apps.api.engine.carrier import (
     CarrierCallEvent,
@@ -85,13 +91,17 @@ _HANGUP_STATUS: Final[dict[str, CallStatus]] = {
 #: the stream, `xml/stream/stream-events.md:262-267`), 4020/4030 multiparty endings.
 _NORMAL_COMPLETION_CODES: Final = range(4000, 4031)
 
-#: Numeric codes for the unanswered outcomes, from the same page (`:79-80`, `:95`, `:119`).
-#: Everything not named here or above is `failed`.
+#: Numeric codes for the other outcomes, from the same page. Everything not named here or
+#: above is `failed`. 6000 "Scheduled Hangup — Max call duration reached" (`:118`) is an
+#: answered call cut at the `time_limit` we set, so a conversation took place; 9100 "Machine
+#: Detected" (`:157`) is a voicemail pickup ended by `machine_detection=hangup`.
 _HANGUP_CODE_STATUS: Final[dict[int, CallStatus]] = {
     3000: "no_answer",
     3010: "busy",
     3100: "busy",
+    6000: "completed",
     6010: "no_answer",
+    9100: "voicemail",
 }
 
 #: Stream lifecycle events (`xml/stream.md:68-204`): reported, never a call status.
@@ -116,6 +126,21 @@ def application_name(label: str) -> str:
     return APP_NAME_PREFIX + _APP_NAME_UNSAFE.sub("-", label)
 
 
+def fallback_url_for(cfg: Settings) -> str | None:
+    """The fallback answer URL registered on every dial and Application (D-675), or None
+    when `webhook_base_url` is not one the carrier can reach.
+
+    Vobiz calls it "only if `answer_url` is unreachable, times out, or returns invalid
+    VobizXML"; with none set "the call drops" (`applications/create-application.md:34`), and
+    the vendor says to "always configure fallback_answer_url for production apps"
+    (`applications.md:74`). It carries the callback secret like every URL we register.
+    """
+    base = (cfg.webhook_base_url or "").strip().rstrip("/")
+    if not is_public_callback_base(base):
+        return None
+    return with_callback_secret(base + fallback_path("vobiz"), callback_secret_for("vobiz", cfg))
+
+
 def _segment(value: str) -> str:
     """One path segment. A number must be URL-encoded, `+` -> `%2B`
     (`applications/attach-number.md:31`)."""
@@ -132,11 +157,13 @@ class VobizCarrier:
         auth_token: str | None,
         base_url: str,
         client: httpx.AsyncClient | None = None,
+        fallback_url: str | None = None,
     ) -> None:
         self._auth_id = auth_id
         self._auth_token = auth_token
         self._base_url = base_url.rstrip("/")
         self._client = client
+        self._fallback_url = fallback_url
 
     @classmethod
     def from_settings(cls, cfg: Settings) -> VobizCarrier:
@@ -144,6 +171,7 @@ class VobizCarrier:
             auth_id=cfg.vobiz_auth_id,
             auth_token=cfg.vobiz_auth_token,
             base_url=cfg.vobiz_api_base_url,
+            fallback_url=fallback_url_for(cfg),
         )
 
     @property
@@ -223,23 +251,28 @@ class VobizCarrier:
         E.164 form the parameter table names (`:31-32`); whether the API also accepts them
         without the `+` its examples print is UNKNOWN and not relied on. `ring_timeout` is the
         field the example sends (`:83`); see `engine/carrier.RING_TIMEOUT_S` for why it, and
-        not `hangup_on_ring`, bounds an unanswered dial.
+        not `hangup_on_ring`, bounds an unanswered dial. `fallback_url` is invoked "if
+        answer_url fails after 3 retries or 60s timeout" (`:44-45`).
         """
+        body: dict[str, Any] = {
+            "from": from_e164,
+            "to": to_e164,
+            "answer_url": answer_url,
+            "answer_method": "POST",
+            "hangup_url": hangup_url,
+            "hangup_method": "POST",
+            "ring_url": ring_url,
+            "ring_method": "POST",
+            "time_limit": time_limit_s,
+            "ring_timeout": ring_timeout_s,
+        }
+        if self._fallback_url is not None:
+            body["fallback_url"] = self._fallback_url
+            body["fallback_method"] = "POST"
         payload = await self._request(
             "POST",
             "/Account/{auth_id}/Call/",
-            json={
-                "from": from_e164,
-                "to": to_e164,
-                "answer_url": answer_url,
-                "answer_method": "POST",
-                "hangup_url": hangup_url,
-                "hangup_method": "POST",
-                "ring_url": ring_url,
-                "ring_method": "POST",
-                "time_limit": time_limit_s,
-                "ring_timeout": ring_timeout_s,
-            },
+            json=body,
             extra_refused_statuses=DIAL_REFUSED_STATUSES,
         )
         request_uuid = payload.get("request_uuid")
@@ -340,6 +373,10 @@ class VobizCarrier:
             "hangup_url": hangup_url,
             "hangup_method": "POST",
         }
+        if self._fallback_url is not None:
+            # `applications/create-application.md:34-35`, `update-application.md:39-40`.
+            settings["fallback_answer_url"] = self._fallback_url
+            settings["fallback_method"] = "POST"
         app_id = None
         if known_binding_id:
             app_id = await self._application_if_named(known_binding_id, app_name)
@@ -679,7 +716,11 @@ def parse_event(fields: dict[str, str]) -> CarrierCallEvent | None:
     if event == "Hangup" or (not event and (cause or (fields.get("EndTime") or "").strip())):
         return build("hangup", _hangup_status(cause, code))
     if event == "MachineDetection":
-        return build("machine", "voicemail")
+        # The callback reports EITHER verdict: `Machine` is `true` for a machine and `false`
+        # for a person (`call/machine-detection.md:162`). A person is not a voicemail.
+        if (fields.get("Machine") or "").strip().lower() == "true":
+            return build("machine", "voicemail")
+        return build("other", None)
     if event in _STREAM_EVENTS:
         return build("stream", None)
     return build("other", None)
@@ -714,6 +755,17 @@ def parse_cdr(data: dict[str, Any], *, carrier_call_id: str) -> CarrierCdr:
     currency = currency.strip().upper() if isinstance(currency, str) and currency.strip() else None
     total = _decimal(data.get("total_cost"))
     cause = data.get("hangup_cause")
+    cause = cause if isinstance(cause, str) and cause else None
+    # `hangup_cause_code` is an integer (`cdr.md:282`, example `:175`); a string spelling is
+    # tolerated, anything else is no code.
+    raw_code = data.get("hangup_cause_code")
+    code = (
+        raw_code
+        if isinstance(raw_code, int) and not isinstance(raw_code, bool)
+        else _int_field(raw_code)
+        if isinstance(raw_code, str)
+        else None
+    )
     return CarrierCdr(
         carrier="vobiz",
         carrier_call_id=str(data.get("uuid") or carrier_call_id),
@@ -723,8 +775,10 @@ def parse_cdr(data: dict[str, Any], *, carrier_call_id: str) -> CarrierCdr:
         currency=currency,
         answered_at=_instant(data.get("answer_time")),
         ended_at=_instant(data.get("end_time")),
-        hangup_cause=cause if isinstance(cause, str) and cause else None,
+        hangup_cause=cause,
         raw_fields=tuple(sorted(str(key) for key in data)),
+        hangup_cause_code=code,
+        status=_hangup_status(cause, code),
     )
 
 

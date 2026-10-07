@@ -30,8 +30,9 @@ from pathlib import Path
 
 import pytest
 from apps.api.core.bootstrap import DEFAULT_CORS_ORIGINS
+from apps.api.core.console_links import ADMIN_CONSOLE_BASE
 from apps.api.core.middleware import install_middleware
-from apps.api.core.rbac import iter_api_routes
+from apps.api.core.rbac import ADMIN_ORIGIN_PREFIXES, iter_api_routes
 from apps.api.main import app
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -69,10 +70,17 @@ def _cors_middleware() -> CORSMiddleware:
     than a copy of it.
     """
     probe = FastAPI()
-    install_middleware(probe, cors_origins=list(DEFAULT_CORS_ORIGINS))
+    install_middleware(
+        probe,
+        cors_origins=list(DEFAULT_CORS_ORIGINS),
+        admin_cors_origins=[ADMIN_CONSOLE_BASE],
+    )
     for middleware in probe.user_middleware:
-        if middleware.cls is CORSMiddleware:
-            return CORSMiddleware(app=probe, *middleware.args, **middleware.kwargs)  # noqa: B026
+        # A subclass: `RealmCorsMiddleware` is Starlette's CORS split by realm, and the
+        # methods and headers asserted below are the same for both realms.
+        if isinstance(middleware.cls, type) and issubclass(middleware.cls, CORSMiddleware):
+            built: CORSMiddleware = middleware.cls(probe, *middleware.args, **middleware.kwargs)
+            return built
     raise AssertionError("install_middleware no longer installs CORSMiddleware")
 
 
@@ -164,12 +172,14 @@ async def test_the_preflight_the_browser_actually_sends_succeeds(
     A preflight never reaches a handler — CORS sits outside routing — so this asserts the
     browser's half and nothing about authorization. 200 with the method echoed back is
     what unblocks the request; the pre-fix answer was 400 `Disallowed CORS method`.
+    Admin-realm paths are preflighted from the admin console, the only origin they accept.
     """
+    origin = ADMIN_CONSOLE_BASE if path.startswith(ADMIN_ORIGIN_PREFIXES) else ORIGIN
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
         response = await http.options(
             path,
             headers={
-                "Origin": ORIGIN,
+                "Origin": origin,
                 "Access-Control-Request-Method": method,
                 "Access-Control-Request-Headers": headers,
             },
@@ -201,13 +211,17 @@ def test_a_wildcard_origin_cannot_be_installed_alongside_credentials() -> None:
     Refused at BOOT rather than reviewed, because the failure it prevents is silent.
     """
     with pytest.raises(ValueError, match="wildcard origin"):
-        install_middleware(FastAPI(), cors_origins=["*"])
+        install_middleware(FastAPI(), cors_origins=["*"], admin_cors_origins=[ADMIN_CONSOLE_BASE])
 
 
 def test_the_real_origin_list_still_installs() -> None:
     """The control on the refusal above: it must reject `*` and nothing else. A guard that
     also rejected the origins we actually serve would be found at the next deploy."""
-    install_middleware(FastAPI(), cors_origins=list(DEFAULT_CORS_ORIGINS))
+    install_middleware(
+        FastAPI(),
+        cors_origins=list(DEFAULT_CORS_ORIGINS),
+        admin_cors_origins=[ADMIN_CONSOLE_BASE],
+    )
 
 
 async def test_a_method_outside_the_allow_list_is_still_refused() -> None:
@@ -277,7 +291,7 @@ def test_the_csrf_allowlist_and_the_cors_allowlist_are_the_same_function() -> No
     """
     source = Path(__file__).resolve().parents[1] / "apps" / "api" / "authn" / "cookies.py"
     text = source.read_text(encoding="utf-8")
-    assert "cors_origins_for_env()" in text
+    assert "credentialed_origins_for_path(path)" in text
     assert (
         "DEFAULT_CORS_ORIGINS"
         not in text.split("def cross_site_refusal")[0].split("allowed = ")[-1]

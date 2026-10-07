@@ -48,6 +48,7 @@ from pipecat.audio.turn.smart_turn.base_smart_turn import STOP_SECS, SmartTurnPa
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
+    AggregatedTextFrame,
     Frame,
     LLMContextFrame,
     LLMFullResponseEndFrame,
@@ -472,7 +473,8 @@ def test_pipeline_is_the_shipped_ordering() -> None:
         call.boundary.language_tap,
         call.aggregators.user(),
         llm,
-        call.pipeline._processors[6],  # tts
+        call.output_guard,  # D-674: every sentence is checked before the voice speaks it
+        call.pipeline._processors[7],  # tts
         transport.output(),
         call.aggregators.assistant(),
     ]
@@ -607,7 +609,8 @@ async def test_local_run_against_a_fake_transport_emits_normalized_events() -> N
     assert {event.engine for event in sink.events} == {"pipecat"}
 
     # Frames really traversed the fake transport rather than the test faking the middle.
-    assert any(isinstance(frame, LLMTextFrame) for frame in transport.output().seen)
+    # As sentences: the output guard between the model and the voice aggregates (D-674).
+    assert any(isinstance(frame, AggregatedTextFrame) for frame in transport.output().seen)
 
 
 async def test_transcription_frames_never_reach_the_tail_which_is_why_events_are_the_boundary() -> (

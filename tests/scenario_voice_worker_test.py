@@ -46,6 +46,7 @@ from calevate_shared.engine import (
 )
 from calevate_shared.knowledge_pack import KnowledgePack, PackEntry
 from scenario_harness import (
+    AI_ANSWER,
     DEFAULT_CLIENT_SCRIPT,
     DEFAULT_POSTURE,
     CallerTurn,
@@ -554,7 +555,11 @@ async def test_a_caller_talking_over_the_agent_stops_it_and_truncates_the_turn()
     assert not any(said + talked_over == utterance for utterance in run.agent_utterances), (
         "the transcript recorded the whole reply, so nothing was actually cut off"
     )
-    assert any(said.strip() in utterance for utterance in run.agent_utterances)
+    # What reached the speech leg is the complete first sentence; the word after it was
+    # still in the output guard's sentence buffer when the caller cut in (D-674).
+    spoken = run.model.spoken_before_barge_in(said)
+    assert spoken
+    assert any(spoken in utterance for utterance in run.agent_utterances)
 
 
 async def test_without_a_barge_in_the_same_turn_is_recorded_whole() -> None:
@@ -563,7 +568,7 @@ async def test_without_a_barge_in_the_same_turn_is_recorded_whole() -> None:
     Without this, the assertion above would pass on a pipeline that simply never finished a
     turn."""
     run = await run_scenario([CallerTurn("are you an AI?")])
-    assert any(utterance == "Yes, I am an AI assistant." for utterance in run.agent_utterances)
+    assert any(utterance == AI_ANSWER for utterance in run.agent_utterances)
     assert not any(run.tts.discarded)
 
 

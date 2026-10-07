@@ -377,8 +377,8 @@ async def test_every_breakdown_sums_to_the_figure_another_panel_already_publishe
 
 
 async def test_a_managed_month_divides_its_calling_charge_across_its_calls_exactly() -> None:
-    """120 minutes, 100 included, ₹8/min → ₹160.00 of overage, and the per-call shares add
-    to ₹160.00 — not ₹159.99, which is what `to_paise` on each share would publish."""
+    """120.5 billed minutes (30-second steps, D-681: 60.5 + 33.5 + 26.5), 100 included,
+    ₹8/min → ₹164.00 of overage, and the per-call shares add to exactly ₹164.00."""
     tenant_id, reception = await _tenant(included_min=100, overage_rate="8.0000")
     outbound = await _second_agent(tenant_id)
     # Three calls whose minute shares do not divide into paise cleanly.
@@ -395,7 +395,7 @@ async def test_a_managed_month_divides_its_calling_charge_across_its_calls_exact
     # `spend_state.billed_inr` while a month is open, and that counter moves only when
     # the METER runs -- so anchoring the itemisation there published a page of 0.00
     # beside an overage of 160.00. This assertion is what pins the anchor.
-    assert period.period_charge_inr == usage["overage_cost_inr"] == Decimal("160.00")
+    assert period.period_charge_inr == usage["overage_cost_inr"] == Decimal("164.00")
     assert period.itemised_charge_inr == period.period_charge_inr
     assert period.itemisation_residual_inr == Decimal("0.00")
     assert period.residual_reason is None, "nothing to explain when the parts add up"

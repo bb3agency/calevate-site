@@ -19,7 +19,7 @@ THE MODEL, in one paragraph
 Every pack carries `clear_inr_per_min` and `studio_inr_per_min`. Which one prices a call
 is a property of the AGENT that took it — its voice tier, derived from the voice's provider
 (`rates.VoiceTier`, plan §2.3.7) — never of the wallet. So the same 15,000 credits buy
-3,750 minutes on a Sarvam agent and 2,459 on a Cartesia one, and the wallet screen quotes
+3,750 minutes on a Clear agent and 2,459 on a Studio one, and the wallet screen quotes
 both (plan Q7). `bonus_pct` is zero on every pack and is retained ONLY as the deprecated
 field named in §10; nothing sets it and nothing new may read it.
 
@@ -37,25 +37,23 @@ record_card`) — that is history, not an edit surface.
 
 THE MARGIN INVARIANT — TWO FLOORS, AND IT IS A COST FLOOR, NOT A TARGET
 ----------------------------------------------------------------------
-Each of a pack's two rates is judged against ITS OWN voice's cost floor
-(`rates.cost_floor_inr_per_min`), because the Cartesia floor is the dearer one and judging
-a Cartesia rate against the Sarvam floor would always pass. The verdict shape is
-`rates.rate_margin`, shared with the committed-bundle guard (D-469) so a screen and a test
-cannot disagree about what "thin" means:
+Each of a pack's two rates is judged against ITS OWN voice's cost floor ON THE ENGINE THE
+DEPLOYMENT RUNS (`rates.cost_floor_inr_per_min(voice, engine=...)`, D-681), because the
+Studio floor is the dearer one and a minute costs us different amounts on different engines.
+The verdict shape is `rates.rate_margin`, shared with the committed-bundle guard (D-469) so
+a screen and a test cannot disagree about what "thin" means:
 
 * **below cost is a REFUSAL** — `card_refusals` names it, `tests/credit_packs_test.py`
   fails on it, and the ops console will not write a card containing it.
-* **below `MIN_GROSS_MARGIN` is a WARNING**, and the approved card is deliberately in that
-  band on **eight of its twelve cells** (the founder's card of 14 Sep 2026). Against the
-  D-592 floors — ₹3.3111 Clear, ₹4.7099 Studio — a flat ₹4.00 Clear minute earns **17.2%**
-  on every rung, and the two deepest Studio rungs earn **18.8%** (₹5.80) and **14.4%**
-  (₹5.50). Nothing is below COST. That is a deliberate price cut to win the first clients,
-  not a defect; the guard's job is to make the number visible and to refuse the line below
-  which we would be paying for the client's minute. ⚠ **DO NOT "FIX" A THIN CELL BY MOVING
-  A RATE** — holding 20% everywhere would need Clear ₹4.15 and a Studio floor of ₹5.90, and
-  that is a pricing decision, not a test failure. This paragraph read "₹4.1211/min against
-  Sarvam rates of ₹5.00 down to ₹4.50, i.e. 17.6% down to 8.4%" until 14 Sep 2026; both the
-  floor and the card have moved since.
+* **below `MIN_GROSS_MARGIN` is a WARNING.** The founder's card of 14 Sep 2026 (Clear flat
+  ₹4.00, Studio 7.00 → 5.50) earns, per engine:
+
+      ThinnestAI  Clear 31.3% (₹2.75)    Studio 32.7% → 14.4% (₹4.7099; not sold there yet)
+      Pipecat     Clear  7.8% (₹3.6891)  Studio 25.0% →  4.5% (₹5.2499, carrier included)
+
+  Nothing is below COST. The thin cells are a deliberate opening price, not a defect.
+  ⚠ **DO NOT "FIX" A THIN CELL BY MOVING A RATE** — that is a pricing decision, not a test
+  failure.
 
 Invariant 6 (plan §2.3) is checked here too: on every pack `cartesia >= sarvam`, and
 neither column RISES as `amount_inr` rises. ⚠ It is "never rises", not "always falls": the
@@ -83,6 +81,7 @@ from apps.api.billing.rates import (
     cost_floor_inr_per_min,
     rate_margin,
 )
+from apps.api.core.settings import get_settings
 
 # The gross-margin floor and its formula are HOISTED to `billing/rates.py` and imported
 # here (D-469): the committed-volume bundle plans check the SAME invariant against the
@@ -111,6 +110,11 @@ PACK_BONUS_META_KIND: Final[str] = "credit_pack_bonus"
 # pack's bonus has already been reversed" has to be a query, which it is only if the rows
 # that reverse it are recognisable without reading their sign.
 PACK_BONUS_CLAWBACK_META_KIND: Final[str] = "credit_pack_bonus_clawback"
+
+#: The client's words for the two rows above. Both are `reason = 'bonus'`, so without these
+#: the clawback would read as a bonus with a minus sign, which says nothing about why.
+PACK_BONUS_LABEL: Final[str] = "Bonus credit with your pack"
+PACK_BONUS_CLAWBACK_LABEL: Final[str] = "Pack bonus taken back after a refund"
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +186,7 @@ class CreditPack:
 
 
 #: THE RATE CARD (founder sign-off, 14 Sep 2026 — `docs/PIPECAT-MIGRATION.md` §12). Six
-#: rungs from ₹2,000 to ₹50,000, each with a Sarvam (Clear) and a Cartesia (Studio) ₹/min.
+#: rungs from ₹2,000 to ₹50,000, each with a Clear and a Studio ₹/min.
 #: Three properties are deliberate:
 #:
 #: * **The Clear column is FLAT at ₹4.00** across all six rungs. It used to fall 5.00 →
@@ -201,11 +205,9 @@ class CreditPack:
 #:   curve turns back up towards `rates.CARTESIA_COST_FLOOR_INR_PER_MIN`, which is why
 #:   every rung carries a break-even volume
 #:   (`rates.cartesia_rung_breakeven_call_minutes`) and the ops console prints it.
-#: * **THIS CARD CUTS EVERY PRICE AND EIGHT OF ITS TWELVE CELLS EARN UNDER 20%** — the
-#:   whole Clear column at 17.2%, and Studio's `pro` (18.8%) and `max` (14.4%) rungs.
-#:   Nothing is below COST, so the console warns rather than refuses. It is the founder's
-#:   deliberate opening price to win the first clients; see the module docstring's margin
-#:   section before "correcting" a thin cell.
+#: * **SEVERAL CELLS EARN UNDER 20%, ON PURPOSE** — which ones depends on the engine's
+#:   floors (module docstring). Nothing is below COST, so the console warns rather than
+#:   refuses. It is the founder's opening price to win the first clients.
 #:
 #: ⚠ **THE BONUS PERCENTAGES ARE GONE, NOT SET TO ZERO BY OVERSIGHT.** They were the margin
 #: model until D-547 (`effective = list / (1 + bonus)`); the rates below ARE the margin
@@ -290,20 +292,30 @@ def pack_talk_time_minutes(pack: CreditPack, *, voice: VoiceTier) -> Decimal:
     return pack.total_credits / pack.inr_per_min(voice)
 
 
-def pack_rate_margin(pack: CreditPack, *, voice: VoiceTier) -> RateMargin:
+def deployment_engine() -> str:
+    """The engine this deployment runs (`Settings.engine`), whose floors a card is judged at."""
+    return get_settings().engine
+
+
+def pack_rate_margin(
+    pack: CreditPack, *, voice: VoiceTier, engine: str | None = None
+) -> RateMargin:
     """The margin verdict for one pack on one voice, against THAT voice's cost floor.
 
     The cost comes from `rates.cost_floor_inr_per_min(voice)` rather than being passed in,
     which is the opposite of what this function's predecessor did — and deliberately. With
     one floor a caller could not get it wrong; with two, a caller passing the cost is a
-    caller that can pass the Sarvam floor for a Cartesia rate, and that mistake always
-    passes (the Sarvam floor is the lower one). The pairing is made here, once.
+    caller that can pass the Clear floor for a Studio rate, and that mistake always
+    passes (the Clear floor is the lower one). The pairing is made here, once.
+
+    `engine` defaults to the one this deployment runs, whose floors the card is sold at.
     """
-    return rate_margin(pack.inr_per_min(voice), cost=cost_floor_inr_per_min(voice))
+    floor = cost_floor_inr_per_min(voice, engine=engine or deployment_engine())
+    return rate_margin(pack.inr_per_min(voice), cost=floor)
 
 
 def card_margins(
-    card: tuple[CreditPack, ...] = PACK_CATALOGUE,
+    card: tuple[CreditPack, ...] = PACK_CATALOGUE, *, engine: str | None = None
 ) -> tuple[tuple[str, VoiceTier, RateMargin], ...]:
     """Every `(pack_id, voice, verdict)` on a card, in card order then voice order.
 
@@ -311,14 +323,17 @@ def card_margins(
     (`ops/config_routes._record_card`) and `tests/credit_packs_test.py` asserts over it, so
     the twelve numbers an operator is shown are the twelve numbers CI scored.
     """
+    judged_at = engine or deployment_engine()
     return tuple(
-        (pack.pack_id, voice, pack_rate_margin(pack, voice=voice))
+        (pack.pack_id, voice, pack_rate_margin(pack, voice=voice, engine=judged_at))
         for pack in card
         for voice in VOICE_TIERS
     )
 
 
-def card_refusals(card: tuple[CreditPack, ...] = PACK_CATALOGUE) -> list[str]:
+def card_refusals(
+    card: tuple[CreditPack, ...] = PACK_CATALOGUE, *, engine: str | None = None
+) -> list[str]:
     """Why this card may not be sold — empty when it may. Each string names one break.
 
     TWO KINDS, and both are refusals rather than warnings because both mean the card is
@@ -334,7 +349,7 @@ def card_refusals(card: tuple[CreditPack, ...] = PACK_CATALOGUE) -> list[str]:
     failures = [
         f"pack {pack_id!r} sells a {voice} minute at ₹{verdict.rate} against a "
         f"₹{verdict.cost} cost floor — below cost"
-        for pack_id, voice, verdict in card_margins(card)
+        for pack_id, voice, verdict in card_margins(card, engine=engine)
         if verdict.below_cost
     ]
     failures += [
@@ -365,12 +380,15 @@ def card_refusals(card: tuple[CreditPack, ...] = PACK_CATALOGUE) -> list[str]:
 __all__ = [
     "CREDIT_INR",
     "MIN_GROSS_MARGIN",
+    "PACK_BONUS_CLAWBACK_LABEL",
     "PACK_BONUS_CLAWBACK_META_KIND",
+    "PACK_BONUS_LABEL",
     "PACK_BONUS_META_KIND",
     "PACK_CATALOGUE",
     "CreditPack",
     "card_margins",
     "card_refusals",
+    "deployment_engine",
     "pack_by_id",
     "pack_paid_for",
     "pack_rate_margin",

@@ -1,6 +1,7 @@
 "use client";
 
 import { DashboardDataUsePanel } from "@/app/admin/ops/DashboardDataUsePanel";
+import { EngineMinutePricePanel } from "@/app/admin/ops/EngineMinutePricePanel";
 import { FxRatePanel } from "@/app/admin/ops/FxRatePanel";
 import { ModelPricingPanel } from "@/app/admin/ops/ModelPricingPanel";
 import { NumberPricePanel } from "@/app/admin/ops/NumberPricePanel";
@@ -35,6 +36,8 @@ export function ConfigSectionBody({ id, access }: { id: ConfigSectionId; access:
           the whole twelve-cell card under one `effective_from`, so the cells are read first. */}
       {id === "billing" && <RateCardPanel access={access} />}
       <SectionSettings id={id} access={access} />
+      {/* A voice platform that reports no call cost is sold only at an attested rate. */}
+      {id === "calling" && <EngineMinutePricePanel access={access} />}
       {/* The live exchange rate sits beside its fallback (`usd_inr_rate`, above). It is
           read-only: the operator's control over it is that fallback. */}
       {id === "billing" && <FxRatePanel />}

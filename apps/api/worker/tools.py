@@ -37,6 +37,7 @@ and never built from wire data, so it is safe to log and the number beside it ne
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Final
@@ -98,7 +99,7 @@ FROM calls WHERE engine_call_id = :ecid
 
 
 @dataclass(frozen=True, slots=True)
-class _ToolCall:
+class ToolCall:
     """The call row a tool acts on, resolved once per request."""
 
     id: UUID
@@ -108,7 +109,21 @@ class _ToolCall:
     to_e164: str | None
 
 
-async def _load_call(session: AsyncSession, engine_call_id: str) -> _ToolCall:
+#: How a tool finds its call row inside the tenant session it writes in. The Pipecat worker
+#: names its own call ref (`_load_call`); an engine whose actions cannot name the call
+#: resolves it another way (`worker/engine_actions.py`) and hands the same row in, so the
+#: write each tool makes stays in one function.
+CallLocator = Callable[[AsyncSession], Awaitable[ToolCall]]
+
+
+def _by_engine_call_id(engine_call_id: str) -> CallLocator:
+    async def locate(session: AsyncSession) -> ToolCall:
+        return await _load_call(session, engine_call_id)
+
+    return locate
+
+
+async def _load_call(session: AsyncSession, engine_call_id: str) -> ToolCall:
     """The `calls` row, or the one refusal every unknown ref gets (`_refuse_unknown_call`).
 
     A 404 RATHER THAN AN HONEST-FAILURE ANSWER, deliberately, and the line is where the
@@ -120,7 +135,7 @@ async def _load_call(session: AsyncSession, engine_call_id: str) -> _ToolCall:
     row = (await session.execute(text(_CALL_SQL), {"ecid": engine_call_id})).first()
     if row is None:
         raise _refuse_unknown_call()
-    return _ToolCall(
+    return ToolCall(
         id=UUID(str(row[0])),
         agent_id=UUID(str(row[1])),
         direction=str(row[2]),
@@ -129,7 +144,7 @@ async def _load_call(session: AsyncSession, engine_call_id: str) -> _ToolCall:
     )
 
 
-def _subject(call: _ToolCall, caller: CallerIdentityIn) -> tuple[str | None, str]:
+def _subject(call: ToolCall, caller: CallerIdentityIn) -> tuple[str | None, str]:
     """The OTHER party's number and, when there is none, the ground in machine words.
 
     **THE DIRECTION CHOOSES, EXACTLY AS IT DOES ON THE ENGINE LEG.** On an inbound call the
@@ -203,8 +218,15 @@ async def record_opt_out(engine_call_id: str, request: OptOutToolIn) -> OptOutTo
     so it cannot rescue the unattributable case either.
     """
     tenant_id = tenant_of_call(engine_call_id)
+    return await record_opt_out_for(tenant_id, request, locate=_by_engine_call_id(engine_call_id))
+
+
+async def record_opt_out_for(
+    tenant_id: UUID, request: OptOutToolIn, *, locate: CallLocator
+) -> OptOutToolOut:
+    """`record_opt_out` for a tenant and call already resolved by the caller."""
     async with tenant_session(tenant_id) as session:
-        call = await _load_call(session, engine_call_id)
+        call = await locate(session)
         phone, ground = _subject(call, request.caller)
         if phone is None:
             return _optout_unattributed(tenant_id, call, ground, request.caller.state)
@@ -242,9 +264,7 @@ async def record_opt_out(engine_call_id: str, request: OptOutToolIn) -> OptOutTo
     return OptOutToolOut(status="recorded", say=_OPTOUT_DONE_SAY)
 
 
-def _optout_unattributed(
-    tenant_id: UUID, call: _ToolCall, ground: str, state: str
-) -> OptOutToolOut:
+def _optout_unattributed(tenant_id: UUID, call: ToolCall, ground: str, state: str) -> OptOutToolOut:
     """Alert, then tell the agent what it may and may not claim. Never a success."""
     alert(
         "WORKER_TERMINAL",
@@ -291,6 +311,19 @@ async def book_callback(engine_call_id: str, request: CallbackBookIn) -> Callbac
     dangerous half of the am/pm ambiguity structurally rather than by care.
     """
     tenant_id = tenant_of_call(engine_call_id)
+    return await book_callback_for(
+        tenant_id, engine_call_id, request, locate=_by_engine_call_id(engine_call_id)
+    )
+
+
+async def book_callback_for(
+    tenant_id: UUID, engine_call_id: str, request: CallbackBookIn, *, locate: CallLocator
+) -> CallbackToolOut:
+    """`book_callback` for a tenant and call already resolved by the caller.
+
+    `engine_call_id` is the engine's handle for the conversation, which keys the promise
+    (`source_execution_id`) so two bookings in one conversation resolve against each other.
+    """
     slot = resolve_slot(request.callback_date, request.callback_time, now=datetime.now(UTC))
     if isinstance(slot, SlotRefusal):
         return CallbackToolOut(
@@ -311,7 +344,7 @@ async def book_callback(engine_call_id: str, request: CallbackBookIn) -> Callbac
         )
 
     async with tenant_session(tenant_id) as session:
-        call = await _load_call(session, engine_call_id)
+        call = await locate(session)
         phone, ground = _subject(call, request.caller)
         if phone is None:
             log.info(
@@ -416,8 +449,15 @@ async def cancel_callback(engine_call_id: str, request: CallbackCancelIn) -> Cal
     date could not be parsed — so there is no time in this path at all.
     """
     tenant_id = tenant_of_call(engine_call_id)
+    return await cancel_callback_for(tenant_id, request, locate=_by_engine_call_id(engine_call_id))
+
+
+async def cancel_callback_for(
+    tenant_id: UUID, request: CallbackCancelIn, *, locate: CallLocator
+) -> CallbackCancelOut:
+    """`cancel_callback` for a tenant and call already resolved by the caller."""
     async with tenant_session(tenant_id) as session:
-        call = await _load_call(session, engine_call_id)
+        call = await locate(session)
         phone, ground = _subject(call, request.caller)
         if phone is None:
             log.info(
@@ -590,9 +630,69 @@ async def request_handoff(engine_call_id: str, request: HandoffToolIn) -> Handof
     )
 
 
+async def request_handoff_unplaced(
+    tenant_id: UUID, agent_id: UUID, request: HandoffToolIn
+) -> HandoffToolOut:
+    """The handoff answer on an engine whose calls we do not carry (`control_plane`).
+
+    `place_handoff` refuses such an engine on its first rung (`available_transfer` answers
+    `not_our_carrier_leg` before the roster, the call row or the caller's number is read),
+    so no call needs identifying to give the truthful answer, and asking a caller for their
+    number before telling them nobody can be put through would be the worse conversation.
+    An engine of ours that could carry a second leg must not come through here: it would be
+    told `not_available` without the ladder being asked, so it is refused instead.
+    """
+    engine = get_engine()
+    if engine.capabilities.agent_hosting == "owned_runtime":
+        raise ProblemError.conflict(
+            "handoff_needs_the_call",
+            "This engine can place a second leg, so the handover must name its call.",
+            remediation="Use the worker's own handoff route, which carries the call ref.",
+        )
+    async with tenant_session(tenant_id) as session:
+        placement = await place_handoff(
+            session,
+            engine=engine,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            engine_call_id="",
+            caller_e164=None,
+            about=request.reason,
+            summary=request.summary,
+            outcome_reaches_agent=True,
+        )
+    status = _handoff_status(placement)
+    log.info(
+        "worker_tool_handoff",
+        extra={
+            "tenant_id": str(tenant_id),
+            "agent_id": str(agent_id),
+            "status": status,
+            "reason": placement.reason,
+            "reason_given": bool(request.reason),
+            "summary_given": bool(request.summary),
+        },
+    )
+    return HandoffToolOut(
+        status=status,
+        reason=(
+            ENGINE_CANNOT_TRANSFER
+            if placement.reason in _PERMANENTLY_UNAVAILABLE
+            else (placement.reason or "")
+        ),
+        say=placement.say,
+    )
+
+
 __all__ = [
+    "CallLocator",
+    "ToolCall",
     "book_callback",
+    "book_callback_for",
     "cancel_callback",
+    "cancel_callback_for",
     "record_opt_out",
+    "record_opt_out_for",
     "request_handoff",
+    "request_handoff_unplaced",
 ]

@@ -66,15 +66,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.prompts import insert_prompt_version
 from apps.api.agents.service import publish_agent
+from apps.api.agents.t0_block import T0_HEADER, block_of
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 
 log = get_logger(__name__)
-
-# The section marker PROMPT-GUIDE §2 uses, and the one `admin/intake.py` splices on.
-# `tests/t0_recompile_test.py` pins the two spellings together: two modules writing
-# different headers would each silently append their own block.
-T0_HEADER = "[T0 FACTS]"
 
 # Where the knowledge half starts, INSIDE the block. Deliberately not a `[SECTION]`:
 # a line starting with `[` at column 0 ends the T0 block for both splicers, so a
@@ -167,18 +163,6 @@ def knowledge_lines(facts: Sequence[KnowledgeFact]) -> tuple[list[str], int]:
         used += len(line)
         lines.append(line)
     return lines, skipped
-
-
-def block_of(body: str | None) -> str | None:
-    """The [T0 FACTS] block currently inside a prompt body, if it has one."""
-    if not body:
-        return None
-    lines = body.splitlines()
-    start = next((i for i, line in enumerate(lines) if line.startswith(T0_HEADER)), None)
-    if start is None:
-        return None
-    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("[")), len(lines))
-    return "\n".join(lines[start:end]).rstrip()
 
 
 def intake_half(block: str | None) -> list[str]:

@@ -134,7 +134,9 @@ from apps.workers.dispatcher import (
     sweep_expired,
 )
 from apps.workers.dnc_recall import recall_dials_for_dnc
+from apps.workers.engine_charges import CHARGE_SWEEP_MINUTES, reconcile_engine_charges
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
+from apps.workers.engine_webhooks import WEBHOOK_SWEEP_MINUTES, reconcile_engine_webhooks
 from apps.workers.fleet_walk import WalkShape, bounded, every_tick, fleet_wide
 from apps.workers.fx_pull import PULL_MINUTES, pull_fx_rate
 from apps.workers.inbound_cutover import apply_inbound_credit_state
@@ -585,6 +587,24 @@ CRON_JOBS = [
         traced_job(reconcile_carrier_recordings),
         walk=fleet_wide("one tenant_session per callable tenant, keyed enqueues, vendor reads"),
         minute=set(RECORDING_SWEEP_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-678: what the engine charged per call against what we metered from the attested
+    # rate; alarms a drifted rate within the hour. A no-op on an engine with no billing view.
+    _cron(
+        traced_job(reconcile_engine_charges),
+        walk=bounded("one paged vendor listing, then one route read and one tenant read per row"),
+        minute=set(CHARGE_SWEEP_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-678: an engine that switches a failing webhook endpoint OFF (ThinnestAI, after five
+    # failed deliveries) loses every later call's transcript until somebody turns it back
+    # on. This turns it back on, registers any agent left without one, and alarms. A no-op
+    # on any other engine. Bounded per tick, on minutes no other walk uses.
+    _cron(
+        traced_job(reconcile_engine_webhooks),
+        walk=bounded("one untenanted read, then one vendor round trip per route up to a budget"),
+        minute=set(WEBHOOK_SWEEP_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
     # The DPDP §12 equivalent of the line above, and the reason it exists is that there

@@ -280,7 +280,9 @@ def test_a_blocked_tenant_provider_is_served_by_the_platform_and_told_about_it(
     assert capability.fallback_reason == TENANT_PROVIDER_UNSUPPORTED_REASON
     assert capability.disclosure is not None
     assert "Calevate's own assistant model" in capability.disclosure
-    # The substitution must not claim SARVAM wrote an answer Azure wrote.
+    # The substitution must not claim the STANDBY wrote an answer the platform model wrote,
+    # and names no vendor either way (D-679).
+    assert "standby" not in capability.disclosure
     assert "Sarvam" not in capability.disclosure
     # The operator ground travels for the log line and stops there.
     assert capability.operator_detail == NO_DATA_USE_ATTESTATION_REASON
@@ -298,7 +300,7 @@ def test_with_no_platform_leg_a_blocked_tenant_falls_to_sarvam_and_is_told(
     assert capability.provider == SARVAM_PROVIDER
     assert capability.fallback_reason == TENANT_PROVIDER_UNSUPPORTED_REASON
     assert capability.disclosure is not None
-    assert "Sarvam" in capability.disclosure
+    assert "our standby model" in capability.disclosure
 
 
 def test_the_refusal_with_no_leg_at_all_names_the_platform_gap_not_the_tenants_provider(
@@ -590,7 +592,7 @@ def test_an_account_that_chose_nothing_is_not_told_it_chose(
 
     assert served.fallback_reason == TENANT_PROVIDER_UNSUPPORTED_REASON
     disclosure = served.disclosure or ""
-    assert "Sarvam" in disclosure
+    assert "our standby model" in disclosure
     assert "the AI model on your account" in disclosure
     for forbidden in ("you chose", "your chosen", "you selected", "platform", "default"):
         assert forbidden not in disclosure, f"platform-rung disclosure says {forbidden!r}"

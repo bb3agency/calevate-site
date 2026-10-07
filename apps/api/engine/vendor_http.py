@@ -307,6 +307,48 @@ class EngineRejectedError(ProblemError):
         return self.vendor_status in self._refused_statuses
 
 
+#: A dial the VENDOR refused because the person opted out with it or is on its own
+#: do-not-call list. A fact about the person, not the account: a batch dialler settles the
+#: contact (`compliance.service.PERSON_LEVEL_REFUSALS`) rather than re-asking every thirty
+#: minutes for ever, and nothing rang (`agents.service.DIAL_NOT_PLACED_CODES`).
+RECIPIENT_OPTED_OUT_CODE = "engine_recipient_opted_out"
+
+
+def recipient_opted_out_error() -> ProblemError:
+    """`engine_recipient_opted_out`: the voice platform will not call this person. A refusal
+    about one person and not an alarm, so a 4xx kind and no `failure_stage`."""
+    return ProblemError(
+        kind="business_rule",
+        code=RECIPIENT_OPTED_OUT_CODE,
+        title="This person cannot be called",
+        detail="The voice platform has this number marked as not to be called, so the call "
+        "was not placed.",
+        remediation="Remove the number from the campaign or lead list.",
+    )
+
+
+class EngineRateLimitedError(ProblemError):
+    """`engine_rate_limited`, carrying the vendor's `Retry-After` when it sent one.
+
+    Same code, kind and wording as before, so every reader keyed on `code` is unchanged.
+    `retry_after_s` is opt-in, for the dial gate's engine back-off
+    (`engine/carrier_pacing.start_dial_backoff`): a dial refused for the workspace's call
+    ceiling should hold the next dial off for as long as the vendor asked, not re-ask it
+    for every contact the same tick claimed.
+    """
+
+    def __init__(self, *, retry_after_s: float | None = None) -> None:
+        super().__init__(
+            kind="transient",
+            code="engine_rate_limited",
+            title="Voice engine is rate limiting us",
+            detail="The voice platform is temporarily refusing new requests.",
+            remediation="The lines are busy. Try again in a minute.",
+            failure_stage="CORE_LOGIC",
+        )
+        self.retry_after_s = retry_after_s
+
+
 def _error_envelope(response: httpx.Response) -> dict[str, Any] | None:
     """The vendor's error body as a mapping, or None when there is not one to read.
 
@@ -564,13 +606,11 @@ async def vendor_request(
         # The remediation is what a person pressing a button can do: nothing retries a
         # button press for them.
         log.warning("engine_throttle_exhausted", extra={"engine": engine, "route": route})
-        raise ProblemError(
-            kind="transient",
-            code="engine_rate_limited",
-            title="Voice engine is rate limiting us",
-            detail="The voice platform is temporarily refusing new requests.",
-            remediation="The lines are busy. Try again in a minute.",
-            failure_stage="CORE_LOGIC",
+        header_after = _retry_after_seconds(response)
+        raise EngineRateLimitedError(
+            retry_after_s=(
+                header_after if header_after is not None else _throttle_details(response)[1]
+            )
         )
     if 300 <= response.status_code < 400:
         # **A REDIRECT IS NOT AN ANSWER, AND UNTIL THIS RUNG EXISTED IT WAS A SUCCESS.**
@@ -703,14 +743,17 @@ async def vendor_request(
 __all__ = [
     "CPS_LIMIT_TYPE",
     "LINES_BUSY_CODE",
+    "RECIPIENT_OPTED_OUT_CODE",
     "REQUEST_REFUSED_STATUSES",
     "REQUEST_TIMEOUT_S",
     "THROTTLE_BASE_S",
     "THROTTLE_MAX_ATTEMPTS",
     "THROTTLE_MAX_SLEEP_S",
     "THROTTLE_STATUS",
+    "EngineRateLimitedError",
     "EngineRejectedError",
     "lines_busy_error",
+    "recipient_opted_out_error",
     "throttle_delay_s",
     "vendor_request",
 ]

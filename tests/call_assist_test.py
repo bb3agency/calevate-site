@@ -763,7 +763,7 @@ async def test_an_azure_outage_answers_with_sarvam_and_the_disclosure_reaches_th
     body = response.json()
     assert body["summary"] == "Ravi wants a Tuesday slot."
     assert body["disclosure"] is not None, "a silent fallback is the one thing G-6 rules out"
-    assert "Sarvam" in body["disclosure"]
+    assert "our standby model" in body["disclosure"]
     assert "did not answer" in body["disclosure"]
     assert body["metered"] is False
     # The fallback saw the SAME redacted text — a second provider is not a second rule.

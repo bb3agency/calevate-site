@@ -31,7 +31,7 @@ import pytest
 from apps.api.agents.models import CALL_CAP_DEFAULT_S
 from calevate_shared.engine import AgentConfig, ModelConfig, azure_openai_base_url
 from calevate_shared.worker_api import DEFAULT_CALL_CAP_S
-from pipecat.frames.frames import EndWorkerFrame
+from pipecat.frames.frames import EndWorkerFrame, LLMMessagesAppendFrame, TTSSpeakFrame
 from tests.voice_worker_pipeline_test import (
     FakeTransport,
     RecordingSink,
@@ -40,6 +40,7 @@ from tests.voice_worker_pipeline_test import (
 )
 from voice_worker import pipeline
 from voice_worker.pipeline import CallDurationCap
+from voice_worker.recovery import phrase_for
 
 #: Long enough that nothing in this file reaches it by accident, short enough to be a real
 #: number rather than a sentinel.
@@ -95,6 +96,63 @@ async def test_the_cap_ends_the_call_by_pushing_a_frame() -> None:
     # reaching for `stop_when_done()` would jump the queue ahead of frames in flight.
     assert not worker.cancelled
     assert not worker.stopped
+
+
+@pytest.mark.asyncio
+async def test_the_cap_warns_the_model_then_says_goodbye_before_ending() -> None:
+    """Wrap-up message at `limit - lead`, then the goodbye queued AHEAD of the end frame so
+    it is spoken before the drain closes the line. All pushes; nothing called."""
+    worker = RecordingWorker()
+    cap = CallDurationCap(
+        worker=worker,  # type: ignore[arg-type]
+        limit_s=0.2,
+        call_id="call-1",
+        goodbye="Goodbye.",
+        wrap_up_lead_s=0.1,
+    )
+    cap.arm()
+    await asyncio.sleep(0.15)
+    assert len(worker.pushed) == 1
+    wrap_up = worker.pushed[0]
+    assert isinstance(wrap_up, LLMMessagesAppendFrame)
+    assert wrap_up.run_llm is False
+    assert wrap_up.messages == [{"role": "developer", "content": pipeline.WRAP_UP_INSTRUCTION}]
+    await asyncio.sleep(0.15)
+    assert [type(frame) for frame in worker.pushed[1:]] == [TTSSpeakFrame, EndWorkerFrame]
+    assert worker.pushed[1].text == "Goodbye."
+    assert not worker.cancelled and not worker.stopped
+
+
+@pytest.mark.asyncio
+async def test_a_lead_longer_than_half_the_cap_is_not_sent() -> None:
+    """Negative control: a short cap gets the goodbye only, not a wrap-up at its start."""
+    worker = RecordingWorker()
+    cap = CallDurationCap(
+        worker=worker,  # type: ignore[arg-type]
+        limit_s=0.1,
+        call_id="call-1",
+        goodbye="Goodbye.",
+        wrap_up_lead_s=0.08,
+    )
+    cap.arm()
+    await asyncio.sleep(0.2)
+    assert [type(frame) for frame in worker.pushed] == [TTSSpeakFrame, EndWorkerFrame]
+
+
+def test_an_assembled_call_says_its_cap_goodbye_in_the_agents_language() -> None:
+    legs = pipeline.VendorLegs(
+        stt=_PassThrough("stt"), llm=_PassThrough("llm"), tts=_PassThrough("tts")
+    )
+    call = pipeline.assemble_call(
+        config=make_config(max_call_duration_s=600),
+        legs=legs,
+        transport=FakeTransport(),
+        sink=RecordingSink(),
+    )
+    assert call.cap is not None
+    language = make_config().language
+    assert call.cap._goodbye == phrase_for("cap_goodbye", language)
+    assert call.cap._wrap_up_lead_s == pipeline.WRAP_UP_LEAD_S
 
 
 @pytest.mark.asyncio

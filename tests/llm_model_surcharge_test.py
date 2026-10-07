@@ -43,6 +43,7 @@ from uuid import UUID
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.agents.llm_tiers import client_model_label
 from apps.api.billing.invoice import build_invoice
 from apps.api.billing.models import Plan
 from apps.api.billing.rates import (
@@ -555,7 +556,9 @@ async def test_the_invoice_carries_its_own_line_naming_the_model() -> None:
     upgrade = [item for item in invoice["line_items"] if "AI model upgrade" in item["description"]]
     assert len(upgrade) == 1, "one surcharge rate means one line, whatever models ran"
     (line,) = upgrade
-    assert UPGRADED_MODEL in line["description"], "the client's own choice, named"
+    # The client's own choice, named as the TIER they chose it by — never the model id.
+    assert client_model_label(UPGRADED_MODEL) in line["description"]
+    assert UPGRADED_MODEL not in line["description"]
     assert line["qty"] == Decimal("50.00")
     assert line["unit_inr"] == SURCHARGE
     assert line["amount_inr"] == to_paise(Decimal("50") * SURCHARGE)

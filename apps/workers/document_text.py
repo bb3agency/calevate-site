@@ -45,8 +45,9 @@ Three defences, none of them optional:
    vulnerable to it, and the usual answer is `defusedxml` — a dependency for one check.
    Quadratic and exponential entity blowups both require entity DEFINITIONS, which
    require an internal DTD subset, and no word processor on earth emits a `<!DOCTYPE` in
-   `word/document.xml`. `_parse_part` refuses the declaration outright on the bounded
-   bytes before the parser sees them, which closes the class rather than one instance.
+   `word/document.xml`. `_parse_part` refuses the declaration outright, found by expat
+   in a prolog-only pass (`_declares_doctype`) before the tree parser sees the part,
+   which closes the class rather than one instance.
 3. **Time.** There is no I/O here at all, so there is nothing to hang on: every loop is
    bounded by a ceiling above, and the worst input costs a bounded parse.
 
@@ -66,6 +67,7 @@ import zipfile
 from collections.abc import Iterator, Sequence
 from typing import Final
 from xml.etree import ElementTree
+from xml.parsers import expat
 
 import openpyxl
 from calevate_shared.document_ingest import (
@@ -95,12 +97,44 @@ _W: Final = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 #: chunker then has to be defended from.
 _DOCX_BODY_PART: Final = "word/document.xml"
 
-#: How much of an XML part is scanned for a DOCTYPE. A declaration is legal only in the
-#: prolog, so anything past the first element is not one; 8 kB is generous for a prolog
-#: and bounds the scan on a part we have not validated.
-_PROLOG_SCAN_BYTES: Final = 8_192
 
-_DOCTYPE = re.compile(rb"<!DOCTYPE", re.IGNORECASE)
+class _DoctypeDeclaredError(Exception):
+    """Raised from inside expat the moment the part opens a DOCTYPE."""
+
+
+class _PrologEndedError(Exception):
+    """Raised at the root element: no DOCTYPE can follow it, so the scan stops there."""
+
+
+def _declares_doctype(raw: bytes) -> bool:
+    """True if this XML part declares a DOCTYPE, decided by expat itself.
+
+    A byte search for `<!DOCTYPE` was the earlier check, over the first 8 kB, and it
+    missed two spellings expat accepts: a prolog padded past the window with a comment or
+    a processing instruction, and a part encoded as UTF-16, where the declaration is not
+    those bytes at all. Asking the parser that will read the part closes both, because
+    it is the parser's own reading of the encoding and the prolog. The scan stops at the
+    root element, so it costs a prolog, not a second parse of the document.
+    """
+    parser = expat.ParserCreate()
+
+    def on_doctype(*_: object) -> None:
+        raise _DoctypeDeclaredError
+
+    def on_element(*_: object) -> None:
+        raise _PrologEndedError
+
+    parser.StartDoctypeDeclHandler = on_doctype
+    parser.StartElementHandler = on_element
+    try:
+        parser.Parse(raw, True)
+    except _DoctypeDeclaredError:
+        return True
+    except (_PrologEndedError, expat.ExpatError):
+        # A malformed part is refused by the real parse below as `malformed_xml`.
+        return False
+    return False
+
 
 #: Characters a word processor emits as LAYOUT that the knowledge gate then refuses as
 #: invisible controls (`kb/service._FORBIDDEN_CODEPOINTS` bans C0 except tab/LF/CR). They
@@ -254,7 +288,7 @@ def _parse_part(archive: zipfile.ZipFile, name: str, *, what: str) -> ElementTre
             remediation="Open it, save a fresh copy, and upload that one.",
         ) from failure
 
-    if _DOCTYPE.search(raw[:_PROLOG_SCAN_BYTES]):
+    if _declares_doctype(raw):
         raise DocumentUnreadableError(
             reason="doctype_declared",
             detail="That file contains an instruction we do not process, so we stopped.",

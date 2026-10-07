@@ -277,7 +277,8 @@ async def test_the_client_rupee_arrives_at_the_invoice_unchanged() -> None:
         invoice = await build_invoice(session, tenant_id=tenant_id)
 
     minutes = _assert_exact_decimal(summary["minutes_used"], "minutes_used")
-    assert minutes == Decimal("10.00")
+    # Billed in 30-second steps per call (D-681): 5.5 + 5.0 minutes.
+    assert minutes == Decimal("10.50")
 
     premium = _assert_exact_decimal(summary["overage_minutes_premium"], "premium rung")
     value = _assert_exact_decimal(summary["overage_minutes_value"], "value rung")
@@ -321,7 +322,8 @@ async def test_the_tier_panel_never_disagrees_with_the_usage_panel_about_a_month
         tiers = await tier_usage(session, tenant_id=tenant_id)
 
     buckets = tiers["minutes_premium"] + tiers["minutes_value"] + tiers["minutes_unattributed"]
-    assert summary["minutes_used"] == Decimal("0.02")
+    # Each 0.3-second call bills one 30-second step (D-681): three half-minutes.
+    assert summary["minutes_used"] == Decimal("1.50")
     assert buckets == summary["minutes_used"], (
         f"the tier buckets sum to {buckets} against a usage panel reading {summary['minutes_used']}"
     )

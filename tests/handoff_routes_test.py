@@ -20,7 +20,11 @@ from typing import Any
 
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.agents.handoff import HANDOFF_TRIGGER_DEFAULT, MAX_HANDOFF_MEMBERS
+from apps.api.agents.handoff import (
+    HANDOFF_NUMBER_NOT_INDIA,
+    HANDOFF_TRIGGER_DEFAULT,
+    MAX_HANDOFF_MEMBERS,
+)
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
 from apps.api.main import app
@@ -210,6 +214,36 @@ async def test_a_number_that_is_not_e164_never_reaches_the_column() -> None:
             headers=headers,
         )
     assert response.status_code == 422
+
+
+async def test_a_number_outside_india_is_refused_at_registration_and_nothing_is_written() -> None:
+    """The India-only freeze, where the number is typed.
+
+    The transfer provider refuses a non-`+91` bridged leg at call time, because a handover
+    leg is a call we place and pay for; without this the roster would accept a number that
+    no caller can ever be put through to, and the owner would learn it from a caller.
+    """
+    _tenant_id, agent_id, headers = await _account()
+    async with _client() as client:
+        refused = await client.put(
+            f"/v1/agents/{agent_id}/handoff",
+            json={
+                "enabled": True,
+                "members": [
+                    _member("Ravi", "+919000000001"),
+                    _member("Abroad", "+447700900123"),
+                ],
+            },
+            headers=headers,
+        )
+        after = await client.get(f"/v1/agents/{agent_id}/handoff", headers=headers)
+    assert refused.status_code == 422, refused.text
+    problem = refused.json()
+    by_field = {f["field"]: f["message"] for f in problem["fields"]}
+    assert set(by_field) == {"members.1.phone_e164"}
+    assert by_field["members.1.phone_e164"] == HANDOFF_NUMBER_NOT_INDIA
+    assert problem["detail"] == HANDOFF_NUMBER_NOT_INDIA
+    assert after.json()["members"] == []
 
 
 async def test_the_read_says_why_nobody_is_on_duty_and_what_to_do_about_it() -> None:

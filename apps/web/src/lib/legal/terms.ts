@@ -154,7 +154,7 @@ export const TERMS_OF_SERVICE: LegalDocument = {
               term: "Engine",
               detail:
                 "The program that runs the live call: our own, running on a third-party " +
-                "hosting platform named on the sub-processor list.",
+                "hosting platform listed on the sub-processor list.",
             },
           ],
         },
@@ -320,8 +320,10 @@ export const TERMS_OF_SERVICE: LegalDocument = {
                 "Managed accounts pay what the signed order form says: a one-off setup " +
                 "fee, a monthly fee including a stated number of minutes, and a per-minute " +
                 "rate for minutes over that. Self-serve accounts pay in advance by topping " +
-                "up a credit balance, which is drawn down as calls are metered. All prices " +
-                "are in Indian Rupees.",
+                "up a credit balance, which is drawn down as calls are metered. Call time " +
+                "is billed in 30-second steps, each part-step rounded up to the next, and " +
+                "a call that is never answered is not charged. All prices are in Indian " +
+                "Rupees.",
             },
             {
               // The lot promise, in the founder's own approved words (7 September 2026) and
@@ -534,7 +536,8 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             "The service depends on a platform that hosts our call program, speech and " +
             "language model providers, " +
             "telecom operators, a payment gateway and infrastructure suppliers. They are " +
-            "named on the sub-processor list. We choose them with care and we are " +
+            "listed by category on the sub-processor list, and a named list is available " +
+            "on request. We choose them with care and we are " +
             "responsible to you for their acts in performing the service, but we do not " +
             "control their networks and an outage at one of them may interrupt the service. " +
             "Clause 12 says what we do and do not promise about that.",

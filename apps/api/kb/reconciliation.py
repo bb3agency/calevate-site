@@ -254,7 +254,12 @@ async def handles_if_no_publish_in_flight(
         )
     ).scalar()
     if own_ref != engine_agent_ref:
-        return frozenset()
+        # An arm holds no knowledge of ours except its own business-facts document, on an
+        # engine that keeps facts out of the prompt (`agents/engine_facts.py`).
+        from apps.api.agents.engine_facts import recorded_facts_handle
+
+        arm_facts = await recorded_facts_handle(session, engine_agent_ref=engine_agent_ref)
+        return frozenset({arm_facts} if arm_facts else ())
     return frozenset(await recorded_handles_of_agent(session, agent_id))
 
 

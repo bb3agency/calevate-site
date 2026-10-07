@@ -1054,3 +1054,170 @@ async def test_a_plan_or_callback_step_that_raises_is_isolated_too(
     failed = [detail for _stage, code, detail in fired if code == "dispatch_tenant_failed"]
     assert len(failed) == 1, "one alarm per tick, not one per failure"
     assert f"{first_id}:plan:" in failed[0] and f"{first_id}:callbacks:" in failed[0]
+
+
+# ------------------------------------------- an engine holding every dial off (D-678)
+
+
+async def test_a_tick_inside_the_engines_hold_off_claims_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After a `429` for the engine's own call ceiling every dial is refused until the
+    vendor's `Retry-After` passes, so the tick spends no budget: a claimed contact would
+    only be refunded to a thirty-minute wait."""
+    tenant_id, agent_id = await _tenant()
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
+    campaign_id = await _launched_campaign(
+        tenant_id, agent_id, number_id, template_id, name="Held off", phones=("9876690001",)
+    )
+
+    async def _held() -> float:
+        return 45.0
+
+    monkeypatch.setattr(campaign_dispatch, "_outbound_pool", lambda: 3)
+    monkeypatch.setattr(campaign_dispatch, "dial_backoff_remaining_s", _held)
+    _pin_scan(monkeypatch, [TenantWork(tenant_id, 0, True, False, False)])
+
+    outcome = await campaign_dispatch._run_tick()
+
+    assert outcome.startswith("pool_saturated "), outcome
+    assert await _calls_placed(tenant_id) == 0
+    assert await _contacts(tenant_id, campaign_id) == [("pending", 0)]
+
+
+# ------------------------------------- a refusal about our account refunds the attempt
+
+
+class _KeyRefusedEngine(FakeEngine):
+    """The vendor refusing the REQUEST for the account's credentials: `401` is one of
+    `REQUEST_REFUSED_STATUSES`, so nothing rang, and it says nothing about the person."""
+
+    async def start_outbound_call(self, ref: str, to: str, ctx: CallContext) -> str:
+        raise EngineRejectedError(status=401)
+
+
+async def test_a_vendor_refusal_about_our_account_refunds_the_attempt_under_its_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, agent_id = await _tenant()
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
+    campaign_id = await _launched_campaign(
+        tenant_id, agent_id, number_id, template_id, name="Bad key", phones=("9876690002",)
+    )
+    rules: list[str] = []
+    monkeypatch.setattr(
+        campaign_dispatch, "record_compliance_block", lambda *, rule: rules.append(rule)
+    )
+    monkeypatch.setattr("apps.api.agents.service.get_engine", lambda: _KeyRefusedEngine())
+
+    result = await campaign_dispatch._dispatch_for_campaign(
+        tenant_id, campaign_id, 3, campaigns.DEFAULT_RETRY_POLICY
+    )
+
+    assert result == {"dialled": 0, "blocked": 1, "exhausted": 0}, result
+    assert rules == ["engine_rejected_401"], "the metric names our code and the status"
+    assert await _contacts(tenant_id, campaign_id) == [("pending", 0)], (
+        "a refusal about the account must not spend the person's attempt"
+    )
+
+
+def test_a_failure_that_does_not_prove_nothing_rang_is_never_refunded() -> None:
+    """The refund is for proven refusals only; anything that may have rung keeps the
+    ladder, which is what stops a refund loop from ringing somebody every half hour."""
+    assert campaign_dispatch._refused_on_our_side(RuntimeError("connection reset")) is False
+    assert campaign_dispatch._refused_on_our_side(EngineRejectedError(status=502)) is False
+    assert campaign_dispatch._refused_on_our_side(EngineRejectedError(status=401)) is True
+    assert campaign_dispatch._refused_on_our_side(EngineRejectedError(status=400)) is False
+
+
+# --------------------------------------- an unanswered dial goes back on the ladder
+
+
+async def _dialling_contact(
+    tenant_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    campaign_id: uuid.UUID,
+    phone: str,
+    *,
+    call_status: str,
+    ended_ago: timedelta,
+) -> uuid.UUID:
+    """A contact claimed (`dialing`, one attempt) whose call ended `call_status`."""
+    call_id = uuid7()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
+                "status, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, 'outbound', "
+                ":to, :st, now() - :ago, now() - :ago)"
+            ),
+            {
+                "id": call_id,
+                "tid": tenant_id,
+                "aid": agent_id,
+                "ecid": f"exec_{uuid.uuid4().hex[:12]}",
+                "to": phone,
+                "st": call_status,
+                "ago": ended_ago,
+            },
+        )
+        contact_id = (
+            await session.execute(
+                text(
+                    "UPDATE campaign_contacts SET status = 'dialing', attempts = 1, "
+                    "last_attempt_at = now() - :ago, last_call_id = :call "
+                    "WHERE campaign_id = :c AND phone_e164 = :p RETURNING id"
+                ),
+                {"ago": ended_ago, "call": call_id, "c": campaign_id, "p": phone},
+            )
+        ).scalar_one()
+    return uuid.UUID(str(contact_id))
+
+
+async def test_an_unanswered_dial_is_put_on_the_ladder_once_its_wait_has_passed() -> None:
+    """A dial nobody answered never reaches the post-call pipeline, so this pass settles
+    its contact minutes after the hang-up rather than seventy minutes later — and leaves
+    one whose wait has not passed for a pipeline that may still claim it."""
+    tenant_id, agent_id = await _tenant()
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
+    old, fresh = "+919876690003", "+919876690004"
+    campaign_id = await _launched_campaign(
+        tenant_id, agent_id, number_id, template_id, name="No answer", phones=(old, fresh)
+    )
+    settled = await _dialling_contact(
+        tenant_id,
+        agent_id,
+        campaign_id,
+        old,
+        call_status="no_answer",
+        ended_ago=timedelta(minutes=5),
+    )
+    waiting = await _dialling_contact(
+        tenant_id, agent_id, campaign_id, fresh, call_status="no_answer", ended_ago=timedelta(0)
+    )
+
+    async with tenant_session(tenant_id) as session:
+        count = await campaign_dispatch._settle_unanswered_dials(
+            session,
+            campaign_id,
+            tenant_id=tenant_id,
+            max_attempts=3,
+            retry_policy=campaigns.DEFAULT_RETRY_POLICY,
+        )
+    async with tenant_session(tenant_id) as session:
+        rows = dict(
+            (
+                await session.execute(
+                    text(
+                        "SELECT id, status || ':' || attempts || ':' || "
+                        "coalesce((next_attempt_at > now())::text, 'none') FROM campaign_contacts "
+                        "WHERE campaign_id = :c"
+                    ),
+                    {"c": campaign_id},
+                )
+            ).all()
+        )
+
+    assert count == 1
+    assert rows[settled] == "pending:1:true", "back on the ladder, at the policy's first rung"
+    assert rows[waiting].startswith("dialing:1:"), "the pipeline's window is still open"

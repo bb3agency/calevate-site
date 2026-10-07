@@ -102,6 +102,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.admin.number_routes import router as number_supply_router
     from apps.api.admin.operator_routes import router as operator_router
     from apps.api.admin.routes import router as admin_router
+    from apps.api.agents.engine_catalogue_routes import router as engine_catalogue_router
     from apps.api.agents.experiment_routes import router as experiment_router
     from apps.api.agents.extraction_routes import admin_router as extraction_admin_router
     from apps.api.agents.extraction_routes import router as extraction_router
@@ -186,6 +187,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.config_routes import rate_card_router as ops_rate_card_router
     from apps.api.ops.config_routes import router as ops_config_router
     from apps.api.ops.dashboard_data_use_routes import router as ops_data_use_router
+    from apps.api.ops.engine_minute_routes import router as ops_engine_minute_prices_router
     from apps.api.ops.fx_routes import router as ops_fx_router
     from apps.api.ops.maintenance_routes import client_router as client_maintenance_router
     from apps.api.ops.maintenance_routes import router as ops_maintenance_router
@@ -203,6 +205,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.security.routes import router as csp_report_router
     from apps.api.tenancy.routes import router as tenancy_router
     from apps.api.tenancy.signup_routes import router as signup_router
+    from apps.api.worker.engine_actions import router as engine_actions_router
     from apps.api.worker.routes import router as worker_router
 
     application.include_router(tenancy_router)
@@ -259,6 +262,8 @@ def _mount_routers(application: FastAPI) -> None:
     # `/v1/agents/{agent_id}` would otherwise swallow `/v1/agents/voices` and reject it
     # as a malformed UUID. Same hazard `campaigns/routes.py` calls out for `/numbers`.
     application.include_router(voice_router)
+    # Before `agents_router`, for `voice_router`'s reason: `/v1/agents/engine-catalogue`.
+    application.include_router(engine_catalogue_router)
     # Before `agents_router`: `/v1/agents/lanes` is a literal path and
     # `/v1/agents/{agent_id}` would swallow it if the parameterised router won.
     application.include_router(publishing_router)
@@ -307,6 +312,9 @@ def _mount_routers(application: FastAPI) -> None:
     # the redactor, which hard rule 3 forbids that service by name. None of its routes is
     # in the OpenAPI schema: no browser client consumes them.
     application.include_router(worker_router)
+    # The same in-call tools reached as a control-plane engine's custom actions (D-678
+    # phase 2), authenticated per vendor agent rather than by the worker's token.
+    application.include_router(engine_actions_router)
     # The in-app AI copilot (`apps/api/copilot/`). Its own literal `/v1/copilot` prefix,
     # which collides with nothing above, so mount order is not load-bearing here — unlike
     # `voice_router`, whose literal segment lives under `/v1/agents/`.
@@ -486,6 +494,9 @@ def _mount_routers(application: FastAPI) -> None:
     # model price, and the same module because it is the same panel and the same act
     # (`ops/model_price_routes.tts_router`).
     application.include_router(ops_tts_prices_router)
+    # The per-minute ENGINE price (D-678): an engine that reports no cost per call is
+    # metered only at a rate an operator attested (`billing/engine_minutes.py`).
+    application.include_router(ops_engine_minute_prices_router)
     # The ENCODER price attestation (D-608). Its own router for the voice one's reason and
     # one more of its own: an encoder identifier contains a slash, so its path parameter is
     # a `:path` and cannot share a prefix with `POST /v1/ops/model-prices/{model}`.

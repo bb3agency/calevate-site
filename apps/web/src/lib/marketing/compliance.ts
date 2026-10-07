@@ -104,20 +104,21 @@ export const COMPLIANCE_INVARIANTS: readonly {
 export const WHERE_IT_RUNS =
   "Turning your caller’s words into text, and the first reading of that transcript, are " +
   "done by an Indian COMPANY on every call — which since 27 August 2026 we no longer let " +
-  "you read as processing that stays in the country: that vendor’s own published privacy " +
+  "you read as processing that stays in the country: that company’s own published privacy " +
   "policy permits it to process personal data outside India, including on United States " +
-  "cloud infrastructure, and the sub-processor page says so in its own words. The VOICE " +
-  "your caller hears is a different vendor again, and since 18 September 2026 it is not " +
-  "that Indian company at all: one of the two voices we offer is synthesised abroad, and " +
-  "the sub-processor page names which. The language model is not Indian " +
-  "either: it runs on a Microsoft Azure OpenAI account in the United States, in the East " +
-  "US 2 region. Until 22 August 2026 that account was in South India and this card said " +
-  "so, and we would rather withdraw the sentence than soften it. What our code still does " +
-  "is pin the model to that one region — no part of our code can send it anywhere else " +
-  "without editing one frozen constant — and the account’s own region is confirmed by a " +
-  "person against Microsoft’s console and filed: checked, not proved by a build. The " +
-  "platform that carries the call runs it on US infrastructure today, and the " +
-  "sub-processor page says which part is where before you sign.";
+  "cloud infrastructure, and the sub-processor page says so. The VOICE your caller hears " +
+  "is a different vendor again, and since 18 September 2026 it is not that Indian company " +
+  "at all: neither of the two companies that synthesise our two voices has been " +
+  "established to process in India, and the sub-processor page says what we know and do " +
+  "not know about each. The language model is not Indian either: by default it runs on a " +
+  "large cloud provider’s account in the United States, in its East US 2 region. Until " +
+  "22 August 2026 that account was in South India and this card said so, and we would " +
+  "rather withdraw the sentence than soften it. What our code still does is pin the model " +
+  "to that one region — no part of our code can send it anywhere else without editing one " +
+  "frozen constant — and the account’s own region is confirmed by a person against the " +
+  "provider’s console and filed: checked, not proved by a build. The platform the call " +
+  "runs on has not been established to run it in India, and the sub-processor page says " +
+  "which part is where before you sign.";
 
 /**
  * What happens to a caller's data once the call is over.

@@ -534,6 +534,20 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="authorized",
     ),
+    "POST /v1/worker/engine-actions/{engine}/{tool}": PublicRoute(
+        why=(
+            "The same four in-call tools (opt-out, call-back, call-back cancel, handoff) "
+            "called by a control-plane voice platform as its agent's custom actions (D-678 "
+            "phase 2). MUTATING. The credential is a per-vendor-agent secret we mint, hold "
+            "sealed on the agent's engine route and send as the action's header; the url "
+            "names the agent, the header is compared in constant time, and an unknown "
+            "agent, an inactive route and a wrong header are one 401. Writes run under the "
+            "route's tenant RLS and act only on a live call the platform itself reports for "
+            "that agent whose customer number matches the one the caller gave, so the "
+            "number written is never the model's string."
+        ),
+        credential="verify_agent_secret",
+    ),
     "GET /v1/public/rate-card": PublicRoute(
         why=(
             "The self-serve rate card for the public site (D-545): the live list rate, "

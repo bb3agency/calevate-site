@@ -968,6 +968,49 @@
         "title": "AgentLifecycleOut",
         "type": "object"
       },
+      "AgentLlmModelOut": {
+        "additionalProperties": false,
+        "description": "Which model one of the account's agents runs, for the operator. The client realm\nreads the same facts as tiers on `AgentOut`.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "llm_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Model"
+          },
+          "llm_model_effective": {
+            "title": "Llm Model Effective",
+            "type": "string"
+          },
+          "llm_model_source": {
+            "enum": [
+              "agent",
+              "organization",
+              "platform"
+            ],
+            "title": "Llm Model Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "llm_model",
+          "llm_model_effective",
+          "llm_model_source"
+        ],
+        "title": "AgentLlmModelOut",
+        "type": "object"
+      },
       "AgentOut": {
         "additionalProperties": false,
         "properties": {
@@ -1016,6 +1059,28 @@
             "title": "Engine",
             "type": "string"
           },
+          "engine_model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Model Id"
+          },
+          "engine_voice_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Voice Id"
+          },
           "extraction_fields": {
             "default": [],
             "items": {
@@ -1042,28 +1107,46 @@
             "title": "Language Primary",
             "type": "string"
           },
-          "llm_model": {
+          "llm_surcharged": {
+            "title": "Llm Surcharged",
+            "type": "boolean"
+          },
+          "llm_tier": {
             "anyOf": [
               {
+                "enum": [
+                  "standard",
+                  "plus",
+                  "pro"
+                ],
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Llm Model"
+            "title": "Llm Tier"
           },
-          "llm_model_effective": {
-            "title": "Llm Model Effective",
+          "llm_tier_effective": {
+            "enum": [
+              "standard",
+              "plus",
+              "pro"
+            ],
+            "title": "Llm Tier Effective",
             "type": "string"
           },
-          "llm_model_source": {
+          "llm_tier_label": {
+            "title": "Llm Tier Label",
+            "type": "string"
+          },
+          "llm_tier_source": {
             "enum": [
               "agent",
               "organization",
               "platform"
             ],
-            "title": "Llm Model Source",
+            "title": "Llm Tier Source",
             "type": "string"
           },
           "name": {
@@ -1120,9 +1203,11 @@
           "engine",
           "published",
           "inbound_number_count",
-          "llm_model",
-          "llm_model_effective",
-          "llm_model_source"
+          "llm_tier",
+          "llm_tier_effective",
+          "llm_tier_label",
+          "llm_tier_source",
+          "llm_surcharged"
         ],
         "title": "AgentOut",
         "type": "object"
@@ -1261,7 +1346,7 @@
       },
       "AgentUpdateIn": {
         "additionalProperties": false,
-        "description": "What an owner may change about an existing agent. An OMITTED field is left alone.\n\n`DisclosureIn`'s shape and for its reason: a screen with three inputs sends whichever\none moved, and a PATCH that could only send all three would make renaming an agent a\nread-modify-write race against a direction change.\n\n\u26a0 **`llm_model` IS THE ONE FIELD WHERE `null` IS A VALUE AND NOT AN ABSENCE** (D-454),\nbecause it is the only one whose column is nullable and whose NULL MEANS something:\n\"inherit the account's default\". On every other field here `null` and \"omitted\" are\nthe same request, so the model can read them the same way; on this one they are\nopposite requests \u2014 clear my choice, versus do not touch it \u2014 and a model that could\nnot tell them apart would leave an owner unable to go back to the account default\nonce they had chosen. `model_fields_set` is Pydantic v2's answer to exactly this and\nis what `set_llm_model` below reads: it carries which keys the CLIENT SENT, so an\nexplicit `\"llm_model\": null` is distinguishable from a body that never mentioned it.\nThe rejected alternative was a sentinel default (`UNSET = object()`), which works but\nputs a non-JSON-schema type in the OpenAPI document and therefore in every generated\nclient.",
+        "description": "What an owner may change about an existing agent. An OMITTED field is left alone.\n\n`DisclosureIn`'s shape and for its reason: a screen with three inputs sends whichever\none moved, and a PATCH that could only send all three would make renaming an agent a\nread-modify-write race against a direction change.\n\n\u26a0 **`llm_tier` IS THE ONE FIELD WHERE `null` IS A VALUE AND NOT AN ABSENCE** (D-454),\nbecause it is the only one whose column is nullable and whose NULL MEANS something:\n\"inherit the account's default\". On every other field here `null` and \"omitted\" are\nthe same request, so the model can read them the same way; on this one they are\nopposite requests \u2014 clear my choice, versus do not touch it \u2014 and a model that could\nnot tell them apart would leave an owner unable to go back to the account default\nonce they had chosen. `model_fields_set` is Pydantic v2's answer to exactly this and\nis what `set_llm_tier` below reads: it carries which keys the CLIENT SENT, so an\nexplicit `\"llm_tier\": null` is distinguishable from a body that never mentioned it.\nThe rejected alternative was a sentinel default (`UNSET = object()`), which works but\nputs a non-JSON-schema type in the OpenAPI document and therefore in every generated\nclient.",
         "properties": {
           "direction": {
             "anyOf": [
@@ -1279,6 +1364,32 @@
             ],
             "title": "Direction"
           },
+          "engine_model_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Model Id"
+          },
+          "engine_voice_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Voice Id"
+          },
           "language_primary": {
             "anyOf": [
               {
@@ -1295,16 +1406,21 @@
             ],
             "title": "Language Primary"
           },
-          "llm_model": {
+          "llm_tier": {
             "anyOf": [
               {
+                "enum": [
+                  "standard",
+                  "plus",
+                  "pro"
+                ],
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Llm Model"
+            "title": "Llm Tier"
           },
           "name": {
             "anyOf": [
@@ -2593,10 +2709,17 @@
             "minLength": 1,
             "title": "Label",
             "type": "string"
+          },
+          "state": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "State",
+            "type": "string"
           }
         },
         "required": [
-          "code"
+          "code",
+          "state"
         ],
         "title": "CalendarCallbackIn",
         "type": "object"
@@ -4713,6 +4836,98 @@
         "title": "ClientHealthOut",
         "type": "object"
       },
+      "ClientLlmDefaultIn": {
+        "additionalProperties": false,
+        "description": "The tier for every agent that chooses none, or `null` to follow the Calevate default.\nRequired for `LlmDefaultIn`'s reason. A `Literal` here is right where a model allow-list\nwas not: the tier vocabulary is ours and closed, and which model each tier runs is not\non the wire at all.",
+        "properties": {
+          "default_llm_tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "standard",
+                  "plus",
+                  "pro"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Llm Tier"
+          }
+        },
+        "required": [
+          "default_llm_tier"
+        ],
+        "title": "ClientLlmDefaultIn",
+        "type": "object"
+      },
+      "ClientLlmDefaultsOut": {
+        "additionalProperties": false,
+        "description": "The client's model settings, in tiers.",
+        "properties": {
+          "available": {
+            "items": {
+              "$ref": "#/components/schemas/LlmTierOptionOut"
+            },
+            "title": "Available",
+            "type": "array"
+          },
+          "default_llm_tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "standard",
+                  "plus",
+                  "pro"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Llm Tier"
+          },
+          "effective_is_available": {
+            "title": "Effective Is Available",
+            "type": "boolean"
+          },
+          "effective_tier": {
+            "enum": [
+              "standard",
+              "plus",
+              "pro"
+            ],
+            "title": "Effective Tier",
+            "type": "string"
+          },
+          "effective_tier_label": {
+            "title": "Effective Tier Label",
+            "type": "string"
+          },
+          "in_force_surcharge_inr_per_minute": {
+            "title": "In Force Surcharge Inr Per Minute",
+            "type": "string"
+          },
+          "upgrade_surcharge_inr_per_minute": {
+            "title": "Upgrade Surcharge Inr Per Minute",
+            "type": "string"
+          }
+        },
+        "required": [
+          "default_llm_tier",
+          "effective_tier",
+          "effective_tier_label",
+          "effective_is_available",
+          "in_force_surcharge_inr_per_minute",
+          "upgrade_surcharge_inr_per_minute",
+          "available"
+        ],
+        "title": "ClientLlmDefaultsOut",
+        "type": "object"
+      },
       "ClientMaintenanceOut": {
         "additionalProperties": false,
         "description": "What a CLIENT is told about a window, and the fields are the whole disclosure rule.\n\nThree facts and no more: is one coming or here, when does it end, and why. Deliberately\nabsent: the drain counts (how many other clients are on a call is not this client's\nbusiness), the straggler list, `forced`, who scheduled it, and the window id \u2014 none of\nwhich a client can act on and all of which are operational detail about other people's\naccounts.\n\n`state` is narrowed to the three a client can be in the presence of. A `completed` or\n`cancelled` window is answered as no window at all, because \"there was one and it is\nover\" is a banner nobody needs and a client would read as current.",
@@ -6697,6 +6912,32 @@
           "studio_tier_label": {
             "title": "Studio Tier Label",
             "type": "string"
+          },
+          "voice_not_offered": {
+            "anyOf": [
+              {
+                "enum": [
+                  "clear",
+                  "studio"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice Not Offered"
+          },
+          "voice_not_offered_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice Not Offered Notice"
           }
         },
         "required": [
@@ -6706,6 +6947,8 @@
           "from_studio_inr_per_min",
           "clear_tier_label",
           "studio_tier_label",
+          "voice_not_offered",
+          "voice_not_offered_notice",
           "packs"
         ],
         "title": "CreditPacksOut",
@@ -8411,6 +8654,185 @@
         "title": "EndpointOut",
         "type": "object"
       },
+      "EngineAgentOut": {
+        "additionalProperties": false,
+        "description": "One of this client's published agents, with the id the platform's console shows.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "answers_a_number": {
+            "title": "Answers A Number",
+            "type": "boolean"
+          },
+          "engine_agent_ref": {
+            "title": "Engine Agent Ref",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "name",
+          "engine_agent_ref",
+          "answers_a_number"
+        ],
+        "title": "EngineAgentOut",
+        "type": "object"
+      },
+      "EngineCatalogueModelOut": {
+        "additionalProperties": false,
+        "properties": {
+          "call_capable": {
+            "title": "Call Capable",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "offerable": {
+            "title": "Offerable",
+            "type": "boolean"
+          },
+          "plan_allows": {
+            "title": "Plan Allows",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "model_id",
+          "label",
+          "call_capable",
+          "plan_allows",
+          "offerable",
+          "reason"
+        ],
+        "title": "EngineCatalogueModelOut",
+        "type": "object"
+      },
+      "EngineCatalogueOut": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "choice_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Choice Note"
+          },
+          "choosable": {
+            "default": true,
+            "title": "Choosable",
+            "type": "boolean"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/EngineCatalogueModelOut"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "voices": {
+            "items": {
+              "$ref": "#/components/schemas/EngineCatalogueVoiceOut"
+            },
+            "title": "Voices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "available",
+          "complete",
+          "note",
+          "voices",
+          "models"
+        ],
+        "title": "EngineCatalogueOut",
+        "type": "object"
+      },
+      "EngineCatalogueVoiceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "is_custom": {
+            "title": "Is Custom",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "offerable": {
+            "title": "Offerable",
+            "type": "boolean"
+          },
+          "price_band": {
+            "title": "Price Band",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "voice_id": {
+            "title": "Voice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "voice_id",
+          "label",
+          "price_band",
+          "is_custom",
+          "offerable",
+          "reason"
+        ],
+        "title": "EngineCatalogueVoiceOut",
+        "type": "object"
+      },
       "EngineDriftOut": {
         "additionalProperties": false,
         "description": "How far the platform's live agents have drifted from what we published (D-123).\n\nTHE HALF-WIRED-FEATURE GUARD. `sweep_engine_drift` walks live agents through\n`engine_drift_for` every half hour and writes what the engine was observed to be\nholding. A job that writes a state nobody reads is the defect CLAUDE.md names, so the\nstate rides the read the ops screen already makes \u2014 the same argument, and the same\nroute-table argument, that put `outbox_dead_letters` here rather than on an endpoint\nof its own.\n\nTHE ALARM IS `out_of_sync`, and `undetermined` is deliberately NOT folded into it.\n`agents/verification.py`'s whole doctrine is that \"the engine is provably running\nsomething else\" and \"we could not read the answer\" are different facts and only one is\nevidence; a console that added them would report a vendor having a slow afternoon as a\nfleet of agents speaking unapproved scripts, and an operator learns to ignore that\nnumber within a week.\n\nCOUNTS AND TIMESTAMPS ONLY (hard rule 6). The per-agent sentence lives behind\n`GET /v1/agents/{agent_id}/engine-state`, which is tenant-scoped and permissioned;\nnothing derived from a prompt or a disclosure line reaches this model. See\n`agents/reconciliation.EngineDriftSummary`, which is where that boundary is enforced.",
@@ -8516,6 +8938,279 @@
           "groups"
         ],
         "title": "EngineLatencyReport",
+        "type": "object"
+      },
+      "EngineMinutePriceAttestIn": {
+        "additionalProperties": false,
+        "properties": {
+          "effective_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "inr_per_min": {
+            "maxLength": 32,
+            "title": "Inr Per Min",
+            "type": "string"
+          },
+          "source_note": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Source Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inr_per_min",
+          "source_note"
+        ],
+        "title": "EngineMinutePriceAttestIn",
+        "type": "object"
+      },
+      "EngineMinutePriceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "attested_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested At"
+          },
+          "billable": {
+            "title": "Billable",
+            "type": "boolean"
+          },
+          "effective_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "inr_per_min": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inr Per Min"
+          },
+          "rate_key": {
+            "title": "Rate Key",
+            "type": "string"
+          },
+          "sold_as": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sold As"
+          },
+          "source_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Note"
+          }
+        },
+        "required": [
+          "engine",
+          "rate_key",
+          "inr_per_min",
+          "effective_from",
+          "attested_at",
+          "source_note",
+          "billable",
+          "sold_as"
+        ],
+        "title": "EngineMinutePriceOut",
+        "type": "object"
+      },
+      "EngineMinutePricesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "title": "As Of",
+            "type": "string"
+          },
+          "prices": {
+            "items": {
+              "$ref": "#/components/schemas/EngineMinutePriceOut"
+            },
+            "title": "Prices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "prices",
+          "as_of"
+        ],
+        "title": "EngineMinutePricesOut",
+        "type": "object"
+      },
+      "EngineNumberOut": {
+        "additionalProperties": false,
+        "description": "One number the voice platform holds, from its own list.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "e164": {
+            "title": "E164",
+            "type": "string"
+          },
+          "engine_owned": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Owned"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "unassigned": {
+            "title": "Unassigned",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "e164",
+          "provider",
+          "engine_owned",
+          "agent_id",
+          "agent_name",
+          "unassigned"
+        ],
+        "title": "EngineNumberOut",
+        "type": "object"
+      },
+      "EngineNumbersOut": {
+        "additionalProperties": false,
+        "description": "The numbers held at a voice platform that rents and attaches them in its OWN console.\n\n`managed_in_engine_console` is False on every engine whose numbers this console records\nand routes itself; the lists are then empty and nothing was read from the engine.",
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/EngineAgentOut"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "managed_in_engine_console": {
+            "title": "Managed In Engine Console",
+            "type": "boolean"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "numbers": {
+            "items": {
+              "$ref": "#/components/schemas/EngineNumberOut"
+            },
+            "title": "Numbers",
+            "type": "array"
+          },
+          "other_numbers": {
+            "title": "Other Numbers",
+            "type": "integer"
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform"
+          },
+          "steps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "managed_in_engine_console",
+          "platform",
+          "steps",
+          "notes",
+          "numbers",
+          "other_numbers",
+          "agents"
+        ],
+        "title": "EngineNumbersOut",
         "type": "object"
       },
       "EngineRefIn": {
@@ -14422,7 +15117,7 @@
       },
       "LlmDefaultIn": {
         "additionalProperties": false,
-        "description": "The account's choice, or `null` to go back to following the platform.\n\nREQUIRED RATHER THAN OPTIONAL, and that is what makes this a PUT rather than a PATCH:\nthe body states the whole of the resource, so `null` is unambiguously \"clear it\" and\nthere is no third \"field omitted\" case to interpret. `PATCH /v1/agents/{id}` has to\ncarry that third case because it edits four properties at once; this one carries a\nsingle value and does not.",
+        "description": "The account's choice, or `null` to go back to following the platform.\n\nREQUIRED RATHER THAN OPTIONAL, and that is what makes this a PUT rather than a PATCH:\nthe body states the whole of the resource, so `null` is unambiguously \"clear it\".",
         "properties": {
           "default_llm_model": {
             "anyOf": [
@@ -14444,8 +15139,15 @@
       },
       "LlmDefaultsOut": {
         "additionalProperties": false,
-        "description": "What this account has chosen, what that resolves to, and what else it could pick.",
+        "description": "What this account has chosen, what that resolves to, and what else it could run.",
         "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/AgentLlmModelOut"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
           "available": {
             "items": {
               "$ref": "#/components/schemas/LlmModelOptionOut"
@@ -14472,14 +15174,15 @@
         "required": [
           "default_llm_model",
           "effective_default",
-          "available"
+          "available",
+          "agents"
         ],
         "title": "LlmDefaultsOut",
         "type": "object"
       },
       "LlmModelOptionOut": {
         "additionalProperties": false,
-        "description": "One model an account may choose, with what a minute of it costs.\n\nEvery field is required on the wire: a Pydantic default here would generate an\nOPTIONAL TypeScript property and the screen would have to branch on a case the server\nnever emits.",
+        "description": "One model an account may run, with what a minute of it costs. ADMIN REALM ONLY.\n\nEvery field is required on the wire: a Pydantic default here would generate an\nOPTIONAL TypeScript property and the screen would have to branch on a case the server\nnever emits.",
         "properties": {
           "client_surcharge_inr_per_minute": {
             "title": "Client Surcharge Inr Per Minute",
@@ -14505,6 +15208,22 @@
             "title": "Provider",
             "type": "string"
           },
+          "tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "standard",
+                  "plus",
+                  "pro"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier"
+          },
           "unavailable_reason": {
             "anyOf": [
               {
@@ -14520,6 +15239,7 @@
         "required": [
           "model",
           "provider",
+          "tier",
           "platform_cost_inr_per_minute",
           "client_surcharge_inr_per_minute",
           "is_platform_default",
@@ -14527,6 +15247,63 @@
           "unavailable_reason"
         ],
         "title": "LlmModelOptionOut",
+        "type": "object"
+      },
+      "LlmTierOptionOut": {
+        "additionalProperties": false,
+        "description": "One tier a client may choose. No model id and no provider: which model answers a tier\nis ours, and changing it must not be a client-visible rename (D-679, D-680).",
+        "properties": {
+          "client_surcharge_inr_per_minute": {
+            "title": "Client Surcharge Inr Per Minute",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "is_available": {
+            "title": "Is Available",
+            "type": "boolean"
+          },
+          "is_platform_default": {
+            "title": "Is Platform Default",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "tier": {
+            "enum": [
+              "standard",
+              "plus",
+              "pro"
+            ],
+            "title": "Tier",
+            "type": "string"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "required": [
+          "tier",
+          "label",
+          "description",
+          "client_surcharge_inr_per_minute",
+          "is_platform_default",
+          "is_available",
+          "unavailable_reason"
+        ],
+        "title": "LlmTierOptionOut",
         "type": "object"
       },
       "LoginIn": {
@@ -17023,7 +17800,7 @@
       },
       "PlanMarginOut": {
         "additionalProperties": false,
-        "description": "The gross margin of a committed-volume bundle's rates at our cost floor (D-469).\n\nReturned on every plan the operator reads or writes, so the margin of a bundle is a\nnumber on the screen that sets it \u2014 not something discovered when a client reconciles.\nThe effective committed rate is `monthly_fee / included_min`; both it and the overage\nrate are judged against `SELF_SERVE_COST_FLOOR_INR_PER_MIN` and `MIN_GROSS_MARGIN`\n(`billing/rates.py`, the same floor the prepaid packs use). Money and ratios are exact\nstrings (hard rule 7); `null` where a rate is unset, never a zero standing in for it.",
+        "description": "The gross margin of a committed-volume bundle's rates at our cost floor (D-469).\n\nReturned on every plan the operator reads or writes, so the margin of a bundle is a\nnumber on the screen that sets it \u2014 not something discovered when a client reconciles.\nThe effective committed rate is `monthly_fee / included_min`; both it and the overage\nrate are judged against the Clear cost floor of the deployment's engine and `MIN_GROSS_MARGIN`\n(`billing/rates.py`, the same floor the prepaid packs use). Money and ratios are exact\nstrings (hard rule 7); `null` where a rate is unset, never a zero standing in for it.",
         "properties": {
           "below_target_margin": {
             "items": {
@@ -17828,7 +18605,8 @@
           "provider": {
             "enum": [
               "vobiz",
-              "plivo"
+              "plivo",
+              "thinnest"
             ],
             "title": "Provider",
             "type": "string"
@@ -19212,6 +19990,18 @@
             ],
             "title": "Balance Inr"
           },
+          "bonus_clawed_back_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bonus Clawed Back Inr"
+          },
           "payment_id": {
             "title": "Payment Id",
             "type": "string"
@@ -19235,6 +20025,7 @@
           "amount_inr",
           "recorded",
           "balance_inr",
+          "bonus_clawed_back_inr",
           "processing_days"
         ],
         "title": "RefundOut",
@@ -25750,13 +26541,6 @@
             "title": "Llm Surcharge Minutes",
             "type": "string"
           },
-          "llm_surcharge_models": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Llm Surcharge Models",
-            "type": "array"
-          },
           "llm_surcharge_rate_inr": {
             "anyOf": [
               {
@@ -25767,6 +26551,13 @@
               }
             ],
             "title": "Llm Surcharge Rate Inr"
+          },
+          "llm_surcharge_tiers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Llm Surcharge Tiers",
+            "type": "array"
           },
           "minutes_left": {
             "anyOf": [
@@ -25903,7 +26694,7 @@
           "llm_surcharge_rate_inr",
           "llm_surcharge_minutes",
           "llm_surcharge_inr",
-          "llm_surcharge_models",
+          "llm_surcharge_tiers",
           "monthly_fee_inr",
           "month_charges_inr",
           "cap_minutes",
@@ -27578,7 +28369,7 @@
     },
     "/v1/actions/calendar/callback": {
       "post": {
-        "description": "Exchange the authorization code and save the refresh token as a `google_calendar`\ncredential. Bound to the authenticated `org:manage` tenant, so a code cannot be\nredeemed onto another tenant's account.",
+        "description": "Exchange the authorization code and save the refresh token as a `google_calendar`\ncredential. The `state` is checked BEFORE the code is exchanged, so a code from a consent\nthis person did not start is never redeemed at all.",
         "operationId": "calendar_callback_v1_actions_calendar_callback_post",
         "requestBody": {
           "content": {
@@ -27617,7 +28408,7 @@
     },
     "/v1/actions/calendar/connect": {
       "get": {
-        "description": "Start the OAuth flow. `state` carries the tenant so the callback can attribute the\nrefresh token; it is signed context, not a bearer \u2014 the callback re-checks it.\n\n\u26a0 The state here is the tenant id; a production hardening is to sign it (HMAC) to stop a\nforged callback attaching a token to another tenant. Left as a NAMED follow-up because\nthe callback also requires an authenticated `org:manage` session, which already binds\nthe acting tenant \u2014 see `calendar_callback`.",
+        "description": "Start the OAuth flow. `state` is signed and bound to this account and this person\n(`calendar.mint_oauth_state`); the callback refuses a code that arrives without it.",
         "operationId": "calendar_connect_v1_actions_calendar_connect_get",
         "responses": {
           "200": {
@@ -27964,8 +28755,26 @@
         "x-calevate-permission": "admin:tenants"
       },
       "post": {
-        "description": "Records the monthly price a client is charged for a phone number, in rupees, with the document it was read from. Until one is recorded no client can buy a number: a price nobody has read may not reach a bill. A rate change is a new attestation \u2014 numbers already bought keep the figure they were sold at, so editing the rate in place would leave those frozen figures unexplainable.",
+        "description": "Records the monthly price a client is charged for a phone number, in rupees, with the document it was read from. Until one is recorded no client can buy a number: a price nobody has read may not reach a bill. A rate change is a new attestation \u2014 numbers already bought keep the figure they were sold at, so editing the rate in place would leave those frozen figures unexplainable. Requires `X-Confirm-Action: attest_number_price`.",
         "operationId": "attest_price_v1_admin_number_pricing_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -28199,6 +29008,47 @@
           }
         },
         "summary": "Buy a number for this client \u2014 spends money, and is not retryable",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/numbers/tenants/{tenant_id}/engine": {
+      "get": {
+        "description": "On a voice platform where numbers are rented and pointed at agents only in its own console, lists what the platform holds that this client's agents answer or that nobody answers yet, this client's published agents with the id the console shows, and the console steps. Read-only. On any other platform it says so and reads nothing.",
+        "operationId": "tenant_engine_numbers_v1_admin_numbers_tenants__tenant_id__engine_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineNumbersOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Numbers held at the voice platform's own console, and how to attach one",
         "tags": [
           "admin"
         ],
@@ -28636,7 +29486,7 @@
     },
     "/v1/admin/organizations/{org_id}/llm-defaults": {
       "get": {
-        "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nEach row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs \u2014 the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.",
+        "description": "The language model one client's agents run when the agent itself names none, with the real model identifiers the client realm never sees (it reads tiers).\n\nEach row carries TWO figures of different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to the client's bill per minute. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call. `tier` is the word the client reads for the model. `agents` lists each agent with the model it runs and the level that chose it.\n\nA row with `is_available: false` cannot be chosen; `unavailable_reason` says what is missing.",
         "operationId": "admin_get_llm_defaults_v1_admin_organizations__org_id__llm_defaults_get",
         "parameters": [
           {
@@ -28675,7 +29525,7 @@
         "x-calevate-permission": "admin:tenants"
       },
       "put": {
-        "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nEach row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs \u2014 the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.\n\nSend `null` to put the account back on the platform's model. Recorded in the audit ledger against the client's account, because it changes what their calls cost and how their agents answer.\n\nEvery LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched \u2014 this sets what the others follow.",
+        "description": "The language model one client's agents run when the agent itself names none, with the real model identifiers the client realm never sees (it reads tiers).\n\nEach row carries TWO figures of different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to the client's bill per minute. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call. `tier` is the word the client reads for the model. `agents` lists each agent with the model it runs and the level that chose it.\n\nA row with `is_available: false` cannot be chosen; `unavailable_reason` says what is missing.\n\nSend `null` to put the account back on the platform's model. A model this platform does not run is refused with `llm_model_not_available`; one it supports but cannot serve yet with `llm_model_not_deployed`. Recorded in the audit ledger against the client's account, because it changes what their calls cost and how their agents answer.\n\nEvery LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched \u2014 this sets what the others follow.",
         "operationId": "admin_set_llm_default_v1_admin_organizations__org_id__llm_defaults_put",
         "parameters": [
           {
@@ -33006,6 +33856,34 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/agents/engine-catalogue": {
+      "get": {
+        "operationId": "engine_catalogue_v1_agents_engine_catalogue_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineCatalogueOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The voice platform's own voices and models, each with its availability",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
     "/v1/agents/lanes": {
       "get": {
         "description": "No DB, no engine call, no tenant scoping \u2014 the split is the same for every client,\nwhich is the point of publishing it rather than describing it. It reads one engine\nCAPABILITY (`records_audio`), because the recording notice's explanation must match\nwhat this deployment's phone line actually does.",
@@ -33152,7 +34030,7 @@
         "x-calevate-permission": "agents:read"
       },
       "patch": {
-        "description": "Applies immediately. A live agent is re-published to the voice platform in the same transaction \u2014 including the numbers it answers, so switching a two-way agent to outbound-only really does stop it picking up \u2014 and if that push fails nothing is saved.\n\n`llm_model` is the one field where sending `null` MEANS something: it clears this agent's own choice so it follows the account default again. Omit the field entirely to leave the current choice alone. A model this platform does not run at all is refused with `llm_model_not_available`; one it supports but has no deployment for is refused with `llm_model_not_deployed`. Both name the models you can pick \u2014 read them off `GET /v1/organization/llm-defaults`, where a row with `is_available: false` is one of these refusals waiting to happen.\n\nAn archived agent is refused: restore it first.",
+        "description": "Applies immediately. A live agent is re-published to the voice platform in the same transaction \u2014 including the numbers it answers, so switching a two-way agent to outbound-only really does stop it picking up \u2014 and if that push fails nothing is saved.\n\n`llm_tier` is the one field where sending `null` MEANS something: it clears this agent's own AI model tier so it follows the account default again. Omit the field entirely to leave the current choice alone. A tier that is not switched on yet is refused with `llm_tier_not_available` \u2014 `GET /v1/organization/llm-defaults` marks those tiers `is_available: false`. Choosing the tier the agent is already on changes nothing.\n\n`engine_voice_id` and `engine_model_id` choose from the voice platform's own list (`GET /v1/agents/engine-catalogue`, whose model ids are opaque) where it supplies one; `null` clears a choice that has not yet been published. An entry that list marks unavailable is refused with its reason.\n\nAn archived agent is refused: restore it first.",
         "operationId": "update_agent_route_v1_agents__agent_id__patch",
         "parameters": [
           {
@@ -42216,6 +43094,113 @@
         "x-calevate-permission": "ops:manage"
       }
     },
+    "/v1/ops/engine-minute-prices": {
+      "get": {
+        "operationId": "list_engine_minute_prices_v1_ops_engine_minute_prices_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMinutePricesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every engine priced by the minute, and each rate's attested price",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      }
+    },
+    "/v1/ops/engine-minute-prices/{engine}/{rate_key}": {
+      "post": {
+        "description": "Records what one billed minute on this engine and rate costs THIS account, read off your own invoice, as a NEW effective-dated row. Requires `X-Confirm-Action: attest_engine_minute_price:<engine>:<rate_key>`. Until a rate exists, minutes on it are not offered and any that run are metered with no cost and alarmed.",
+        "operationId": "attest_engine_minute_v1_ops_engine_minute_prices__engine___rate_key__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "engine",
+            "required": true,
+            "schema": {
+              "maxLength": 32,
+              "pattern": "^[a-z][a-z0-9_-]*$",
+              "title": "Engine",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "rate_key",
+            "required": true,
+            "schema": {
+              "maxLength": 32,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "title": "Rate Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EngineMinutePriceAttestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineMinutePriceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Attest one engine rate per billed minute (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      }
+    },
     "/v1/ops/fx-rate": {
       "get": {
         "description": "What vendor costs are being converted at, and whether anyone should worry.",
@@ -43626,14 +44611,14 @@
     },
     "/v1/organization/llm-defaults": {
       "get": {
-        "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nEach row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs \u2014 the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.",
+        "description": "The AI model tier this account's agents run when the agent itself names none: `standard`, `plus` or `pro`. Which model answers each tier is Calevate's, and is not part of this response.\n\nResolution is three levels: the agent's own choice, then this account default, then Calevate's default. `effective_tier` is what an agent that has chosen nothing runs.\n\n`client_surcharge_inr_per_minute` on each tier is what choosing it ADDS to this account's bill for every minute it runs \u2014 the plan's own model surcharge, `0` when the plan quotes none and `0` on a tier that is not an upgrade. `in_force_surcharge_inr_per_minute` is what the tier in force adds now; following Calevate's default is never surcharged.\n\nA tier with `is_available: false` cannot be chosen yet; `unavailable_reason` says so.",
         "operationId": "get_organization_llm_defaults_v1_organization_llm_defaults_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LlmDefaultsOut"
+                  "$ref": "#/components/schemas/ClientLlmDefaultsOut"
                 }
               }
             },
@@ -43646,20 +44631,20 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Which language model this account's agents run, and what else it could run",
+        "summary": "Which AI model tier this account's agents run, and which tiers it could choose",
         "tags": [
           "agents"
         ],
         "x-calevate-permission": "org:read"
       },
       "put": {
-        "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nEach row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs \u2014 the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.\n\nSend `null` to go back to following the platform's model. A model this platform does not run at all is refused with `llm_model_not_available`; one it supports but has no deployment for is refused with `llm_model_not_deployed` \u2014 the same rows `available` marks `is_available: false`.\n\nEvery LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched \u2014 this sets what the others follow.",
+        "description": "The AI model tier this account's agents run when the agent itself names none: `standard`, `plus` or `pro`. Which model answers each tier is Calevate's, and is not part of this response.\n\nResolution is three levels: the agent's own choice, then this account default, then Calevate's default. `effective_tier` is what an agent that has chosen nothing runs.\n\n`client_surcharge_inr_per_minute` on each tier is what choosing it ADDS to this account's bill for every minute it runs \u2014 the plan's own model surcharge, `0` when the plan quotes none and `0` on a tier that is not an upgrade. `in_force_surcharge_inr_per_minute` is what the tier in force adds now; following Calevate's default is never surcharged.\n\nA tier with `is_available: false` cannot be chosen yet; `unavailable_reason` says so.\n\nSend `null` to go back to following Calevate's default. A tier that is not switched on yet is refused with `llm_tier_not_available`. Choosing the tier the account is already on changes nothing.\n\nEvery LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched \u2014 this sets what the others follow.",
         "operationId": "set_organization_llm_default_v1_organization_llm_defaults_put",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/LlmDefaultIn"
+                "$ref": "#/components/schemas/ClientLlmDefaultIn"
               }
             }
           },
@@ -43670,7 +44655,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LlmDefaultsOut"
+                  "$ref": "#/components/schemas/ClientLlmDefaultsOut"
                 }
               }
             },
@@ -43683,7 +44668,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Choose the language model this account's agents run by default",
+        "summary": "Choose the AI model tier this account's agents run by default",
         "tags": [
           "agents"
         ],

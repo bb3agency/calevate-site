@@ -142,6 +142,9 @@ services:
       # interpolated value would be resolved from the deploy shell and `.env`.
       PLATFORM_KEK: ""
       PLATFORM_KEK_RETIRED: ""
+      # `ENGINE_INTAKE_KEK` / `_RETIRED` are deliberately NOT blanked: this service opens
+      # ThinnestAI webhook signing secrets with them, and they open nothing else (D-678,
+      # `apps/api/reliability/engine_intake_keys.py`).
     ports: ["127.0.0.1:8100:8100"]
     depends_on:
       redis: {condition: service_healthy}

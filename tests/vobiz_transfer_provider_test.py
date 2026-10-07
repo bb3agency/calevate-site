@@ -149,6 +149,21 @@ async def test_a_call_the_carrier_never_named_is_refused(
     assert carrier.transfers == []
 
 
+@pytest.mark.parametrize("destination", ["+447000000042", "+8823400000042", "+19005550142"])
+async def test_a_handover_number_outside_india_is_never_bridged(
+    transfer_env: pytest.MonkeyPatch, destination: str
+) -> None:
+    """The bridged leg is a call we place and pay for, so the India-only freeze binds it:
+    an international or premium handover number would be toll fraud on our account."""
+    _enable(transfer_env)
+    carrier = _Carrier()
+    with pytest.raises(TransferRefusedError, match=r"\+91"):
+        await VobizTransfers(carrier=carrier).start_transfer(  # type: ignore[arg-type]
+            replace(REQUEST, to_e164=destination)
+        )
+    assert carrier.transfers == [], "the carrier was never asked to redirect the call"
+
+
 async def test_a_carrier_refusal_and_missing_config_are_refusals(
     transfer_env: pytest.MonkeyPatch,
 ) -> None:

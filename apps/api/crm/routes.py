@@ -21,6 +21,7 @@ from fastapi.sse import EventSourceResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.assist_leg import account_assist_leg
+from apps.api.agents.llm_tiers import client_model_labels
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.billing import service as billing
 from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
@@ -1574,7 +1575,14 @@ async def usage_panel(
         {
             # Decimal → string, never float (hard rule 7). The model declares each of
             # these `str` for the same reason.
-            **{k: (str(v) if isinstance(v, Decimal) else v) for k, v in summary.items()},
+            **{
+                k: (str(v) if isinstance(v, Decimal) else v)
+                for k, v in summary.items()
+                if k != "llm_surcharge_models"
+            },
+            # The client reads the TIERS its surcharged minutes ran on, never the model ids
+            # behind them (D-679, D-680).
+            "llm_surcharge_tiers": client_model_labels(summary["llm_surcharge_models"]),
             "plan_tier": tier,
             # Credits only mean something for the self-serve motion (D-34); showing a
             # managed client a ₹0 wallet would invite a support ticket about a concept

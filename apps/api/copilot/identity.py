@@ -79,12 +79,11 @@ itself about the assistant's model, every vendor name in the answer is a leak, b
 there is no other thing the answer could be about. `question_touches_model_identity` is
 what turns it on, and it is the answer to the language problem below.
 
-SARVAM IS DELIBERATELY NOT A BANNED NAME, and the exception is the point — D-127 G-6
-requires a substituted answer to say who wrote it, and
-`workers/extraction._FALLBACK_DISCLOSURE` therefore names Sarvam in the client's own
-words. That is a disclosure this product DECIDED to make, in a place it can be reviewed.
-Banning the name would delete a compliance sentence to satisfy a guard aimed at a
-different problem, which is the shape of every weakened invariant.
+SARVAM IS A BANNED NAME TOO, SINCE D-679. It used to be the one exception, because
+`workers/extraction._FALLBACK_DISCLOSURE` named it when the standby answered. D-127 G-6
+requires that sentence to say a DIFFERENT model wrote the answer, and it still does ("our
+standby model"); which company that is belongs to the named sub-processor list given on
+request (D-679, founder 6 Oct 2026), not to chat.
 
 ═══ WHAT THIS CANNOT DO, SAID PLAINLY. ═══
 
@@ -112,8 +111,8 @@ from typing import Final
 #: keeping a second copy — two spellings of one ban is how the two drift apart, and the
 #: prompt scan and the egress guard have to agree about what a vendor name IS.
 #:
-#: NOT `sarvam` — see the module docstring. NOT `bolna`: the voice engine is not the
-#: assistant's identity, and a tenant's own agent screens name it.
+#: `sarvam` since D-679 — see the module docstring; it is the standby leg's vendor. NOT
+#: `bolna`: that engine is deleted and was never the assistant's identity.
 VENDOR_WORDS: Final[tuple[str, ...]] = (
     "anthropic",
     "azure",
@@ -126,6 +125,7 @@ VENDOR_WORDS: Final[tuple[str, ...]] = (
     "microsoft",
     "mistral",
     "openai",
+    "sarvam",
     "vertex",
 )
 
@@ -283,9 +283,9 @@ def asserts_an_identity(text: str) -> bool:
 #: person is entitled to know what they are talking to), AFFIRMS THAT IT IS AN AI — never
 #: hedged, never coy, `prompt.ASSISTANT_IDENTITY`'s argument and hard rule 5's floor —
 #: DECLINES THE VENDOR OUT LOUD rather than pretending the question was not asked, and
-#: SAYS WHERE THE ANSWER IS ACTUALLY PUBLISHED. A pointer beats a refusal: the register at
-#: `/legal/subprocessors` names Microsoft/Azure OpenAI, OpenAI and Google (checked —
-#: `apps/web/src/lib/legal/subprocessors.ts`), so this sends the person somewhere true.
+#: SAYS WHERE THE ANSWER IS ACTUALLY PUBLISHED. A pointer beats a refusal: the page at
+#: `/legal/subprocessors` lists the language-model category and offers the named list on
+#: request (D-679), so this sends the person somewhere true without naming anybody.
 #:
 #: The path is RELATIVE because the same Next.js app serves the dashboard and
 #: `/legal/[slug]`; a host spelled into a sentence is a host that goes stale.
@@ -294,8 +294,8 @@ def asserts_an_identity(text: str) -> bool:
 #: substituted mid-stream, where a second paragraph would read as a new thought.
 CANONICAL_IDENTITY_ANSWER: Final = (
     "I am the Calevate assistant — an AI that helps you work inside Calevate. "
-    "I do not discuss which AI providers Calevate buys from; they are all named in "
-    "Calevate's sub-processor register at /legal/subprocessors."
+    "I do not discuss which AI providers Calevate buys from; the kinds it uses are "
+    "listed at /legal/subprocessors, and a named list is available on request."
 )
 
 #: Questions answered from `CANONICAL_IDENTITY_ANSWER` without calling a provider.

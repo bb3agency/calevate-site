@@ -29,6 +29,7 @@ from apps.api.authn.hashing import MAX_PASSWORD_CHARS, MIN_PASSWORD_CHARS
 from apps.api.authn.throttle import (
     KEY_PREFIX,
     PASSWORD_BUDGET,
+    RESET_BUDGET,
     clear,
     penalty_delay_s,
     pseudo_subject,
@@ -252,6 +253,43 @@ async def test_the_reset_request_is_silent_about_whether_the_address_exists(
     assert await service.request_password_reset(realm=REALM, email=email, ip=None) is None
     assert await service.request_password_reset(realm=REALM, email=unknown, ip=None) is None
     await _forget_throttle(pseudo_subject(REALM, unknown))
+
+
+@pytest.mark.asyncio
+async def test_a_reset_request_takes_as_long_for_an_unknown_address_as_for_a_real_one(
+    live_user: tuple[uuid.UUID, str],
+) -> None:
+    """The reset form's timing oracle. Without the floor the real address answered about
+    5x slower than an unknown one (it writes a token, an outbox row and an audit entry), so
+    a handful of samples told a stranger whether an address has an account. Both paths now
+    answer no sooner than `RESET_RESPONSE_FLOOR_S`; the ratio bound is generous because the
+    defect is a multiple, not a percentage."""
+    _, email = live_user
+    real_id = await _resolve(email)
+    unknown = f"nobody-{uuid.uuid4().hex[:12]}@calevate-test.example"
+    ghost = pseudo_subject(REALM, unknown)
+
+    async def _timed(address: str, budget_subject: uuid.UUID) -> float:
+        await clear(RESET_BUDGET, realm=REALM, subject_id=budget_subject)
+        started = time.perf_counter()
+        await service.request_password_reset(realm=REALM, email=address, ip=None)
+        return time.perf_counter() - started
+
+    try:
+        known = statistics.median(await _repeat(lambda: _timed(email, real_id), 5))
+        missing = statistics.median(await _repeat(lambda: _timed(unknown, ghost), 5))
+    finally:
+        await clear(RESET_BUDGET, realm=REALM, subject_id=real_id)
+        await clear(RESET_BUDGET, realm=REALM, subject_id=ghost)
+
+    assert min(known, missing) >= service.RESET_RESPONSE_FLOOR_S * 0.95, (
+        f"a reset request answered in {min(known, missing) * 1000:.1f}ms, under the floor"
+    )
+    ratio = max(known, missing) / min(known, missing)
+    assert ratio < 1.5, (
+        f"real address {known * 1000:.1f}ms vs unknown {missing * 1000:.1f}ms — the reset "
+        "form is an account-existence oracle"
+    )
 
 
 @pytest.mark.asyncio

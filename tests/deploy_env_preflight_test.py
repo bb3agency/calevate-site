@@ -18,6 +18,7 @@ against a file in `tmp_path`.
 from __future__ import annotations
 
 import base64
+import hashlib
 from collections.abc import Callable, Mapping
 
 import pytest
@@ -47,6 +48,10 @@ OTHER_KEK = base64.b64encode(b"retired-material-also-32-byteslo").decode()
 GOOD_HMAC = "audit-chain-key-of-thirty-two-by"
 OTHER_HMAC = "idempotency-key-of-thirty-two-by"
 GOOD_CLAIM_KEY = "caller-claim-key-of-thirty-two-b"
+#: The development intake key `reliability/engine_intake_keys.py` derives in `local`.
+PUBLISHED_INTAKE_KEK = base64.b64encode(
+    hashlib.sha256(b"calevate-local-dev-engine-intake-kek/local").digest()
+).decode()
 
 
 def good_env() -> dict[str, str]:
@@ -72,6 +77,7 @@ def good_env() -> dict[str, str]:
         "CARRIER_CLAIM_SECRET": GOOD_CLAIM_KEY,
         "VOBIZ_AUTH_ID": "MA_ACCOUNT0001",
         "VOBIZ_AUTH_TOKEN": "vobiz-token-for-the-preflight-test",
+        "VOBIZ_CALLBACK_SECRET": "vobiz-callback-secret-of-thirty-two-plus",
     }
 
 
@@ -169,10 +175,35 @@ MUTATIONS: tuple[tuple[str, Callable[[dict[str, str]], None]], ...] = (
     ("carrier_claim_secret_unusable", _drop("CARRIER_CLAIM_SECRET")),
     # Half a carrier credential places no call and reads no call record.
     ("carrier_credentials_missing", _drop("VOBIZ_AUTH_TOKEN")),
+    # Without it voice-runtime refuses every Vobiz request; with it absent from the URLs,
+    # any Vobiz customer could point a number at our agents (D-673).
+    ("vobiz_callback_secret_unusable", _drop("VOBIZ_CALLBACK_SECRET")),
     # Declared empty, it beats the console and the answer route refuses every call.
     ("pipecat_stream_base_url_blank", _set("PIPECAT_STREAM_BASE_URL", "")),
+    # Pipecat Cloud's region-less host sends every stream to us-west, where no worker runs.
+    (
+        "pipecat_stream_base_url_unusable",
+        _set(
+            "PIPECAT_STREAM_BASE_URL",
+            "wss://api.pipecat.daily.co/ws/plivo?serviceHost=calevate-pipecat-worker.org",
+        ),
+    ),
     # The field's own default: every carrier callback would point at the container.
     ("webhook_base_url_not_public", _set("WEBHOOK_BASE_URL", "http://localhost:8100")),
+    # ThinnestAI (D-678): its checks run only where the environment declares the engine.
+    ("thinnest_api_key_missing", _set("ENGINE", "thinnest")),
+    ("engine_intake_kek_missing", _set("ENGINE", "thinnest")),
+    ("engine_intake_kek_unusable", _set("ENGINE_INTAKE_KEK", PUBLISHED_INTAKE_KEK)),
+    ("engine_intake_kek_unusable", _set("ENGINE_INTAKE_KEK", "not-base64-at-all!")),
+    ("thinnest_api_key_unusable", _set("THINNEST_API_KEY", "pk_widget_key_not_an_api_key")),
+    (
+        "thinnest_api_base_url_unusable",
+        _both(
+            _set("ENGINE", "thinnest"),
+            _set("THINNEST_API_KEY", "ta_live_preflight_test_key"),
+            _set("THINNEST_API_BASE_URL", "http://app.thinnest.ai/api/v1"),
+        ),
+    ),
 )
 
 
@@ -412,11 +443,17 @@ def test_no_secret_value_ever_reaches_the_output(
 def test_a_host_that_declares_another_engine_is_not_asked_for_the_carrier_leg() -> None:
     """The gate cannot read the console's `ENGINE`, so the opt-out is the environment's."""
     env = good_env() | {"ENGINE": "cartesia"}
-    for key in ("CARRIER_CLAIM_SECRET", "VOBIZ_AUTH_ID", "VOBIZ_AUTH_TOKEN"):
+    for key in (
+        "CARRIER_CLAIM_SECRET",
+        "VOBIZ_AUTH_ID",
+        "VOBIZ_AUTH_TOKEN",
+        "VOBIZ_CALLBACK_SECRET",
+    ):
         env.pop(key)
     codes = refuse_codes(env)
     assert "carrier_claim_secret_unusable" not in codes
     assert "carrier_credentials_missing" not in codes
+    assert "vobiz_callback_secret_unusable" not in codes
 
 
 def test_a_short_claim_key_is_refused_whatever_the_engine() -> None:
@@ -435,6 +472,7 @@ def test_local_is_not_asked_for_the_carrier_leg() -> None:
     assert not codes & {
         "carrier_claim_secret_unusable",
         "carrier_credentials_missing",
+        "vobiz_callback_secret_unusable",
         "webhook_base_url_not_public",
     }
 

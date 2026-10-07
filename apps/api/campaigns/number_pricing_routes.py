@@ -17,7 +17,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,11 +30,16 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
 from apps.api.core.rbac import permission_meta
+from apps.api.core.stepup import StepUpGate
 
 router = APIRouter(prefix="/v1/admin/number-pricing", tags=["admin"])
 
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 PricingOperator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
+
+#: The step-up string. A price that reaches every client's bill is confirmed with a fresh
+#: second factor, as an engine minute price is (`ops/engine_minute_routes.py`).
+ATTEST_NUMBER_PRICE_CONFIRMATION = "attest_number_price"
 
 
 class NumberPriceIn(BaseModel):
@@ -95,7 +100,8 @@ async def current_price(session: AdminSession, _: PricingOperator) -> NumberPric
         "with the document it was read from. Until one is recorded no client can buy a "
         "number: a price nobody has read may not reach a bill. A rate change is a new "
         "attestation — numbers already bought keep the figure they were sold at, so "
-        "editing the rate in place would leave those frozen figures unexplainable."
+        "editing the rate in place would leave those frozen figures unexplainable. Requires "
+        "`X-Confirm-Action: attest_number_price`."
     ),
 )
 async def attest_price(
@@ -103,7 +109,10 @@ async def attest_price(
     session: AdminSession,
     request: Request,
     principal: PricingOperator,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> NumberPriceOut:
+    step_up.require(x_confirm_action, ATTEST_NUMBER_PRICE_CONFIRMATION)
     assert principal.user_id is not None
     price = await record_attested_price_inr(
         session,
@@ -129,4 +138,4 @@ async def attest_price(
     )
 
 
-__all__ = ["router"]
+__all__ = ["ATTEST_NUMBER_PRICE_CONFIRMATION", "router"]

@@ -359,6 +359,8 @@ function opsRoutes(extra: Routes = {}, identity: unknown = SUPERADMIN): Routes {
       "/v1/ops/tts-prices/plan-fees": { month: "2026-10", as_of: "2026-10-02T06:30:00Z", fees: [{ provider: "cartesia", tier_label: "Studio", reference_plan_inr: "440.00", attested: null }] },
       [OPS_SECRETS_PATH]: SECRETS,
       [`${OPS_SECRETS_PATH}/kek`]: KEK,
+      // The per-minute rate panel shares the calling section (D-678).
+      "/v1/ops/engine-minute-prices": { prices: [], as_of: "2026-10-02T06:30:00Z" },
     },
     extra,
   );

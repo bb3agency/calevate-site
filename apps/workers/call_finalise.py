@@ -4,6 +4,7 @@
       (`carrier_events.enqueue_finalise`, `FINALISE_GRACE_S` after the hangup)
     finalise_unsettled_call
       the `post-call:{call}` promise exists → nothing (the worker settled)
+      no worker ever opened the call → `failed` (never billed), nothing promised
       otherwise → a `worker_settlement_missing` refusal per worker-measured leg,
                   `duration_s` from the carrier's `billsec`, the post-call promise claimed
 
@@ -25,8 +26,9 @@ WHY NO CLIENT CHARGE IS INVENTED HERE. The minute is billed by the post-call met
 which is the carrier's own count of the connected time. The speech, language and runtime
 legs were never measured and are refused rather than estimated (hard rule 7).
 
-A row still live with no hangup ever received is out of this job's reach: nothing enqueues
-it. `pipeline.reconcile_outstanding_calls` is the sweep that would have to grow that arm.
+A row still live whose hangup never arrived reaches this job through
+`carrier_events.reconcile_carrier_cdrs`, which ends it from the carrier's call record and
+queues this backstop the way the hangup would have.
 """
 
 from __future__ import annotations
@@ -92,6 +94,9 @@ class _Call:
     carrier_call_id: str | None
     engine_call_id: str
     settled: bool
+    #: A voice worker opened this call (`started_at`, which only its opening event writes)
+    #: or flushed a turn of it.
+    served: bool
 
 
 def _target(payload: dict[str, Any]) -> _Target:
@@ -142,6 +147,8 @@ async def _finalise(target: _Target, attempt: int) -> str:
             extra={"tenant_id": str(target.tenant_id), "call_id": str(target.call_id)},
         )
         return "not_terminal"
+    if not call.served:
+        return await _record_unserved(target)
     cdr = await _read_cdr(target, call, attempt)
     at = datetime.now(UTC)
     async with tenant_session(target.tenant_id) as session:
@@ -200,7 +207,9 @@ async def _read_call(target: _Target) -> _Call:
             await session.execute(
                 text(
                     "SELECT c.status, c.carrier, c.carrier_call_id, c.engine_call_id, "
-                    "EXISTS (SELECT 1 FROM outbox_messages o WHERE o.dedupe_key = :key) "
+                    "EXISTS (SELECT 1 FROM outbox_messages o WHERE o.dedupe_key = :key), "
+                    "c.started_at IS NOT NULL OR EXISTS "
+                    "  (SELECT 1 FROM transcript_turns t WHERE t.call_id = c.id) "
                     "FROM calls c WHERE c.id = :cid AND c.tenant_id = :tid"
                 ),
                 {
@@ -223,7 +232,60 @@ async def _read_call(target: _Target) -> _Call:
         carrier_call_id=row[2],
         engine_call_id=str(row[3]),
         settled=bool(row[4]),
+        served=bool(row[5]),
     )
+
+
+#: Ends an unserved call as `failed`, unless a worker's settlement or first event landed
+#: since the read: the claim and both kinds of evidence are re-asked in the statement.
+_UNSERVED_SQL: Final = (
+    "UPDATE calls c SET updated_at = now(), "
+    "  status = CASE WHEN c.status = 'completed' THEN 'failed' ELSE c.status END "
+    "WHERE c.id = :cid AND c.tenant_id = :tid AND c.started_at IS NULL "
+    "AND NOT EXISTS (SELECT 1 FROM transcript_turns t WHERE t.call_id = c.id) "
+    "AND NOT EXISTS (SELECT 1 FROM outbox_messages o WHERE o.dedupe_key = :key) "
+    "RETURNING c.id"
+)
+
+
+async def _record_unserved(target: _Target) -> str:
+    """A call the carrier connected and no voice worker ever served: `failed`, not billed.
+
+    The rule `carrier_events.orphan_status` already applies to an inbound hangup with no
+    row, applied to a row that exists — an outbound dial whose worker never connected, or a
+    row a worker's session read refused. `completed` is the one status the post-call meter
+    bills, and the carrier's talk time on such a call is somebody hearing nothing. So no
+    pipeline is promised: there is no transcript to extract, no worker leg to refuse, and an
+    outbox claim would keep a campaign contact out of its retry ladder
+    (`campaign_dispatch._UNANSWERED_DIALS_SQL`), which is where a person who heard silence
+    belongs. The carrier's own charge still reaches our cost through the CDR read the hangup
+    queued.
+    """
+    async with tenant_session(target.tenant_id) as session:
+        ended = (
+            await session.execute(
+                text(_UNSERVED_SQL),
+                {
+                    "cid": target.call_id,
+                    "tid": target.tenant_id,
+                    "key": f"{POSTCALL_DEDUPE_PREFIX}{target.call_id}",
+                },
+            )
+        ).first()
+    if ended is None:
+        # A worker's settlement or first batch committed after the read.
+        return "already_settled"
+    alert(
+        "WORKER_TERMINAL",
+        "answered_call_never_reached_worker",
+        detail=(
+            "the carrier connected this call but no voice worker ever opened it or recorded a "
+            "turn, so it was recorded failed and not billed; no post-call pipeline was promised"
+        ),
+        tenant_id=str(target.tenant_id),
+        call_id=str(target.call_id),
+    )
+    return "unserved"
 
 
 async def _read_cdr(target: _Target, call: _Call, attempt: int) -> CarrierCdr | None:

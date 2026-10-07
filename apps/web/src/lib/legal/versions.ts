@@ -206,6 +206,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:7817a076d32b7135ec7e80cab9d8e6245aad79ff74d109e987997718fc54b24c",
       },
+      // D-679: vendor names removed; sub-processors described by category with a named
+      // list on request, every disclosure kept without the name, and the hosted voice
+      // platform's storage and language-model location added. How recipients are
+      // disclosed changed, so material.
+      {
+        revision: "12",
+        material: true,
+        contentHash:
+          "sha256:542b86b2eb71834f804a630b6fcf0491cd85acf33455ca3460faae8001f0117c",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -260,6 +270,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: false,
         contentHash:
           "sha256:3d7ff2d729c78c4d2a8bd8d0b6b8654db609541f44aa1558ab6bee5b2d86d8ce",
+      },
+      // D-679 and D-681, folded into this unreleased revision (no commit carries the earlier
+      // hash, so nobody accepted those words). MATERIAL: section 6.1 now states that call time is billed in
+      // 30-second steps, which changes how calls are charged. The supplier wording
+      // (listed by category, named list on request) moved no right on its own.
+      {
+        revision: "10",
+        material: true,
+        contentHash:
+          "sha256:0b5f11cc9369da17234929ece0e6108ea267b5e53a1edc908a015f8d5664fcf0",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -365,6 +385,15 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: false,
         contentHash:
           "sha256:5caca198d30b5bdd5fc1406a6f4d1e1b6fcdd21d190a7e87702b5ba2ec1e13ea",
+      },
+      // D-679: clause 5 and Annex C authorise sub-processors by category plus a named
+      // list on request, and a new company in an existing category is notified like a
+      // new category. The authorisation clause changed, so material.
+      {
+        revision: "11",
+        material: true,
+        contentHash:
+          "sha256:9c3a0900ee0184dd0caf6c259ffe39352cb3eb618a60a367f28827ffa8993e2f",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -481,6 +510,26 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:30a8cf0b2e2d89e53aa9ac5a32e93cec079e621f4f4169375a179a8ed7bf8d1f",
       },
+      // D-678: ThinnestAI joins as the platform that runs the whole call on a deployment
+      // switched to it. A NEW SUB-PROCESSOR is what clause 5 of the Data Processing
+      // Addendum notifies against, so material.
+      {
+        revision: "11",
+        material: true,
+        contentHash:
+          "sha256:d33423b4d36da59ff081ce2ce2dc8a18ffe430ceccba2f27e757a1160e8463f1",
+      },
+      // D-679: the page becomes a table of categories naming only the payment gateway
+      // and services a client connects itself, with the named list on request. The
+      // form of the authorised list changed, so material.
+      // Amended BEFORE RELEASE (D-680), so the hash moved rather than the revision: no
+      // city is named for any location, only India — nobody has accepted these words yet.
+      {
+        revision: "12",
+        material: true,
+        contentHash:
+          "sha256:bc64d4f987d47f68b5687b4e1f501e07e7490dd22c7bca97a26d03786343e29e",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -535,6 +584,13 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: false,
         contentHash:
           "sha256:db63c997aedfa1276ee079ecac3eb539f0625fb8624ea5695ac92d5c87be176c",
+      },
+      // D-679: the edge network is described by its role rather than named.
+      {
+        revision: "4",
+        material: false,
+        contentHash:
+          "sha256:a5ce994ffd4e54fcbab9b43be47f1c3e99bcf03a10e2d6a1bf99954f88de25ce",
       },
     ],
     effectiveDate: "2026-09-02",

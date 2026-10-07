@@ -158,6 +158,13 @@ function healthy(): Routes {
     [QUEUE_PATH]: [],
     [APPROVED_PATH]: [],
     [AGENTS_PATH]: [],
+    // The operator's per-agent model column reads the admin model view (D-680).
+    [`/v1/admin/organizations/${TENANT}/llm-defaults`]: {
+      default_llm_model: null,
+      effective_default: "gpt-4o-mini",
+      available: [],
+      agents: [],
+    },
     [NUMBERS_PATH]: [],
     [TEMPLATES_PATH]: [],
     [MARGIN_PATH]: margin(),

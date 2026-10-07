@@ -1126,16 +1126,20 @@ export function useTenantTemplates(slug: string) {
 }
 
 /**
- * RECORDS a connection the client already holds — it buys nothing. Calevate does not
- * supply, sell or rent telephone numbers; the client is the subscriber of record on
- * their own operator account (Model B, `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9). The name
- * follows the route's own `provision_number`, which means "make it usable in the
- * platform", not "obtain it".
+ * RECORDS a number already held on a carrier account — it buys nothing (buying is
+ * `useBuyNumber`). The name follows the route's own `provision_number`, which means "make
+ * it usable in the platform", not "obtain it".
+ *
+ * `provider` is required by the route, and `direction` decides whether the dial gate will
+ * present the number on an outbound call (`number_inbound_only` otherwise), so both are
+ * the operator's to state rather than left to a server default.
  */
+export type ProvisionNumberBody = Omit<components["schemas"]["ProvisionNumberIn"], "agent_id">;
+
 export function useProvisionNumber(tenantId: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { e164: string; series: "140" | "160" | "standard" }) =>
+    mutationFn: (payload: ProvisionNumberBody) =>
       apiRequest<components["schemas"]["NumberCreatedOut"]>(
         adminSession(),
         `/v1/admin/tenants/${tenantId}/numbers`,

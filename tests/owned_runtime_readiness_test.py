@@ -62,6 +62,7 @@ def _settings(**overrides: Any) -> Settings:
         "vobiz_auth_id": "MA_TESTACCOUNT",
         "vobiz_auth_token": "vobiz-token",
         "carrier_claim_secret": GOOD_CLAIM_KEY,
+        "vobiz_callback_secret": "v" * 64,
         "webhook_base_url": "https://hooks.calevate.tech",
         "pipecat_stream_base_url": "wss://worker.invalid/ws",
     }
@@ -85,6 +86,7 @@ def test_a_complete_carrier_leg_reports_nothing() -> None:
         ("vobiz_auth_id", "VOBIZ_AUTH_ID"),
         ("vobiz_auth_token", "VOBIZ_AUTH_TOKEN"),
         ("carrier_claim_secret", "CARRIER_CLAIM_SECRET"),
+        ("vobiz_callback_secret", "VOBIZ_CALLBACK_SECRET"),
     ],
 )
 def test_each_missing_precondition_is_named(field: str, env_var: str) -> None:
@@ -190,6 +192,8 @@ def test_the_receiver_probe_is_quiet_on_a_complete_carrier_leg() -> None:
         ({"pipecat_stream_base_url": "   "}, "PIPECAT_STREAM_BASE_URL"),
         ({"carrier_claim_secret": None}, "CARRIER_CLAIM_SECRET"),
         ({"carrier_claim_secret": "short"}, "CARRIER_CLAIM_SECRET"),
+        ({"vobiz_callback_secret": None}, "VOBIZ_CALLBACK_SECRET"),
+        ({"vobiz_callback_secret": "short"}, "VOBIZ_CALLBACK_SECRET"),
         ({"webhook_base_url": "http://hooks.calevate.tech"}, "WEBHOOK_BASE_URL"),
         ({"webhook_base_url": "https://127.0.0.1"}, "WEBHOOK_BASE_URL"),
     ],
@@ -198,6 +202,15 @@ def test_the_receiver_probe_names_what_the_answer_document_needs(
     override: dict[str, Any], env_var: str
 ) -> None:
     assert webhook_receiver_missing_keys(_settings(**override)) == [env_var]
+
+
+def test_the_callback_secret_is_asked_for_only_under_vobiz_outside_local() -> None:
+    assert "VOBIZ_CALLBACK_SECRET" not in webhook_receiver_missing_keys(
+        _settings(carrier="plivo", vobiz_callback_secret=None)
+    )
+    local = _settings(app_env="local", vobiz_callback_secret=None)
+    assert "VOBIZ_CALLBACK_SECRET" not in owned_runtime_missing_keys(local)
+    assert "VOBIZ_CALLBACK_SECRET" not in webhook_receiver_missing_keys(local)
 
 
 def test_the_receiver_probe_does_not_demand_the_carrier_or_worker_credentials() -> None:
@@ -218,3 +231,28 @@ def test_the_receiver_probe_constructs_no_carrier() -> None:
         assert reacquired == [], f"the receiver probe imported {reacquired}"
     finally:
         sys.modules.update(saved)
+
+
+@pytest.mark.parametrize(
+    "base",
+    [
+        # Region-less: Pipecat Cloud routes it to us-west, where the worker is not deployed.
+        "wss://api.pipecat.daily.co/ws/plivo?serviceHost=calevate-pipecat-worker.org",
+        "https://ap-south.api.pipecat.daily.co/ws/plivo",
+        "ws://ap-south.api.pipecat.daily.co/ws/plivo",
+        "wss://",
+    ],
+)
+def test_the_receiver_probe_refuses_a_stream_base_a_call_cannot_reach(base: str) -> None:
+    assert webhook_receiver_missing_keys(_settings(pipecat_stream_base_url=base)) == [
+        "PIPECAT_STREAM_BASE_URL"
+    ]
+
+
+def test_the_regional_pipecat_endpoint_is_ready_and_local_takes_any_value() -> None:
+    regional = (
+        "wss://ap-south.api.pipecat.daily.co/ws/plivo?serviceHost=calevate-pipecat-worker.org"
+    )
+    assert webhook_receiver_missing_keys(_settings(pipecat_stream_base_url=regional)) == []
+    local = _settings(app_env="local", pipecat_stream_base_url="ws://localhost:7860/ws")
+    assert "PIPECAT_STREAM_BASE_URL" not in webhook_receiver_missing_keys(local)

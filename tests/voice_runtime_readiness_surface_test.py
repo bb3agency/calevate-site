@@ -175,6 +175,7 @@ def test_the_receiver_probe_does_not_demand_the_kek() -> None:
     assert webhook_receiver_missing_keys(_prod(engine="pipecat")) == [
         "PIPECAT_STREAM_BASE_URL",
         "CARRIER_CLAIM_SECRET",
+        "VOBIZ_CALLBACK_SECRET",
         "WEBHOOK_BASE_URL",
     ]
 

@@ -1,14 +1,12 @@
 """Negative controls for `scripts/check_subprocessor_coverage.py`.
 
-The guard's claim is that it would have caught Supermemory — two complete adapters whose
-settings the ops console can change at runtime, receiving every published knowledge
-passage the moment an operator selects them, and named nowhere on the page that tells a
-client where their data goes. `apps/web/tests/legal.test.tsx` could not: it checks the
-register against itself and against the DPA, so a vendor absent from both is consistent.
-
-So the controls here are the doctored states it must FAIL on, the states it must not fail
-on, and the blind spot that would make every other answer worthless. `evaluate` is pure,
-so all but the live ones need nothing but synthetic inputs.
+The guard's claim is that a vendor wired into the code cannot go undisclosed. Since D-679
+the disclosure has two halves — the internal named register
+(`docs/legal/SUBPROCESSOR-REGISTER.md`) and the public category page
+(`apps/web/src/lib/legal/subprocessors.ts`) — so the controls here are the doctored states
+it must FAIL on in each half, the states it must not fail on, and the blind spot that
+would make every other answer worthless. `evaluate` is pure, so all but the live ones need
+nothing but synthetic inputs.
 
 Run: uv run pytest tests/subprocessor_coverage_guard_test.py -q
 """
@@ -20,14 +18,18 @@ from pathlib import Path
 from scripts.check_subprocessor_coverage import (
     MIN_EXEMPTION_REASON,
     NOT_A_SUBPROCESSOR,
+    PUBLIC_ANCHORS,
     REGISTER_ANCHORS,
     REGISTER_ONLY,
     SETTINGS_ANCHORS,
     VENDOR_OF,
     CodeVendors,
+    PublicPage,
+    RegisterRow,
     code_vendors,
     evaluate,
-    register_identities,
+    public_page,
+    register_rows,
     settings_fields,
 )
 
@@ -41,60 +43,65 @@ def _found(**tokens: str) -> CodeVendors:
     return found
 
 
+def _row(identity: str, *categories: str, public: bool = False) -> RegisterRow:
+    return RegisterRow(identity=identity, categories=frozenset(categories), named_publicly=public)
+
+
+def _page(*categories: str, named: tuple[str, ...] = ()) -> PublicPage:
+    return PublicPage(categories=frozenset(categories), named=frozenset(named))
+
+
+_NO_EXEMPTIONS: dict[str, dict[str, str]] = {"not_a_subprocessor": {}, "register_only": {}}
+
+
 class TestTheDirectionThatCostsAClientTheirDisclosure:
-    def test_a_vendor_in_the_code_and_not_on_the_register_fails(self) -> None:
-        """SUPERMEMORY'S SHAPE, in miniature: a mapped vendor with a credential in
-        `Settings` and no row on the published page."""
+    def test_a_vendor_in_the_code_and_not_in_the_register_fails(self) -> None:
+        """SUPERMEMORY'S SHAPE, in miniature — and since D-679 the one that matters most,
+        because the register is private and nothing else would notice."""
         failures = evaluate(
             _found(supermemory="Settings.supermemory_api_key"),
-            published={"Bolna"},
-            vendor_of={"supermemory": "Supermemory", "bolna": "Bolna"},
-            not_a_subprocessor={},
-            register_only={
-                "Bolna": "Anchor identity for this synthetic register, kept deliberately."
-            },
+            [],
+            _page(),
+            vendor_of={"supermemory": "Supermemory"},
+            **_NO_EXEMPTIONS,
         )
         assert any(
             "Supermemory" in failure and "ABSENT from the" in failure for failure in failures
         )
 
     def test_a_credential_for_a_vendor_nobody_has_named_fails(self) -> None:
-        """The case that matters MOST, because it is the one a new integration produces:
-        a key lands for a company this file has never heard of. Skipping it would make the
-        guard silently narrower with every vendor added."""
         failures = evaluate(
             _found(someco="Settings.someco_api_key"),
-            published=set(),
+            [],
+            _page(),
             vendor_of={},
-            not_a_subprocessor={},
-            register_only={},
+            **_NO_EXEMPTIONS,
         )
         assert any(
             "someco" in failure and "nothing here knows who it is" in failure
             for failure in failures
         )
 
-    def test_a_vendor_on_the_register_passes(self) -> None:
+    def test_a_registered_vendor_in_a_published_category_passes(self) -> None:
         assert (
             evaluate(
                 _found(supermemory="Settings.supermemory_api_key"),
-                published={"Supermemory"},
+                [_row("Supermemory", "knowledge-search")],
+                _page("knowledge-search"),
                 vendor_of={"supermemory": "Supermemory"},
-                not_a_subprocessor={},
-                register_only={},
+                **_NO_EXEMPTIONS,
             )
             == []
         )
 
     def test_our_own_infrastructure_is_not_reported_as_a_vendor(self) -> None:
-        """A guard that calls our own callback address an undisclosed sub-processor is one
-        whose findings get skimmed, which is how the real one gets missed."""
         reason = "OUR OWN public address, handed to a client's integration so it can call US back."
         assert len(reason) >= MIN_EXEMPTION_REASON
         assert (
             evaluate(
                 _found(webhook="Settings.webhook_base_url"),
-                published=set(),
+                [],
+                _page(),
                 vendor_of={},
                 not_a_subprocessor={"webhook": reason},
                 register_only={},
@@ -103,22 +110,61 @@ class TestTheDirectionThatCostsAClientTheirDisclosure:
         )
 
 
-class TestTheReverseDirection:
-    """A vendor that left the code and stayed on the page — the drift the register's own
-    header records for Clerk (removed at D-177) and Vertex (replaced at D-449), both of
-    which survived in client-facing copy after they left."""
+class TestTheRegisterAndThePageAgree:
+    """The halves D-679 split apart. A vendor filed under a category the page never
+    publishes is undisclosed in the only place a client can read."""
 
-    def test_a_published_vendor_with_nothing_behind_it_fails(self) -> None:
+    def test_a_category_the_page_does_not_publish_fails(self) -> None:
+        failures = evaluate(
+            _found(someco="Settings.someco_api_key"),
+            [_row("SomeCo", "biometrics")],
+            _page("telephony"),
+            vendor_of={"someco": "SomeCo"},
+            **_NO_EXEMPTIONS,
+        )
+        assert any("'biometrics'" in f and "does not publish" in f for f in failures)
+
+    def test_a_published_category_with_no_vendor_fails(self) -> None:
+        failures = evaluate(
+            _found(someco="Settings.someco_api_key"),
+            [_row("SomeCo", "telephony")],
+            _page("telephony", "payments"),
+            vendor_of={"someco": "SomeCo"},
+            **_NO_EXEMPTIONS,
+        )
+        assert any(f.startswith("payments:") and "no vendor" in f for f in failures)
+
+    def test_a_name_printed_without_the_register_marking_it_public_fails(self) -> None:
+        failures = evaluate(
+            _found(someco="Settings.someco_api_key"),
+            [_row("SomeCo", "telephony")],
+            _page("telephony", named=("SomeCo",)),
+            vendor_of={"someco": "SomeCo"},
+            **_NO_EXEMPTIONS,
+        )
+        assert any("SomeCo" in f and "not marked" in f for f in failures)
+
+    def test_a_public_row_the_page_does_not_print_fails(self) -> None:
+        failures = evaluate(
+            _found(razorpay="Settings.razorpay_key_secret"),
+            [_row("Razorpay", "payments", public=True)],
+            _page("payments"),
+            vendor_of={"razorpay": "Razorpay"},
+            **_NO_EXEMPTIONS,
+        )
+        assert any("Razorpay" in f and "printed by no category" in f for f in failures)
+
+
+class TestTheReverseDirection:
+    def test_a_registered_vendor_with_nothing_behind_it_fails(self) -> None:
         failures = evaluate(
             _found(bolna="Settings.bolna_api_key"),
-            published={"Bolna", "Clerk"},
+            [_row("Bolna", "voice-platform"), _row("Clerk", "voice-platform")],
+            _page("voice-platform"),
             vendor_of={"bolna": "Bolna"},
-            not_a_subprocessor={},
-            register_only={},
+            **_NO_EXEMPTIONS,
         )
-        assert any(
-            "Clerk" in failure and "reachable from nothing" in failure for failure in failures
-        )
+        assert any("Clerk" in f and "reachable from nothing" in f for f in failures)
 
     def test_a_registered_argument_for_one_passes(self) -> None:
         reason = "A contingency vendor kept as a declared alternative under the change clause."
@@ -126,7 +172,8 @@ class TestTheReverseDirection:
         assert (
             evaluate(
                 _found(bolna="Settings.bolna_api_key"),
-                published={"Bolna", "Cohere"},
+                [_row("Bolna", "voice-platform"), _row("Cohere", "voice-platform")],
+                _page("voice-platform"),
                 vendor_of={"bolna": "Bolna"},
                 not_a_subprocessor={},
                 register_only={"Cohere": reason},
@@ -137,7 +184,8 @@ class TestTheReverseDirection:
     def test_a_register_only_entry_for_a_vendor_that_is_in_the_code_fails(self) -> None:
         failures = evaluate(
             _found(bolna="Settings.bolna_api_key"),
-            published={"Bolna"},
+            [_row("Bolna", "voice-platform")],
+            _page("voice-platform"),
             vendor_of={"bolna": "Bolna"},
             not_a_subprocessor={},
             register_only={"Bolna": "A reason somebody wrote while the adapter already existed."},
@@ -147,7 +195,8 @@ class TestTheReverseDirection:
     def test_a_stale_register_only_entry_fails(self) -> None:
         failures = evaluate(
             _found(bolna="Settings.bolna_api_key"),
-            published={"Bolna"},
+            [_row("Bolna", "voice-platform")],
+            _page("voice-platform"),
             vendor_of={"bolna": "Bolna"},
             not_a_subprocessor={},
             register_only={
@@ -159,7 +208,8 @@ class TestTheReverseDirection:
     def test_a_stale_internal_entry_fails(self) -> None:
         failures = evaluate(
             _found(bolna="Settings.bolna_api_key"),
-            published={"Bolna"},
+            [_row("Bolna", "voice-platform")],
+            _page("voice-platform"),
             vendor_of={"bolna": "Bolna"},
             not_a_subprocessor={"gone": "A setting that no longer exists on this class at all."},
             register_only={},
@@ -169,7 +219,8 @@ class TestTheReverseDirection:
     def test_a_thin_reason_fails(self) -> None:
         failures = evaluate(
             _found(bolna="Settings.bolna_api_key"),
-            published={"Bolna", "Cohere"},
+            [_row("Bolna", "voice-platform"), _row("Cohere", "voice-platform")],
+            _page("voice-platform"),
             vendor_of={"bolna": "Bolna"},
             not_a_subprocessor={},
             register_only={"Cohere": "n/a"},
@@ -178,8 +229,8 @@ class TestTheReverseDirection:
 
 
 class TestItCanStillSeeItsOwnSubject:
-    """Both sides of this comparison are parsed out of files, and a parse that quietly
-    stopped working answers "covered" for everything."""
+    """All three sides are parsed out of files, and a parse that quietly stopped working
+    answers "covered" for everything."""
 
     def test_the_settings_scan_finds_its_anchors(self) -> None:
         found = code_vendors()
@@ -187,8 +238,13 @@ class TestItCanStillSeeItsOwnSubject:
         assert set(found.tokens) >= SETTINGS_ANCHORS, sorted(SETTINGS_ANCHORS - set(found.tokens))
 
     def test_the_register_scan_finds_its_anchors(self) -> None:
-        published = register_identities()
-        assert published >= REGISTER_ANCHORS, sorted(REGISTER_ANCHORS - published)
+        identities = {row.identity for row in register_rows()}
+        assert identities >= REGISTER_ANCHORS, sorted(REGISTER_ANCHORS - identities)
+
+    def test_the_public_page_scan_finds_its_anchors(self) -> None:
+        page = public_page()
+        assert page.categories >= PUBLIC_ANCHORS, sorted(PUBLIC_ANCHORS - page.categories)
+        assert "Razorpay" in page.named
 
     def test_the_settings_class_still_parses(self) -> None:
         fields = settings_fields()
@@ -196,10 +252,6 @@ class TestItCanStillSeeItsOwnSubject:
         assert "sarvam_api_key" in fields
 
     def test_a_longer_credential_suffix_wins(self) -> None:
-        """`razorpay_key_secret` ends in both `_key_secret` and `_secret`. Stripping the
-        shorter one yields the token `razorpay_key`, which maps to nothing and would be
-        reported as an undisclosed company called "razorpay key" — a false finding, which
-        trains people to add exemptions."""
         from scripts.check_subprocessor_coverage import _token_of
 
         assert _token_of("razorpay_key_secret") == "razorpay"
@@ -207,20 +259,19 @@ class TestItCanStillSeeItsOwnSubject:
         assert _token_of("release_version") is None
 
 
-def test_the_live_tree_and_the_live_register_agree() -> None:
+def test_the_live_tree_register_and_page_agree() -> None:
     """THE WHOLE CLAIM, against the real files rather than a synthetic state."""
-    assert evaluate(code_vendors(), register_identities()) == []
+    assert evaluate(code_vendors(), register_rows(), public_page()) == []
 
 
-def test_supermemory_is_on_the_register_and_this_is_why_the_guard_exists() -> None:
-    """The finding that produced this file, pinned so a revert is visible.
-
-    Two adapters (`apps/api/retrieval/supermemory.py` reads, `supermemory_index.py`
-    writes) and four `LIVE` platform settings, so an operator selects it from the ops
-    console and the NEXT request is served from it — at which point it holds the client's
-    published knowledge. It was on no legal page at all.
-    """
-    assert "Supermemory" in register_identities()
+def test_the_white_label_vendors_are_registered_and_unnamed() -> None:
+    """D-679's two halves, pinned on the live files: the telephony and voice vendors are in
+    the internal register, and the register does not mark any of them printable."""
+    rows = register_rows()
+    for vendor in ("Vobiz", "ThinnestAI", "Pipecat Cloud", "Sarvam", "Cartesia", "Gnani"):
+        mine = [row for row in rows if row.identity == vendor]
+        assert mine, vendor
+        assert not any(row.named_publicly for row in mine), vendor
     assert VENDOR_OF["supermemory"] == "Supermemory"
     assert (REPO_ROOT / "apps" / "api" / "retrieval" / "supermemory_index.py").exists()
 

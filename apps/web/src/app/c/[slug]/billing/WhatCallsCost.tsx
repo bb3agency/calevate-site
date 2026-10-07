@@ -14,7 +14,7 @@ import { Panel } from "@/components/console/panel";
 import { Disclosure, formatRupeeRate } from "@/components/ui";
 import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
 import type { CreditPacks } from "@/lib/api/billing";
-import { UNPRICED_TIER_NOTICE, ladderFalls } from "@/lib/api/rateCard";
+import { ladderFalls, voiceNotOffered, voiceNotOfferedNotice } from "@/lib/api/rateCard";
 
 import {
   VOICE_TIERS,
@@ -43,12 +43,12 @@ import {
  *    per-minute rates (`apps/api/billing/credit_packs.py`; D-547,
  *    `docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md` §2.2) and the choice is a property of the
  *    AGENT (plan §2.1, §3.3 — the tier is derived from the chosen voice's provider, so an
- *    agent cannot hold one and be billed the other). No agent can currently start on or be
- *    moved to the cheaper rung: hard rule 7 keeps every voice in it off the picker until an
- *    operator attests an invoice figure, a published catalogue price not being an invoice.
- *    This panel says that in `lib/api/rateCard.UNPRICED_TIER_NOTICE`, the one wording the
- *    public pages use. Neither quality is a degraded tier — what you hear in a demo is what
- *    a customer hears at three in the morning.
+ *    agent cannot hold one and be billed the other). Which quality no agent can be put on is
+ *    the server's answer for this deployment (`lib/api/rateCard.voiceNotOffered`: the
+ *    cheaper rung on our own voices, Studio on an engine that sells only its Premium band as
+ *    Clear, D-681), and this panel prints the server's sentence for it. Neither quality
+ *    is a degraded tier — what you hear in a demo is what a customer hears at three in
+ *    the morning.
  *
  * 2. **THE RATES ARE FIXED ON THE PURCHASE, AND CREDIT IS SPENT OLDEST FIRST.** Plan §2.1
  *    and §2.3 invariant 3: each purchase opens a LOT carrying the two rates it was sold at,
@@ -58,9 +58,9 @@ import {
  *    which price is live off the lot list on this screen. Terms §6.1 states the same promise
  *    in the words the founder approved.
  *
- * 3. **Billed by the second.** `apps/workers/pipeline.py` meters `minutes = duration_s / 60`
- *    from `_billable_seconds` — the actual duration, floored at zero — and the debit prices
- *    exactly that. There is no rounding up to a 30- or 60-second block anywhere on the path.
+ * 3. **Billed in 30-second steps** (D-681). The debit prices `rates.client_billed_minutes`
+ *    — `ceil(seconds / 30) x 0.5` of the actual duration — and every statement and usage
+ *    figure reads the same rounding off the ledger. Zero seconds bills nothing.
  *
  * 4. **A call nobody answers costs nothing.** Two independent floors, both read: the rupee
  *    figure is ₹0.00 at `minutes <= 0`, and `billing/service.charge_for_call` returns before
@@ -181,7 +181,7 @@ export function WhatCallsCost({
           choose it yourself on the agent&rsquo;s own screen, under &ldquo;How
           it sounds, and how long a call may run&rdquo;. Neither is a cut-down
           version of the other — what you hear in a demo is what your customers
-          hear at three in the morning. {UNPRICED_TIER_NOTICE}
+          hear at three in the morning. {notOfferedSentence(card, labels)}
         </Fact>
 
         <Fact
@@ -201,11 +201,11 @@ export function WhatCallsCost({
 
         <Fact
           icon={<Clock3 className="h-4 w-4" aria-hidden />}
-          claim="You pay for the seconds you actually talk"
+          claim="Calls are billed in 30-second steps"
         >
-          A call is charged on its real length, second by second. A 40-second
-          call is charged as 40 seconds — we do not round it up to a minute, or
-          to a block of any other size.
+          Each call is rounded up to the next 30 seconds: a 10-second call is
+          charged as half a minute, a 40-second call as one minute, and a
+          three-minute call as exactly three.
         </Fact>
 
         <Fact
@@ -307,4 +307,16 @@ function Fact({
       {children}
     </Disclosure>
   );
+}
+
+/** The server's sentence for the voice no agent can be put on, led by that voice's name. */
+function notOfferedSentence(
+  card: CreditPacks | undefined,
+  labels: TierLabels | undefined,
+): string | null {
+  if (!card) return null;
+  const tier = voiceNotOffered(card);
+  const notice = voiceNotOfferedNotice(card);
+  if (!tier || !notice) return null;
+  return labels ? `${labels[tier]} — ${notice}` : notice;
 }

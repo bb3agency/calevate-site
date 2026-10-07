@@ -61,11 +61,20 @@ from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import untenanted_session
+from apps.api.reliability.engine_intake_keys import intake_ring, seal_delivery
 from apps.api.reliability.service import body_hash, claim_inbox_event, mark_inbox_enqueued
 from calevate_shared.client_address import client_ip
-from engine_intake import engine_label, extract, verify_source
+from engine_intake import engine_label, extract, keyable, verify_source
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, ConfigDict
+from signed_intake import (
+    AGENT_QUERY_PARAM,
+    SIGNED_INTAKES,
+    SignedIntake,
+    delivery_signature_matches,
+    keyed_event,
+    signing_secret,
+)
 from sqlalchemy import text
 from starlette.requests import ClientDisconnect
 
@@ -390,6 +399,14 @@ def _ack(
     return body
 
 
+def stamp_ack(response: Response, started: float, source: str, *, meter: AckMeter) -> float:
+    """`_ack` for a response whose body is a document rather than an ack (the carrier's
+    answer and fallback XML): the same metric, span attribute, slow alert and `X-Ack-Ms`.
+    Returns the milliseconds stamped, for the caller's own log line."""
+    _ack(response, started, source, {}, meter=meter)
+    return float(response.headers["X-Ack-Ms"])
+
+
 def acknowledge_ignored(
     response: Response, started: float, source: str, *, reason: str, meter: AckMeter
 ) -> dict[str, str]:
@@ -612,6 +629,11 @@ async def _receive(
     engine: str, request: Request, response: Response, started: float
 ) -> dict[str, str]:
     """The receiver proper. Split from the route only so `measured` can wrap every exit."""
+    # An engine that SIGNS THE BODY cannot be admitted before the body is read; its own
+    # path verifies the signature over the bounded bytes and admits nothing until it does.
+    intake = SIGNED_INTAKES.get(engine)
+    if intake is not None:
+        return await _receive_signed(engine, intake, request, response, started)
     # Step 1 — WHO is calling, decided from the socket and the edge headers alone.
     # It reads no body, so a caller we are going to refuse never gets us to allocate
     # for them: on a public, unsigned endpoint that ordering is the difference between
@@ -652,7 +674,7 @@ async def _receive(
         raise ProblemError(
             kind="validation",
             code="payload_too_large",
-            title="Payload too large",
+            title="Event too large",
             detail="The event body exceeds the accepted size.",
             status=413,
         )
@@ -722,6 +744,137 @@ async def _receive(
         started=started,
         meter=WEBHOOK_ACK,
         signed=verdict.method == "hmac",
+    )
+
+
+def _refuse_signed(engine: str, source_ip: str | None, reason: str) -> ProblemError:
+    alert(
+        "ROUTE_HANDLER",
+        "webhook_source_rejected",
+        detail=reason,
+        engine=engine_label(engine),
+        source_ip=source_ip or "unknown",
+    )
+    return ProblemError.unauthorized("This caller is not permitted to post events.")
+
+
+def _intake_unavailable(engine: str, reason: str) -> ProblemError:
+    """NOT an ack: the vendor counts it as a failed delivery, and the reconciliation sweep
+    (`workers/engine_webhooks.py`) switches the endpoint back on and settles the call from
+    the call list."""
+    alert("ROUTE_HANDLER", "webhook_intake_unavailable", detail=reason, engine=engine)
+    return ProblemError(
+        kind="transient",
+        code="webhook_intake_unavailable",
+        title="Event could not be verified",
+        detail="The event could not be verified right now; it was not accepted.",
+    )
+
+
+async def _receive_signed(
+    engine: str, intake: SignedIntake, request: Request, response: Response, started: float
+) -> dict[str, str]:
+    """Body first, then the agent's secret, then the signature — and only then the inbox.
+
+    The agent comes from OUR url (`?agent=`), so a stranger can at most choose which
+    secret their forgery fails against. The verified body is sealed under the engine intake
+    key for the queue: for an inbound call it is the only copy of the transcript
+    (`get-call.md:50-52`), and Redis must not hold it in the clear (hard rule 6).
+    """
+    settings = get_settings()
+    source_ip = client_ip(
+        request.client.host if request.client else None,
+        request.headers,
+        app_env=settings.app_env,
+    )
+    if settings.engine != engine:
+        # The worker reads every job with THIS deployment's engine, so a delivery for
+        # another engine could not be processed correctly even if it were authentic.
+        raise _refuse_signed(engine, source_ip, "this engine is not enabled in this environment")
+    agent_ref = keyable(request.query_params.get(AGENT_QUERY_PARAM) or "")
+    if agent_ref is None:
+        raise _refuse_signed(engine, source_ip, "signed delivery names no agent")
+
+    raw = await read_bounded(request, engine=engine, meter=WEBHOOK_ACK)
+    if raw is None:
+        alert("ROUTE_HANDLER", "webhook_payload_too_large", engine=engine)
+        raise ProblemError(
+            kind="validation",
+            code="payload_too_large",
+            title="Event too large",
+            detail="The event body exceeds the accepted size.",
+            status=413,
+        )
+
+    # ONE ring opens the secret and seals the body. Fetched once here rather than once per
+    # use, so sealing cannot fail after opening succeeded and needs no failure arm of its own.
+    try:
+        ring = intake_ring()
+        async with asyncio.timeout(WEBHOOK_ACK.durable_deadline_s):
+            secret = await signing_secret(engine, agent_ref, ring=ring)
+    except TimeoutError:
+        raise _intake_unavailable(engine, "signing secret lookup timed out") from None
+    except ProblemError as exc:
+        # The intake key is unusable or cannot open the envelope: our configuration, not
+        # a forgery.
+        raise _intake_unavailable(engine, exc.code) from None
+    if secret is None:
+        raise _refuse_signed(engine, source_ip, "no signing secret is held for this agent")
+    if not delivery_signature_matches(raw, request.headers.get(intake.signature_header), secret):
+        raise _refuse_signed(engine, source_ip, "signature does not verify")
+
+    try:
+        decoded = json.loads(raw)
+        body = raw.decode("utf-8")
+    except (ValueError, RecursionError):
+        decoded = None
+        body = ""
+    if not isinstance(decoded, dict):
+        alert("ROUTE_HANDLER", "webhook_unkeyable", engine=engine)
+        return acknowledge_ignored(
+            response, started, engine, reason="unreadable payload", meter=WEBHOOK_ACK
+        )
+    keyed = keyed_event(intake, decoded, engine_agent_ref=agent_ref)
+    if isinstance(keyed, str):
+        if keyed != "event not consumed":
+            alert("ROUTE_HANDLER", "webhook_unkeyable", engine=engine, detail=keyed)
+        return acknowledge_ignored(response, started, engine, reason=keyed, meter=WEBHOOK_ACK)
+
+    sealed = seal_delivery(
+        body,
+        engine=engine,
+        execution_id=keyed.execution_id,
+        event_name=keyed.event_name,
+        ring=ring,
+    )
+    return await settle(
+        InboxWork(
+            provider=engine,
+            key_id=keyed.execution_id,
+            event_name=keyed.event_name,
+            payload_hash=body_hash(
+                {
+                    "engine": engine,
+                    "execution_id": keyed.execution_id,
+                    "raw_status": keyed.event_name,
+                }
+            ),
+            redis_key=f"calevate:wh:{engine}:{keyed.execution_id}:{keyed.event_name}",
+            job=INGEST_JOB,
+            job_id=job_id_for(INGEST_JOB, engine, keyed.execution_id, keyed.event_name),
+            job_payload={
+                "engine": engine,
+                "execution_id": keyed.execution_id,
+                "raw_status": keyed.event,
+                "engine_agent_ref": agent_ref,
+                "delivery": sealed,
+            },
+        ),
+        raw,
+        response=response,
+        started=started,
+        meter=WEBHOOK_ACK,
+        signed=True,
     )
 
 
@@ -936,4 +1089,5 @@ __all__ = [
     "read_bounded",
     "router",
     "settle",
+    "stamp_ack",
 ]

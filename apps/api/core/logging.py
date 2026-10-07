@@ -32,6 +32,8 @@ import re
 import sys
 from typing import Any
 
+from calevate_shared.carrier import CALLBACK_SECRET_PARAM
+
 from apps.api.core.context import correlation_id_var
 
 REDACT_KEYS: tuple[str, ...] = (
@@ -129,6 +131,12 @@ _HEX_ID_RE = re.compile(r"\b[0-9a-fA-F]{32,64}\b")
 # not continue into more digits — so `2026-08-16T09:34:30` is held whole and
 # `2026-08-1698765432` is not held at all and is masked as the digit run it is.
 _ISO_DATE_RE = re.compile(r"\b\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])(?!\d)")
+# A credential that travels as a URL query parameter: the carrier callback secret
+# (D-673). uvicorn's access line renders the full request target into the MESSAGE, Sentry
+# carries the query string, and a vendor error may echo a URL we registered, so masking it
+# by value here covers every one of them; masking by key cannot, because it is never an
+# extra. Runs before the phone pass, whose digit runs could otherwise split a hex secret.
+_URL_SECRET_RE = re.compile(rf"(\b{re.escape(CALLBACK_SECRET_PARAM)}=)[^&\s\"'#]*")
 _STASH = "\x00"
 _MAX_FREE_TEXT = 200
 
@@ -151,7 +159,8 @@ def _mask(value: str) -> str:
         held.append(match.group(0))
         return f"{_STASH}{len(held) - 1}{_STASH}"
 
-    held_ids = _ISO_DATE_RE.sub(_hold, _HEX_ID_RE.sub(_hold, _UUID_RE.sub(_hold, value)))
+    unkeyed = _URL_SECRET_RE.sub(rf"\g<1>{REDACTED}", value)
+    held_ids = _ISO_DATE_RE.sub(_hold, _HEX_ID_RE.sub(_hold, _UUID_RE.sub(_hold, unkeyed)))
     # EMAIL FIRST. An address can contain a digit run — `9876543210@example.com`, or a
     # numeric mailbox — and the phone pass would otherwise eat half of it and leave the
     # domain behind, which is both a worse log line and a partially disclosed address.

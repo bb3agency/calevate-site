@@ -6,8 +6,8 @@ runtime (D-592) on the Vobiz carrier (D-662), on the founder's own Vobiz account
 **What it proves.** No call has ever been placed on this product. This sitting closes the
 gates only a live call can: OPERATIONS §2 gate 55 (signing) and V-1, V-2, V-3, V-4 and V-8,
 and it takes the first call readings for V-6 and V-7 (V-5's limits were read in the
-console on 2 Oct 2026). Write each result into its gate row with the date. §10 is the
-token rotation procedure, which is not part of the sitting.
+console on 2 Oct 2026). Write each result into its gate row with the date. §10 and §11 are the
+token and callback-secret rotation procedures, which are not part of the sitting.
 
 **Ground rules for the whole sitting.**
 
@@ -67,30 +67,86 @@ is noted; re-read anything the recharge below could change.
 
 DEPLOYMENT §12.6 is the full table and the deploy order. For this sitting:
 
+- [ ] **The callback secret is set FIRST, before any number is bound** (D-673). On your
+      own machine run `openssl rand -hex 32` and put the output in the VPS `.env` as
+      `VOBIZ_CALLBACK_SECRET` (never in a chat, ticket, gate row or the Pipecat secret
+      set; it must differ from `CARRIER_CLAIM_SECRET` and `VOBIZ_AUTH_TOKEN`). Deploy
+      api, workers and voice-runtime (`scripts/vps-deploy.sh api workers voice-runtime`)
+      and confirm `/healthz/ready` on `:8000` and `:8100` does not name
+      `VOBIZ_CALLBACK_SECRET`. Every URL we give Vobiz from then on ends
+      `?callback_key=…`, and voice-runtime refuses a Vobiz request without it.
 - [ ] VPS `.env` has `VOBIZ_AUTH_ID`, `VOBIZ_AUTH_TOKEN` and `CARRIER_CLAIM_SECRET`, and
       the Pipecat secret set has the same `CARRIER_CLAIM_SECRET`, `CARRIER=vobiz` and no
       Vobiz or Plivo credential.
 - [ ] In the ops console: `CARRIER` is `vobiz`; `VOBIZ_SIGNATURE_REQUIRED` is **off**;
       `CARRIER_TRANSFER_ENABLED` is **off**; `CARRIER_CPS` is the account's CPS limit (1 on
-      2 Oct 2026, which is the default);
+      2 Oct 2026, which is the default); `CARRIER_CONCURRENCY` is the account's concurrent
+      call limit (3 on 2 Oct 2026, the default) with `INBOUND_RESERVE_RATIO` at its default,
+      so 1 line is kept for callers and 2 may dial out;
       `VOBIZ_CALLBACK_IPS` is unset (the published list is used);
-      `CARRIER_RECORDING_ENABLED` is **on** (the default, D-668).
+      `CARRIER_RECORDING_ENABLED` is **on** (the default, D-668);
+      `PIPECAT_STREAM_BASE_URL` is the REGIONAL endpoint,
+      `wss://ap-south.api.pipecat.daily.co/ws/plivo?serviceHost=calevate-pipecat-worker.<ORG>`
+      (`runbooks/first-deploy.md` §9a step 4). Without the `ap-south.` prefix the stream is
+      sent to Pipecat's `us-west`, where no worker runs.
 - [ ] The ops console's Vobiz credential probe is green. It calls `GET /api/v1/auth/me`
       (contract §1), which changes nothing at Vobiz.
 - [ ] `bot.py --preflight` printed OK inside the deployed worker (DEPLOYMENT §12.5).
 - [ ] One test agent is published, inbound and outbound, with its AI disclosure line and
       its recording notice switched ON — **published AFTER `CARRIER_RECORDING_ENABLED` was
       on**. An agent published before that is not recorded and does not announce it: its
-      answer URL carries no `recorded` segment. Check it in the Vobiz console: the agent's
-      Application's answer URL ends `/recorded`, and the binding was redone by the publish
-      (§3).
+      answer URL carries no `recorded` segment. Check it in the Vobiz console: the path of
+      the agent's Application's answer URL ends `/recorded` (followed by
+      `?callback_key=…`), and the binding was redone by the publish (§3).
+
+## 2a. What the dial gate needs before the outbound call
+
+"Call this lead" goes through the same compliance gate as every outbound call
+(`compliance/service.check_dispatch`), and there is no test bypass (hard rule 5). The
+console greys the button out and names the first rule that fails. For the test client and
+agent, every one of these must be TRUE, not merely recorded; recording a registration that
+does not exist is a false compliance record. In gate order:
+
+- [ ] No outbound halt, no maintenance drain, and the test account is not stopped.
+- [ ] The test agent is `live`, direction `outbound` or `both`, with an AI disclosure line
+      on file, and no truthful-answer drift on its last check.
+- [ ] KYC is verified for the test account (self-serve and trial plans only).
+- [ ] The test account has accepted every blocking agreement at its current version (the
+      same check refuses the publish in §2, so a published agent usually has).
+- [ ] Credit balance above zero (prepaid) and no spend cap reached.
+- [ ] The time is between 09:00 and 21:00 IST.
+- [ ] The lead's number is `+91`, not on any DNC list, and its consent is not declined,
+      withdrawn or expired (a recorded `callback` consent is required if the account is
+      on a service/transactional footing).
+- [ ] **Calevate's own DLT telemarketer registration is live** (`POST
+      /v1/ops/platform/tm-registration`, rule `tm_registration_missing`).
+- [ ] **The test client's DLT Principal Entity registration and TM link are active**
+      (`POST /v1/admin/tenants/{tenant_id}/dlt-registration`).
+- [ ] **The number from §3 is DLT `registered`** (`POST
+      /v1/admin/tenants/{tenant_id}/numbers/{number_id}/dlt-status`), on provider `vobiz`,
+      direction `both`; rules `number_not_registered`, `number_not_on_carrier`,
+      `number_inbound_only`.
+- [ ] **The client's auto-dialler notice (TCCCPR Regulation 4) is recorded, in effect, and
+      declares that number** (`/v1/compliance/autodialer-notice`).
+- [ ] A free outbound line: fewer than 2 calls holding a line on Vobiz (`carrier_lines_busy`).
+
+The four bold items are regulatory facts outside this repository. If any of them is not
+true yet, the outbound half of §5 waits for it; the inbound half does not need any of
+them.
 
 ## 3. Bind the number to the agent
 
+Before binding, **republish the test agent once after the D-674 deploy** (agent page →
+Publish): its version was composed before the confidentiality rule existed, so the drift
+screen reads `not_applied` ("published before that rule existed (D-674)") until it is, and
+must read `applied` after.
+
 From the admin console, on the test client's numbers page:
 
-1. Record the number the founder bought, with the provider `vobiz` and its platform
-   reference (`POST /v1/admin/tenants/{tenant_id}/numbers`). The reference is required:
+1. Record the number the founder bought, with the provider `vobiz`, direction `both` and
+   its platform reference (`POST /v1/admin/tenants/{tenant_id}/numbers`). The direction
+   defaults to `inbound`, and an inbound-only number is refused as the outbound caller ID
+   (`number_inbound_only`), so the §5 outbound call would never leave. The reference is required:
    without one the bind in the next step is refused with `engine_number_not_linked`. Use
    the number's Vobiz `id`, a UUID on the number object
    (`account-phone-number/account-phone-number-object.md:15`); if the console does not
@@ -102,12 +158,64 @@ From the admin console, on the test client's numbers page:
    the number to it, and stores the Application id on the number.
 
 Then confirm in the Vobiz console, without editing anything: the Application exists, its
-answer URL starts with our public hooks origin and `/carrier/v1/vobiz/answer/`, the method
-is POST, the number shows that Application, and Public URI is off ("Anyone can call this
+answer URL starts with our public hooks origin and `/carrier/v1/vobiz/answer/` and ends
+`?callback_key=` followed by the secret (so does its hangup URL; an Application without it
+was bound before the secret was set, so re-attach the agent here), the method
+is POST, its **fallback answer URL** is our hooks origin plus `/carrier/v1/vobiz/fallback`
+ending `?callback_key=` (D-675; an Application without one was bound before that release,
+so re-attach the agent here), the number shows that Application, and Public URI is off ("Anyone can call this
 application over SIP without authentication"; we never set it, and the API default is
 false, `applications/create-application.md:45`). If the screen refused, record the refusal
 code and stop: do not create or edit the Application by hand in the Vobiz console, because
 our record and Vobiz's would then disagree about what answers the number.
+
+## 3a. Prove a callback without the secret is refused (D-673)
+
+A request from outside Vobiz's addresses is refused before the secret is looked at, so this
+check briefly adds the VPS's own public address to the allowlist. It applies live; undo it
+in step 4 whatever happens.
+
+1. In the ops console set `VOBIZ_CALLBACK_IPS` to Vobiz's three published addresses
+   (`calevate_shared.carrier.VOBIZ_CALLBACK_IPS`) plus the VPS's public IPv4, comma
+   separated.
+2. From the VPS, take the Application's answer URL from the Vobiz console and drop
+   everything from `?` on (call it `URL`). Over IPv4, so the address Cloudflare reports is
+   the one you added:
+
+   ```sh
+   curl -4 -sS -o /dev/null -w "%{http_code}\n" -X POST "URL"
+   curl -4 -sS -o /dev/null -w "%{http_code}\n" -X POST "URL?callback_key=wrong"
+   ```
+
+   Both must print **404**, and voice-runtime must log `carrier_request_refused` with
+   reason `callback secret missing`, then `callback secret invalid`.
+3. POST once more with the real secret, read from `.env` inside the command so it never
+   reaches shell history:
+
+   ```sh
+   sudo -u calevate bash -lc 'cd /var/www/calevate && set -a && . ./.env && set +a && curl -4 -sS -o /dev/null -w "%{http_code}\n" -X POST "URL?callback_key=$VOBIZ_CALLBACK_SECRET"'
+   ```
+
+   It must print **200** (an answer document; nothing dials).
+   Then the same for the fallback URL (D-675), which is what Vobiz fetches when an answer
+   fails: `URL` is now our hooks origin plus `/carrier/v1/vobiz/fallback`, and the command
+   is the one above with `-w "%{http_code}\n"` replaced by `-w "\n%{http_code}\n"` and
+   `-o /dev/null` removed. It must print the document
+   `<Response><Hangup reason="busy" /></Response>` and **200**, and voice-runtime must log
+   `carrier_answer_fallback_served` and raise the alarm of that name (a page; acknowledge
+   it, it was you). Without the key it prints the same document and raises no alarm.
+4. **Set `VOBIZ_CALLBACK_IPS` back to unset** in the ops console, and confirm a repeat of
+   step 3 now prints 404 (`source ip not allowlisted`).
+5. In `/var/log/nginx/access.log`, every request that carried a key shows
+   `callback_key=[redacted]` and never the value. If the value appears there or in any
+   `docker compose logs` output, stop and report it as a defect.
+
+On the live calls in §5, voice-runtime's `carrier_answer_served` line must show
+`auth_method` `callback_secret` (or `signature` once gate 55 passes). If every real Vobiz
+request is instead refused with `callback secret missing` from a Vobiz address, Vobiz is
+not returning the query string we registered: record it under gate 55 and stop. There is
+no switch that turns the check off; the fix is a code change that moves the secret into
+the path.
 
 ## 4. Signing (gate 55)
 
@@ -186,13 +294,14 @@ opening (§8a), then:
 
 **Outbound.** From the client console, use "call this lead" on a test lead whose number is
 the founder's own mobile and whose consent is recorded. It goes through the real dispatch
-path, compliance gate included. Answer, speak a few turns, and let the agent end the call
-if it will; otherwise hang up.
+path, compliance gate included, so every item of §2a must hold first. Answer, speak a few
+turns, and let the agent end the call if it will; otherwise hang up.
 
 **One call at a time.** The account allows 3 simultaneous calls, shared by inbound and
-outbound, and our campaign dispatcher does not cap itself at 3 (gate V-5). The founder has
-decided that is enough for testing; the cap is required before client traffic, not now. Do
-not start a campaign during this sitting.
+outbound. Every dial counts the calls holding a line in both directions and keeps one line
+for callers, so at most 2 of ours are ever out at once; a third is refused with "All lines
+are busy" (`carrier_lines_busy`, gate V-5). Keep to one call at a time anyway, so each
+reading in §6 belongs to one call. Do not start a campaign during this sitting.
 
 **If a call fails to connect,** stop and read §6 before placing another. A 5xx or a
 timeout on dial is never retried by our code, because Vobiz documents no idempotency key
@@ -205,11 +314,15 @@ No phone number, transcript text or header value appears in any of these logs by
 
 | Where | What tells you it worked | Gate |
 |---|---|---|
-| voice-runtime | the answer request for the agent's ref was accepted, with its source address inside Vobiz's published list, and an answer document was served | V-1 |
-| voice-runtime | the signature outcome on the answer request and on the hangup callback: present and verified, absent, or present and failing | 55 |
-| voice-runtime | the hangup callback was accepted and handed to `ingest_carrier_event` | V-1 |
-| Pipecat Cloud (`pipecat cloud agent logs calevate-pipecat-worker`) | the session started for the right agent ref, the carrier claimed on the stream URL was `vobiz`, the caller claim verified (inbound) or the call claim verified (outbound) | V-3 |
+| voice-runtime | `carrier_answer_served` for the agent's tenant and agent ids, `auth_method` `callback_secret`; no `carrier_request_refused` for the call (a refused source address reads `source ip not allowlisted`) | V-1 |
+| voice-runtime | the signature outcome in `auth_reason`: on `carrier_answer_served` for the answer request, on `carrier_event_admitted` for the hangup and `RecordStop` callbacks. `unsigned` is absent, `signature verified` is verified; a failing signature is refused as `signature invalid` | 55 |
+| voice-runtime | `carrier_event_admitted` for the hangup (`event` `Hangup`, or `unknown` for an Application hangup, which carries no `Event`), then `carrier_event_acked` with `status` `accepted` (a Vobiz retry of the same callback reads `duplicate`) and its `ack_ms` | V-1 |
+| voice-runtime | one call's lines share its `carrier_call_id` (Vobiz's `CallUUID`): `carrier_answer_served`, `carrier_event_admitted`, `carrier_event_acked`. Search by it to follow one call; `ack_ms` on the answer line is our server time, well under the 500 ms budget | — |
+| voice-runtime | NO `carrier_answer_fallback_served`. One means the answer URL failed for that call and the caller heard a busy tone; read `runbooks/alarm-index.md` for it | — |
+| Pipecat Cloud (`pipecat cloud agent logs calevate-pipecat-worker`) | `carrier session routed` with the test agent's `tenant_id` and `agent_id` (the path reached the worker), `direction` `inbound` with `call_claim` `absent`, or `outbound` with `call_claim` `verified` (`unverified` is a red: the claim key differs between the VPS and the worker); then `carrier leg opened` with `carrier` `vobiz` and, inbound, `caller_identity` `known` (the sealed caller claim opened) | V-3 |
 | Pipecat Cloud | one line saying a `dtmf` event was ignored, and no other line about the keypad | V-4 |
+| Pipecat Cloud | one `call timings` line per call, with `setup_ms`, `greeting_first_audio_ms`, `median_turn_ms` and `turns`: record the four numbers for each test call as the first live latency reading | — |
+| Pipecat Cloud | NO `carrier session refused`. One names a reason class only (a malformed `start`, a media format other than 8 kHz μ-law, a missing credential); the caller heard the call end without the agent speaking. Record the reason and stop | V-3 |
 | Pipecat Cloud | the stream ended with our `stop` (agent-ended call) or with the socket closing (caller hung up), and the session settled | — |
 | workers | `ingest_carrier_event` moved the call to its final status, and the CDR reader ran | V-7 |
 | voice-runtime | `carrier_answer_served` with `recorded: true` | V-11 |
@@ -287,13 +400,17 @@ Do this for BOTH calls in §5, within the hour.
 2. **It was copied.** The object exists in the bucket under that key. Its content type is
    `audio/mpeg` or `audio/wav` according to its bytes, whatever the `.wav` in the key says.
 3. **It plays in the dashboard.** Open the call in the client console and play it. Listen
-   for the whole call: no beep, the agent's greeting (agents volunteer no notice by default,
-   D-669), BOTH voices, to the hangup. Only the caller's voice is a red on V-11(a) — stop and report it
-   before any client call. A recording that stops early (a `carrier_recording_ended_early`
-   alarm, reason `FinishedOnKey`, after the keypad presses in §5) is V-11(b); see step 6.
-4. **The opening was the greeting only** on the phone (§5) and in the transcript, unless
-   the test agent's notice switches were turned on. Ask the agent "is this call
-   recorded?" once: it must answer yes (hard rule 5).
+   for the whole call: no beep, the agent's opening (the AI disclosure and the recording
+   notice, both switched on for the test agent in §2), BOTH voices, to the hangup. Only the
+   caller's voice is a red on V-11(a) — stop and report it before any client call. A
+   recording that stops early (a `carrier_recording_ended_early` alarm, reason
+   `FinishedOnKey`, after the keypad presses in §5) is V-11(b); see step 6.
+4. **The opening was the two notices, spoken verbatim, then the greeting**, on the phone
+   (§5) and as the first agent turn in the transcript. A new agent volunteers neither by
+   default (D-669); if the test agent's switches were left off, the opening is the
+   greeting only and the recording notice is not heard, which is the D-669 posture and not
+   a defect. Either way, ask the agent "is this call recorded?" once: it must answer yes
+   (hard rule 5).
 5. **Vobiz's copy.** The Vobiz console's Recordings page lists the call, with its Storage
    Life. Record the Storage Life shown on day 0 (gate V-11(d), contract §9a). We delete
    Vobiz's copy one day after ours is stored (D-670): between 24 hours and 24 hours 20
@@ -385,3 +502,35 @@ Pipecat worker holds no Vobiz credential and is not touched.
    does not verify is refused even with `VOBIZ_SIGNATURE_REQUIRED` off. Which token Vobiz
    signs with during the grace window is UNKNOWN. Keep steps 2 and 3 to a minute, and
    check voice-runtime's log for `signature invalid` refusals in that minute.
+
+## 11. Rotating `VOBIZ_CALLBACK_SECRET` (D-673)
+
+The secret is in the VPS `.env` only, read by api and workers (which write it onto every
+URL they give Vobiz) and by voice-runtime (which checks it). Vobiz holds a copy on every
+Application and on every call already dialled, so a rotation runs two secrets side by side
+until both are re-registered. `VOBIZ_CALLBACK_SECRET_RETIRED` is accepted and never
+written. Rotate at once if the secret leaked: anyone holding it, from a Vobiz account, can
+point a number at our agents.
+
+1. **Generate** the new value on your own machine with `openssl rand -hex 32`.
+2. **Edit the VPS `.env`:** move the current value to `VOBIZ_CALLBACK_SECRET_RETIRED` and
+   put the new one in `VOBIZ_CALLBACK_SECRET`. The deploy preflight refuses the two being
+   equal (`retired_key_equals_active`).
+3. **Deploy the three services by name:** `scripts/vps-deploy.sh api workers
+   voice-runtime`. From here new dials carry the new secret and voice-runtime accepts both.
+4. **Re-register every Vobiz Application.** Inbound URLs live on the Application, and
+   nothing rewrites them on its own. For each agent that answers a Vobiz number, either
+   republish the agent or, on the admin numbers page, choose the same agent for the number
+   again (`POST /v1/admin/tenants/{tenant_id}/numbers/{number_id}/agent`). Both run
+   `VobizCarrier.bind_number`, which updates that agent's Application in place
+   (`applications/update-application.md:9-14`). Then check in the Vobiz console that each
+   Application's answer, hangup and fallback answer URLs end with the new value (compare
+   the last four characters). Do not edit the URL by hand in the Vobiz console.
+5. **Wait out the old calls.** A call dialled before step 3 sends its hangup and
+   `RecordStop` callbacks under the old secret. Our dials carry a `time_limit` of at most
+   14,400 s (`engine/pipecat.CARRIER_TIME_LIMIT_CEILING_S`), and the recording callback
+   follows the hangup, so keep the retired value for at least 24 hours after step 4.
+6. **Remove `VOBIZ_CALLBACK_SECRET_RETIRED`** from `.env` and deploy voice-runtime
+   (`scripts/vps-deploy.sh voice-runtime`). A request still carrying the old secret is now
+   refused with `callback secret invalid` (alarm `carrier_source_rejected`, method
+   `callback_secret`); one from a Vobiz address names an Application step 4 missed.

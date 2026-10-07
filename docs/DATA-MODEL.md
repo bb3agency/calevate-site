@@ -132,6 +132,13 @@ carry **FORCEd deny-by-default RLS** — they are not tenant-scoped, so the poli
 agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
   language_primary, languages_extra TEXT[],
   stt_provider, stt_model, tts_provider, tts_voice, llm_model,     -- config strings
+  engine_voice_id TEXT, engine_model_id TEXT,  -- b7e2d94f1a30, D-678. A voice and a model
+    -- from the ENGINE'S OWN catalogue (ThinnestAI `GET /voices`, `GET /models`), sent only
+    -- on a leg the engine dictates; NULL = the engine's default. Separate from `tts_voice` /
+    -- `llm_model`, which name OUR catalogue. CHECK `^[^[:space:]]{1,128}$` is a floor; the
+    -- offer (catalogue membership, call-capable, plan, attested band rate) is decided at
+    -- publish by `agents/engine_choice.py`. The chosen voice's band is stamped as
+    -- `engine_agent_routes.engine_rate_key`.
   system_prompt_id → prompt_versions, extraction_schema_id → extraction_schemas,
   business_hours JSONB, escalation_config JSONB,
   -- THE OPENING NOTICES (D-163, migration f4a1d0b6e29c). SEC-COMP §2 states two
@@ -155,9 +162,10 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
   disclosure_line TEXT NOT NULL,  -- LEGACY: the two sentences joined, whatever the
     -- toggles say. Still written, no longer read by the publish path — step 1 of a
     -- two-step deprecation (hard rule 8); step 2 drops it (D-163).
-  status ENUM[draft,live,paused,archived], engine ENUM[fake,bolna]  -- 'thinnest' REMOVED
-    -- from the CHECK (D-31: retired before any adapter or production row existed, so the
-    -- two-step deprecation in hard rule 8 does not apply — nothing ever wrote it)
+  status ENUM[draft,live,paused,archived], engine ENUM[cartesia,fake,pipecat,thinnest]
+    -- `ck_agents_engine_enum` is rendered from `calevate_shared.config.SELECTABLE_ENGINES`
+    -- (derived from `EngineName`, never retyped; `agents/models.ENGINES`). 'bolna' left with
+    -- D-639; 'thinnest' returned with D-678 (migration f3a8c61d2e57).
   archived_at TIMESTAMPTZ,   -- e4b90d27c1f6. NOT a delete and not `deleted_at`: the row
     -- stays, its calls and leads stay readable, and the agent can be restored to `paused`.
     -- `ck_agents_archived_at_matches_status` is an EQUIVALENCE, not an implication —
@@ -195,14 +203,42 @@ prompt_versions(id, tenant_id, agent_id, version INT, body TEXT, compiled_t0_con
   -- Deliberately NOT compiled_t0_context: that is a build artefact OF the version,
   -- reserved by D-39 for the T0 compiler.
 extraction_schemas(id, tenant_id, agent_id, version INT, fields JSONB, published_at)
+pipecat_agents(id, tenant_id → organizations RESTRICT, agent_id → agents RESTRICT,
+  variant_id → prompt_experiment_variants RESTRICT NULL, engine_agent_ref TEXT UNIQUE,
+  name, agent_config_version_id, resolved_config JSONB, created_at, updated_at)
+  -- The owned runtime's own record of an agent (D-592, migration e2f5a91c8d47): what a
+  -- rented engine would hold for us, held by us, and what the worker's session read loads.
+  -- Plain FORCEd tenant RLS, NOT append-only (a publish replaces it; `agent_config_versions`
+  -- is the ledger). `engine_agent_ref` = `pipecat:<tenant>:<agent>`.
+  -- ONE RECORD PER AGENT AND PER EXPERIMENT ARM (D-663, migration d9a6e2c85b41): unique
+  -- INDEX ux_pipecat_agents_agent_variant (agent_id, variant_id) NULLS NOT DISTINCT replaced
+  -- the one-per-agent unique, so an A/B arm publishes on the owned runtime; NULL variant_id
+  -- is the agent's own record, and an arm keeps the real agent_id so its call settles
+  -- against the agent.
 phone_numbers(id, tenant_id, agent_id, e164 UNIQUE, series ENUM[140,160,standard],
   provider, engine_number_ref, dlt_status ENUM[pending,registered,blocked], purpose TEXT,
   engine_owned BOOL NOT NULL DEFAULT false, purchase_price_usd NUMERIC(12,4),
   monthly_rental_usd NUMERIC(12,4), released_at TIMESTAMPTZ,
   direction ENUM[inbound,outbound,both] NOT NULL DEFAULT 'inbound',
-  activated_at TIMESTAMPTZ, client_inr_per_month NUMERIC(12,2))
-  -- The last three land with migration c9d41f7b2e08, the client's own browse/buy/assign
-  -- flow (`campaigns/number_catalog.py`).
+  activated_at TIMESTAMPTZ, client_inr_per_month NUMERIC(12,2),
+  carrier_binding_id TEXT, rental_charged_from DATE)
+  -- `direction`, `activated_at` and `client_inr_per_month` land with migration
+  -- c9d41f7b2e08, the client's own browse/buy/assign flow (`campaigns/number_catalog.py`).
+  -- `provider` NAMES THE CARRIER since migration c8f5d1b74a30 (D-663): existing spellings
+  -- were normalised and `ck_phone_numbers_provider_carrier` allows only NULL, 'vobiz' or
+  -- 'plivo'; the dial gate refuses a number not on the active carrier
+  -- (`number_not_on_carrier`).
+  -- `carrier_binding_id` (migration d4a7b2c91e30, D-662) is the carrier's id for what the
+  -- number is attached to — on Vobiz, the Application whose answer URL routes it to an
+  -- agent. Written by `engine/pipecat.bind_inbound_number`; NULL until the first bind and
+  -- left as the last attachment after an unbind.
+  -- `rental_charged_from` (migration e8b14d6a2c57, D-665) is the first rental period the
+  -- CLIENT is charged for. NULL = from the purchase (every new number); the migration
+  -- stamped each existing client-priced number with its first renewal date after the deploy,
+  -- so the period under way then was never charged. The rental itself is a wallet `usage`
+  -- debit (`meta.kind = number_rental`, ref `number_rental:<number_id>:<YYYY-MM>`) for a
+  -- prepaid account, or a `one_time_charges` row of kind `number_rental` for an invoiced
+  -- one, decided in `billing/number_rental.collect_number_rental` (§8).
   -- `direction` is what the client bought the number FOR and AUTHORISES NOTHING: what it
   -- may lawfully carry is still `campaigns.service.SERIES_FOR_CLASSIFICATION` plus, for an
   -- ordinary DID, `outbound_sender_attestations` below. Two answers to one question is the
@@ -263,7 +299,27 @@ so history is preserved.
 ```
 calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e164,
   status ENUM[queued,ringing,in_progress,completed,failed,no_answer,busy,voicemail],
+  carrier TEXT NULL CHECK (carrier IS NULL OR carrier IN ('vobiz','plivo')),
+                                       -- (D-663, migration f5c2a8e41d07, ck_calls_carrier_enum)
+                                       -- the carrier holding this call's leg, stamped by the dial
+                                       -- gate's intent row, the dial, or the first carrier callback
+                                       -- of an inbound call. Hang-up, the CDR read and the line
+                                       -- count address THIS carrier, not the current
+                                       -- `Settings.carrier`; NULL (rows before the column) falls
+                                       -- back to the switch. INDEX ix_calls_carrier_live
+                                       -- (tenant_id, carrier, created_at) WHERE status IN
+                                       -- ('queued','ringing','in_progress') serves the line count.
+  carrier_call_id TEXT NULL,           -- the carrier's own call id (Vobiz CallUUID), written by
+                                       -- the dial path and the worker's settlement, first value
+                                       -- wins; read by both erasures, which quote it on the
+                                       -- `telephony` task (D-664). Never cleared by an erasure: it
+                                       -- names a row in the carrier's system, not a person.
+                                       -- INDEX ix_calls_tenant_carrier_call_id (migration
+                                       -- d4a7b2c91e30) WHERE carrier_call_id IS NOT NULL.
   started_at, ended_at, duration_s INT, recording_url TEXT,     -- OUR storage, not engine's
+  transfer_recording_url TEXT NULL,    -- the transferred leg's recording (D-533, migration
+                                       -- b8d1f04c73a9): OUR key, same bucket, retention and
+                                       -- erasure as recording_url; NULL unless the call handed over.
   carrier_recording_id TEXT NULL,      -- the carrier's opaque id for the recording it made
                                        -- (D-668, migration b3e9c4a71f20). The copy job resolves
                                        -- it and writes OUR key to recording_url; an erasure
@@ -307,6 +363,20 @@ calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e
                                        -- subject_ref; written and read only by the erasure.
 --   INDEX ix_calls_erased_subject_ref (tenant_id, erased_subject_ref) WHERE erased_subject_ref
 --   IS NOT NULL — partial because the population is: only erased calls carry a value.
+-- Also on `calls`, documented where they are produced: caller_memory_state (§7, D-513),
+--   knowledge_state (migration e2a91c7f45b8: `calevate_shared.worker_api.KnowledgeState`,
+--   NULL = nobody reported, never read as "fine") and crm_notified_at (migration
+--   e83b5d1a4c07: when the CRM fan-out was promised for this call).
+-- FUNCTION carrier_lines_in_use(p_carrier, live_horizon, ring_horizon) → integer
+--   (D-663, migration a6d3b9f52e18). SECURITY INVOKER; walks each tenant under its own
+--   `app.tenant_id` (the same per-tenant loop as queued_dial_scan) and counts calls holding a
+--   line on the carrier in BOTH directions: ringing/in_progress inside live_horizon, queued
+--   inside ring_horizon, plus inbound rows with no carrier stamped. `agents.service.
+--   dispatch_call` calls it under one advisory lock in the dial's intent transaction and
+--   refuses with `carrier_lines_busy`; the call row's status IS the hold, so nothing has to
+--   release a line.
+-- FUNCTION queued_dial_scan — the big red switch's recall scan — reaches `ringing` dials as
+--   well as `queued` ones since migration b7e4c0a63f29 (D-663).
 -- INDEX ix_calls_tenant_started (tenant_id, started_at DESC NULLS LAST, id DESC)
 --   (migration c9e2a7b41d63). The calls list and the polled dashboard tiles order by exactly
 --   this key; without it page 1 was a top-N heapsort of every call the tenant has
@@ -694,6 +764,11 @@ call_metering_refusals(id, tenant_id, call_id, leg, code, detail, remediation,
 --   PARTIAL because `number_rental` and the `ai_assist_*` units carry no call — and a partial
 --   index still serves the FK check, since `call_id = $1` under a strict operator proves the
 --   predicate.
+-- INDEX ux_usage_events_carrier_cdr UNIQUE (tenant_id, call_id) WHERE call_id IS NOT NULL
+--   AND unit_type = 'other' AND meta->>'kind' = 'carrier_cdr' (migration d4a7b2c91e30,
+--   D-662). The carrier's CDR sets OUR cost for a call as one compensating row; this key
+--   makes a re-read of the same CDR land once. The client's billable minutes stay the
+--   worker's measured duration (D-648).
 -- `number_rental` FINALLY HAS A WRITER (D-537): `apps/api/billing/number_rental.py`, one row
 --   per bought number per IST billing month, idempotent in the DATABASE on the ref
 --   `number_rental:<number_id>:<YYYY-MM>` against `ux_usage_events_tenant_unit_ref`. `qty` is
@@ -775,6 +850,19 @@ credit_ledger(id, tenant_id, delta NUMERIC,
 --   to seed opening balances. `usage`/`adjustment`/`refund` are in NEITHER set — they are
 --   movements, not origins, and letting a correction subtract from `granted_inr` would
 --   understate what a client was actually given.
+-- A REFUND OF A PACK TAKES ITS BONUS BACK (founder decision, 4 Oct 2026, D-672):
+--   `payments.credit_refund` writes the `refund` row (ref = refund id) and, in the same
+--   transaction and under the same `lock_tenant_credits`, a NEGATIVE `bonus` row keyed on
+--   the SAME refund id (`meta.kind = 'credit_pack_bonus_clawback'`, `meta.payment_ref`,
+--   `meta.refund_ref`) — distinct from the grant's key (the payment id), so
+--   `ux_credit_ledger_bonus_ref` makes it idempotent. Size: the cumulative target
+--   bonus × (refunded so far ÷ amount paid), half-up to `MONEY_Q` and clamped at the bonus,
+--   minus what earlier refunds of the payment already took — so partials that sum to the
+--   payment take back exactly the bonus. It comes off the bonus's own `bonus_legacy` lot and
+--   is `allow_negative`, like the refund: a spent bonus becomes overdraft. It is in
+--   NEITHER total of `credit_totals` (a movement, as `refund` is) and the client reads it as
+--   "Pack bonus taken back after a refund" (`wallet_routes._entry_label`). Unreachable for
+--   a purchase made today: every catalogue pack has `bonus_pct = 0` since D-547.
 -- INDEX ux_credit_ledger_grant_ref UNIQUE (tenant_id, ref) WHERE reason = 'grant'
 --   AND ref IS NOT NULL (a71f3c9e5d84). The `bonus` index's shape, for the same reason: a
 --   brand-new reason has no pre-fix duplicate residue, so it needs no cutoff and rebuilding
@@ -947,8 +1035,14 @@ tenant_trials(id, tenant_id, days, started_at, ends_at,
 --   for ever once the trial converted: their leads, calls and transcripts are the value
 --   they just built. `apps/workers/trials.py` FILES a tenant erasure through
 --   `compliance/tenant_erasure.py` when it falls due and erases nothing itself.
-one_time_charges(id, tenant_id, kind ENUM[setup_fee], ref, description, amount NUMERIC,
-  billing_month, plan_id NULL, occurred_at)          -- INSERT-only (hard rule 4)
+one_time_charges(id, tenant_id, kind ENUM[setup_fee,number_rental], ref, description,
+  amount NUMERIC, billing_month, plan_id NULL, occurred_at)  -- INSERT-only (hard rule 4)
+-- kind `number_rental` (D-665, migration e8b14d6a2c57, ck_one_time_charges_kind_enum): an
+--   INVOICED (managed) account's phone-number rental, one row per number and period
+--   (ref `number_rental:<number_id>:<YYYY-MM the period starts in>`, the same ref a prepaid
+--   account's wallet debit carries), printed as a "Phone number rental" line by
+--   `billing/number_rental.rental_statement_lines`. Written by the purchase and by the daily
+--   `workers/number_rental.renew_number_rentals`; there is no monthly invoice job.
 -- INDEX ux_one_time_charges_tenant_kind_ref UNIQUE (tenant_id, kind, ref)
 --   (migration c7e1a4b90d63). What a charge billed ONCE actually is: `plans.setup_fee`
 --   reaches a client through this ledger and nowhere else. The writer
@@ -1075,8 +1169,30 @@ kyc_records(id, tenant_id UNIQUE → organizations ON DELETE RESTRICT,
   -- an Aadhaar pasted into a business field fails at the moment of the mistake.
   -- Deliberately does NOT duplicate `dlt_registrations.pe_id` — overlapping evidence, two
   -- regimes, different holders.
+autodialer_notices(id, tenant_id → organizations RESTRICT, state ENUM[notified,withdrawn],
+  access_provider TEXT NOT NULL, objective TEXT NOT NULL, notified_on DATE,
+  notice_reference TEXT NULL, declared_clis TEXT[] NOT NULL DEFAULT '{}',
+  recorded_by → users RESTRICT, created_at)          -- INSERT-only (hard rule 4)
+  -- The client's notice to its access provider that it operates an autodialer (migration
+  -- e5c1a70b93f4); the current position is the LATEST row (INDEX
+  -- ix_autodialer_notices_latest_for_tenant), a withdrawal is a new row. `declared_clis`
+  -- (migration f39583a282fb) are the E.164 numbers the calls will present, declared in
+  -- advance as the TCCCPR Third Amendment requires as an access provider summarised it
+  -- (`docs/evidence/trai-tcccpr-third-amendment-2026-09-18.md`, REPORTED); the dial gate
+  -- refuses a call any of whose agent's numbers is undeclared
+  -- (`autodialer_notice_blocker` → `autodialer_notice_cli_undeclared`), and the count
+  -- limit lives in
+  -- `compliance/autodialer.py` rather than a CHECK.
+-- consent_ledger also carries ix_consent_ledger_callback_lookup (tenant_id, phone_e164,
+--   captured_at DESC, id DESC) WHERE purpose = 'callback' and ix_consent_ledger_withdrawn_call
+--   (call_id) WHERE status = 'withdrawn' AND call_id IS NOT NULL (migration e95e0d780629),
+--   the two reads the callback consent check makes.
 carrier_compliance_applications(id, tenant_id → organizations ON DELETE RESTRICT,
-  carrier ENUM[plivo] NOT NULL, UNIQUE (tenant_id, carrier),
+  carrier ENUM[plivo,vobiz] NOT NULL, UNIQUE (tenant_id, carrier),
+  -- 'vobiz' admitted by migration d4a7b2c91e30 (D-662). The application GATES only on
+  -- Plivo (D-666): `carrier_application.CARRIERS_REQUIRING_APPLICATION = {"plivo"}`, read
+  -- against `Settings.carrier`, so on Vobiz every gate that asks for an accepted application
+  -- stands aside and the table is kept for the Plivo fallback.
   status ENUM[not_started,documents_required,submitted,accepted,rejected,expired] NOT NULL
     DEFAULT 'not_started',
   carrier_application_id TEXT NULL,
@@ -1355,6 +1471,11 @@ at all, so they are not tenant tables and need no exemption entry.)
 ```
 engine_agent_routes(engine, engine_agent_ref, tenant_id, agent_id, active,
   created_at, updated_at, PRIMARY KEY(engine, engine_agent_ref))
+  -- D-678 adds webhook_id + sealed signing secret, engine_rate_key (f3a8c61d2e57) and
+  -- facts_kb_ref, facts_digest (b7e2d94f1a30): the knowledge document holding this vendor
+  -- agent's business facts on an engine that keeps them out of the prompt
+  -- (`agents/engine_facts.py`), with the sha256 of its text; both or neither (CHECK
+  -- `ck_engine_agent_routes_facts_whole`). Counted as ours by the KB reconciliation.
   -- The inbound routing table: (vendor engine, vendor agent id) → (tenant, agent).
   -- WHY IT IS EXEMPT: an engine webhook arrives carrying only the VENDOR's agent id —
   -- no session, no tenant, no GUC — so resolving it is inherently a cross-tenant read.

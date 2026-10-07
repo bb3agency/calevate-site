@@ -38,6 +38,7 @@ from typing import Any
 from apps.api.admin import service as admin_service
 from apps.api.admin.routes import MarginOut, TierSplitOut
 from apps.api.agents import prompts
+from apps.api.agents.llm_tiers import client_model_labels
 from apps.api.agents.prompt_routes import PromptVersionOut
 from apps.api.billing import service as billing
 from apps.api.billing.gst import GST_STATUS_SENTENCE
@@ -254,7 +255,13 @@ async def test_the_usage_panel_matches_what_billing_actually_computed() -> None:
         tier = await billing.plan_tier_of(session, tenant_id)
     expected = UsagePanelOut.model_validate(
         {
-            **{k: (str(v) if isinstance(v, Decimal) else v) for k, v in summary.items()},
+            **{
+                k: (str(v) if isinstance(v, Decimal) else v)
+                for k, v in summary.items()
+                if k != "llm_surcharge_models"
+            },
+            # The client reads tier words for the models, never the ids (D-680).
+            "llm_surcharge_tiers": client_model_labels(summary["llm_surcharge_models"]),
             "plan_tier": tier,
             "credit_balance_inr": None,
         }

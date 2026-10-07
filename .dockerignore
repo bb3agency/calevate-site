@@ -74,6 +74,7 @@ infra
 # them at runtime.
 bolna-findings
 vobiz-findings
+thinnest-findings
 
 # `runbooks/` IS SHIPPED, and it is the one documentation tree that is (D-499). The admin
 # copilot's `search_runbooks` tool reads these 22 files at RUNTIME to answer "what do I do

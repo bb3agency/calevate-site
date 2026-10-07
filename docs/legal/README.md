@@ -91,8 +91,11 @@ rules that matter legally assertable rather than reviewable by eye:
 - no security certification is claimed, and no "data never leaves India" claim is made;
 - the AI-disclosure paragraph describes a client-controlled setting with an unconditional
   truthful-answer floor, in identical words in both documents that carry it;
-- the sub-processor register is the only copy of the vendor list — the DPA's Annex C links
-  to it and names no vendor;
+- the sub-processor page lists CATEGORIES and names a company only where the internal
+  register marks it public (D-679); the named list is `docs/legal/SUBPROCESSOR-REGISTER.md`,
+  given on request and never rendered, and no document names a vendor that register keeps
+  unnamed (`legalVendorNames.test.ts`). The DPA's Annex C links to the page and names no
+  vendor;
 - no page carries the pending-review banner, and no token is left unresolved on one;
 - every section anchor is unique and URL-safe, because clause references cite them;
 - all eight documents pass axe, no heading level is skipped, and every wide table scrolls

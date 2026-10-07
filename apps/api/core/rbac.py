@@ -69,6 +69,12 @@ from fastapi import FastAPI
 from fastapi.dependencies.models import Dependant
 from fastapi.routing import APIRoute
 
+from apps.api.core.console_links import (
+    ADMIN_AUTH_PREFIX,
+    ADMIN_ORIGIN_PREFIXES,
+    ADMIN_REALM_PREFIXES,
+)
+
 Permission = Literal[
     "agents:read",
     "agents:write",
@@ -692,17 +698,9 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
 #:
 #: THE PERMISSION IS NOT WHAT KEEPS A CLIENT OUT OF THE ADMIN CONSOLE, and this is the
 #: check that says so. `ROLE_PERMISSIONS` is one flat dict over both realms, so a client
-#: `owner` holds `org:manage`, `agents:write` and `kb:write` — the same strings a dozen
-#: `/v1/admin/**` routes declare. What refuses them is `requires(..., realm="admin")`,
-#: which resolves the caller against `admin_users` instead of `memberships`; a route
-#: that declares the permission and omits the realm reads as guarded in the schema, in
-#: the generated client and in review, and is open to every tenant owner on the platform.
-#:
-#: Asserted one-directionally: an admin-realm route may live outside these prefixes
-#: (`/v1/organizations/{org_id}/llm-defaults`, the billing and compliance admin routers),
-#: and this says nothing about those. What it forbids is the reverse — a route sitting
-#: under the console's own paths that any signed-in client could call.
-ADMIN_REALM_PREFIXES: tuple[str, ...] = ("/v1/admin/", "/v1/ops/")
+# The admin realm's path prefixes live in core/console_links (a stdlib-only leaf) so the
+# CORS and CSRF layers can read them without importing this registry, which voice-runtime
+# must not load (`tests/voice_runtime_import_surface_test.py`).
 
 
 # The attribute `auth.requires()` stamps on the dependency it returns, and the names of
@@ -900,6 +898,8 @@ def permission_meta(permission: Permission) -> dict[str, object]:
 
 
 __all__ = [
+    "ADMIN_AUTH_PREFIX",
+    "ADMIN_ORIGIN_PREFIXES",
     "ADMIN_REALM_PREFIXES",
     "ADMIN_ROLES",
     "GRANTED_PERMISSIONS",

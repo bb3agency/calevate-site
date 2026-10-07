@@ -47,7 +47,7 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -102,8 +102,13 @@ class HandoffMemberIn(Strict):
 
     label: str = Field(min_length=1, max_length=120)
     #: E.164. The same expression the column's CHECK carries and the intake wizard
-    #: validates with — doubled deliberately, because this number is dialled.
-    phone_e164: str = Field(pattern=r"^\+[1-9]\d{7,18}$")
+    #: validates with — doubled deliberately, because this number is dialled. India-only
+    #: on top of that, because a handover is a call we place and pay for.
+    phone_e164: Annotated[
+        str,
+        Field(pattern=r"^\+[1-9]\d{7,18}$"),
+        AfterValidator(handoff_service.india_handoff_number),
+    ]
     active: bool = True
     #: This person's OWN hours, or omitted to be reachable whenever the business is open.
     #: A day left out of the map is a day this person is not available — `is_after_hours`

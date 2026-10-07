@@ -49,6 +49,7 @@ from datetime import datetime
 from typing import Annotated, get_args
 from uuid import UUID
 
+from calevate_shared.engine import LlmTier
 from calevate_shared.extraction import OutcomeTag
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi import status as http_status
@@ -64,9 +65,7 @@ from apps.api.agents import lifecycle, roster
 # handler on purpose (`core/errors._LIBRARY_PHRASINGS`), so a bare Literal here refuses
 # `xx-IN` with a field name and no reason.
 from apps.api.agents.languages import OfferedLanguage
-from apps.api.agents.llm_models import (
-    validate_llm_model,
-)
+from apps.api.agents.llm_tiers import engine_model_from_client, resolve_tier_choice
 from apps.api.agents.models import (
     CALL_CAP_MAX_S,
     CALL_CAP_MIN_S,
@@ -346,15 +345,15 @@ class AgentUpdateIn(BaseModel):
     one moved, and a PATCH that could only send all three would make renaming an agent a
     read-modify-write race against a direction change.
 
-    ⚠ **`llm_model` IS THE ONE FIELD WHERE `null` IS A VALUE AND NOT AN ABSENCE** (D-454),
+    ⚠ **`llm_tier` IS THE ONE FIELD WHERE `null` IS A VALUE AND NOT AN ABSENCE** (D-454),
     because it is the only one whose column is nullable and whose NULL MEANS something:
     "inherit the account's default". On every other field here `null` and "omitted" are
     the same request, so the model can read them the same way; on this one they are
     opposite requests — clear my choice, versus do not touch it — and a model that could
     not tell them apart would leave an owner unable to go back to the account default
     once they had chosen. `model_fields_set` is Pydantic v2's answer to exactly this and
-    is what `set_llm_model` below reads: it carries which keys the CLIENT SENT, so an
-    explicit `"llm_model": null` is distinguishable from a body that never mentioned it.
+    is what `set_llm_tier` below reads: it carries which keys the CLIENT SENT, so an
+    explicit `"llm_tier": null` is distinguishable from a body that never mentioned it.
     The rejected alternative was a sentinel default (`UNSET = object()`), which works but
     puts a non-JSON-schema type in the OpenAPI document and therefore in every generated
     client.
@@ -365,16 +364,28 @@ class AgentUpdateIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     direction: AgentDirection | None = None
     language_primary: OfferedLanguage | None = None
-    #: `null` clears the agent's own choice and falls back to the account default. A value
-    #: outside the allow-list is refused by `validate_llm_model` with the permitted ones
-    #: named — not by a `Literal` here, which would bake today's allow-list into the wire
-    #: contract (see that function for the argument).
-    llm_model: str | None = None
+    #: The agent's own AI model TIER (D-680); `null` clears it and the agent follows the
+    #: account default. The server resolves the tier to a model (`agents/llm_tiers.py`) —
+    #: a client never sends or reads a model id.
+    llm_tier: LlmTier | None = None
+    #: A voice and a model from the voice platform's OWN catalogue
+    #: (`GET /v1/agents/engine-catalogue`), on a platform that supplies its own. `null`
+    #: clears the choice, with `llm_tier`'s tri-state; checked by `agents/engine_choice.py`.
+    engine_voice_id: str | None = Field(default=None, min_length=1, max_length=128)
+    engine_model_id: str | None = Field(default=None, min_length=1, max_length=128)
 
     @property
-    def set_llm_model(self) -> bool:
-        """Did the caller actually name `llm_model`? See the class docstring."""
-        return "llm_model" in self.model_fields_set
+    def set_llm_tier(self) -> bool:
+        """Did the caller actually name `llm_tier`? See the class docstring."""
+        return "llm_tier" in self.model_fields_set
+
+    @property
+    def set_engine_voice_id(self) -> bool:
+        return "engine_voice_id" in self.model_fields_set
+
+    @property
+    def set_engine_model_id(self) -> bool:
+        return "engine_model_id" in self.model_fields_set
 
     @model_validator(mode="after")
     def _at_least_one(self) -> AgentUpdateIn:
@@ -386,9 +397,14 @@ class AgentUpdateIn(BaseModel):
             self.name is None
             and self.direction is None
             and self.language_primary is None
-            and not self.set_llm_model
+            and not self.set_llm_tier
+            and not self.set_engine_voice_id
+            and not self.set_engine_model_id
         ):
-            raise ValueError("name at least one of name, direction, language_primary, llm_model")
+            raise ValueError(
+                "name at least one of name, direction, language_primary, llm_tier, "
+                "engine_voice_id, engine_model_id"
+            )
         return self
 
 
@@ -485,13 +501,17 @@ async def create_agent_route(
         "same transaction — including the numbers it answers, so switching a two-way "
         "agent to outbound-only really does stop it picking up — and if that push fails "
         "nothing is saved.\n\n"
-        "`llm_model` is the one field where sending `null` MEANS something: it clears "
-        "this agent's own choice so it follows the account default again. Omit the field "
-        "entirely to leave the current choice alone. A model this platform does not run "
-        "at all is refused with `llm_model_not_available`; one it supports but has no "
-        "deployment for is refused with `llm_model_not_deployed`. Both name the models "
-        "you can pick — read them off `GET /v1/organization/llm-defaults`, where a row "
-        "with `is_available: false` is one of these refusals waiting to happen.\n\n"
+        "`llm_tier` is the one field where sending `null` MEANS something: it clears "
+        "this agent's own AI model tier so it follows the account default again. Omit the "
+        "field entirely to leave the current choice alone. A tier that is not switched on "
+        "yet is refused with `llm_tier_not_available` — `GET /v1/organization/llm-defaults` "
+        "marks those tiers `is_available: false`. Choosing the tier the agent is already "
+        "on changes nothing.\n\n"
+        "`engine_voice_id` and `engine_model_id` choose from the voice platform's own "
+        "list (`GET /v1/agents/engine-catalogue`, whose model ids are opaque) where it "
+        "supplies one; `null` clears a "
+        "choice that has not yet been published. An entry that list marks unavailable is "
+        "refused with its reason.\n\n"
         "An archived agent is refused: restore it first."
     ),
 )
@@ -503,11 +523,29 @@ async def update_agent_route(
     principal: Principal = Depends(requires("org:manage")),
 ) -> AgentOut:
     assert principal.tenant_id is not None
-    # BEFORE the write, so an unavailable model costs a 422 and no republish. The
-    # validator is the same one the account-level routes call — one allow-list, one
-    # refusal; the WORDING is the client's, because this is the client realm and the
-    # person editing their own agent cannot act on an operator ground.
-    llm_model = validate_llm_model(payload.llm_model, field="llm_model", audience="client")
+    # BEFORE the write, so an unavailable tier costs a 422 and no republish. The agent's
+    # current choice is read LOCKED so "the tier it is already on" and the write that
+    # depends on it see one row (`lifecycle.update_agent` re-takes the same lock).
+    llm_model: str | None = None
+    if payload.set_llm_tier:
+        current = (
+            await session.execute(
+                text(
+                    "SELECT llm_model FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
+                ),
+                {"aid": agent_id},
+            )
+        ).first()
+        llm_model = resolve_tier_choice(
+            payload.llm_tier,
+            current_model=current[0] if current is not None else None,
+            field="llm_tier",
+        )
+    engine_model_id = (
+        await engine_model_from_client(payload.engine_model_id)
+        if payload.set_engine_model_id
+        else None
+    )
     await lifecycle.update_agent(
         session,
         tenant_id=principal.tenant_id,
@@ -516,7 +554,11 @@ async def update_agent_route(
         direction=payload.direction,
         language_primary=payload.language_primary,
         llm_model=llm_model,
-        set_llm_model=payload.set_llm_model,
+        set_llm_model=payload.set_llm_tier,
+        engine_voice_id=payload.engine_voice_id,
+        set_engine_voice_id=payload.set_engine_voice_id,
+        engine_model_id=engine_model_id,
+        set_engine_model_id=payload.set_engine_model_id,
     )
     await write_audit(
         session,
@@ -535,15 +577,10 @@ async def update_agent_route(
         # audit as a request that changed nothing at all. What the client SENT is the
         # fact an auditor is reconstructing.
         #
-        # ⚠ `llm_model` IS THE ONE FIELD WHOSE VALUE GOES IN, and the exception is argued
-        # where the account-level write makes it (`llm_routes.py`): a model identifier is
-        # a platform configuration constant, not a client's business copy and not anybody's
-        # personal data, and WHICH model this agent was moved to is the entire fact an
-        # auditor reconstructing a bill or a quality complaint is after. The field name
-        # alone said that the model changed and refused to say what to. `null` is recorded
-        # as itself — "put back on the account default" is a decision somebody took — and
-        # the key is absent entirely when the caller did not name the field, which is the
-        # same tri-state `set_llm_model` carries everywhere else on this path.
+        # THE RESOLVED MODEL IS THE ONE VALUE THAT GOES IN, as on the account-level write
+        # (`llm_routes.py`): a model id is configuration, not personal data, and which model
+        # the agent moved to is what a bill or quality dispute turns on. `null` is recorded as
+        # itself, and the key is absent when the caller did not name `llm_tier`.
         #
         # A JOINED STRING AND NOT A LIST, which is what this was: `write_audit` hands the
         # summary to `redact_mapping`, and `_redact_value` collapses EVERY sequence to
@@ -553,7 +590,7 @@ async def update_agent_route(
         # the log line is the whole of this fact.
         summary=(
             {"fields": ",".join(sorted(payload.model_fields_set)), "llm_model": llm_model}
-            if payload.set_llm_model
+            if payload.set_llm_tier
             else {"fields": ",".join(sorted(payload.model_fields_set))}
         ),
     )

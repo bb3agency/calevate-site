@@ -249,8 +249,15 @@ class TestWiring:
         RAISED 48 -> 49 by `POST /v1/worker/calls/{engine_call_id}/speaking` (D-656), the
         console's live speaking indicator. Same token, same engine gate, tenant parsed from
         the ref; it takes no tenant id and no number, and writes one expiring Redis key — no
-        row, nothing a leaked token could use to reach a caller's record."""
-        assert len(exempt) <= 49, sorted(exempt)
+        row, nothing a leaked token could use to reach a caller's record.
+
+        RAISED 49 -> 50 by `POST /v1/worker/engine-actions/{engine}/{tool}` (D-682): the
+        in-call tools on a hosted voice platform, which calls our API as a custom action.
+        One route for all four tools rather than four. The credential is a per-agent secret
+        we generate and seal, compared in constant time before the body is read; an unknown
+        agent, an inactive route and a wrong secret all get the same 401. It writes what the
+        worker routes above write (opt-out, call-back), through the same functions."""
+        assert len(exempt) <= 50, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

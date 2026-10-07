@@ -27,7 +27,7 @@ import uuid
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 from xml.etree.ElementTree import fromstring
 
 import carrier_routes
@@ -251,3 +251,32 @@ def test_the_stream_url_this_service_mints_is_one_the_worker_can_route() -> None
 
     assert "%3A" in url
     assert carrier.route_of(token) == carrier.CallRoute(tenant_id=tenant_id, agent_id=agent_id)
+
+
+def test_a_base_with_its_own_query_keeps_it_and_the_ref_stays_on_the_path() -> None:
+    """Pipecat Cloud's telephony base carries `?serviceHost=<agent>.<org>`
+    (docs.pipecat.ai/pipecat-cloud/guides/telephony/plivo-websocket, read 5 Oct 2026).
+
+    The ref must land on the PATH, where `bot._route_token` reads it, and `serviceHost`
+    must survive as the platform's routing parameter beside our claims. A base parameter
+    named like a claim is dropped rather than believed.
+    """
+    tenant_id, agent_id = uuid.uuid4(), uuid.uuid4()
+    ref = owned_runtime_agent_ref(str(tenant_id), str(agent_id))
+    base = (
+        "wss://ap-south.api.pipecat.daily.co/ws/plivo"
+        "?serviceHost=calevate-pipecat-worker.example&caller_state=known"
+    )
+
+    url = carrier_routes.stream_url(base, ref, carrier="vobiz")
+    parts = urlparse(url)
+
+    assert url.count("?") == 1
+    assert parts.netloc == "ap-south.api.pipecat.daily.co"
+    assert parts.path.startswith("/ws/plivo/")
+    token = unquote(parts.path.rsplit("/", 1)[-1])
+    assert carrier.route_of(token) == carrier.CallRoute(tenant_id=tenant_id, agent_id=agent_id)
+    query = parse_qs(parts.query)
+    assert query["serviceHost"] == ["calevate-pipecat-worker.example"]
+    assert query["carrier"] == ["vobiz"]
+    assert "caller_state" not in query

@@ -105,9 +105,11 @@ const AGENT: Agent = {
   published: true,
   inbound_number_count: 1,
   extraction_fields: [],
-  llm_model: null,
-  llm_model_effective: "gpt-4o-mini",
-  llm_model_source: "platform",
+  llm_tier: null,
+  llm_tier_effective: "standard",
+  llm_tier_label: "Standard",
+  llm_tier_source: "platform",
+  llm_surcharged: false,
 };
 
 const HANDOFF: HandoffOut = {

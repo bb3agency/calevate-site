@@ -12,7 +12,7 @@ import type { Agent } from "@/lib/api/agents";
 import type { PendingState } from "@/lib/api/publishing";
 
 import { problem, renderClientPage } from "./harness";
-import { LANES, LEGAL_READY, prepaidWallet, voiceCatalogue } from "./fixtures/sharedReads";
+import { LANES, LEGAL_READY, clientLlmTiers, prepaidWallet, voiceCatalogue } from "./fixtures/sharedReads";
 
 /*
  * THE WORKSPACE IS A SETTINGS LAYOUT (D-657): one section is mounted at a time, chosen by
@@ -122,9 +122,11 @@ function agent(over: Partial<Agent> = {}): Agent {
     extraction_fields: [],
     // D-454: inheriting all the way up — what this fixture always meant
     // implicitly, back when an agent had no opinion about its model.
-    llm_model: null,
-    llm_model_effective: "gpt-4o-mini",
-    llm_model_source: "platform",
+    llm_tier: null,
+    llm_tier_effective: "standard",
+    llm_tier_label: "Standard",
+    llm_tier_source: "platform",
+    llm_surcharged: false,
     ...over,
   };
 }
@@ -251,21 +253,7 @@ const page = (
  * `clientLlmModel.test.tsx`'s subject and it carries the fixtures for it; this exists so
  * the panel behaves the way it does in production while the rest of the screen is tested.
  */
-const LLM_DEFAULTS = {
-  default_llm_model: null,
-  effective_default: "gpt-4o-mini",
-  available: [
-    {
-      model: "gpt-4o-mini",
-      provider: "Azure OpenAI",
-      platform_cost_inr_per_minute: "0.2400",
-      client_surcharge_inr_per_minute: "0",
-      is_platform_default: true,
-      is_available: true,
-      unavailable_reason: null,
-    },
-  ],
-};
+const LLM_DEFAULTS = clientLlmTiers();
 
 function routes(over: Record<string, unknown> = {}) {
   return {
@@ -2105,7 +2093,7 @@ describe("progressive disclosure defaults", () => {
 
     await screen.findByText("Reception");
     const model = card("The model it thinks with");
-    expect(model.querySelector("summary")?.textContent).toContain("gpt-4o-mini");
+    expect(model.querySelector("summary")?.textContent).toContain("Standard");
   });
 
   it("is a native details/summary, so it is keyboard-operable with no JS", async () => {

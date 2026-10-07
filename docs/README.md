@@ -1,17 +1,21 @@
 # Calevate — Master Blueprint (Document Set)
 
 Version 1.0 · July 2026 · Product brand of BuiltByThree · calevate.tech
-Status: **decision-complete**. Remaining unknowns are enumerated (BRD §10 assumptions)
-and are all closed by two non-code actions: the Engine Verification Session
-(OPERATIONS.md §2) and Milestone-0 admin tasks (entity → DLT).
+Status: **decision-complete**. Remaining unknowns are enumerated (BRD §10 assumptions,
+OPERATIONS §2 gates); what still blocks a client going live is listed at the end of this
+file.
 
 ## Reading order
 
 1. **BRD.md** — what we're building and why: vision, market, personas, pricing/revenue
    model, GTM for a cold start, KPIs, risk register, assumptions log.
-2. **TRD.md** — how: architecture (4 deployables), locked stack, voice stack + latency
+2. **TRD.md** — how: architecture (5 deployables), locked stack, voice stack + latency
    budget, VoiceEngine adapter contract, RAG tiers, schema-driven extraction, metering,
    cost model with phase-2/3 triggers.
+   - **PIPECAT-MIGRATION.md** (read with it) — the construction manual for the engine we
+     run: the owned Pipecat loop (`apps/voice-worker`, D-592), its adapter, the language
+     path, the cost model after the engine change, and §6, the step list whose step 6 is
+     the first real call on Vobiz.
 3. **DATA-MODEL.md** — full Postgres schema with RLS pattern, extraction-schema JSON
    shape, append-only ledgers, compliance tables.
 4. **BACKEND-PATTERNS.md** — the CONSTRUCTION MANUAL for every Python service (read
@@ -94,7 +98,15 @@ Method & evidence:
     still egress-blocked here, so the fetch happened elsewhere and cannot be refreshed
     from this tree). Every vendor sentence in the blueprint is now expected to cite a page
     and a line in that mirror — evidence class **VERIFIED-VENDOR-DOCS**. The decisions
-    they produced are ROADMAP §6 D-414…D-424 and OPERATIONS §2 gates 9v, 21–27.
+    they produced are ROADMAP §6 D-414…D-424 and OPERATIONS §2 gates 9v, 21–27. Bolna was
+    deleted by D-639, so those reports are now the record of a withdrawn engine. **The
+    carrier's equivalent is `vobiz-api-contract.md` and `vobiz-integration-plan.md`**, over
+    the hash-pinned Vobiz mirror at `vobiz-findings/mirror/` (D-662; OPERATIONS §2 gate 55
+    and the V-series). Neither mirror is ever edited.
+11c. **`runbooks/`** — incident and first-time procedures; `alarm-index.md` maps every
+    alarm code to its runbook, and `first-deploy.md` and `vobiz-first-live-call.md` are the
+    two checklists that turn the build into a running service. `thinnest-first-live-call.md`
+    is the first-call checklist for a deployment switched to `ENGINE=thinnest` (D-678).
 
 Engineering companions:
 12. **CLAUDE.md** — operating manual for Claude Code in the repo (hard rules, commands,
@@ -104,83 +116,53 @@ Engineering companions:
 14. **PROMPT-GUIDE.md** — how client agent system prompts are structured, versioned,
     regression-gated, and red-teamed (prompts are product code).
 
-## The two gates that are still unrun (Milestone 0)
+## What still blocks a client going live
 
-Both were once framed as preceding *any* code; they no longer do — M1 backend and web
-slices have shipped against the `fake` engine adapter (`ENGINE=fake`, the default), which
-is exactly what the adapter contract exists to make possible. They remain hard blockers on
-specific things, and neither has been run:
+Backend and web slices have shipped against the `fake` engine adapter (`ENGINE=fake`, the
+default in `calevate_shared.config`), which is what the adapter contract exists to make
+possible. Four things outside the code still stand between that and a client's first call:
 
-1. **Engine Verification Session — the Bolna pilot (D-31)** — one afternoon on paid
-   Bolna credits (OPERATIONS.md §2). Confirms webhooks/API/latency/Telugu quality/
-   commercials incl. the unpublished BYOK platform fee.
-   **Blocks:** flipping `ENGINE=bolna` in production, the cost model's remaining
-   unknowns, and Gate G0. Evidence artifact `evidence/bolna-pilot-scorecard.md` is still
-   an empty template — the honest status marker.
-2. **Entity decision → DLT PE registration** — legal prerequisite for all outbound
-   calling (SECURITY-COMPLIANCE.md §3; Risk R-01). **Blocks:** every outbound path
-   (campaigns, "call this lead", instant callback) going live on real numbers — the code
-   is built and the compliance gate enforces it. Inbound-only launch is the fallback, and
-   D-38 makes inbound the headline capability anyway.
+1. **The first real call (BLOCKER-1).** No call has yet been placed on this product. The
+   owned runtime (D-592) is the engine and Vobiz is the carrier (D-662); the checklist for
+   the first inbound and outbound call is `runbooks/vobiz-first-live-call.md`, and its
+   results close PIPECAT-MIGRATION §6 step 6 and the OPERATIONS §2 V-series gates. The
+   Bolna pilot that used to sit here will not run: D-639 deleted the adapter, and the gates
+   phrased against Bolna are withdrawn, not failed (OPERATIONS §2 preamble).
+2. **Vobiz's written consent to carry clients' traffic** (OPERATIONS §2 gate V-10). Until
+   then the founder's own Vobiz account carries the founder's own test calls only, and
+   `number_resale_authorization` stays unset (gate 47), which refuses every client number
+   purchase.
+3. **DLT registration** — Calevate's telemarketer registration and each client's Principal
+   Entity chain, the legal prerequisite for every outbound path (SECURITY-COMPLIANCE §3;
+   Risk R-01). The compliance gate enforces it on every dial; inbound does not need it, and
+   D-38 makes inbound the headline capability.
+4. **The first deploy.** The host is a Hostinger India VPS (D-180). `docs/DEPLOYMENT.md`
+   and `runbooks/first-deploy.md` describe it, the Pipecat Cloud worker and the deploy
+   path; `infra/README.md` §5 lists what a human must do before any of it is real.
 
-## One-line summary of the locked stack
+## One-line summary of the stack
 
-Bolna (engine, adapter-isolated — D-31) + **Sarvam for SPEECH-TO-TEXT ONLY** (D-36's
-Saaras STT, unchanged — it still hears every call and still reads the first extraction
-pass) + **TWO TTS VENDORS AND NEITHER IS SARVAM** (D-629, 18 Sep 2026: Gnani Timbre v2.5 on
-the Clear rung, Cartesia Sonic 3.5 on Studio; Clear cannot be sold until somebody attests a
-Gnani price). ⚠ This line read "Bulbul v3 TTS default, v2 as the value tier — unchanged" and
-BOTH halves were wrong before D-629 even touched it: v2 has been WITHDRAWN since 10 Sep
-2026 and prices nothing, and the second TTS vendor (Cartesia, D-547) was already shipped.
-Plus **Azure OpenAI in East US 2
-for LANGUAGE, on BOTH LLM surfaces** — **D-410 supersedes D-400/D-404 on the in-call leg
-and D-127 on the dashboard leg; Gemini and Vertex are out of this product. D-449 moved the
-REGION off South India: the declared posture is `us-azure-openai`, and the client-facing
-India warranty is withdrawn, not narrowed.** One region (`AZURE_LOCATION`, `eastus2`), one
-default (`AZURE_OPENAI_DEFAULT_MODEL`, `gpt-4o-mini` — unchanged by D-449, and TRD §10 is
-unrepriced), one allow-list (`AZURE_OPENAI_MODELS`) and one builder
-(`azure_openai_base_url()`); `gpt-4.1-mini` is a live config switch rather than a second
-shipped default. The engine
-authenticates with a **static API key** on the OpenAI-compatible v1 surface, so D-404's
-rotation cron, its alarm, its runbook and D-408's dead man are all deleted — they existed
-because a regional Vertex endpoint took no static key. **BRD R-04's 16 Oct 2026 Gemini
-retirement dies with this**, and no vendor deadline is currently running against the
-product. **The residency claim is narrower than it was and this line will not pretend
-otherwise, and since D-449 it is not an India claim at all**: `<resource>.openai.azure.com`
-names no region, so the build proves only that one constant spells the region and that no
-endpoint is constructible outside the builder — that the resource really is in East US 2,
-and that its deployment is Regional Standard rather than Azure's worldwide-by-default
-Global, are attested by a human (OPERATIONS §2 gates 20 and 20c, which survive D-449
-re-aimed rather than retiring). Speech stays Sarvam, which is an Indian COMPANY and not an
-India-only PLACE — corrected 27 Aug 2026, because Sarvam's own privacy policy permits it to
-transfer and process personal data outside India (US cloud infrastructure; EU model and
-security vendors), so the caller's AUDIO may leave on the speech leg as well as the words
-reaching a US model as they are spoken. Sarvam ToS s.17.5 likewise permits training on
-inputs and outputs absent a signed order form (s.6.2), which we do not have. VENDOR-PUBLISHED (Sarvam Privacy Policy, "Cross-Border Data Transfers"; Sarvam ToS v2.0 eff. 29 Jul 2026 ss.6.2/17.5 — read by the founder 27 Aug 2026 and relayed; `sarvam.ai` is still egress-blocked from this container). The third surface is decided the OTHER way and permanently:
-`GEMINI_EXTRACTION_DEFAULT is False`, so the
-first post-call extraction stays on Sarvam because it reads the raw transcript, and D-410
-does not move it. **D-04/D-20's Gemini-primary stack is superseded** · Vobiz/Exotel telephony · FastAPI + Next.js/TS ·
-Postgres 16 + RLS + pgvector (`kb_chunks`, D-502 — an extension, not a deployable) · Redis/ARQ ·
-first-party auth, two
-realms (D-165/D-170/D-177 — Clerk is deleted) ·
-a general-purpose VPS (D-25 moved hosting off DigitalOcean; nothing is provisioned yet).
-**This line used to say "with an India-resident data plane" and that was a claim the code
-cannot make**: `docs/DEPLOYMENT.md` says India co-location is NOT required for this stack,
-which is the stack holding every transcript, and F-1 is open precisely because the region
-is undecided. It was scrubbed from the landing page and left here, where it seeded the
-same sentence in BRD §sales. Nothing may re-assert it until a host is chosen and named · Sentry/OTel (LLM tracing is a named gap, D-49) · setup-fee + retainer + overage pricing, plus the
-D-34 self-serve prepaid tier · all-in target ≈ **₹3.3–3.8/min**, ₹1.9–2.6/min at phase 2
-(floor **₹2.9** on Bulbul v2 + Sarvam LLM, UNCHANGED — that combination's LLM leg
-is free; TRD §10.1's ladder cell said ₹1.89 from this repository's first commit until
-20 Aug 2026 and has been corrected TO this number, with the arithmetic shown there. Read
-"verified" off it: the MODEL rates are first-party, the ₹1.50 platform fee inside it is
-still pilot gate 12). **Both bands were re-derived at D-410 and both moved, because D-36 struck them
-against a ₹0.00 LLM leg and the leg is no longer free.** They carry the shipped default,
-`gpt-4o-mini` at ₹0.16/min on a five-minute call (TRD §10.1): D-36's ₹3.1–3.6 + ₹0.16 =
-3.26–3.76, and phase 2 is that less the ₹1.50 platform fee plus ₹0.15–0.30 compute. **TRD
-§10 owns that derivation and this line quotes it** — the two used to subtract independently
-and disagreed by 0.1–0.2 at both ends.
-D-400 would have added ₹0.36 and nobody updated this line at the time, so what D-410
-actually delivers here is **₹0.20/min back** — the line is now ₹0.16 above D-36 rather than
-₹0.36 above it. Flipping `azure_openai_model` to `gpt-4.1-mini` costs 2.67x that leg and
-puts the target at ≈ ₹3.5–4.0.
+Our own Pipecat conversation loop (`apps/voice-worker`, on Pipecat Cloud `ap-south`, D-592;
+`ENGINE` accepts `fake`, `cartesia` and `pipecat`, and Bolna was deleted by D-639) · Vobiz
+telephony behind a carrier switch (`CARRIER`, default `vobiz`, Plivo the fallback, D-662),
+Vobiz recording the call and our copy kept 90 days (D-668/D-670) · Sarvam Saaras for
+speech-to-text and the first extraction pass, which reads the raw transcript · text-to-speech
+chosen per agent: Cartesia Sonic 3.5 on the Studio rung, Gnani Timbre v2.5 on the Clear rung,
+not sellable until an operator attests its price (D-547/D-618/D-629) · language models on the
+`multi-provider-byok` posture — Azure OpenAI in East US 2, OpenAI direct and Google — with
+`gemini-2.5-flash-lite` the platform default and `agents/llm_models.offerable_models()` what a
+client may pick (D-410/D-449/D-456) · FastAPI + Next.js/TS · Postgres 16 + RLS + pgvector
+(`kb_chunks`, D-502 — an extension, not a deployable) · Redis/ARQ · first-party auth in two
+realms (D-165/D-170/D-177) · a Hostinger India VPS (D-25/D-180) · Sentry/OTel
+(LLM tracing is a named gap, D-49) · setup-fee + retainer + overage pricing plus the D-34
+prepaid self-serve tier. The per-minute cost model is TRD §10 and PIPECAT-MIGRATION §10;
+quote it from there rather than from a summary.
+
+Two claims this product does NOT make, because the code cannot back them: an India-resident
+data plane (the host is in India, but the R2 buckets are `apac`, the voice and model vendors
+process outside India, and DEPLOYMENT §0 says so; LEGAL-SURFACE F-1), and India residency for
+the language leg (D-449 withdrew it; the Azure region is attested in the portal, OPERATIONS
+§2 gates 20/20c). Speech is Sarvam, an
+Indian company whose privacy policy permits processing outside India and whose ToS s.17.5
+permits training on inputs absent a signed order form (VENDOR-PUBLISHED, read by the founder
+27 Aug 2026 and relayed; `/legal/subprocessors` §3.4 discloses it).

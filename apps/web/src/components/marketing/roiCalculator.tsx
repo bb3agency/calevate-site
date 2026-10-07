@@ -98,8 +98,8 @@ import {
   packRate,
   ratePaisePerMin,
   tierLabel,
-  UNPRICED_TIER,
-  UNPRICED_TIER_NOTICE,
+  voiceNotOffered,
+  voiceNotOfferedNotice,
   VOICE_TIERS,
   type PublicRateCard,
   type RateCardPack,
@@ -400,13 +400,13 @@ function voiceOptions(
       id: voice,
       label: `${tierLabel(card, voice)} voice — ${formatRateINR(rateFor(card, voice, LIST_RATE).rate)}/min`,
       caption:
-        // No agent can start on or be moved to this rung: hard rule 7 wants an operator's
-        // attested INVOICE figure and Gnani publish only a catalogue rate (D-631), which is
-        // not one. The RATE is real and stays on the label — it is frozen on any credit
-        // bought today — so what the caption has to say is that the voice is not on offer,
-        // and the notice is the one place that sentence is written.
-        voice === UNPRICED_TIER
-          ? UNPRICED_TIER_NOTICE
+        // No agent can start on or be moved to this rung on this deployment (the server's
+        // `voice_not_offered`: unpriced on our own voices, D-631; held back on an engine that
+        // sells only its Premium band, D-681). The RATE is real and stays on the label — it is
+        // frozen on any credit bought today — so what the caption has to say is that the
+        // voice is not on offer, and the notice is the one place that sentence is written.
+        voice === voiceNotOffered(card)
+          ? (voiceNotOfferedNotice(card) ?? "")
           : // Per-agent is the load-bearing half — it is why this calculator prices one
             // voice at a time — and the client sets it themselves: `PATCH /v1/agents/
             // {agent_id}/voice` is a client-realm door carrying `agents:write` for `owner`

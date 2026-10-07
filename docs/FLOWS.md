@@ -73,6 +73,9 @@ Trigger: Sri opens Admin → New Client. Draft state saved at every step (resume
    in the PE–TM chain, we accept it; DLT voice template content drafted by us and filed by
    them under their PE; series selected (140 promotional / 160-standard service). Blocked
    until Calevate's TM registration exists — wizard shows compliance status explicitly.
+   **Testing is the one exception (D-662):** the founder's own Vobiz account holds the test
+   numbers and pays Vobiz (Model A for that account only), recorded with provider `vobiz`.
+   Client traffic waits on Vobiz's written consent (OPERATIONS §2 gate V-10) and on gate 47.
 7. **Test-call sign-off [GATE]**: "Call me" button dials admin's phone with the draft
    agent; regression mini-suite (happy path + interruption + tool call + disclosure check)
    must pass; latency numbers recorded. Only then: Publish (staging → live promote).
@@ -214,61 +217,115 @@ D-124's mirror race is deleted rather than superseded; there is nothing left to 
 
 ## 3. Inbound Call Lifecycle
 
-caller dials client number → engine answers with agent →
-1. Disclosure line (AI + recording notice) plays first — always.
-2. T0 context already in prompt; conversation proceeds; tools available per agent:
-   `search_knowledge_base` (our RAG endpoint / engine KB in v1), `book_appointment`
-   (calendar), `transfer_call` (to client staff during business hours — NOT YET ENABLED,
-   see below), `add_to_dnc`, `end_call`.
-   **`transfer_call` is the one item on that list this system does not have today, and
-   "warm" was a claim nothing supported.** Bolna's built-in is real and its name matches
-   (`key: transfer_call`, an agent-level tool with a config-supplied destination — OAS
-   `TransferCallTools`/`TransferCallToolParams`), but **the vendor documents warm vs cold
-   nowhere**: no page in their mirrored doc set uses the words warm, cold, attended, blind
-   or consultative about a transfer, so whether the caller is held while staff are briefed
-   is unknown, not chosen. Three things must be settled before it is offered, and none is
-   a flag flip — OPERATIONS §2 gate 18, and `docs/evidence/bolna-tools-integrations.md`
-   for the evidence: (a) whether our AI-disclosure and recording obligations follow the
-   caller across the handoff, since the human who picks up is not covered by the sentence
-   the agent already spoke; (b) the transferred leg is a SEPARATE object with its own
-   `recording_url` and its own `cost` (`transfer_call_data`), so retention, DPDP erasure
-   and metering all need it and none of them reaches it today — `engine/bolna.py`
-   `_check_transfer_leg` pages if one ever appears; (c) whether the destination becomes
-   engine config per agent rather than one of our columns.
-3. Unknown/out-of-scope (T4): agent says it doesn't know, offers callback, tags call.
-4. voice-runtime receives interim events (call.started etc.) → creates calls row
-   (status in_progress) → live tile on dashboards.
-5. terminal-status webhook (Bolna: fires on status transitions; UNSIGNED — verify
-   source IP + dedupe per TRD §5) or poller detection → wait for/confirm `completed`
-   status (cost, recording_url and extracted_data are null before it, ~2–3 min
-   post-disconnect) → Get Execution fetch (transcript, recording URL, USD-cent cost
-   breakdown → INR conversion) → persist → enqueue post-call pipeline (TRD §8):
-   recording copy (runs FIRST regardless — engine URL longevity is not our system of
-   record) → redaction → extraction → lead upsert → metering → notifications.
-   Repeat-caller context: the engine's incoming-call webhook lets our response inject
-   caller context (name, prior interactions, lead fields) into the conversation — the
-   lookup must answer in well under their ~5s webhook budget.
+The owned runtime (D-592) on Vobiz (D-662). Three boxes take part: the carrier, voice-runtime
+on our VPS, and the voice worker on Pipecat Cloud `ap-south` (PIPECAT-MIGRATION §8).
+
+caller dials the client's number → the number's Vobiz Application fetches its answer URL →
+1. **Answer document** (`apps/voice-runtime/carrier_routes.py`). The URL names the agent
+   (`calevate_shared.carrier.answer_path`): the route is the URL, never the dialled number
+   (D-603). The request must come from Vobiz's published range, carry our `callback_key`
+   secret, and verify any signature it carries (D-673, SECURITY-COMPLIANCE §5). The reply
+   is XML: when the agent was published with `call_is_recorded`, a `<Record
+   recordSession="true" redirect="false" playBeep="false" finishOnKey="*">` first
+   (D-668/D-670), then a bidirectional `<Stream>` to `PIPECAT_STREAM_BASE_URL` with the
+   agent ref in the path and the caller's number SEALED on the query (D-649). No database
+   is read.
+2. **Session.** The worker reads `GET /v1/worker/session/{ref}` from the api, which serves
+   the published config, and refuses a closed, erased or pre-D-546 `churned` account's
+   agent with `worker_account_closed` (D-671); a suspended account still answers. Caller
+   memory, when the agent has it on, arrives from `POST /v1/worker/agents/{ref}/caller-memory`
+   (D-641).
+3. **Opening.** The worker speaks the published `opening_line` verbatim before the model's
+   greeting (D-654). A new agent volunteers neither the AI disclosure nor the recording
+   notice (both toggles default OFF since D-669), so it opens with the greeting only; a
+   client switches either on per agent (D-163). Whatever the toggles say, the agent answers
+   truthfully when a caller asks whether it is an AI or whether the call is recorded
+   (hard rule 5, `compose_engine_prompt`).
+4. **Conversation.** Tools the model may call: `search_knowledge_base` (the agent's
+   knowledge pack, held in the worker's memory, PIPECAT-MIGRATION §8.1),
+   `record_do_not_call`, `book_callback`, `cancel_callback`, `request_human_handoff` and
+   `end_call`. The four that write go to `/v1/worker/calls/{id}/tools/*` on the api, which
+   writes inside the request (D-650). A handover answers `not_available` unless
+   `carrier_transfer_enabled` is on (off by default, D-662); when on, Vobiz transfers the
+   caller to an Indian number on the agent's handover roster (SECURITY-COMPLIANCE §5).
+   Unknown or out-of-scope questions (T4): the agent says it does not know, offers a
+   call-back, and the call is tagged. The worker posts who is speaking for the live console
+   (D-656). Every sentence the model writes passes `PromptLeakGuard` before the voice
+   speaks it: an attempt to get the agent to reveal its instructions is declined by the
+   prompt's `CONFIDENTIALITY_RULE`, and a sentence that would reproduce them anyway is
+   replaced by one decline and the rest of that turn dropped (D-674).
+5. **After the hangup.** Transcript turns reach the api during the call in observation
+   batches (`/v1/worker/calls/{id}/observations`); after the pipeline drains, the worker
+   posts its settlement (`/v1/worker/calls/{id}/settlement`):
+   final status, carrier call id and per-leg metered quantities. The api writes the `calls` row,
+   prices the minutes from the published config (D-648) and puts ONE `post-call:{call_id}`
+   outbox row on the books, which runs the post-call pipeline (§6). Vobiz's hangup callback
+   reaches voice-runtime, is acked under 500 ms into the inbox, and
+   `workers/carrier_events.ingest_carrier_event` advances the call's status and queues the
+   CDR read, whose cost becomes OUR cost for the carrier leg as one compensating row
+   (`ux_usage_events_carrier_cdr`). The recording arrives separately: Vobiz's `RecordStop`
+   names its recording id, `workers/carrier_recordings.py` copies the audio into our
+   `recordings/` and sets `calls.recording_url`, fans out `call.recording_ready` to
+   endpoints opted into recording links (WEBHOOKS §1), and the 20-minute sweep deletes
+   Vobiz's copy a day after ours is stored (D-670). Our copy is kept 90 days
+   (`workers/retention.py`, seeded `recording` policy).
 6. SLO: lead + summary visible in client dashboard < 2 min after hangup.
 After-hours: agent runs 24/7 by default; "after_hours" flag set from business_hours →
 dashboard "after-hours captured" metric; escalation rules can differ after hours.
-Failure: engine down ⇒ number's fallback route = client's own phone (configured on the
-client's carrier account); our webhook down ⇒ **assume the event is LOST at the webhook layer**
-(this said "Bolna has no delivery retries — D-31" as a fact; it is not one. D-352 showed
-the OSS single-POST deliverer is a different program from the hosted one, their skills
-repo says the hosted platform retries on non-2xx, and their own hosted webhook page
-`bolna-findings/mirror/pages/guides/post-call/polling-call-status-webhooks.md` says
-**nothing at all** about retries, signing or guarantees — one uncorroborated source either
-way, so we design for loss and claim neither); the 10-min List-Executions reconciliation poller is the
-guarantee of record and recovers every missed event.
+Closed account: closing an account detaches every number from its agent at the carrier
+(`agents/lifecycle.release_account_numbers`) and the undo re-attaches them; the session
+refusal in step 2 is the backstop (D-671, §9).
+Failure: an answer the carrier cannot fetch or a worker that cannot start leaves the caller
+with whatever the carrier does on failure (OPERATIONS §2 V-series); a missed hangup callback
+does not leave the call open, because the worker's settlement carries its final status.
+
+### 3a. The same call on `ENGINE=thinnest` (D-678, D-682)
+
+ThinnestAI hosts the agent and the call (`docs/THINNEST-INTEGRATION.md`), so voice-runtime
+answers nothing and no worker of ours is on the line. The number is ThinnestAI's own, rented
+and pointed at the agent in their console (Vobiz is never used on this engine).
+
+caller dials the client's number → ThinnestAI answers with the published agent →
+1. **Opening.** The agent's `greeting` is our opening line, verbatim (D-669); the
+   instructions are `compose_engine_prompt`'s, with the business facts moved into one
+   knowledge document (founder, 6 Oct 2026). The truthful-answer floor and
+   `CONFIDENTIALITY_RULE` are in the prompt and were read back at publish; there is no
+   output guard on this engine (SECURITY-COMPLIANCE §6.1 item 4).
+2. **Conversation.** The agent's in-call actions (opt-out, call-back, call-back cancel,
+   hand-over request) are ThinnestAI custom actions calling the api at
+   `ENGINE_ACTIONS_BASE_URL` with the agent's own secret header; they reuse the same service
+   functions the Pipecat worker's tools call. There is no live transfer: a hand-over is
+   recorded for the client, not bridged.
+3. **After the hangup.** ThinnestAI posts signed `call.completed` and `call.analysed` to
+   voice-runtime `/hooks/v1/engine/thinnest`, which verifies the HMAC against the agent's
+   sealed secret, dedupes in the inbox, acks under 500 ms and queues the sealed body for
+   the worker (hard rule 3). The worker writes the call row, the transcript (redacted as
+   on every engine), runs our extraction, CRM and leads, meters the minutes at the
+   operator-attested rate in 30-second pulses (hard rule 7), debits the wallet at the
+   client rung the publish stamped (Clear, D-681), copies the recording into our
+   `recordings/` (kept 90 days) and fans out the client webhooks, `call.recording_ready`
+   included.
+4. **Reconciliation.** ThinnestAI attempts each delivery once and switches an endpoint off
+   after five failures, so a sweep settles any call from their call list that we have not,
+   and another switches a disabled endpoint back on with an alarm.
 
 ## 4. Instant Lead Callback (Webhook-in → Outbound)
 
 Trigger: Meta Lead Ads / website form / Sheets/Zoho webhook hits our per-client ingest URL.
 1. Verify per-endpoint secret; validate mapping → create leads row (source=webhook).
 2. Compliance pre-checks: DNC scrub, calling hours, caps, consent provenance flag on the
-   form (form must state a call will be made).
-3. Adapter start_outbound_call with CallContext {lead name, form fields} → agent opens
-   with context ("you enquired about…").
+   form (form must state a call will be made). A lead refused only for the clock —
+   `calling_hours`, `platform_maintenance` or `big_red_switch` (`ingest.WINDOW_REFUSALS`)
+   — is kept and its call booked as a `scheduled_callbacks` row: the next 09:00 IST, the
+   maintenance window's announced end, or one `callbacks.service.RETRY_AFTER` re-check under
+   the halt (D-666). The call-back goes through the gate again when it fires; a
+   person-level refusal (DNC, consent) books nothing. The ingest answer carries
+   `callback_at`.
+3. Dial through `agents.service.dispatch_call`, the one dial path: paced to `carrier_cps`,
+   then, under one advisory lock in the intent transaction, refused with
+   `carrier_lines_busy` if the carrier's outbound pool is full (`carrier_lines_in_use()`,
+   D-663), and refused with `number_not_on_carrier` if the caller ID is not on the active
+   carrier. The agent opens with the lead's context ("you enquired about…").
 4. Speed-to-lead metric recorded (form_ts → dial_ts; target < 60s).
 5. No-answer → retry policy (respecting hours) → after exhaustion: WhatsApp/SMS follow-up
    template + needs_follow_up lead status.
@@ -312,54 +369,28 @@ Three rules, all of them consequences of things stated elsewhere in this documen
   for, so a schedule shape a future build writes cannot be fired once and look finished.
   The gate runs at every occurrence, through the same `launch_campaign`.
 
-**Concurrency reservation (our dispatcher — the platform has no native reserved-inbound
-feature):** the platform account's line pool is shared across ALL tenants, so one client's
-campaign must never starve another's inbound receptionist. ⚠ **THE VENDOR'S DOCS SAY THE
-SECOND HALF OF THAT SENTENCE CANNOT HAPPEN, AND WE ARE NOT ACTING ON PROSE.** The
-"no native reserved-inbound feature" half is confirmed — no such setting exists anywhere
-in `bolna-findings/mirror/`. But the org envelope is scoped to *outbound*
-(`enterprise/concurrency-management.md:33`) and two pages say inbound is never admitted
-against it: *"Inbound calls are never queued"* (`:65`) and *"**No concurrency limits** -
-inbound calls are never restricted or queued"*
-(`pricing/outbound-calling-concurrency.md:26-28`). If that survives contact with a
-saturated media plane, `inbound_reserve` costs us 4 of 10 lines for nothing and the
-outbound pool goes 6 → 10, a 67% throughput gain **free**. It is exactly the class of
-vendor claim D-31/D-32/D-350 exist for — a statement about admission control — so it is
-an OBSERVATION TO MAKE at pilot gate 13 (hold N outbound calls at the ceiling, place an
-inbound call to a platform number, see whether it connects), not a change to make from a
-page. Two more facts from the same pages that our dispatcher does not model: surplus
-outbound work is **queued, not rejected** (`pricing/outbound-calling-concurrency.md:41`) —
-so an over-high `platform_lines_total` is a COMPLIANCE defect, not a throughput one, because
-the surplus dials out of a vendor queue we cannot see or DNC-scrub after `check_dispatch`
-has already cleared it; and *"An account's capacity is split evenly across its providers"*
-(`enterprise/concurrency-management.md:73`), so the moment we dial through both Plivo and
-Vobiz with work waiting on each, our effective ceiling on each is HALF the pool. The
-dispatcher has no notion of a provider. Both are gate 13.
-The dispatcher enforces, in
-order: (1) `platform_lines_total` (from verification item 8, config value — **and the
-vendor publishes this number on a read endpoint, `GET /user/me` →
-`concurrency: {max, current}`, `api-reference/user/info.md:78-87`, so it should be READ
-rather than typed: the paid tier "scal[es] automatically with monthly usage",
-`pricing/outbound-calling-concurrency.md:19`, i.e. a correct constant decays without a
-deploy**); (2)
-`inbound_reserve` (default 30% of pool, min 4 lines) — outbound dispatch may only use
-`total − reserve`; (3) per-tenant `concurrency_ceiling` (plan field, default ≤ 10);
-(4) per-campaign concurrency slider ≤ tenant ceiling; (5) the platform's outbound
-call-creation rate limit — **published, and this line used to say it was not**: `POST
-/call` is **500 requests/minute**, counted per ORGANIZATION and shared across every user
-in it, with a 429 on breach (`bolna-findings/mirror/pages/api-reference/rate-limiting.md:18-27`);
-what remains unpublished is dispatch PACING, which is a different quantity (the limit
-bounds our request rate, not how fast the platform dials) — the dispatch loop paces dial
-requests across ALL tenants to stay under whatever the documented/measured limit is. Dispatch loop: before each dial, check active-call count from live engine
-events against (2)+(3); over-limit contacts stay queued — and that genuinely does mirror
-platform behaviour: *"Outbound calls that don't fit your concurrency limit are **queued,
-not rejected**"* (`pricing/outbound-calling-concurrency.md:41`). Also respect the secondary
-ceilings: Sarvam BYOK-tier model concurrency and the Azure TPM/RPM quota in `eastus2`
-— the dispatcher's effective pool is MIN of those with (1) (config values, reviewed when
-any vendor plan changes). **"SIP trunk channels" was the third term here and it is
-removed**: we run no trunk, and a BYOT trunk would not add an independent ceiling anyway —
-*"those calls run on Bolna's SIP infrastructure, so they share platform capacity even
-though the trunk is yours"* (`enterprise/concurrency-management.md:80`).
+**Concurrency reservation (our dispatcher).** The carrier account's lines are shared by
+every tenant, inbound and outbound together, so one client's campaign must never starve
+another's inbound receptionist. Vobiz refuses a dial over the account's concurrent-call
+limit with `429` and turns an inbound caller away with SIP 503
+(`vobiz-findings/mirror/pages/call/make-call.md:134`), so the reserve is ours to hold
+(D-663). `apps/workers/campaign_dispatch.py` budgets, in order: (1)
+`Settings.carrier_concurrency`, the account's lines (default 3, the founder's account as
+read in the Vobiz console on 2 Oct 2026; OPERATIONS §2 gate V-5); (2) minus the inbound
+reserve, `max(1, ceil(lines × inbound_reserve_ratio))`, never zero — at the defaults one
+line for callers and an outbound pool of two (`engine/carrier_pacing.outbound_line_pool`);
+(3) the tenant's plan `concurrency_ceiling`, clamped to that pool; (4) the campaign's
+slider, at most the tenant ceiling. That is the BUDGET. The ENFORCEMENT is inside every
+dial's intent transaction (`agents.service.dispatch_call`): dials are paced to
+`carrier_cps` (default 1), then one advisory lock counts the calls holding a line on the
+carrier in both directions (`carrier_lines_in_use()`) and refuses with
+`carrier_lines_busy` before the INSERT. That covers the dials the tick does not make (the
+"call this lead" button, lead ingest, call-backs). The call row's status is the hold, so
+nothing has to release a line; a Redis counting semaphore was rejected because a lost
+release leaks a line until a TTL. Only a `429` on call create is retried, and an unknown
+dial outcome never is, because Vobiz documents no idempotency key (D-662). Secondary
+ceilings — Sarvam STT concurrency and the LLM provider's rate limits — are not modelled by
+the dispatcher.
 
 ## 6. Post-Call Pipeline (worker jobs, keyed by call_id, idempotent)
 
@@ -367,6 +398,10 @@ fetch_recording → redact_transcript → extract(schema) → upsert_lead(+repea
 phone match) → meter_usage(write unit rows + update spend_state) → notify(hot-lead rules:
 e.g., status hot OR urgency=emergency ⇒ WhatsApp+email to owner within 2 min) →
 resolve_campaign_contact → outbound_sync(call.completed via the outbox, D-23).
+On the owned runtime the pipeline never fetches the recording itself: the carrier reports it
+after the hangup, `workers/carrier_recordings` copies it (§3 step 5), and the pipeline's
+copy stage reads `calls.recording_url` as already copied (`engine/pipecat.py`,
+`get_execution`).
 `embed_if_resolved(call corpus)` is M3, NOT in the shipped pipeline
 (`apps/workers/pipeline.py` stops at outbound sync).
 Retry budget: **3 attempts** — one number, `WORKER_MAX_TRIES` in
@@ -476,7 +511,10 @@ overage estimate; admin sees cost + margin). Month close: invoice draft (retaine
 overage + one-time lines) → bill of supply, no GST while unregistered (D-659) → send
 (manual v1, Razorpay link) → paid/overdue states →
 overdue ⇒ dunning emails; 15 days ⇒ soft-suspend outbound (inbound stays up); caps always
-independent of billing status.
+independent of billing status. A client-bought number's rental is a "Phone number rental"
+line at the price frozen at purchase, one per number and period, written to
+`one_time_charges` by the purchase and the daily renewal job (D-665); there is no monthly
+invoice job, because invoices are derived on read.
 
 This is the MANAGED motion. Prepaid credit — packs, lots, per-lot rates and the FIFO debit
 — is §11, and no account is on both.
@@ -520,6 +558,12 @@ ported per client wish.
   stated in the certificate rather than hidden: the append-only ledgers, DNC entries, the
   knowledge base, the client's own users and memberships, and engine-side copies
   (`compliance/tenant_erasure.TENANT_ERASURE_LIMITATIONS`).
+- **The carrier is reached by a task, and its recordings by a call** (D-664/D-668). Both
+  erasures open a `telephony` processor-erasure task quoting `calls.carrier_call_id` and
+  any carrier recording ids, because Vobiz's call records are erased by written request;
+  the recordings themselves are deleted through Vobiz's recording DELETE. Refs minted by
+  our own runtime (`pipecat:<tenant>:<id>`) name rows the erasure already reached and are
+  left out of vendor tasks.
 
 ## 10. Number Provisioning & DLT Roles (reference)
 
@@ -532,7 +576,7 @@ on 140-series. Both were read off this page and taken as current, which is exact
 of a stale blueprint. What the sentence used to carry: that the three providers were
 "connected to the engine", with Bolna's own guides verified for each and Vobiz inbound only
 ASSERTED in their capability matrix. **D-592 removed Bolna**, so there is no engine to
-connect a number to — the worker is ours and the carrier is reached directly.
+connect a number to — the worker is ours and the carrier (Vobiz, D-662) is reached directly.
 
 **READ `docs/evidence/dlt-roles-and-operating-model-2026-09-18.md` BEFORE THIS SECTION.** It
 carries the three models (A closed by UL-VNO licence text, BYON with no documented path,
@@ -542,12 +586,16 @@ which decides whether a ₹5,900 registration is spent at all.
 
 **CALEVATE DOES NOT BUY, SELL, RENT, ALLOCATE OR PORT A NUMBER — MODEL B**
 (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §9). The client's entity is on the CAF and the carrier
-KYC, the client is the subscriber of record and the PE on DLT, we are the TM, and Bolna
-uses the client's own API credentials. Model A — a pool of numbers in our name, allocated
+KYC, the client is the subscriber of record and the PE on DLT, and we are the TM. The
+client keeps its own carrier credentials. Model A — a pool of numbers in our name, allocated
 to clients — reads as unlicensed telecom resale (UL-VNO is a licensed category) and is
 refused outright for a proprietor with no corporate veil (`:249`). A client who asks us to
 "just give them a number" is sent to Exotel/Plivo/Vobiz or lost as a deal (`:266`), and
-opening a Calevate carrier account to park client traffic on is stop-list item 10.
+opening a Calevate carrier account to park client traffic on is stop-list item 10. The
+founder's own Vobiz account (D-662) is a TESTING account carrying the founder's own calls
+only; client traffic on it waits on Vobiz's written consent (OPERATIONS §2 gate V-10), and
+the client number browse/buy path (`campaigns/number_catalog.py`, D-537, whose rental D-665
+collects) refuses every purchase while `number_resale_authorization` is unset (gate 47).
 
 **And "provisioned via API" was never true of the regulated series anyway.** The 140- and
 160-series numbers outbound campaigns run on have **no provisioning endpoint at all** —
@@ -559,9 +607,11 @@ compliance address, carrier allocation, then header and template approval.
 read: *"the carrier is not a preference either — it is fixed by the series, in the vendor's
 own table: 140-series → Vobiz, 160-series → Plivo"*, sourced from
 `bolna-findings/mirror/pages/guides/inbound/obtaining-regulated-phone-numbers.md`. That was
-a fact about which carriers BOLNA could buy each series through. **We never had a Vobiz
-relationship — Bolna did, and we rented Bolna** (D-592 removed it). TRD §5 carries the same
-split and `campaigns/provisioning.KNOWN_PROVIDERS` still names them.
+a fact about which carriers BOLNA could buy each series through, and Bolna is gone
+(D-639). Our own Vobiz account (D-662) carries test calls on whatever series its numbers
+are; which series a client's outbound numbers need is decided by TRAI's classification,
+not by a carrier table. `campaigns/provisioning.KNOWN_PROVIDERS` still names three
+carriers.
 
 Two corrections that followed from reading TRAI's own text rather than the vendor's table:
 **1600xx is restricted to RBI/SEBI/IRDAI/PFRDA-regulated entities and government** (TRAI
@@ -736,14 +786,21 @@ client is never quietly given ₹2,000 of cheap minutes to pay off a ₹300 hole
   never idempotent by itself; the ledger row is what makes it so.
 - Rate card changed mid-month: closed months and open lots are both untouched by
   construction (D-492). Nothing re-prices.
-- **A Cartesia agent cannot be published today, deliberately and loudly.** The Cartesia
-  `provider_config` field names on the engine's `POST /v2/agent` are **UNKNOWN** — absent
-  from the pinned vendor mirror — so a Cartesia publish fails with `engine_rejected` rather
-  than sending a guess (OPERATIONS §2 gate 52). The **Telugu voice ids are also UNKNOWN**
-  (the vendor's library is behind a login), so the Cartesia half of the voice catalogue
-  ships empty until they are read. Until the key is installed and a Cartesia price is
-  attested, the picker marks every Cartesia voice unavailable with its named reason —
-  the rule `offerable_models()` already applies to an LLM.
+- **A voice is sold only on an attested price.** On the owned runtime the worker calls
+  Cartesia and Gnani directly (PIPECAT-MIGRATION §5), so OPERATIONS §2 gate 52 — the
+  rented engine's wire shape for a Cartesia agent — went with Bolna (D-639). What still
+  holds a voice back is `agents/voice_offer.tts_price_is_billable`: until the vendor's key
+  is installed and an operator attests its price, the picker marks the voice unavailable
+  with its named reason — the rule `offerable_models()` already applies to an LLM.
+- **A refunded pack takes its bonus back** (D-672): `payments.credit_refund` writes, in the
+  refund's transaction, a negative `bonus` row sized so that partial refunds summing to the
+  payment take back exactly the bonus, and it may take the balance below zero. Moot for a
+  pack bought today: every catalogue pack has `bonus_pct = 0` since D-547.
+- **A client-bought number's rental is a wallet debit** (D-665): on the day the number is
+  recorded and on each monthly renewal date (`workers/number_rental.renew_number_rentals`),
+  at the price frozen at purchase, as its own "Phone number rental" line. A renewal the
+  wallet cannot cover still lands as overdraft; an invoiced account gets an invoice line
+  instead (§8); a closed account and a period that begins inside a trial are not charged.
 
 Owner surfaces: client — `/c/<slug>/billing` (top-up, wallet, lots, transactions);
 admin — `/admin/tenants/<id>/credits` (grants, restatements, the audited "sell this lot at

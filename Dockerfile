@@ -25,10 +25,15 @@
 
 # syntax=docker/dockerfile:1
 
-ARG PYTHON_VERSION=3.12-slim-bookworm
+# Pinned by digest for the same reason as the uv image below (D-188, hard rule 9): a tag
+# can be moved under us. The digest is the multi-arch index of `python:3.12-slim-bookworm`
+# (`docker buildx imagetools inspect`, 4 Oct 2026). Base-image security fixes therefore
+# arrive as Dependabot pull requests (the `docker` block in .github/dependabot.yml), not
+# silently on the next build. Written out in both FROM lines rather than through an ARG,
+# because Dependabot updates literal image references.
 
 # --- build ---------------------------------------------------------------------
-FROM python:${PYTHON_VERSION} AS builder
+FROM python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3 AS builder
 
 # PINNED, and pinned to the version this repo's uv.lock was written by (`uv --version`
 # on the dev host, Aug 2026). A floating `:latest` here would be a supply-chain hole AND
@@ -143,7 +148,7 @@ COPY .env.example .env.example
 COPY runbooks runbooks
 
 # --- runtime -------------------------------------------------------------------
-FROM python:${PYTHON_VERSION} AS runtime
+FROM python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3 AS runtime
 
 # curl is here for ONE reason: the compose healthcheck. Without an in-image HTTP client
 # the healthcheck has to be a python one-liner that imports httpx and pays an interpreter

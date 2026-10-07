@@ -202,6 +202,15 @@ in **Overview**, above the fold, so §8 rule 7 still holds: they are never behin
 switch. The same layout may be used by any screen whose parts are settings an owner
 visits one at a time rather than reads in sequence.
 
+**D-661 applies it to the admin console.** Every client's admin pages share one header
+(name, status, one primary action) and a grouped section menu — Overview, Agents, Numbers,
+Money, Compliance, People, Settings, Activity — defined once in the tenant `layout.tsx`;
+ops config is one short section per subject, each with its own save. A Ctrl/Cmd+K palette
+searches clients and pages using existing list endpoints only. Admin copy follows D-657,
+except that warnings on risky actions (money adjustments, kill switches, closures, global
+DNC, voice enablement, maintenance, view-as) stay visible and verbatim, and every
+destructive action keeps its confirm step.
+
 **Copy (D-657).** Explanatory copy may be rewritten shorter, and should be: one line that
 names the job, with the reasoning behind an ⓘ. Sentences that carry a legal or compliance
 obligation, and every server-owned wording, are not rewritten. They keep their words and

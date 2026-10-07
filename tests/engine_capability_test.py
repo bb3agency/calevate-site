@@ -502,8 +502,11 @@ def test_every_engine_in_the_webhook_auth_table_is_an_engine_we_ship() -> None:
         # answering every webhook `unknown engine`.
         "pipecat",
         "cartesia",
+        # D-678: the ThinnestAI control-plane adapter, which signs its deliveries.
+        "thinnest",
     }
     assert set(WEBHOOK_AUTH_BY_ENGINE) == shipped
+    assert WEBHOOK_AUTH_BY_ENGINE["thinnest"] == "hmac"
     assert WEBHOOK_AUTH_BY_ENGINE["cartesia"] == "hmac"
 
 

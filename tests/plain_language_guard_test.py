@@ -363,9 +363,9 @@ _UNSWEPT: dict[str, int] = {
     "apps/api/engine/fake.py": 5,
     "apps/api/engine/vendor_http.py": 2,
     # NOT a person on the other end: the voice engine POSTs these webhooks and an ARQ job
-    # reads these. "Payload too large" to the engine is the accurate word. Listed rather
+    # reads these, so the request-body wording is accurate for them. Listed rather
     # than exempted, because the day one of these reaches a screen it should be counted.
-    "apps/voice-runtime/webhook_routes.py": 4,
+    "apps/voice-runtime/webhook_routes.py": 3,
     "apps/workers/pipeline.py": 2,
     # Two audiences in one mapping: `_ASSIST_REMEDIATION` is keyed by (audience, reason)
     # and the OPERATOR half is deliberately technical — it names the module that owns the

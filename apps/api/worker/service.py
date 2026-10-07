@@ -56,6 +56,7 @@ from calevate_shared.engine import (
     CallLatency,
     ModelConfig,
     call_of_pipecat_ref,
+    carries_confidentiality_rule,
     carries_truthful_answer_floor,
     owned_runtime_agent_ref,
     parse_owned_runtime_agent_ref,
@@ -532,6 +533,15 @@ async def load_session(engine_agent_ref: str) -> WorkerSessionOut:
             extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id)},
         )
         raise _refuse_undisclosed_agent()
+    if not carries_confidentiality_rule(composed_prompt):
+        # D-674. Same reasoning as the floor above: `mint_config_version` refuses such a
+        # version, so one only exists if it was written some other way, and no call runs
+        # on a prompt a caller could talk the agent into reciting.
+        log.error(
+            "worker_session_refused_unguarded",
+            extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id)},
+        )
+        raise _refuse_unguarded_agent()
     published = AgentConfig.model_validate(resolved_config)
     models = ModelConfig.model_validate(model_config)
     log.info(
@@ -627,6 +637,18 @@ def _refuse_undisclosed_agent() -> ProblemError:
         (
             "This agent's published configuration does not carry its AI disclosure or the "
             "truthful-answer rule, so no call may run on it."
+        ),
+        remediation="Republish the agent from the console; the publish recomposes the prompt.",
+    )
+
+
+def _refuse_unguarded_agent() -> ProblemError:
+    """409 for an agent whose published prompt lacks the confidentiality rule (D-674)."""
+    return ProblemError.conflict(
+        "worker_agent_prompt_unguarded",
+        (
+            "This agent's published configuration does not carry the rule that keeps its "
+            "instructions private, so no call may run on it."
         ),
         remediation="Republish the agent from the console; the publish recomposes the prompt.",
     )

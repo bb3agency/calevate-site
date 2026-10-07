@@ -17,12 +17,12 @@ import { ModelPicker, type ModelChoice } from "@/components/llmModelPicker";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { compareRates } from "@/lib/llmRates";
 import {
-  inForceSurcharge,
-  modelOption,
-  platformDefaultOption,
-  unavailableReason,
+  platformDefaultTier,
+  tierOption,
+  tierUnavailableReason,
   useSetOrganizationLlmDefault,
-  type OrganizationLlmDefaults,
+  type ClientLlmDefaults,
+  type LlmTier,
 } from "@/lib/api/llmModels";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 
@@ -32,130 +32,63 @@ import { useClientRealm, useClientSession } from "@/lib/api/session";
  * Takes the payload rather than the query envelope for `AgentDetail`'s reason: every
  * sentence below is a claim about this client's account, and a component that cannot see
  * `undefined` cannot make one out of it.
+ *
+ * Every row is a TIER (D-680). Which model answers each one is Calevate's and is not on the
+ * wire, so nothing here can name a model or the company behind it (D-679).
  */
 export function OrganizationDefault({
   defaults,
   slug,
 }: {
-  defaults: OrganizationLlmDefaults;
+  defaults: ClientLlmDefaults;
   slug: string;
 }) {
   const { href } = useClientRealm();
   const session = useClientSession();
   const save = useSetOrganizationLlmDefault(session);
-  // Transient confirmation of the write: no-op-safe when no ToastProvider is mounted
-  // (the client realm layout mounts one), and additive to the "In force now" panel that
-  // refetches — the panel proves the new state, the toast acknowledges the click.
+  // Transient confirmation of the write; the "In force now" panel that refetches is what
+  // proves the new state.
   const { toast } = useToast();
   /**
    * `org:manage` — the owner's own permission, the one that already governs the account's
-   * settings and its spending limit. NOT `agents:write`, which is admin-only and which
-   * neither client role holds: gating this on it would disable it for the owner it was
-   * built for.
-   *
-   * ⚠ THIS SAID "the one no admin or impersonating session holds against a tenant (D-22)"
-   * AND D-587 REVERSED IT — the founder's stated want, which the test for this screen used
-   * to record as a flagged gap: an operator in view-as now holds `org:manage`, no named act
-   * covers the model choice, and the change is attributed to them. Nothing here had to
-   * change for that; the gate reads the server's EFFECTIVE permission set, which is
-   * precisely why the carve-out landed without touching this file.
+   * settings and its spending limit. An operator in view-as holds it too (D-587).
    */
   const write = useWriteAccess(session, "org:manage", "change which AI model your agents use");
 
   /**
-   * The choice, WRAPPED, because `null` is a real value here.
-   *
-   * "Nothing picked yet" and "picked: use Calevate's default" are different states and
-   * both are spelled `null` on the wire, so a bare `string | null` state could not tell
-   * them apart — the form would either think a fresh screen had already been edited or
-   * would refuse to let anyone choose the inherit row.
+   * The choice, WRAPPED, because `null` is a real value here: "nothing picked yet" and
+   * "picked: use Calevate's default" are both spelled `null` on the wire.
    */
-  const [picked, setPicked] = useState<{ model: string | null } | null>(null);
-  const selected = picked ? picked.model : defaults.default_llm_model;
-  const changed = selected !== defaults.default_llm_model;
+  const [picked, setPicked] = useState<{ tier: LlmTier | null } | null>(null);
+  const selected = picked ? picked.tier : defaults.default_llm_tier;
+  const changed = selected !== defaults.default_llm_tier;
 
-  const platformDefault = platformDefaultOption(defaults.available);
-  /*
-   * IS THE MODEL IN FORCE ONE THIS PLATFORM CAN ACTUALLY RUN RIGHT NOW?
-   *
-   * A real state and not a defensive one: the platform default is a live setting and its
-   * leg's credential and price are live properties of the deployment (server-side,
-   * `agents/llm_models.offerable_models()`), so a default can be named on this screen
-   * before the key that runs it is installed. When that happens the inherit row's
-   * "Today that is X" and the panel's "In force now: X" are both TRUE about which model we
-   * intend and FALSE about which one answers the call — the account falls back to our
-   * standard model until the leg is switched on. Saying so is the whole point of this
-   * screen; the alternative is a client reading a model name their calls are not running.
-   */
-  const inForceOption = modelOption(defaults.available, defaults.effective_default);
-  const inForceBlocked = inForceOption ? unavailableReason(inForceOption) !== null : false;
-  // WHAT THE MODEL IN FORCE ACTUALLY ADDS, which is not the same as what its catalogue
-  // row would cost to choose: an account following the platform default is never
-  // surcharged (`lib/api/llmModels.ts::inForceSurcharge` holds the rule once).
-  const inForceSurchargeInr = inForceSurcharge(defaults);
-
-  /**
-   * A model this account is PINNED to that the catalogue no longer offers.
-   *
-   * A real state — a model is withdrawn while somebody is on it — and dropping the row
-   * would leave the picker with nothing selected and no way to see what the account is
-   * actually running. So it is offered as its own option, priced `—` because the
-   * catalogue cannot price it, and moving OFF it is one click. `AgentIdentity` keeps a
-   * retired language on screen for the same reason: opening a settings screen must never
-   * silently change the setting.
-   */
-  const retired =
-    defaults.default_llm_model !== null && modelOption(defaults.available, defaults.default_llm_model) === undefined
-      ? defaults.default_llm_model
-      : null;
+  const platformDefault = platformDefaultTier(defaults.available);
+  const inForceSurchargeInr = defaults.in_force_surcharge_inr_per_minute;
 
   const choices: ModelChoice[] = [
-    ...(retired === null
-      ? []
-      : [
-          {
-            value: retired,
-            label: retired,
-            detail: "We no longer offer this model, so we cannot show what it costs.",
-            surcharge: null,
-            badge: "in use",
-            baseline: true,
-          } satisfies ModelChoice,
-        ]),
     {
       value: null,
       label: "Use the Calevate default",
       detail: !platformDefault
-        ? "Whatever model we run by default, including after we change it."
-        : unavailableReason(platformDefault) !== null
-          ? `Today that is ${platformDefault.model}, and it is not switched on for your account yet — your agents run our standard model until it is.`
-          : `Today that is ${platformDefault.model}. If we change it, your agents follow.`,
-      // FOLLOWING THE PLATFORM DEFAULT IS NEVER SURCHARGED, whatever model it resolves
-      // to today or tomorrow: a surcharge is the price of an upgrade the client asked
-      // for, and this row is the client asking for nothing (the server's own rule —
-      // `rates.CLIENT_CHOSEN_LLM_SOURCES` excludes `platform`). So `"0"` here rather
-      // than the resolved model's row, which would quote a charge the meter will not
-      // apply.
+        ? "Whatever tier we run by default, including after we change it."
+        : tierUnavailableReason(platformDefault) !== null
+          ? `Today that is ${platformDefault.label}, and it is not switched on for your account yet — your agents run our standard model until it is.`
+          : `Today that is ${platformDefault.label}. If we change it, your agents follow.`,
       surcharge: "0",
-      badge: defaults.default_llm_model === null ? "in use" : undefined,
-      baseline: defaults.default_llm_model === null,
+      badge: defaults.default_llm_tier === null ? "in use" : undefined,
+      baseline: defaults.default_llm_tier === null,
     },
     ...defaults.available.map<ModelChoice>((option) => ({
-      value: option.model,
-      label: option.model,
-      // The provider is the GROUP heading now (D-456), so the row's own note carries only
-      // what is specific to this model — nothing, unless it is the one we run by default.
-      provider: option.provider,
-      detail: option.is_platform_default ? "The model we run by default" : "",
+      value: option.tier,
+      label: option.label,
+      detail: option.is_platform_default
+        ? `${option.description} The tier we run by default.`
+        : option.description,
       surcharge: option.client_surcharge_inr_per_minute,
-      badge: defaults.default_llm_model === option.model ? "in use" : undefined,
-      baseline:
-        defaults.default_llm_model !== null && defaults.effective_default === option.model,
-      // SHOWN, PRICED AND NOT SELECTABLE. `PUT` refuses a model this platform has no
-      // deployment for (`llm_model_not_deployed`), so offering the row would price a
-      // choice and then answer it with a 422 — the one thing a picker built around a
-      // price must not do. `unavailableReason` is the single reading of `is_available`.
-      unavailable: unavailableReason(option),
+      badge: defaults.default_llm_tier === option.tier ? "in use" : undefined,
+      baseline: defaults.default_llm_tier === option.tier,
+      unavailable: tierUnavailableReason(option),
     })),
   ];
 
@@ -168,7 +101,7 @@ export function OrganizationDefault({
           event.preventDefault();
           if (!changed) return;
           save.mutate(
-            { default_llm_model: selected },
+            { default_llm_tier: selected },
             { onSuccess: () => toast({ tone: "success", title: "AI model saved" }) },
           );
         }}
@@ -176,30 +109,26 @@ export function OrganizationDefault({
         <div className="border-y border-line py-3.5">
           <p className="flex items-center gap-1.5 text-[15px] font-semibold text-ink">
             <BrainCircuit aria-hidden className="h-4 w-4 shrink-0 text-ink-faint" />
-            {`In force now: ${defaults.effective_default}`}
+            {`In force now: ${defaults.effective_tier_label}`}
           </p>
           <p className="mt-0.5 text-[13px] text-ink-muted">
-            {defaults.default_llm_model === null
-              ? "You have not picked a model, so your agents run on the one Calevate uses by default."
-              : "You picked this model for your account."}
-            {inForceSurchargeInr !== null ? (
-              compareRates(inForceSurchargeInr, "0") === "same" ? (
-                <> It adds nothing to what you are charged for a minute.</>
-              ) : (
-                <>
-                  {" "}
-                  It adds {formatRupeeRate(inForceSurchargeInr)} to every minute you are
-                  charged for.
-                </>
-              )
+            {defaults.default_llm_tier === null
+              ? "You have not picked a tier, so your agents run on the one Calevate uses by default."
+              : "You picked this tier for your account."}
+            {compareRates(inForceSurchargeInr, "0") === "same" ? (
+              <> It adds nothing to what you are charged for a minute.</>
             ) : (
-              <> We cannot show its price from here; your account manager can.</>
+              <>
+                {" "}
+                It adds {formatRupeeRate(inForceSurchargeInr)} to every minute you are
+                charged for.
+              </>
             )}
           </p>
         </div>
-        {/* The model named above is the one we INTEND to run; this says when it is not the
+        {/* The tier named above is the one we INTEND to run; this says when it is not the
             one answering yet. A warning, not help text: it changes what a call runs on. */}
-        {inForceBlocked && (
+        {!defaults.effective_is_available && (
           <p className="rounded-lg border border-warn-line bg-warn-soft px-3 py-2 text-sm text-ink">
             It is not switched on for your account yet, so your calls run our standard model
             until it is — ask your Calevate team to enable it.
@@ -213,12 +142,14 @@ export function OrganizationDefault({
         <ModelPicker
           name="organization-llm-default"
           legend="Model for all your agents"
-          hint="Figures are what a model adds to every minute you are charged for."
+          hint="Figures are what a tier adds to every minute you are charged for."
           choices={choices}
           value={selected}
           baselineSurcharge={inForceSurchargeInr}
           disabled={!write.allowed || save.isPending}
-          onChange={(next) => setPicked({ model: next })}
+          // Narrowed through the server's own rows rather than asserted: a value the list
+          // does not carry is the inherit row.
+          onChange={(next) => setPicked({ tier: tierOption(defaults.available, next)?.tier ?? null })}
           audience="client"
         />
 
@@ -243,7 +174,7 @@ export function OrganizationDefault({
 
       <Disclosure
         title="How the model is billed"
-        subtitle="A model's figure is added to your plan's per-minute rate, as its own line on your statement."
+        subtitle="A tier's figure is added to your plan's per-minute rate, as its own line on your statement."
       >
         <ul className="space-y-2 text-sm text-ink-muted">
           <li className="flex gap-2">
@@ -253,20 +184,13 @@ export function OrganizationDefault({
           </li>
           <li className="flex gap-2">
             <IndianRupee aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
-            {/* A SURCHARGE, not a replacement rate, and the sentence says so: your plan's
-                per-minute rate is unchanged and this is added to it. That is the whole
-                shape of `plans.llm_model_surcharge`, and a client who reads it as "the new
-                price of a minute" would expect the wrong number on their statement. */}
-            {/* The <li> is a FLEX CONTAINER, so it gets exactly two children: the icon and
-                one span holding the whole sentence. Left loose, each text node and the
-                <Link> were separate flex ITEMS — the link was laid out as its own ragged
-                column with `gap-2` on both sides of it, which is what the founder
-                screenshotted. Inside the span it is inline text again and `gap-2` does the
-                one job it was written for: the space after the icon. */}
+            {/* A SURCHARGE, not a replacement rate: the plan's per-minute rate is unchanged
+                and this is added to it (`plans.llm_model_surcharge`). One span inside the
+                flex <li>, so the link stays inline text rather than its own flex item. */}
             <span>
-              A model&apos;s figure is ADDED to your plan&apos;s per-minute rate, for the
+              A tier&apos;s figure is ADDED to your plan&apos;s per-minute rate, for the
               minutes your agents run it — your plan&apos;s own rate does not change. It
-              appears on your statement as its own line, naming the model. What you are
+              appears on your statement as its own line, naming the tier. What you are
               actually billed for the month is on the{" "}
               <Link
                 href={href(`/c/${slug}/billing?tab=usage`)}
@@ -280,14 +204,14 @@ export function OrganizationDefault({
           <li className="flex gap-2">
             <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
             <span>
-              One agent can be put on a different model from the rest — open it from{" "}
+              One agent can be put on a different tier from the rest — open it from{" "}
               <Link
                 href={href(`/c/${slug}/agents`)}
                 className="font-medium underline underline-offset-2 hover:text-ink"
               >
                 Agents
               </Link>{" "}
-              and choose there. An agent with its own model ignores this setting until you
+              and choose there. An agent with its own tier ignores this setting until you
               put it back on the default.
             </span>
           </li>

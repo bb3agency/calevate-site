@@ -69,6 +69,7 @@ from apps.api.billing.plans import (
     warn_no_plan_in_effect,
 )
 from apps.api.billing.rates import (
+    CLIENT_BILLED_SECONDS_SQL,
     CLIENT_CHOSEN_LLM_SOURCES,
     MONEY_Q,
     PREMIUM_VOICE_TIER,
@@ -1789,6 +1790,14 @@ _NOT_AI_UNITS = "unit_type <> ALL(ARRAY[" + ", ".join(f"'{u}'" for u in AI_ASSIS
 # cannot be spelled `60.0` (a float) by the next person to need it.
 _SECONDS_PER_MINUTE = Decimal("60")
 
+#: The seconds one usage row contributes to the client's billed minutes: a `telephony_s`
+#: row (one call) rounded up to the 30-second client increment (D-681), anything else none.
+#: The meter passes the same figure for the call it is adding (`rates.client_billed_seconds`),
+#: so a month read here and a call's increment agree to the second.
+_BILLED_SECS_SQL: Final = (
+    f"CASE WHEN unit_type = 'telephony_s' THEN {CLIENT_BILLED_SECONDS_SQL} ELSE 0 END"
+)
+
 
 def current_billing_month() -> str:
     """Now, as an IST billing month. The offset lives in `plans.ist_billing_month` so
@@ -2137,7 +2146,7 @@ async def rung_seconds(
                 "SELECT tier, llm_model, COALESCE(SUM(secs), 0), COALESCE(SUM(cost), 0) FROM ("
                 f"  SELECT {_ROW_TIER_SQL} AS tier, "
                 f"   {_SURCHARGED_MODEL_SQL} AS llm_model, "
-                "    CASE WHEN unit_type = 'telephony_s' THEN qty ELSE 0 END AS secs, "
+                f"    {_BILLED_SECS_SQL} AS secs, "
                 f"   {_ROW_COST_SQL} AS cost "
                 f"  FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW} "
                 f"  AND {_NOT_AI_UNITS}"

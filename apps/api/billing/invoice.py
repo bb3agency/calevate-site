@@ -30,6 +30,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.llm_tiers import client_model_labels
 from apps.api.compliance.kyc import read_kyc
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -533,11 +534,9 @@ async def build_invoice(
     surcharge_rate: Decimal | None = usage["llm_surcharge_rate_inr"]
     surcharge_amount: Decimal = usage["llm_surcharge_inr"]
     if surcharge_rate is not None and surcharge_minutes > 0 and surcharge_amount > 0:
-        # The MODELS are named because they are the thing the client chose and the only
-        # way they can connect this line to the screen they chose it on. A model id is a
-        # configuration identifier rather than anyone's data (hard rule 6), and it is
-        # already printed on their own settings screen.
-        chosen = ", ".join(usage["llm_surcharge_models"])
+        # The TIERS are named because they are what the client chose, on the screen they
+        # chose them on — never the model ids behind them, which are ours (D-679, D-680).
+        chosen = ", ".join(client_model_labels(usage["llm_surcharge_models"]))
         line_items.append(
             {
                 "description": (

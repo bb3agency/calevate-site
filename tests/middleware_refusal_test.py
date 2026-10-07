@@ -113,3 +113,22 @@ async def test_an_absent_correlation_id_is_generated_rather_than_omitted(
     generated = response.headers.get("X-Correlation-Id")
     assert generated and len(generated) >= 16, "a refusal was returned with no id at all"
     assert response.json().get("trace_id") == generated
+
+
+@pytest.mark.parametrize(
+    "sent",
+    ["x" * 129, "has space", "<script>"],
+    ids=["too-long", "space", "markup"],
+)
+async def test_a_correlation_id_the_caller_shaped_is_replaced_not_echoed(
+    sent: str, one_request_per_hour: None
+) -> None:
+    """The id is written unredacted into every log line and problem body, so an anonymous
+    caller does not get to choose its length or its characters."""
+    async with _client() as http:
+        await http.get("/v1/agents")
+        response = await http.get("/v1/agents", headers={"X-Correlation-Id": sent})
+    assert response.status_code == 429, response.text
+    echoed = response.headers.get("X-Correlation-Id")
+    assert echoed and echoed != sent and len(echoed) == 32
+    assert response.json().get("trace_id") == echoed

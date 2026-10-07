@@ -109,13 +109,20 @@ async def bind_number_for_tests(
     refusal. A number that is unbound or not `registered` is not one the gates ask about,
     so it is not declared. Returns the `phone_numbers.id`.
     """
+    from apps.api.core.settings import get_settings
     from apps.api.db.base import uuid7
+    from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER
 
+    # On an engine that dials only its own numbers (ThinnestAI) the dial gate presents a
+    # number recorded under that engine and nothing else, so a lawful fixture records it
+    # there. Every other engine keeps the NULL provider this fixture always wrote.
+    held_by = ENGINE_NUMBER_PROVIDER.get(get_settings().engine)
     number_id = uuid7()
     await session.execute(
         text(
             "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
-            "created_at, updated_at) VALUES (:id, :tid, :aid, :e, :series, :dlt, now(), now())"
+            "provider, direction, created_at, updated_at) VALUES (:id, :tid, :aid, :e, "
+            ":series, :dlt, :prov, :dir, now(), now())"
         ),
         {
             "id": number_id,
@@ -124,6 +131,8 @@ async def bind_number_for_tests(
             "e": e164 or f"+9180{uuid.uuid4().int % 10**8:08d}",
             "series": series,
             "dlt": dlt_status,
+            "prov": held_by,
+            "dir": "both" if held_by else "inbound",
         },
     )
     if autodialer_notice and dlt_status == "registered" and agent_id is not None:
@@ -838,17 +847,36 @@ def _is_reserved_test_host(host: str) -> bool:
 
 @pytest.fixture(scope="session", autouse=True)
 def _reserved_test_domains_resolve() -> Iterator[None]:
+    import httpcore
     from apps.api.integrations import egress_guard
 
     real = egress_guard.resolve_addresses
+    real_backend = egress_guard.socket_backend
 
     async def resolve(host: str, port: int) -> tuple[str, ...]:
         if _is_reserved_test_host(host):
             return (PUBLIC_TEST_ADDRESS,)
         return await real(host, port)
 
+    class _NoFixtureSockets(httpcore.AsyncNetworkBackend):
+        """`egress_client` connects to the address it resolved, so a fixture name would now
+        reach the real host behind PUBLIC_TEST_ADDRESS. It is refused as the unresolvable
+        name it really is, which is what the suite saw before connections were pinned."""
+
+        def __init__(self) -> None:
+            self._inner = real_backend()
+
+        async def connect_tcp(self, host: str, port: int, **kwargs: Any) -> Any:
+            if host == PUBLIC_TEST_ADDRESS:
+                raise httpcore.ConnectError("reserved test name: no socket is opened")
+            return await self._inner.connect_tcp(host, port, **kwargs)
+
+        async def sleep(self, seconds: float) -> None:
+            await self._inner.sleep(seconds)
+
     patch = pytest.MonkeyPatch()
     patch.setattr(egress_guard, "resolve_addresses", resolve)
+    patch.setattr(egress_guard, "socket_backend", _NoFixtureSockets)
     try:
         yield
     finally:

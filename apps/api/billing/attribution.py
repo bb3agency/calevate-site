@@ -116,8 +116,10 @@ from apps.api.billing.rates import PREPAID_TIERS
 #   _NOT_AI_UNITS       "...and it is a CALL row" — dashboard-assist rows are ours (D-127 G-3)
 #   _IST_MONTH_WINDOW   the half-open IST month, as a range an index can drive
 #   _month_bounds       the two binds that window reads, so a caller cannot supply half of it
+#   _BILLED_SECS_SQL    the seconds a row bills the client (30-second steps, D-681)
 #   _SECONDS_PER_MINUTE the divisor, as a Decimal, in one place
 from apps.api.billing.service import (
+    _BILLED_SECS_SQL,
     _IST_MONTH_WINDOW,
     _NOT_AI_UNITS,
     _ROW_COST_SQL,
@@ -210,7 +212,7 @@ WITH priced AS (
          {_ROW_TIER_SQL} AS tier,
          {_SURCHARGED_MODEL_SQL} AS llm_model,
          qty,
-         CASE WHEN unit_type = 'telephony_s' THEN qty ELSE 0 END AS secs,
+         {_BILLED_SECS_SQL} AS secs,
          {_ROW_COST_SQL} AS cost,
          meta ->> 'source_currency' AS source_currency,
          meta ->> 'currency_stated' AS currency_stated

@@ -29,7 +29,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any, Final, Literal, get_args
 from uuid import UUID
 
-from calevate_shared.carrier import CarrierName
+from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER, NumberProvider
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import text
@@ -40,6 +40,7 @@ from apps.api.agents import service as agents_service
 from apps.api.agents.languages import Language, OfferedLanguage
 from apps.api.authn.service import enqueue_invitation_email
 from apps.api.authn.stepup import REAUTH_MAX_AGE
+from apps.api.billing import credit_packs
 from apps.api.billing import rates as billing_rates
 from apps.api.billing import service as billing
 from apps.api.billing import terms as billing_terms
@@ -61,6 +62,7 @@ from apps.api.core.impersonation import (
 )
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta, role_has
+from apps.api.core.settings import get_settings
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.db.transition import transition_status
@@ -2007,7 +2009,9 @@ class ProvisionNumberIn(BaseModel):
     # The carrier account that holds this number. Required, and only a carrier this
     # platform dials through: the dial gate presents a number only on the carrier it is
     # recorded on (`agents.service.agent_outbound_number_blocker`, `number_not_on_carrier`).
-    provider: CarrierName
+    # `thinnest` is a number rented in ThinnestAI's console, accepted only on that engine
+    # (`provision_number` below).
+    provider: NumberProvider
     # Which legs the number was bought for. `inbound` (the column's own default) cannot
     # place outbound calls; the dial gate refuses it by name (`number_inbound_only`).
     direction: NumberDirection = "inbound"
@@ -2238,7 +2242,25 @@ async def provision_number(
     this a live organization" and exists so every surface naming a tenant in its path
     answers a mistyped uuid the same way — asked here rather than the predicate copied,
     exactly as `set_tenant_status` and `record_commercial_terms` ask it.
+
+    An engine-held provider (`thinnest`) is accepted only while that engine is the one
+    running: a ThinnestAI number recorded on a Pipecat deployment is one no call there can
+    present (founder decision: ThinnestAI numbers on ThinnestAI only, Vobiz on Pipecat).
     """
+    engine_held = set(ENGINE_NUMBER_PROVIDER.values())
+    if payload.provider in engine_held and (
+        ENGINE_NUMBER_PROVIDER.get(get_settings().engine) != payload.provider
+    ):
+        raise ProblemError(
+            kind="validation",
+            code="number_provider_not_on_this_engine",
+            title="That number provider is not used by this deployment",
+            detail=(
+                "Numbers rented on the voice platform can be recorded only while that voice "
+                "platform is the one placing calls."
+            ),
+            remediation="Record the number under the carrier this deployment dials on.",
+        )
     async with tenant_session(tenant_id) as scoped:
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")
@@ -2894,7 +2916,7 @@ class PlanMarginOut(BaseModel):
     Returned on every plan the operator reads or writes, so the margin of a bundle is a
     number on the screen that sets it — not something discovered when a client reconciles.
     The effective committed rate is `monthly_fee / included_min`; both it and the overage
-    rate are judged against `SELF_SERVE_COST_FLOOR_INR_PER_MIN` and `MIN_GROSS_MARGIN`
+    rate are judged against the Clear cost floor of the deployment's engine and `MIN_GROSS_MARGIN`
     (`billing/rates.py`, the same floor the prepaid packs use). Money and ratios are exact
     strings (hard rule 7); `null` where a rate is unset, never a zero standing in for it.
     """
@@ -3018,6 +3040,14 @@ def _ratio(value: Decimal | None) -> str | None:
     return None if value is None else str(value.quantize(_MARGIN_Q, rounding=ROUND_HALF_UP))
 
 
+def _bundle_cost_floor() -> Decimal:
+    """The Clear floor a committed bundle is judged at: the engine this deployment runs
+    (D-681), the same floors the prepaid card is sold at."""
+    return billing_rates.cost_floor_inr_per_min(
+        billing_rates.VALUE_VOICE_TIER, engine=credit_packs.deployment_engine()
+    )
+
+
 def _margin_out(terms: billing_terms.CommercialTerms) -> PlanMarginOut:
     """The margin verdict on one set of commercial terms (D-469).
 
@@ -3032,6 +3062,7 @@ def _margin_out(terms: billing_terms.CommercialTerms) -> PlanMarginOut:
         monthly_fee=terms.monthly_fee,
         included_min=terms.included_min,
         overage_rate=terms.overage_rate,
+        cost=_bundle_cost_floor(),
     )
     rate = verdict.effective_committed_rate
     return PlanMarginOut(
@@ -3043,7 +3074,7 @@ def _margin_out(terms: billing_terms.CommercialTerms) -> PlanMarginOut:
         overage_gross_margin=_ratio(verdict.overage.margin if verdict.overage else None),
         below_target_margin=list(verdict.below_target()),
         min_gross_margin=str(billing_rates.MIN_GROSS_MARGIN),
-        cost_floor_inr_per_min=str(billing_rates.SELF_SERVE_COST_FLOOR_INR_PER_MIN),
+        cost_floor_inr_per_min=str(_bundle_cost_floor()),
         cost_floor_basis=billing_rates.ASSUMED_SPEAKING_RATE.label,
     )
 
@@ -3248,7 +3279,7 @@ async def record_commercial_terms(
         # protection is code review, and this path has none.
         #
         # REFUSE below cost, WARN below target. The split is not a hedge — the two say
-        # genuinely different things. A rate under `SELF_SERVE_COST_FLOOR_INR_PER_MIN` loses
+        # genuinely different things. A rate under the Clear cost floor loses
         # money on every minute the client uses, so the harder they use it the worse it
         # gets; nobody intends that, and it is the one shape an operator cannot talk
         # themselves into at 6pm on an onboarding call. A rate above cost but under the 20%
@@ -3260,6 +3291,7 @@ async def record_commercial_terms(
             monthly_fee=terms.monthly_fee,
             included_min=terms.included_min,
             overage_rate=terms.overage_rate,
+            cost=_bundle_cost_floor(),
         )
         if below_cost := margin.below_cost():
             # Named rates and the floor itself: an operator who is refused has to know
@@ -3268,7 +3300,7 @@ async def record_commercial_terms(
                 "plan_below_cost",
                 "These terms price a minute below what it costs us to deliver: "
                 f"{', '.join(below_cost)}. Our cost floor is "
-                f"₹{billing_rates.SELF_SERVE_COST_FLOOR_INR_PER_MIN}/min.",
+                f"₹{_bundle_cost_floor()}/min.",
                 remediation=(
                     "Raise the overage rate, or raise the monthly fee / lower the included "
                     "minutes so the committed rate clears the floor."

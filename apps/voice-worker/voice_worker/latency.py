@@ -117,11 +117,23 @@ class CallLatencyRecorder:
         self._cycles: list[_Cycle] = []
         self._dropped = 0
         self._legs: dict[str, TimedLeg] = {}
+        self._greeting_s: float | None = None
 
     def attach(self, observer: UserBotLatencyObserver) -> None:
         """Subscribe to the observer the pipeline runs. Like `CallMeter.attach`, the handler
         runs as its own task, so read the result only after the pipeline has drained."""
         observer.add_event_handler("on_latency_breakdown", self._on_latency_breakdown)
+        observer.add_event_handler("on_first_bot_speech_latency", self._on_first_bot_speech)
+
+    async def _on_first_bot_speech(self, observer: UserBotLatencyObserver, seconds: float) -> None:
+        """The carrier connecting to the agent's first audio: what the caller waits through
+        before hearing anything. Emitted once per call by the observer."""
+        self._greeting_s = seconds
+
+    @property
+    def greeting_first_audio_ms(self) -> float | None:
+        """Connect to first bot audio, in ms, or `None` if the agent never spoke."""
+        return _ms(self._greeting_s)
 
     def bind(self, pipeline: FrameProcessor) -> None:
         """Learn which processor is which leg. Call once the pipeline is assembled."""

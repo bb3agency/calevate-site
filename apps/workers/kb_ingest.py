@@ -66,7 +66,11 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.crm.assist import ASSIST_FEATURE_KB_OCR
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.integrations.egress_guard import EgressRefusedError, assert_public_http_url
+from apps.api.integrations.egress_guard import (
+    EgressRefusedError,
+    assert_public_http_url,
+    egress_client,
+)
 from apps.api.kb import service as kb_service
 from apps.api.kb.models import (
     UPLOAD_CONVERSION_FAILED,
@@ -954,7 +958,7 @@ def link_http_client() -> httpx.AsyncClient:
     for the hop we make, so the `Location` is followed by hand and re-vetted — the same
     rule `integrations.service.deliver` and `storage._fetch_recording` state.
     """
-    return httpx.AsyncClient(timeout=LINK_FETCH_TIMEOUT_S, follow_redirects=False)
+    return egress_client(timeout=LINK_FETCH_TIMEOUT_S, follow_redirects=False)
 
 
 async def _fetch_page(url: str) -> bytes | None:
