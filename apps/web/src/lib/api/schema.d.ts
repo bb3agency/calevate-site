@@ -8167,6 +8167,8 @@ export interface components {
             held_by?: string | null;
             /** Key */
             key: string;
+            /** Label */
+            label: string;
             /** Reason */
             reason: string;
         };
@@ -9333,8 +9335,12 @@ export interface components {
             caveat: string | null;
             /** Default */
             default: string | boolean | number | null;
+            /** Description */
+            description: string;
             /** Editable */
             editable: boolean;
+            /** Engine Scope */
+            engine_scope: string | null;
             /** Env Var */
             env_var: string;
             /** Etag */
@@ -9345,18 +9351,46 @@ export interface components {
             key: string;
             /** Kind */
             kind: string;
+            /** Label */
+            label: string;
             /** Note */
             note: string | null;
+            /** Nullable */
+            nullable: boolean;
             /** Options */
-            options: string[];
+            options: components["schemas"]["ConfigOptionOut"][];
+            /** Section */
+            section: string;
             /** Source */
             source: string;
+            /** Subsection */
+            subsection: string;
             /** Updated At */
             updated_at: string | null;
             /** Updated By */
             updated_by: string | null;
+            /** Used By Current Engine */
+            used_by_current_engine: boolean;
             /** Value */
             value: string | boolean | number | null;
+        };
+        /**
+         * ConfigOptionOut
+         * @description One value a closed setting accepts.
+         *
+         *     For a language-model setting, `provider` and `unavailable_reason` come from the offer
+         *     seam (`agents/llm_models.unofferable_reason`), so the console shows whether clients can
+         *     actually be given the model without re-deriving it. The value stays selectable either
+         *     way: the validator accepts it, and pointing a tier at a model before its key or price
+         *     lands is a legitimate order of work.
+         */
+        ConfigOptionOut: {
+            /** Provider */
+            provider: string | null;
+            /** Unavailable Reason */
+            unavailable_reason: string | null;
+            /** Value */
+            value: string;
         };
         /**
          * ConfigOut
@@ -9377,8 +9411,28 @@ export interface components {
             fields: components["schemas"]["ConfigFieldOut"][];
             /** Never Loaded */
             never_loaded: boolean;
+            /** Sections */
+            sections: components["schemas"]["ConfigSectionOut"][];
             /** Stale */
             stale: boolean;
+        };
+        /**
+         * ConfigSectionOut
+         * @description One section of the configuration screen, in display order.
+         */
+        ConfigSectionOut: {
+            /** Hint */
+            hint: string;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Panels After */
+            panels_after: string[];
+            /** Panels Before */
+            panels_before: string[];
+            /** Subsections */
+            subsections: components["schemas"]["ConfigSubsectionOut"][];
         };
         /** ConfigSetIn */
         ConfigSetIn: {
@@ -9386,6 +9440,13 @@ export interface components {
             reason: string;
             /** Value */
             value: string | boolean | number | null;
+        };
+        /** ConfigSubsectionOut */
+        ConfigSubsectionOut: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
         };
         /**
          * ConfigWriteOut

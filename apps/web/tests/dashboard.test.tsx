@@ -6,6 +6,7 @@ import type { CallSummary, Dashboard, Me } from "@/lib/api/client";
 import type { UsagePanel } from "@/lib/api/hooks";
 import type { Wallet } from "@/lib/api/wallet";
 
+import { activeTrialBlock } from "./fixtures/sharedReads";
 import {
   browserOffline,
   problem,
@@ -647,6 +648,68 @@ describe("the calling credit tile", () => {
     // A tenant with no wallet is not a tenant whose wallet is empty. A zero here would be
     // the same false alarm the credit screen refuses to raise.
     expect(container.textContent).not.toContain("Calling credit left");
+  });
+
+  it("says calls are on us until the trial ends instead of warning about a low balance", async () => {
+    /* The founder's screenshot (7 Oct 2026): a trial running, ₹0.00 in the wallet, and the
+       tile said "Running low — top up before outgoing calls stop" — false, because during
+       a trial an empty wallet stops nothing (D-536). */
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/billing/wallet": wallet({
+          balance_inr: "0.00",
+          is_low: true,
+          outbound_stopped: false,
+          minutes_left: null,
+          trial: activeTrialBlock(),
+        }),
+      }),
+    );
+
+    const tile = (await screen.findByText("Calling credit left")).parentElement;
+    expect(tile?.textContent).toContain(
+      "Free trial: calls are on us until 10 Oct, 10:58 pm IST",
+    );
+    expect(tile?.textContent).not.toContain("Running low");
+    expect(tile?.textContent).not.toContain("Calls have stopped");
+  });
+
+  it("asks for a top-up on the last day of the trial", async () => {
+    const endsAt = new Date(Date.now() + 5 * 3_600_000).toISOString();
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/billing/wallet": wallet({
+          balance_inr: "0.00",
+          is_low: true,
+          minutes_left: null,
+          trial: activeTrialBlock({ days_remaining: 1, ends_at: endsAt }),
+        }),
+      }),
+    );
+
+    const tile = (await screen.findByText("Calling credit left")).parentElement;
+    expect(tile?.textContent).toMatch(/Free trial ends .* IST \((5|6) hours left\)/);
+    expect(tile?.textContent).toContain("Add credit so calls carry on after it");
+  });
+
+  it("says this month's calling is free during a trial, and what it was worth", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/usage": {
+          ...USAGE,
+          month_charges_inr: "0.00",
+          trial: { active: true, days_remaining: 3, ends_at: "2026-10-10T17:28:00Z" },
+          trial_absorbed_inr: "602.50",
+        },
+      }),
+    );
+
+    const tile = (await screen.findByText("Spend this month")).parentElement;
+    expect(tile?.textContent).toContain("₹0.00");
+    expect(tile?.textContent).toContain("120.5 min used, free during your trial (worth ₹602.50)");
   });
 
   it("refuses rather than printing a dash when the balance cannot be read", async () => {

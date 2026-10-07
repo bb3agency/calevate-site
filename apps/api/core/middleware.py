@@ -38,7 +38,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from apps.api.core.alerting import alert
-from apps.api.core.console_links import ADMIN_ORIGIN_PREFIXES
+from apps.api.core.console_links import ADMIN_ORIGIN_PREFIXES, VIEW_AS_HANDOFF_PATHS
 from apps.api.core.context import (
     IMPERSONATE_HEADER,
     IMPERSONATION_GRANT_HEADER,
@@ -800,6 +800,10 @@ class RealmCorsMiddleware(CORSMiddleware):
     response. The CSRF `Origin` check splits on the same prefixes
     (`core/bootstrap.credentialed_origins_for_path`), so a non-browser path around CORS
     still meets the refusal.
+
+    The exact paths in `view_as_paths` are judged against `view_as_origins` instead, and
+    are checked first: they sit under the admin prefixes but are what the client console
+    calls to run "view as client" (`console_links.VIEW_AS_HANDOFF_PATHS`).
     """
 
     def __init__(
@@ -809,30 +813,43 @@ class RealmCorsMiddleware(CORSMiddleware):
         *,
         admin_origins: Sequence[str],
         admin_path_prefixes: tuple[str, ...],
+        view_as_origins: Sequence[str],
+        view_as_paths: frozenset[str],
         **cors: Any,
     ) -> None:
         super().__init__(app, **cors)
         self.admin_path_prefixes = admin_path_prefixes
+        self.view_as_paths = view_as_paths
         self.admin = CORSMiddleware(app, **{**cors, "allow_origins": admin_origins})
+        self.view_as = CORSMiddleware(app, **{**cors, "allow_origins": view_as_origins})
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and str(scope.get("path", "")).startswith(
-            self.admin_path_prefixes
-        ):
-            await self.admin(scope, receive, send)
-            return
+        if scope["type"] == "http":
+            path = str(scope.get("path", ""))
+            if path in self.view_as_paths:
+                await self.view_as(scope, receive, send)
+                return
+            if path.startswith(self.admin_path_prefixes):
+                await self.admin(scope, receive, send)
+                return
         await super().__call__(scope, receive, send)
 
 
 def install_middleware(
-    app: FastAPI, *, cors_origins: list[str], admin_cors_origins: list[str]
+    app: FastAPI,
+    *,
+    cors_origins: list[str],
+    admin_cors_origins: list[str],
+    view_as_cors_origins: list[str] | None = None,
 ) -> None:
     """Added innermost-first; Starlette makes the last one outermost.
 
-    `admin_cors_origins` is what `ADMIN_ORIGIN_PREFIXES` accept and `cors_origins` what
-    every other path accepts; see `RealmCorsMiddleware`.
+    `admin_cors_origins` is what `ADMIN_ORIGIN_PREFIXES` accept, `view_as_cors_origins`
+    what `VIEW_AS_HANDOFF_PATHS` accept (the admin origins when omitted) and
+    `cors_origins` what every other path accepts; see `RealmCorsMiddleware`.
     """
-    if "*" in cors_origins or "*" in admin_cors_origins:
+    view_as_origins = admin_cors_origins if view_as_cors_origins is None else view_as_cors_origins
+    if "*" in cors_origins or "*" in admin_cors_origins or "*" in view_as_origins:
         # REFUSED AT BOOT, because the failure it prevents is silent. Starlette does not
         # reject `allow_origins=["*"]` alongside `allow_credentials=True`: it echoes the
         # request's own `Origin` back with `Access-Control-Allow-Credentials: true`
@@ -868,6 +885,8 @@ def install_middleware(
         allow_origins=cors_origins,
         admin_origins=admin_cors_origins,
         admin_path_prefixes=ADMIN_ORIGIN_PREFIXES,
+        view_as_origins=view_as_origins,
+        view_as_paths=VIEW_AS_HANDOFF_PATHS,
         allow_credentials=True,
         # PUT WAS MISSING AND FIVE ROUTES WERE UNREACHABLE FROM A BROWSER: `PUT
         # /v1/billing/caps` (a client's own spend cap), `PUT …/feature-flags/{flag}`,

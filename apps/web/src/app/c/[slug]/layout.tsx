@@ -11,6 +11,7 @@ import { ClientRealmProvider } from "@/lib/api/session";
 
 import { ClientSidebar } from "./ClientSidebar";
 import { ClientTopHeader } from "./ClientTopHeader";
+import { TrialBanner } from "./TrialBanner";
 import { ViewAsBanner } from "./ViewAsBanner";
 
 /**
@@ -91,6 +92,11 @@ export default function ClientRealmLayout({
                   scheduled, which is every ordinary day. */}
               <MaintenanceBanner />
               <ViewAsBanner slug={slug} />
+              {/* A statement about the ACCOUNT on every screen, below the two about the
+                  window: while a trial runs every money sentence in the console means
+                  something different, and a client must not have to open billing to learn
+                  it. Renders nothing when no trial is running. */}
+              <TrialBanner />
               <ClientTopHeader slug={slug} onMenuToggle={() => setIsMobileOpen(true)} />
               {/* `tabIndex={-1}` is what makes `SkipLink` actually skip: following a
                   fragment scrolls to the target but only MOVES FOCUS if the target is

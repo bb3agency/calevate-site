@@ -64,6 +64,7 @@ from apps.api.billing.service import (
     plan_tier_of,
     to_paise,
 )
+from apps.api.billing.trials import trial_billing_active
 from apps.api.billing.wallet import TierMinutes, tier_minutes
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
@@ -183,9 +184,9 @@ def compose(
 async def notify_low_balance(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """One warning email for one crossing.
 
-    Two questions are answered HERE rather than at the ledger, and both for the same
-    reason — they are still true a minute later, and asking them on the hottest money
-    write in the product would buy nothing:
+    These questions (and whether a trial is running, inline below) are answered HERE
+    rather than at the ledger, all for the same reason — they are still true a minute
+    later, and asking them on the hottest money write in the product would buy nothing:
 
     1. **Does this tenant have a wallet worth warning about?** A managed client is
        invoiced against a retainer and is never stopped by a balance
@@ -210,6 +211,13 @@ async def notify_low_balance(ctx: dict[str, Any], payload: dict[str, Any]) -> st
         tier = await plan_tier_of(session, tenant_id)
         if tier not in PREPAID_TIERS:
             return "not_prepaid"
+        # A wallet can still cross a line during a trial (an AI-help debit, an operator's
+        # correction), but while the trial runs an empty wallet stops nothing (D-536), so
+        # both mails would be false: the empty one says calls HAVE stopped. Asked now, not
+        # at the crossing, for the same reason as the tier above. The trial's last day is
+        # announced by the console's trial strip and `trial_notices`' ending email instead.
+        if await trial_billing_active(session, tenant_id=tenant_id):
+            return "trial_active"
         row = (
             await session.execute(
                 text("SELECT billing_email, slug FROM organizations WHERE id = :tid"),

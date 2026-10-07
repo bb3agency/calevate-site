@@ -7,7 +7,6 @@ import { NoticeBox, ProblemNotice, SECONDARY_BUTTON_SM, formatIST } from "@/comp
 import type { ConfigList } from "@/lib/api/opsConfig";
 import { useProbeCarrier } from "@/lib/api/opsSecrets";
 
-import { settingLabel } from "./configField";
 
 /** The env-only row the carrier check sits beside: the second half of the Vobiz pair, so
  *  the button appears once, under both halves, rather than once per half. */
@@ -116,7 +115,7 @@ export function EnvOnlyKeys({ keys }: { keys: ConfigList["bootstrap"] }) {
           <li key={entry.key} className="px-3 py-2.5">
             <div className="flex flex-wrap items-center gap-2">
               <Lock aria-hidden className="h-4 w-4 text-ink-faint" />
-              <span className="text-sm font-medium text-ink">{settingLabel(entry.key)}</span>
+              <span className="text-sm font-medium text-ink">{entry.label}</span>
               <MonoValue>{entry.env_var}</MonoValue>
               {entry.held_by ? (
                 <span className="text-xs text-ink-muted">

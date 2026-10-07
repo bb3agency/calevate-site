@@ -2524,6 +2524,10 @@
             "title": "Key",
             "type": "string"
           },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
           "reason": {
             "title": "Reason",
             "type": "string"
@@ -2532,6 +2536,7 @@
         "required": [
           "key",
           "env_var",
+          "label",
           "reason",
           "configured"
         ],
@@ -5480,9 +5485,24 @@
             ],
             "title": "Default"
           },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
           "editable": {
             "title": "Editable",
             "type": "boolean"
+          },
+          "engine_scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Scope"
           },
           "env_var": {
             "title": "Env Var",
@@ -5504,6 +5524,10 @@
             "title": "Kind",
             "type": "string"
           },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
           "note": {
             "anyOf": [
               {
@@ -5515,15 +5539,27 @@
             ],
             "title": "Note"
           },
+          "nullable": {
+            "title": "Nullable",
+            "type": "boolean"
+          },
           "options": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/ConfigOptionOut"
             },
             "title": "Options",
             "type": "array"
           },
+          "section": {
+            "title": "Section",
+            "type": "string"
+          },
           "source": {
             "title": "Source",
+            "type": "string"
+          },
+          "subsection": {
+            "title": "Subsection",
             "type": "string"
           },
           "updated_at": {
@@ -5547,6 +5583,10 @@
               }
             ],
             "title": "Updated By"
+          },
+          "used_by_current_engine": {
+            "title": "Used By Current Engine",
+            "type": "boolean"
           },
           "value": {
             "anyOf": [
@@ -5578,6 +5618,13 @@
           "has_default",
           "kind",
           "options",
+          "nullable",
+          "label",
+          "description",
+          "section",
+          "subsection",
+          "engine_scope",
+          "used_by_current_engine",
           "editable",
           "applies",
           "caveat",
@@ -5587,6 +5634,45 @@
           "note"
         ],
         "title": "ConfigFieldOut",
+        "type": "object"
+      },
+      "ConfigOptionOut": {
+        "additionalProperties": false,
+        "description": "One value a closed setting accepts.\n\nFor a language-model setting, `provider` and `unavailable_reason` come from the offer\nseam (`agents/llm_models.unofferable_reason`), so the console shows whether clients can\nactually be given the model without re-deriving it. The value stays selectable either\nway: the validator accepts it, and pointing a tier at a model before its key or price\nlands is a legitimate order of work.",
+        "properties": {
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "provider",
+          "unavailable_reason"
+        ],
+        "title": "ConfigOptionOut",
         "type": "object"
       },
       "ConfigOut": {
@@ -5626,6 +5712,13 @@
             "title": "Never Loaded",
             "type": "boolean"
           },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigSectionOut"
+            },
+            "title": "Sections",
+            "type": "array"
+          },
           "stale": {
             "title": "Stale",
             "type": "boolean"
@@ -5633,6 +5726,7 @@
         },
         "required": [
           "fields",
+          "sections",
           "config_version",
           "stale",
           "never_loaded",
@@ -5640,6 +5734,55 @@
           "bootstrap"
         ],
         "title": "ConfigOut",
+        "type": "object"
+      },
+      "ConfigSectionOut": {
+        "additionalProperties": false,
+        "description": "One section of the configuration screen, in display order.",
+        "properties": {
+          "hint": {
+            "title": "Hint",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "panels_after": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Panels After",
+            "type": "array"
+          },
+          "panels_before": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Panels Before",
+            "type": "array"
+          },
+          "subsections": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigSubsectionOut"
+            },
+            "title": "Subsections",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "hint",
+          "subsections",
+          "panels_before",
+          "panels_after"
+        ],
+        "title": "ConfigSectionOut",
         "type": "object"
       },
       "ConfigSetIn": {
@@ -5677,6 +5820,25 @@
           "reason"
         ],
         "title": "ConfigSetIn",
+        "type": "object"
+      },
+      "ConfigSubsectionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "ConfigSubsectionOut",
         "type": "object"
       },
       "ConfigWriteOut": {

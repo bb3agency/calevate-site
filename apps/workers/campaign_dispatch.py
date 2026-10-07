@@ -1306,7 +1306,14 @@ def _refused_on_our_side(exc: BaseException) -> bool:
     can be about the contact's own number, so it keeps the retry ladder; the rest — the
     account's pacing and line limits, a `402` balance refusal, missing credentials or
     configuration — say nothing about the person and must not spend their attempts.
+
+    Our own refusals count too: a `ProblemError` that is not the vendor's was raised by
+    `dispatch_call` before the vendor request (agent not published, an ambiguous caller
+    id), because anything that fails after it is proven not placed or becomes
+    `DialUnconfirmedError`. None of those is about the contact.
     """
+    if isinstance(exc, ProblemError) and not isinstance(exc, EngineRejectedError):
+        return True
     if not dial_was_not_placed(exc):
         return False
     return not (

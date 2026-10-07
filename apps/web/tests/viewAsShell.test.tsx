@@ -54,6 +54,7 @@ const SHELL_IN_FLIGHT = {
   "GET /v1/attention": stillLoading(),
   "GET /v1/maintenance": stillLoading(),
   "GET /v1/legal/readiness": stillLoading(),
+  "GET /v1/billing/wallet": stillLoading(),
   [`GET ${LIVE_CALLS_PATH}`]: stillLoading(),
 };
 
@@ -67,6 +68,7 @@ const SHELL_IMPERSONATING = {
   "GET /v1/attention": stillLoading(),
   "GET /v1/maintenance": stillLoading(),
   "GET /v1/legal/readiness": stillLoading(),
+  "GET /v1/billing/wallet": stillLoading(),
   [`GET ${LIVE_CALLS_PATH}`]: stillLoading(),
 };
 

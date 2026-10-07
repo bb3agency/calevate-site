@@ -57,6 +57,12 @@ export type ConfigApplies = "live" | "on_restart";
 /** One managed setting: its value, where that value came from, and whether it may be changed here. */
 export type ConfigField = Schemas["ConfigFieldOut"];
 
+/** One value a closed setting accepts; a model option also carries its offer state. */
+export type ConfigOption = Schemas["ConfigOptionOut"];
+
+/** One section of the screen, in the order the server serves them (`ops/config_catalog`). */
+export type ConfigSection = Schemas["ConfigSectionOut"];
+
 /**
  * Every managed setting, plus the snapshot's own health.
  *

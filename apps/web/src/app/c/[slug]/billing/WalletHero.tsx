@@ -5,7 +5,12 @@ import { AlertTriangle, PhoneOff } from "lucide-react";
 
 import { FlashValue } from "@/components/console/valueFlash";
 import { NOTICE_TONES, formatINR, hasNonZeroDigit } from "@/components/ui";
-import { runwaySentence, walletState, type Wallet as WalletData } from "@/lib/api/wallet";
+import {
+  activeTrial,
+  runwaySentence,
+  walletState,
+  type Wallet as WalletData,
+} from "@/lib/api/wallet";
 
 import { TierRunwayLines } from "./LotsPanel";
 import type { WalletLots } from "./lots";
@@ -75,6 +80,7 @@ export function WalletHero({
   action?: ReactNode;
 }) {
   const state = walletState(wallet);
+  const trial = activeTrial(wallet);
   /* DAY ONE IS NOT AN OUTAGE. A zero balance and an empty history is an account that
      has not started, and "your calling credit has run out" is false about it — it says
      something broke, on the first screen a new client opens, before they have done
@@ -180,8 +186,11 @@ export function WalletHero({
                 You owe {formatINR(owed)}
               </p>
             )}
+            {/* Both directions stop at zero (D-551); during a trial neither does (D-536). */}
             <p className="mt-2 text-xs text-ink-muted">
-              Outgoing calls stop when this reaches zero. Incoming calls are never affected.
+              {trial !== null
+                ? "During your free trial nothing is taken from this credit, and an empty balance stops no calls."
+                : "Outgoing calls stop when this reaches zero, and your agents stop answering incoming ones."}
             </p>
             {/* THE BALANCE CAN BE NEGATIVE and the sentence above talks about zero, so the
                 explanation has to be here: a call already running when the credit went is

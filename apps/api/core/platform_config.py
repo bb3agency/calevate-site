@@ -73,7 +73,8 @@ from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, get_args
+from types import UnionType
+from typing import TYPE_CHECKING, Any, Literal, Union, get_args, get_origin
 
 from calevate_shared.config import Settings
 from pydantic import TypeAdapter, ValidationError
@@ -830,8 +831,11 @@ class ConfigField:
     #: and therefore cannot boot.
     has_default: bool
     kind: ValueKind
-    #: The allowed values, for a `Literal` field. Empty for everything else.
+    #: The allowed values, for a `Literal` field (or a union of them). Empty for everything
+    #: else. Exactly the set the validator accepts, `null` excluded — see `nullable`.
     options: tuple[str, ...]
+    #: Whether `null` ("not set") is a value this field accepts.
+    nullable: bool
     editable: bool
     #: `live` | `on_restart` | `needs_republish` | `env_only` | `unclassified` — when a
     #: change to this key actually takes effect. See `FIELD_APPLIES`.
@@ -1032,23 +1036,57 @@ def _is_decimal(field: str) -> bool:
     return Decimal in {annotation, *get_args(annotation)}
 
 
+def _literal_members(annotation: Any) -> tuple[Any, ...] | None:
+    """Every value a closed annotation admits, or `None` when it is not closed.
+
+    Walks unions and nested `Literal`s, so `LlmModelName` (a union of three `Literal`s)
+    yields all eight model ids. `None` members are dropped: nullability is reported
+    separately by `_is_nullable`, and a select offers "not set" from that, not from here.
+    """
+    if get_origin(annotation) is Literal:
+        return get_args(annotation)
+    if get_origin(annotation) in {Union, UnionType}:
+        members: list[Any] = []
+        for arm in get_args(annotation):
+            if arm is type(None):
+                continue
+            inner = _literal_members(arm)
+            if inner is None:
+                return None
+            members.extend(m for m in inner if m not in members)
+        return tuple(members) if members else None
+    return None
+
+
+def _is_nullable(field: str) -> bool:
+    """Does this field accept `null`? Read from the annotation the validator uses."""
+    annotation = Settings.model_fields[field].annotation
+    return annotation is None or type(None) in get_args(annotation)
+
+
 def _kind_of(field: str) -> tuple[ValueKind, tuple[str, ...]]:
     """How the console should render this field, from its annotation.
 
     Derived rather than declared for the same reason `managed_fields` is: a per-field
     editor table is a second list, and the first field somebody adds without touching it
     renders as a text box that stores a string into an integer.
+
+    The options of a closed field come from the ANNOTATION the validator is built from, not
+    from the first branch of its JSON schema. Reading the schema's first `anyOf` branch
+    offered only the Azure half of `LlmModelName`, so the console could not select the
+    platform's own default (`gemini-2.5-flash-lite`) that the validator accepts.
     """
     # Money first, and from the type: it must stay a string end to end (hard rule 7),
     # so it is its own kind rather than a number the browser could round.
     if _is_decimal(field):
         return "decimal", ()
+    members = _literal_members(Settings.model_fields[field].annotation)
+    if members is not None:
+        return "enum", tuple(str(v) for v in members)
     schema = _adapter(field).json_schema(mode="serialization")
     # `str | None` produces an anyOf; the interesting half is the non-null branch.
     variants = [v for v in schema.get("anyOf", [schema]) if v.get("type") != "null"]
     head = variants[0] if variants else schema
-    if "enum" in head:
-        return "enum", tuple(str(v) for v in head["enum"])
     return str(head.get("type", "string")), ()
 
 
@@ -1416,6 +1454,7 @@ def describe(
                 default=(None if default is None else adapter.dump_python(default, mode="json")),
                 kind=kind,
                 options=options,
+                nullable=_is_nullable(key),
                 # Three independent reasons a field cannot be edited here, and the
                 # console renders the reason from `applies`/`caveat`: the environment
                 # already decides it, the store could never deliver it, or this build

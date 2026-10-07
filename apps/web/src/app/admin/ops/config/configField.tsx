@@ -4,8 +4,8 @@ import { CheckCircle2, TriangleAlert } from "lucide-react";
 import { forbiddenReason, isForbidden } from "@/app/admin/withheld";
 import { MonoValue } from "@/app/admin/ops/opsLanguage";
 import { NoticeBox, formatIST, type NoticeTone } from "@/components/ui";
-import { lookup } from "@/lib/lookup";
-import type { ConfigField, ConfigList, ConfigValue } from "@/lib/api/opsConfig";
+import { providerLabel } from "@/lib/api/llmModels";
+import type { ConfigField, ConfigList, ConfigOption, ConfigValue } from "@/lib/api/opsConfig";
 
 /**
  * What one platform setting IS, said for a human: its name, its value, where the value came
@@ -48,46 +48,43 @@ export function display(value: ConfigValue): string {
   return String(value);
 }
 
-/**
- * A plain name shown ABOVE the machine key. Curated for the keys an operator meets most;
- * anything newer is humanised, and the key is always printed beside it so the fallback can
- * never hide which setting is which. Read through `lookup` because the key is a wire string.
- */
-const SETTING_LABELS: Record<string, string> = {
-  engine: "Active voice engine",
-  webhook_base_url: "Webhook web address",
-  self_serve_inr_per_min: "Self-serve price per minute",
-  usd_inr_rate: "US dollar to rupee rate",
-  inbound_reserve_ratio: "Share of lines kept free for inbound calls",
-  db_pool_size: "Database connection pool size",
-  self_serve_signup_enabled: "Self-serve sign-up",
-  email_provider: "Email provider",
-  payment_provider: "Payment provider",
-  number_provider: "Phone-number provider",
-  carrier: "Active telephony carrier",
-  carrier_cps: "Outbound calls started per second",
-  carrier_concurrency: "Simultaneous calls the carrier account allows",
-  carrier_transfer_enabled: "Transfer callers to a human",
-  carrier_recording_enabled: "Record calls with Vobiz",
-  vobiz_signature_required: "Require Vobiz request signatures",
-  vobiz_callback_ips: "Vobiz callback addresses (override)",
-  thinnest_api_key: "ThinnestAI API key",
-  thinnest_api_base_url: "ThinnestAI API address",
-  thinnest_byok_enabled: "ThinnestAI runs on our own keys (BYOK)",
-  thinnest_max_concurrent_calls: "Simultaneous calls the ThinnestAI account allows",
-  engine_intake_kek: "Engine webhook intake key",
-  azure_openai_resource: "Azure OpenAI resource",
-  azure_openai_deployment: "Azure OpenAI deployment",
-  azure_openai_model: "Model in use",
-  first_party_auth_enabled: "Sign-in enabled",
-  object_store_bucket: "Storage bucket",
-};
+/** What a select offers: one entry per accepted value, in the server's order. */
+export interface SelectChoice {
+  /** The draft string; `""` is "not set". */
+  value: string;
+  text: string;
+  /** Why clients cannot be given this model today, or `null`. */
+  unavailable: string | null;
+}
 
-export function settingLabel(key: string): string {
-  const curated = lookup(SETTING_LABELS, key);
-  if (curated) return curated;
-  const words = key.replace(/_/g, " ").trim();
-  return words.charAt(0).toUpperCase() + words.slice(1);
+/**
+ * The choices for a closed setting. The server's options are exactly what its validator
+ * accepts, so they are offered as sent; three additions keep the select honest about what
+ * it shows. "Not set" when the field accepts null. The CURRENT value, if a deployment ever
+ * serves one outside its own options, so the select never displays a value other than the
+ * one in force. Each entry names its provider and says "unavailable" when clients cannot be
+ * given that model yet — the full reason is shown under the select.
+ */
+export function selectChoices(field: ConfigField): SelectChoice[] {
+  const choices: SelectChoice[] = field.options.map((option) => ({
+    value: option.value,
+    text: optionText(field, option),
+    unavailable: option.unavailable_reason,
+  }));
+  const current = draftOf(field.value);
+  if (field.nullable) choices.unshift({ value: "", text: "Not set", unavailable: null });
+  if (!choices.some((choice) => choice.value === current)) {
+    choices.unshift({ value: current, text: `${current || "Not set"} (in force now)`, unavailable: null });
+  }
+  return choices;
+}
+
+function optionText(field: ConfigField, option: ConfigOption): string {
+  const notes: string[] = [];
+  if (option.provider) notes.push(providerLabel(option.provider));
+  if (field.has_default && option.value === field.default) notes.push("built-in default");
+  if (option.unavailable_reason) notes.push("unavailable to clients");
+  return notes.length > 0 ? `${option.value} — ${notes.join(" · ")}` : option.value;
 }
 
 /**

@@ -16,8 +16,17 @@ import {
   etagOf,
   provenance,
   readOnlyReason,
-  settingLabel,
 } from "./configField";
+import { differsFromDefault } from "./configSections";
+
+/** Beside the value when it is not the built-in default, so a scan finds what was changed. */
+function ChangedBadge() {
+  return (
+    <span className="inline-flex items-center rounded-full border border-line px-2 py-0.5 text-xs font-medium text-ink">
+      Differs from default
+    </span>
+  );
+}
 
 /**
  * One setting: what it is now, where it came from, and — when it can be changed — a Change
@@ -39,17 +48,23 @@ export function ConfigRow({
   const [receipt, setReceipt] = useState<ConfigWrite | null>(null);
   const verdict = appliesVerdict(field);
   const tag = etagOf(field);
-  const label = settingLabel(field.key);
+  const label = field.label;
 
   return (
     <div className="py-3.5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
         <div className="min-w-0 sm:flex-1">
           <p className="text-[14px] font-medium text-ink">{label}</p>
-          {/* `break-all`: unbroken snake_case keys and values have nowhere to wrap at 320px. */}
+          <p className="mt-0.5 text-[13px] text-ink-muted">{field.description}</p>
+          {/* `break-all`: unbroken snake_case keys and values have nowhere to wrap at 320px.
+              The key is secondary to the label; its environment variable is the same name
+              in capitals, and an env-pinned row names that variable in its reason. */}
           <p className="mt-0.5 break-all text-xs text-ink-faint">
             <MonoValue>{field.key}</MonoValue> · {provenance(field)}
           </p>
+          {field.engine_scope && (
+            <p className="mt-0.5 text-xs text-ink-faint">{field.engine_scope}</p>
+          )}
           {field.source === "db" && field.note && (
             <p className="mt-1 text-xs text-ink-muted">&ldquo;{field.note}&rdquo;</p>
           )}
@@ -61,6 +76,7 @@ export function ConfigRow({
           {/* Fed from the verdict, not the raw `applies`, so a live field carrying a caveat
               reads "after you republish" here exactly as it does in the form. */}
           <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
+            {differsFromDefault(field) && <ChangedBadge />}
             <ProvenanceBadge source={field.source} />
             <TimingBadge applies={verdict.id} />
           </div>

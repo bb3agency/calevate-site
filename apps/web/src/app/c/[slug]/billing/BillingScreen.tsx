@@ -17,7 +17,15 @@ import { useCreditPacks } from "@/lib/api/billing";
 import { useMe } from "@/lib/api/hooks";
 import { currentISTMonth } from "@/lib/api/invoice";
 import { useClientRealm } from "@/lib/api/session";
-import { runwaySentence, useWallet, useWalletLedger, walletState } from "@/lib/api/wallet";
+import {
+  activeTrial,
+  runwaySentence,
+  trialEndsAt,
+  trialTimeLeft,
+  useWallet,
+  useWalletLedger,
+  walletState,
+} from "@/lib/api/wallet";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
 import { asText } from "@/lib/copilot/types";
@@ -267,6 +275,19 @@ export function BillingScreen({ slug }: { slug: string }) {
               value: wallet.data.outbound_stopped
                 ? "yes — outgoing calls have stopped and the agents are no longer answering incoming ones; adding credit starts both again straight away"
                 : "no",
+            },
+            {
+              /* WHY A ₹0.00 WALLET IS STILL CALLING, when it is. Without it an assistant
+                 reading a zero balance would tell a client on a trial to top up before
+                 their calls stop, which is false until the trial ends (D-536). */
+              key: "trial",
+              label: "Is the account on a free trial?",
+              value: (() => {
+                const trial = activeTrial(wallet.data);
+                return trial === null
+                  ? "no"
+                  : `yes, until ${trialEndsAt(trial)} (${trialTimeLeft(trial).text}) — calls are on us, nothing is taken from the credit, and an empty balance stops no calls until then`;
+              })(),
             },
             {
               /* THE SAME BIT THE HERO NEEDS, declared for the same reason: the assistant

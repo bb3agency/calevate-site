@@ -18,7 +18,7 @@ import type { Agent } from "@/lib/api/agents";
 import { useAgreementsReadiness, type LegalReadiness } from "@/lib/api/agreements";
 import { usePendingChanges, type PendingState } from "@/lib/api/publishing";
 import { useScript, type ScriptOut } from "@/lib/api/script";
-import { useWallet, walletState, type Wallet } from "@/lib/api/wallet";
+import { activeTrial, trialEndsAt, useWallet, walletState, type Wallet } from "@/lib/api/wallet";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 
 import { OpeningNotices } from "../../panels/openingNotices";
@@ -163,13 +163,16 @@ function SetupChecklist({
     // An account that is not prepaid is billed by invoice, so credit is not its step.
     if (credit !== "not-prepaid") {
       const stopped = credit === "stopped";
+      const trial = activeTrial(wallet.data);
       items.push({
         id: "credit",
         label: "Add calling credit",
         state: stopped ? "todo" : "done",
         detail: stopped
           ? "Calls have stopped until credit is added."
-          : `${formatINR(wallet.data.balance_inr)} left`,
+          : trial !== null
+            ? `Free trial: calls are on us until ${trialEndsAt(trial)}.`
+            : `${formatINR(wallet.data.balance_inr)} left`,
         link: stopped ? { href: href(`/c/${slug}/billing`), label: "Top up" } : undefined,
       });
     }

@@ -82,6 +82,8 @@ export const CLIENT_SHELL_ROUTES = {
   "/v1/legal/readiness": LEGAL_READY,
   // No call in progress: the pill renders nothing.
   [LIVE_CALLS_PATH]: [],
+  // No trial running: the shell's trial strip renders nothing.
+  "/v1/billing/wallet": prepaidWallet(),
 };
 
 /** Every agent's knowledge delivered — `GET /v1/kb/delivery` with nothing outstanding. */
@@ -293,6 +295,23 @@ export function prepaidWallet(over: Partial<Wallet> = {}): Wallet {
       added_inr: "12100.00",
       refunded_inr: "0.00",
     },
+    ...over,
+  };
+}
+
+/**
+ * A running trial as `GET /v1/billing/wallet` publishes it (D-536): dates and a day count,
+ * no cost. Ends 10 Oct 2026, 10:58 pm IST — the founder's own example.
+ */
+export function activeTrialBlock(over: Partial<NonNullable<Wallet["trial"]>> = {}): NonNullable<Wallet["trial"]> {
+  return {
+    active: true,
+    status: "active",
+    days: 3,
+    started_at: "2026-10-07T17:28:00Z",
+    ends_at: "2026-10-10T17:28:00Z",
+    days_remaining: 3,
+    ended_at: null,
     ...over,
   };
 }

@@ -66,6 +66,26 @@ ADMIN_AUTH_PREFIX = "/v1/auth/admin/"
 #: accepting the client console's origin.
 ADMIN_ORIGIN_PREFIXES: tuple[str, ...] = (*ADMIN_REALM_PREFIXES, ADMIN_AUTH_PREFIX)
 
+#: The admin-realm paths the CLIENT console must also reach, matched exactly.
+#:
+#: "View as client" (D-22) runs on the client console's hostname — the admin hostname
+#: refuses `/c/` by design — under the operator's ADMIN session, so that document has to
+#: restore the admin session, mint the impersonation grant and answer the step-up the
+#: mint demands (D-210), all from `CONSOLE_BASE`. Binding these to the admin origin alone
+#: made the restore's `fetch` fail CORS, which the console can only read as "Calevate did
+#: not answer", and view-as stopped opening for everyone. Exact paths rather than a
+#: prefix, so `/session/refresh`, `/logout` and every other operator surface stay bound to
+#: the admin origin. `apps/web/src/lib/authn/adminAuthn.ts` and `lib/api/admin.ts` are
+#: the callers; `tests/realm_origin_binding_test.py` pins this set against them.
+VIEW_AS_HANDOFF_PATHS: frozenset[str] = frozenset(
+    {
+        f"{ADMIN_AUTH_PREFIX}session",
+        f"{ADMIN_AUTH_PREFIX}step-up",
+        f"{ADMIN_AUTH_PREFIX}step-up/verify",
+        "/v1/admin/impersonation-grants",
+    }
+)
+
 
 def console_base(realm: str) -> str:
     """The hostname for `realm`. Anything that is not `admin` is the client console —
@@ -112,6 +132,7 @@ __all__ = [
     "CLIENT_RESET_PASSWORD_PATH",
     "CONSOLE_BASE",
     "TOKEN_PARAM",
+    "VIEW_AS_HANDOFF_PATHS",
     "accept_invitation_link",
     "admin_bootstrap_link",
     "console_base",

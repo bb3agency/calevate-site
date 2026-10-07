@@ -389,7 +389,14 @@ spend-cap recompute and audit-chain verify:
    This is the panel that makes the D-94 orchestrator switch a screen action.
 2. **Core config** — grouped, each row showing value, source, who, when. A value coming
    from `env` is shown as **read-only with the reason**, because the DB cannot override it
-   and a field that silently does nothing is worse than no field.
+   and a field that silently does nothing is worse than no field. The grouping, each
+   setting's plain label and one-line description, and which engine a setting is read by
+   are served with the values from `apps/api/ops/config_catalog.py` (`sections`, and per
+   field `label`, `description`, `section`, `subsection`, `engine_scope`,
+   `used_by_current_engine`); `tests/ops_config_catalog_test.py` fails on a managed key
+   with no entry. A closed setting's `options` are exactly the values its validator
+   accepts, and a language-model option carries its offer state from
+   `agents/llm_models.unofferable_reason`.
 3. **Secrets** — key, last-4, version, who, when. Set (write-only), test, rotate.
 4. **Key management** — KEK version, how many DEKs are wrapped under each, and the rewrap
    action with its progress.

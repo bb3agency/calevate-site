@@ -45,3 +45,15 @@ Facts that are new in the snapshot, or that it changes:
 - **Phone numbers:** they can be rented, imported and released through the API, and carrier accounts can be saved for `plivo`, `vobiz`, `twilio` and `telnyx` (`phone-numbers/*`).
 
 **One deliberate edit in the snapshot.** In `snapshots/2026-10-07/pages/api-reference/phone-numbers/save-carrier-account.md`, the vendor's example Twilio account id (an `example:` value, lines 278 and 380) is replaced with `ACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX`, at the same byte length. GitHub push protection reads any value of that shape as a credential and refuses the push. `MANIFEST.json` carries the hash of the edited file. Every other byte is as fetched.
+
+## Snapshot of 7 Oct 2026, evening (`snapshots/2026-10-07b/`)
+
+This is a full re-fetch after ThinnestAI's founder answered our questions: 268 of 268 pages, 0 failures, with its own `llms.txt` and `MANIFEST.json`. New pages since `2026-10-07/`:
+- `agent/after-the-call`;
+- `api-reference/do-not-call/*`;
+- `api-reference/sms/*`;
+- `api-reference/webhooks/redeliver-webhook-events`;
+- `channels/sms`;
+- `guides/text-the-caller`.
+
+Example account ids of the form `AC` + 32 hex were masked at fetch time (one file), for the push-protection reason above, and the manifest hashes are of the masked files. Cite this snapshot for anything current. What it confirms and contradicts in the founder's email is in `docs/evidence/thinnest-ai-evaluation.md` §10.

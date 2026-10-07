@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import { formatWholeCount } from "@/components/ui";
 import OpsConfigPage from "@/app/admin/ops/config/page";
+import { OPS_CONFIG_SECTIONS, SELF_SERVE_PRICE_META } from "./fixtures/opsConfig";
 import {
   OPS_RATE_CARD_PATH,
   cardInstant,
@@ -122,6 +123,7 @@ function configField(over: Partial<ConfigField> = {}): ConfigField {
     updated_by: null,
     updated_at: null,
     note: null,
+    ...SELF_SERVE_PRICE_META,
     ...over,
   };
 }
@@ -130,6 +132,7 @@ function configList(): ConfigList {
   return {
     bootstrap: [],
     fields: [configField()],
+    sections: OPS_CONFIG_SECTIONS,
     config_version: 42,
     stale: false,
     never_loaded: false,
@@ -664,7 +667,7 @@ describe("the rate card an operator is about to date", () => {
 });
 
 describe("the voice price that decides whether a tier can be sold", () => {
-  beforeEach(() => openSection("voices-models"));
+  beforeEach(() => openSection("language-models"));
   it("says an unconfirmed price BLOCKS the voice, and names the vendor beside the tier", async () => {
     const { container } = renderOps(routes());
 
@@ -771,7 +774,7 @@ describe("the voice price that decides whether a tier can be sold", () => {
  */
 
 describe("the encoder price that decides whether an upload is indexed at all", () => {
-  beforeEach(() => openSection("voices-models"));
+  beforeEach(() => openSection("language-models"));
   it("leads with what is switched off, not with a status token", async () => {
     // D-608. An unpriced encoder is the one row on this panel whose absence is SILENT:
     // uploads still succeed, the knowledge base still fills, and the agent still answers —

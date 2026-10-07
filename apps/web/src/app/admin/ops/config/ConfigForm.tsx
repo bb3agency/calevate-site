@@ -33,6 +33,7 @@ import {
   etagOf,
   parseDraft,
   provenance,
+  selectChoices,
 } from "./configField";
 
 /**
@@ -82,6 +83,8 @@ export function ConfigForm({
   const verdict = appliesVerdict(field);
   // `null` for every other failure, which keeps `WriteFailure` the ONE renderer for those.
   const cardRefusals = cardRefusalSentences(save.error);
+  const choices = field.kind === "enum" ? selectChoices(field) : [];
+  const unavailable = choices.find((choice) => choice.value === draft)?.unavailable ?? null;
 
   /** Continue from a stated current value: re-base the precondition, re-arm the typing. */
   const rebase = (nextDraft: string) => {
@@ -160,9 +163,9 @@ export function ConfigForm({
         <span className={FIELD_LABEL}>New value</span>
         {field.kind === "enum" ? (
           <select value={draft} onChange={(e) => setDraft(e.target.value)} className={FIELD}>
-            {field.options.map((option) => (
-              <option key={option} value={option}>
-                {option}
+            {choices.map((choice) => (
+              <option key={choice.value} value={choice.value}>
+                {choice.text}
               </option>
             ))}
           </select>
@@ -193,6 +196,18 @@ export function ConfigForm({
           would break it is refused here.
         </span>
       </label>
+
+      {/* Saving is allowed: the validator accepts it, and a tier may be pointed at a model
+          before its key or price lands. What it means for clients is said here. */}
+      {unavailable && (
+        <NoticeBox
+          tone="warn"
+          icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
+          title="Clients cannot be given this model yet"
+        >
+          <p className="mt-1">{unavailable}</p>
+        </NoticeBox>
+      )}
 
       <label className="block">
         <span className={FIELD_LABEL}>Reason</span>

@@ -1410,6 +1410,11 @@ class TenantTrial(PKMixin, TimestampMixin, Base):
     #: which is what makes the sweep idempotent — the erasure itself is executed and
     #: certified by the machinery that already exists, and nothing here erases anything.
     erasure_filed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: When the client was emailed that the trial started, and that it ends within a day
+    #: (D-685). Each is claimed with `WHERE … IS NULL` before the send, so neither email
+    #: goes out twice (`apps/workers/trial_notices.py`).
+    start_notice_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ending_notice_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: The operator who started it. An `admin_users.id`, NOT a `users.id`: the only route
     #: that writes it is admin-realm, so `Principal.user_id` there is an operator, and the
     #: original FK to `users` (a71f3c9e5d84) could not be satisfied by any actor able to

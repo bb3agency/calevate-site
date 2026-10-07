@@ -54,11 +54,13 @@ from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any
 from uuid import UUID
 
+from calevate_shared.engine import LLM_MODEL_NAMES, EngineCapabilities, leg_for_model
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Path, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.llm_models import unofferable_reason
 from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, card_margins, card_refusals
 from apps.api.billing.list_rates import (
     CARD_NOTICE_DAYS,
@@ -130,6 +132,8 @@ from apps.api.core.settings import (
     get_settings,
 )
 from apps.api.core.stepup import StepUpGate
+from apps.api.engine import get_engine
+from apps.api.ops.config_catalog import SECTIONS, meta_for
 from apps.api.ops.config_service import (
     WriteResult,
     clear_value,
@@ -214,6 +218,47 @@ def revert_confirmation(key: str) -> str:
     return f"revert_config:{key}"
 
 
+class ConfigOptionOut(BaseModel):
+    """One value a closed setting accepts.
+
+    For a language-model setting, `provider` and `unavailable_reason` come from the offer
+    seam (`agents/llm_models.unofferable_reason`), so the console shows whether clients can
+    actually be given the model without re-deriving it. The value stays selectable either
+    way: the validator accepts it, and pointing a tier at a model before its key or price
+    lands is a legitimate order of work.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    value: str
+    #: Our provider vocabulary (`azure_openai` | `openai` | `google`) for a model; else null.
+    provider: str | None
+    #: Why clients cannot be offered this model today, in the operator's words; null when
+    #: they can, and always null for a setting that is not a model.
+    unavailable_reason: str | None
+
+
+class ConfigSubsectionOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+
+
+class ConfigSectionOut(BaseModel):
+    """One section of the configuration screen, in display order."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    hint: str
+    subsections: list[ConfigSubsectionOut]
+    #: Panel ids the console mounts above the settings, then below them.
+    panels_before: list[str]
+    panels_after: list[str]
+
+
 class ConfigFieldOut(BaseModel):
     """One managed key, as the console renders it.
 
@@ -248,8 +293,24 @@ class ConfigFieldOut(BaseModel):
     #: Derived from the field's own annotation, so a type change moves the editor with
     #: it. `decimal` is money and must stay a string end to end.
     kind: str
-    #: The permitted values for `kind == "enum"`; empty otherwise.
-    options: list[str]
+    #: The permitted values for `kind == "enum"`, exactly the set the validator accepts and
+    #: in the annotation's order; empty otherwise. `null` is never an option here — read
+    #: `nullable` for whether "not set" is allowed.
+    options: list[ConfigOptionOut]
+    #: Whether `null` ("not set") is accepted.
+    nullable: bool
+    #: The plain name an operator reads, acronyms spelled correctly (`ops/config_catalog`).
+    label: str
+    #: One line saying what the setting does.
+    description: str
+    #: The `ConfigSectionOut.id` and subsection id this setting is shown under.
+    section: str
+    subsection: str
+    #: When only some engines read this setting, the sentence that says which; else null.
+    engine_scope: str | None
+    #: False when `engine_scope` excludes the engine this deployment runs, so the value has
+    #: no effect today. True for every setting with no scope.
+    used_by_current_engine: bool
     editable: bool
     #: `live` | `on_restart` | `needs_republish` | `env_only` | `unclassified` — when a
     #: change actually takes effect. THE MOST LOAD-BEARING FIELD IN THIS MODEL: a key
@@ -290,6 +351,8 @@ class BootstrapKeyOut(BaseModel):
 
     key: str
     env_var: str
+    #: The plain name, spelled the way the settings above are (`config_catalog.humanise`).
+    label: str
     #: Why it can never move into the store.
     reason: str
     #: True when this deployment's environment declares it. Presence, never the value.
@@ -320,6 +383,10 @@ class ConfigOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     fields: list[ConfigFieldOut]
+    #: The screen's sections in display order (`ops/config_catalog.SECTIONS`). Only sections
+    #: that hold a setting or a panel are served, so "Other" appears only when a key has no
+    #: catalogue entry.
+    sections: list[ConfigSectionOut]
     #: The `platform_config_version` this process's snapshot was built from. 0 means it
     #: has never successfully read the store.
     config_version: int
@@ -387,7 +454,49 @@ class ConfigWriteOut(BaseModel):
     etag: str
 
 
-def _out(field: ConfigField) -> ConfigFieldOut:
+EngineInForce = tuple[str, EngineCapabilities | None]
+
+
+def _engine_in_force() -> EngineInForce:
+    """The engine this deployment runs and what it can do, for `used_by_current_engine`.
+
+    `None` capabilities when the adapter cannot be built: this screen is where an operator
+    repairs exactly that, so it must still render, and an unknown engine marks nothing as
+    unused rather than hiding settings on a guess.
+    """
+    name = get_settings().engine
+    try:
+        return name, get_engine().capabilities
+    except Exception as exc:  # the screen that fixes a broken engine must still load
+        log.warning(
+            "config_engine_capabilities_unreadable",
+            extra={"engine": name, "error": type(exc).__name__},
+        )
+        return name, None
+
+
+def _options(field: ConfigField) -> list[ConfigOptionOut]:
+    """The field's options; for a language-model field, each with its offer state.
+
+    A model field is recognised by every option being a catalogue model id, so a new
+    model-typed setting is covered with no list here to extend.
+    """
+    models = bool(field.options) and all(option in LLM_MODEL_NAMES for option in field.options)
+    return [
+        ConfigOptionOut(
+            value=option,
+            provider=leg_for_model(option).provider if models else None,
+            unavailable_reason=unofferable_reason(option) if models else None,
+        )
+        for option in field.options
+    ]
+
+
+def _out(field: ConfigField, engine: EngineInForce) -> ConfigFieldOut:
+    meta = meta_for(field.key)
+    name, capabilities = engine
+    scope = meta.used_when
+    in_use = scope is None or capabilities is None or scope.applies(name, capabilities)
     return ConfigFieldOut(
         key=field.key,
         env_var=field.env_var,
@@ -396,7 +505,14 @@ def _out(field: ConfigField) -> ConfigFieldOut:
         default=field.default,
         has_default=field.has_default,
         kind=field.kind,
-        options=list(field.options),
+        options=_options(field),
+        nullable=field.nullable,
+        label=meta.label,
+        description=meta.description,
+        section=meta.section,
+        subsection=meta.subsection,
+        engine_scope=scope.sentence if scope else None,
+        used_by_current_engine=in_use,
         editable=field.editable,
         applies=field.applies,
         caveat=field.caveat,
@@ -454,7 +570,36 @@ def require_if_match(header: str | None, *, key: str) -> int:
 
 
 async def _fields(session: AsyncSession) -> list[ConfigFieldOut]:
-    return [_out(f) for f in describe(get_settings(), rows=await read_rows(session))]
+    engine = _engine_in_force()
+    return [_out(f, engine) for f in describe(get_settings(), rows=await read_rows(session))]
+
+
+def _sections(fields: list[ConfigFieldOut]) -> list[ConfigSectionOut]:
+    """The catalogue's sections that hold a setting or a panel, in catalogue order.
+
+    Subsections are served the same way, so an empty heading never renders.
+    """
+    used = {(field.section, field.subsection) for field in fields}
+    out: list[ConfigSectionOut] = []
+    for section in SECTIONS:
+        subsections = [
+            ConfigSubsectionOut(id=sub.id, label=sub.label)
+            for sub in section.subsections
+            if (section.id, sub.id) in used
+        ]
+        if not subsections and not section.panels_before and not section.panels_after:
+            continue
+        out.append(
+            ConfigSectionOut(
+                id=section.id,
+                label=section.label,
+                hint=section.hint,
+                subsections=subsections,
+                panels_before=list(section.panels_before),
+                panels_after=list(section.panels_after),
+            )
+        )
+    return out
 
 
 async def _field(session: AsyncSession, key: str) -> ConfigFieldOut:
@@ -500,8 +645,10 @@ async def read_config(session: GlobalSession, _: ConfigOperator) -> ConfigOut:
     # self-consistent story).
     sentinel = await read_sentinel(session)
     environ = effective_env()
+    fields = await _fields(session)
     return ConfigOut(
-        fields=await _fields(session),
+        fields=fields,
+        sections=_sections(fields),
         config_version=current.version,
         stale=current.degraded,
         never_loaded=current.loaded_at is None,
@@ -510,6 +657,7 @@ async def read_config(session: GlobalSession, _: ConfigOperator) -> ConfigOut:
             BootstrapKeyOut(
                 key=key,
                 env_var=env_var_for(key),
+                label=meta_for(key).label,
                 reason=reason,
                 configured=env_declares(key, environ),
                 held_by=ENV_ONLY_FOREIGN_ENV.get(key),
@@ -886,7 +1034,7 @@ def _projected_field(result: WriteResult) -> ConfigFieldOut:
     }
     for field in describe(settings, rows=rows, snap=projected):
         if field.key == result.key:
-            return _out(field)
+            return _out(field, _engine_in_force())
     raise ProblemError(
         kind="internal",
         code="config_key_vanished",

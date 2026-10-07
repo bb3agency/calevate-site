@@ -34,6 +34,7 @@
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useEffect } from "react";
 
+import { formatIST } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 
 import { agreementsKey } from "./agreements";
@@ -303,11 +304,70 @@ export function walletEntryLabel(entry: Pick<WalletEntry, "label" | "reason">): 
  * they will be asked within the hour, and `tests/credit_stop_copy_test.py` fails if any
  * surface says it again.
  */
-export type WalletState = "stopped" | "low" | "healthy" | "not-prepaid";
+export type WalletState = "trial" | "stopped" | "low" | "healthy" | "not-prepaid";
 
+/**
+ * `trial` is checked BEFORE `low` because `is_low` is a plain balance comparison and stays
+ * true for a ₹0.00 wallet throughout a trial (D-536), when an empty wallet stops nothing.
+ * The server already answers `outbound_stopped: false` during a trial; without this arm the
+ * same wallet would fall through to `low` and every screen would warn that calls are about
+ * to stop.
+ */
 export function walletState(wallet: Wallet): WalletState {
   if (!wallet.prepaid) return "not-prepaid";
+  if (activeTrial(wallet) !== null) return "trial";
   if (wallet.outbound_stopped) return "stopped";
   if (wallet.is_low) return "low";
   return "healthy";
+}
+
+/** This client's trial, as the wallet read publishes it — dates and a count, never a cost. */
+export type WalletTrial = Schemas["WalletTrialOut"];
+
+/**
+ * The trial this account is inside right now, or null.
+ *
+ * Reads the server's `active`, which asks the clock as well as the stored status
+ * (`billing/trials.TrialState.is_active`), so a trial past its end date that the nightly
+ * sweep has not yet closed is already null here. An invoiced account can be on a trial
+ * too, so this does not look at `prepaid`.
+ */
+export function activeTrial(wallet: Wallet | undefined): WalletTrial | null {
+  return wallet?.trial?.active === true ? wallet.trial : null;
+}
+
+/** How much of a running trial is left, for the countdown and the last-day prompt. */
+export interface TrialTimeLeft {
+  /** Inside the final 24 hours: count in hours, and ask for a top-up. */
+  lastDay: boolean;
+  /** "3 days left", or on the last day "24 hours left" down to "1 hour left". */
+  text: string;
+}
+
+const HOUR_MS = 3_600_000;
+
+/**
+ * The countdown, in days, or in hours on the last day.
+ *
+ * The day count is the SERVER's `days_remaining`, which rounds up (four hours left is
+ * "1 day", never "0"), so this screen and the operator's trial panel cannot disagree about
+ * how many days a client has. The last day is `days_remaining === 1`, i.e. 24 hours or less;
+ * only that day is split into hours, from `ends_at` and the browser clock, rounded up for
+ * the same reason. The hour figure is the only thing derived here and it is never money.
+ */
+export function trialTimeLeft(trial: WalletTrial, now: Date = new Date()): TrialTimeLeft {
+  const days = trial.days_remaining ?? 0;
+  if (days > 1) return { lastDay: false, text: `${days} days left` };
+  const ms = new Date(trial.ends_at).getTime() - now.getTime();
+  const hours = Number.isNaN(ms) ? 1 : Math.min(24, Math.max(1, Math.ceil(ms / HOUR_MS)));
+  return { lastDay: true, text: `${hours} ${hours === 1 ? "hour" : "hours"} left` };
+}
+
+/**
+ * When the trial ends, as a client reads it: "10 Oct, 10:58 pm IST". `IST` is written out
+ * because the screen is also opened by people whose laptop clock is not in India, and an
+ * unlabelled time would read as theirs.
+ */
+export function trialEndsAt(trial: WalletTrial): string {
+  return `${formatIST(trial.ends_at)} IST`;
 }

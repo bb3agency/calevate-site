@@ -39,7 +39,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Final
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request
@@ -68,8 +68,14 @@ from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
+from apps.api.reliability.service import enqueue_outbox_once
 
 log = get_logger(__name__)
+
+#: `apps/workers/trial_notices.TRIAL_STARTED_NOTICE_JOB`, restated: an api module does not
+#: import a worker module, and `check_job_wiring` resolves a job name only in the file that
+#: enqueues it. `tests/trial_notices_test.py` holds the two equal.
+TRIAL_STARTED_NOTICE_JOB: Final = "notify_trial_started"
 
 router = APIRouter(prefix="/v1/admin/tenants/{tenant_id}/trial", tags=["admin"])
 
@@ -288,6 +294,16 @@ async def open_trial(
                 "erasure_grace_days": str(payload.erasure_grace_days),
                 "reason": payload.reason,
             },
+        )
+        # The client's "your trial has started" email (D-685), promised in the trial row's
+        # own transaction and keyed on the trial, so a rolled-back start mails nobody and a
+        # replayed one mails once. Here rather than in `trials.start_trial`, because
+        # opening a trial from this route is the event the client is told about.
+        await enqueue_outbox_once(
+            scoped,
+            job=TRIAL_STARTED_NOTICE_JOB,
+            payload={"tenant_id": str(tenant_id), "trial_id": str(state.id)},
+            dedupe_key=f"trial_started:{state.id}",
         )
     return _out(state, at=at)
 

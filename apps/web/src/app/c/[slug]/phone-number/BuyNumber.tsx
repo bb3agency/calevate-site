@@ -76,7 +76,7 @@ import {
   type OfferedNumber,
 } from "@/lib/api/numberProvisioning";
 import { useClientRealm } from "@/lib/api/session";
-import { useWallet } from "@/lib/api/wallet";
+import { activeTrial, trialEndsAt, useWallet } from "@/lib/api/wallet";
 import { useIdempotencyKey } from "@/lib/authn/useIdempotencyKey";
 
 import { DIRECTIONS, OutboundRestriction } from "./direction";
@@ -306,6 +306,7 @@ export function BuyNumber() {
   const holder = useNumberHolder(session, offers.data !== undefined);
   const kyc = useKycRecord(session);
   const wallet = useWallet(session);
+  const trial = activeTrial(wallet.data);
   const purchase = usePurchaseNumber(session);
   const write = useWriteAccess(session, "org:manage", "buy a phone number");
 
@@ -414,11 +415,18 @@ export function BuyNumber() {
             />
           ) : (
             <>
-              {wallet.data?.prepaid === true && (
+              {trial !== null ? (
                 <p className="text-sm text-ink-muted">
-                  Your calling credit is {formatINR(wallet.data.balance_inr)}. The first
-                  month is taken from it when you buy.
+                  You&apos;re on a free trial until {trialEndsAt(trial)}, so the first month is
+                  on us. Months that start after the trial ends are charged as usual.
                 </p>
+              ) : (
+                wallet.data?.prepaid === true && (
+                  <p className="text-sm text-ink-muted">
+                    Your calling credit is {formatINR(wallet.data.balance_inr)}. The first
+                    month is taken from it when you buy.
+                  </p>
+                )
               )}
               <ul className="space-y-2">
                 {offers.data.map((offer) => (
@@ -466,9 +474,12 @@ export function BuyNumber() {
         >
           <p className="text-ink">
             {formatINR(chosen.inr_per_month)} every month, for as long as you keep the
-            number. The first month comes off your calling credit now.
+            number.{" "}
+            {trial !== null
+              ? `The first month is on us because you're on a free trial until ${trialEndsAt(trial)}.`
+              : "The first month comes off your calling credit now."}
           </p>
-          {wallet.data?.prepaid === true && (
+          {trial === null && wallet.data?.prepaid === true && (
             <p>Your credit is {formatINR(wallet.data.balance_inr)} before this purchase.</p>
           )}
           <p>{OWNER_SENTENCE}</p>

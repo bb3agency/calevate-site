@@ -26,7 +26,12 @@ from fastapi import FastAPI, Request
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from apps.api.core.alerting import alert
-from apps.api.core.console_links import ADMIN_CONSOLE_BASE, ADMIN_ORIGIN_PREFIXES, CONSOLE_BASE
+from apps.api.core.console_links import (
+    ADMIN_CONSOLE_BASE,
+    ADMIN_ORIGIN_PREFIXES,
+    CONSOLE_BASE,
+    VIEW_AS_HANDOFF_PATHS,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.core.health import HealthDetailGate, build_health_router
 from apps.api.core.logging import configure_logging, get_logger
@@ -126,14 +131,24 @@ def admin_origins_for_env() -> list[str]:
     return _with_local_dev([ADMIN_CONSOLE_BASE])
 
 
+def view_as_origins_for_env() -> list[str]:
+    """The origins allowed on `VIEW_AS_HANDOFF_PATHS`: the admin console, and the client
+    console because view-as (D-22) runs there under the operator's admin session. Nothing
+    else on the admin realm is widened; see `console_links.VIEW_AS_HANDOFF_PATHS`."""
+    return _with_local_dev([ADMIN_CONSOLE_BASE, CONSOLE_BASE])
+
+
 def credentialed_origins_for_path(path: str) -> list[str]:
     """The origin allowlist for a request to `path`, as the CSRF `Origin` check
     (`authn.cookies.cross_site_refusal`) applies it.
 
-    The CORS layer (`core.middleware.RealmCorsMiddleware`) is installed from the same two
-    functions and splits on the same `ADMIN_ORIGIN_PREFIXES`, so the two agree path by
-    path; `tests/realm_origin_binding_test.py` drives both with the same requests.
+    The CORS layer (`core.middleware.RealmCorsMiddleware`) is installed from the same
+    functions and splits on the same `VIEW_AS_HANDOFF_PATHS` and `ADMIN_ORIGIN_PREFIXES`,
+    so the two agree path by path; `tests/realm_origin_binding_test.py` drives both with
+    the same requests.
     """
+    if path in VIEW_AS_HANDOFF_PATHS:
+        return view_as_origins_for_env()
     if path.startswith(ADMIN_ORIGIN_PREFIXES):
         return admin_origins_for_env()
     return cors_origins_for_env()
@@ -480,6 +495,7 @@ def create_app(
             app,
             cors_origins=cors_origins or cors_origins_for_env(),
             admin_cors_origins=admin_origins_for_env(),
+            view_as_cors_origins=view_as_origins_for_env(),
         )
 
     # ADDED LAST, SO IT IS THE OUTERMOST, and that position is the whole point: the
@@ -520,4 +536,5 @@ __all__ = [
     "cors_origins_for_env",
     "create_app",
     "credentialed_origins_for_path",
+    "view_as_origins_for_env",
 ]

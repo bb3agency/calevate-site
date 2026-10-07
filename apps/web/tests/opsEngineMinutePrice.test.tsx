@@ -2,14 +2,15 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { EngineMinutePricePanel, saleNote } from "@/app/admin/ops/EngineMinutePricePanel";
-import { sectionOf } from "@/app/admin/ops/config/configSections";
-import { settingLabel } from "@/app/admin/ops/config/configField";
+import { groupFields } from "@/app/admin/ops/config/configSections";
+import type { ConfigField } from "@/lib/api/opsConfig";
 import {
   ENGINE_MINUTE_PRICES_PATH,
   attestEngineMinuteConfirmation,
   type EngineMinutePrice,
 } from "@/lib/api/engineMinutePricing";
 
+import { OPS_CONFIG_SECTIONS } from "./fixtures/opsConfig";
 import { renderAdminPage } from "./harness";
 
 /**
@@ -113,15 +114,40 @@ describe("saleNote", () => {
 });
 
 describe("ThinnestAI settings on the configuration screen", () => {
-  it("land in Calling with a plain label", () => {
-    for (const key of [
-      "thinnest_api_key",
-      "thinnest_api_base_url",
-      "thinnest_byok_enabled",
-      "thinnest_max_concurrent_calls",
-    ]) {
-      expect(sectionOf(key)).toBe("calling");
-      expect(settingLabel(key)).toMatch(/ThinnestAI/);
-    }
+  it("sit in the section the server files them under, set aside when another engine runs", () => {
+    const section = OPS_CONFIG_SECTIONS.find((s) => s.id === "voice-engine");
+    if (!section) throw new Error("fixture lost the voice-engine section");
+    const field = (key: string, inUse: boolean): ConfigField => ({
+      key,
+      env_var: key.toUpperCase(),
+      value: false,
+      source: "default",
+      default: false,
+      has_default: true,
+      kind: "boolean",
+      options: [],
+      nullable: false,
+      label: "ThinnestAI runs on our own keys (BYOK)",
+      description: "Turn on only after all three legs are set up in ThinnestAI.",
+      section: "voice-engine",
+      subsection: "thinnest",
+      engine_scope: "Used only when the voice engine is ThinnestAI.",
+      used_by_current_engine: inUse,
+      editable: true,
+      applies: "needs_republish",
+      caveat: null,
+      etag: '"0"',
+      updated_by: null,
+      updated_at: null,
+      note: null,
+    });
+
+    const onThinnest = groupFields(section, [field("thinnest_byok_enabled", true)]);
+    expect(onThinnest.unused).toEqual([]);
+    expect(onThinnest.groups.map((g) => g.label)).toEqual(["ThinnestAI"]);
+
+    const elsewhere = groupFields(section, [field("thinnest_byok_enabled", false)]);
+    expect(elsewhere.groups).toEqual([]);
+    expect(elsewhere.unused.map((f) => f.key)).toEqual(["thinnest_byok_enabled"]);
   });
 });

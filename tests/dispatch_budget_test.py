@@ -1130,6 +1130,14 @@ def test_a_failure_that_does_not_prove_nothing_rang_is_never_refunded() -> None:
     assert campaign_dispatch._refused_on_our_side(EngineRejectedError(status=400)) is False
 
 
+def test_our_own_refusal_before_the_dial_refunds_the_attempt() -> None:
+    """`dispatch_call` refusing before the vendor request (an unpublished agent) rang
+    nobody and says nothing about the contact, so it is refunded like a `401`."""
+    unpublished = ProblemError.business_rule("agent_not_published", "Not published.")
+    assert campaign_dispatch._refused_on_our_side(unpublished) is True
+    assert campaign_dispatch._refusal_rule(unpublished) == "agent_not_published"
+
+
 # --------------------------------------- an unanswered dial goes back on the ladder
 
 

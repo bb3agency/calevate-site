@@ -7,7 +7,7 @@ import { Metric } from "@/components/console/metric";
 import { useAttention } from "@/lib/api/attention";
 import { useCalls, useDashboard, useUsage } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
-import { useWallet } from "@/lib/api/wallet";
+import { activeTrial, trialEndsAt, useWallet } from "@/lib/api/wallet";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
@@ -58,6 +58,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
    * number about nothing.
    */
   const wallet = useWallet(session);
+  const trial = activeTrial(wallet.data);
   const recent = useCalls(session, { limit: 6 });
   // The triage queue's size — same query key the header bell reads, so this costs no
   // extra request. The dashboard is the daily entry point and used to never link to
@@ -101,7 +102,9 @@ export function DashboardScreen({ slug }: { slug: string }) {
         key: "calling_credit",
         label: "Calling credit on this account",
         value: wallet.data
-          ? wallet.data.prepaid
+          ? trial !== null
+            ? `${wallet.data.prepaid ? `${wallet.data.balance_inr} INR left; ` : ""}the account is on a free trial until ${trialEndsAt(trial)}, so calls are on us, nothing is taken from the credit, and an empty balance stops no calls`
+            : wallet.data.prepaid
             ? `${wallet.data.balance_inr} INR left${
                 wallet.data.outbound_stopped
                   ? " — outgoing calls have stopped and the agents are no longer answering incoming ones; adding credit starts both again straight away"

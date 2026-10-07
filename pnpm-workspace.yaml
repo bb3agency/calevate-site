@@ -30,6 +30,8 @@ minimumReleaseAgeExclude:
 overrides:
   eslint-import-resolver-typescript: "3.7.0"
   unrs-resolver: "npm:oxc-resolver@1.1.2"
+  # GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7 (high) and GHSA-q2hr-2g5m-vwhr (moderate),
+  # published 18 Sep 2026, raise the floors again: 1.1.21, 2.1.7 and 5.0.12.
   # CVE-2026-69152: `expand()` does not enforce `maxLength` while building comma
   # alternatives and padded sequences, so crafted input exhausts memory or blocks the
   # event loop. Patched in 1.1.18, 2.1.4, 3.0.6 and 5.0.9; the 4.x line has no patch of
@@ -43,15 +45,21 @@ overrides:
   # `TypeError: expand is not a function` and took the whole frontend gate with it.
   # A security override that silently crosses a major is a broken build wearing a
   # patch's clothes; keep the range inside the major the consumer asked for.
-  "brace-expansion@<1.1.18": "^1.1.18"
-  "brace-expansion@>=2 <2.1.4": "^2.1.4"
+  "brace-expansion@<1.1.21": "^1.1.21"
+  "brace-expansion@>=2 <2.1.7": "^2.1.7"
   "brace-expansion@>=3 <3.0.6": "^3.0.6"
-  "brace-expansion@>=4 <5.0.9": ">=5.0.9"
+  "brace-expansion@>=4 <5.0.12": ">=5.0.12"
   postcss: ">=8.5.23"
   nanoid: ">=3.3.17"
-  # GHSA-rgj7-g3m4-5g8c (high): reached only as `next > sharp`, so the floor has to live
-  # here — bumping `next` alone does not move a transitive dependency's resolved version.
-  sharp: ">=0.35.4"
+  # GHSA-rgj7-g3m4-5g8c and GHSA-wq5f-xc86-pv6w (high): reached only as `next > sharp`, so
+  # the floor has to live here — bumping `next` alone does not move a transitive
+  # dependency's resolved version.
+  sharp: ">=0.35.5"
+  # Eleven advisories (three high) fixed in 8.10.2; reached only as `jsdom > undici`, the test
+  # DOM. Kept inside major 8, which is what jsdom asks for.
+  "undici@>=8 <8.10.2": "^8.10.2"
+  # GHSA-68fv-2mgg-jv7q (high): reached as `@tailwindcss/node > source-map-js`.
+  "source-map-js@<1.2.2": "^1.2.2"
   # GHSA-2883-xcg3-v3hh (high): `maxTotalMergeKeys` does not bound CPU when a merge
   # source is empty, so a crafted document spins the event loop. Reached as
   # `@eslint/eslintrc > js-yaml`.
@@ -60,6 +68,15 @@ overrides:
   # bare `>=4.3.2` lets pnpm satisfy a `^3` consumer with 5.x, and a security override
   # that silently crosses a major is a broken build wearing a patch's clothes.
   "js-yaml@>=4 <4.3.2": "^4.3.2"
+
+# braces has NO patched release: GHSA-vfj7-8cjw-p6xm covers "through 3.0.3" and 3.0.3 is
+# the latest version (npm, 8 Oct 2026). It is reached only as
+# `eslint-import-resolver-typescript > fast-glob > micromatch > braces`, at lint time, where
+# the patterns are our own config's globs and never an outsider's input; the attack needs
+# attacker-chosen brace patterns. Drop this entry the day braces ships a fix.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-vfj7-8cjw-p6xm
 
 # Build scripts are opt-in in pnpm 11. sharp = Next.js image optimization
 # (first-party toolchain dep). unrs-resolver was REMOVED here after the Jul 2026

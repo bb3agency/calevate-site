@@ -34,6 +34,7 @@ import EngineLatencyPage from "@/app/admin/ops/engine-latency/page";
 import VoicesPage from "@/app/admin/ops/voices/page";
 import OperatorsPage from "@/app/admin/operators/page";
 import OpsConfigPage from "@/app/admin/ops/config/page";
+import { OPS_CONFIG_SECTIONS } from "./fixtures/opsConfig";
 import OpsPage from "@/app/admin/ops/page";
 import AdminClientsPage from "@/app/admin/page";
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
@@ -112,6 +113,7 @@ import {
   KB_ALL_DELIVERED,
   LANES,
   NO_MAINTENANCE,
+  activeTrialBlock,
   prepaidWallet,
   voiceCatalogue,
   LIVE_CALLS_PATH,
@@ -902,6 +904,9 @@ const USAGE = {
   minutes_left: null,
   capped: false,
   spend_used_inr: "4999.00",
+  // Required on the wire (D-536): every account answers it, trial or not.
+  trial: { active: false, days_remaining: null, ends_at: null },
+  trial_absorbed_inr: "0.00",
   plan_tier: "managed",
   credit_balance_inr: null,
 };
@@ -1177,6 +1182,13 @@ const OPS_CONFIG = {
   fields: [
     {
       key: "self_serve_inr_per_min",
+      label: "Self-serve price per minute (INR)",
+      description: "The self-serve list price per calling minute.",
+      section: "billing",
+      subsection: "prices",
+      nullable: false,
+      engine_scope: null,
+      used_by_current_engine: true,
       env_var: "SELF_SERVE_INR_PER_MIN",
       value: "6.00",
       source: "db",
@@ -1193,6 +1205,13 @@ const OPS_CONFIG = {
     },
     {
       key: "object_store_bucket",
+      label: "Storage bucket",
+      description: "The bucket the platform writes files to.",
+      section: "infrastructure",
+      subsection: "storage",
+      nullable: false,
+      engine_scope: null,
+      used_by_current_engine: true,
       env_var: "OBJECT_STORE_BUCKET",
       value: "calevate-prod",
       source: "env",
@@ -1208,6 +1227,7 @@ const OPS_CONFIG = {
       note: null,
     },
   ],
+  sections: OPS_CONFIG_SECTIONS,
   config_version: 42,
   stale: false,
   never_loaded: false,
@@ -1222,6 +1242,7 @@ const OPS_CONFIG = {
   bootstrap: [
     {
       key: "app_env",
+      label: "App env",
       env_var: "APP_ENV",
       reason: "it decides whether dev tokens are accepted.",
       configured: true,
@@ -1229,6 +1250,7 @@ const OPS_CONFIG = {
     },
     {
       key: "plivo_auth_id",
+      label: "Plivo auth ID",
       env_var: "PLIVO_AUTH_ID",
       reason: "the voice worker reads it from its own container's environment.",
       configured: false,
@@ -1710,6 +1732,9 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/attention": { total: 1, counts: { lead_blocked: 1 }, items: [] },
       // One call in progress, so the sweep covers the header's live-calls pill.
       [LIVE_CALLS_PATH]: [{ ...CALL, id: "live-1", status: "in_progress" }],
+      // On the last day of a trial, so the sweep covers the trial strip in its fullest
+      // state: the warning tone and the Add credit link.
+      "/v1/billing/wallet": prepaidWallet({ trial: activeTrialBlock({ days_remaining: 1 }) }),
     },
   },
   {

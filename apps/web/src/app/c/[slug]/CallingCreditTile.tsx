@@ -4,7 +4,14 @@ import Link from "next/link";
 
 import { Card, ProblemNotice, Skeleton, formatINR } from "@/components/ui";
 import { Metric } from "@/components/console/metric";
-import { useWallet, walletState } from "@/lib/api/wallet";
+import {
+  activeTrial,
+  trialEndsAt,
+  trialTimeLeft,
+  useWallet,
+  walletState,
+  type WalletTrial,
+} from "@/lib/api/wallet";
 
 /**
  * How much calling credit is left, and what that means today.
@@ -55,6 +62,7 @@ export function CallingCreditTile({
 
   const state = walletState(wallet.data);
   if (state === "not-prepaid") return null;
+  const trial = activeTrial(wallet.data);
 
   return (
     <Metric
@@ -62,16 +70,36 @@ export function CallingCreditTile({
       label="Calling credit left"
       value={formatINR(wallet.data.balance_inr)}
       flashValue={wallet.data.balance_inr}
-      tone={state === "stopped" ? "danger" : state === "low" ? "warn" : "default"}
+      tone={
+        state === "stopped"
+          ? "danger"
+          : state === "low" || (trial !== null && trialTimeLeft(trial).lastDay)
+            ? "warn"
+            : "default"
+      }
       hint={
         <Link href={href} className="underline decoration-ink/30 underline-offset-2 hover:text-ink">
-          {state === "stopped"
-            ? "Calls have stopped, outgoing and incoming. Add credit to start both again"
-            : state === "low"
-              ? "Running low — top up before outgoing calls stop"
-              : "Add credit or see where it went"}
+          {trial !== null
+            ? trialHint(trial)
+            : state === "stopped"
+              ? "Calls have stopped, outgoing and incoming. Add credit to start both again"
+              : state === "low"
+                ? "Running low — top up before calls stop, outgoing and incoming"
+                : "Add credit or see where it went"}
         </Link>
       }
     />
   );
+}
+
+/**
+ * During a trial the balance limits nothing (D-536), so the low-credit warning would be
+ * false. The tile says why a ₹0.00 wallet is still calling, and on the last day asks for
+ * the top-up that keeps it calling afterwards.
+ */
+function trialHint(trial: WalletTrial): string {
+  const left = trialTimeLeft(trial);
+  return left.lastDay
+    ? `Free trial ends ${trialEndsAt(trial)} (${left.text}). Add credit so calls carry on after it`
+    : `Free trial: calls are on us until ${trialEndsAt(trial)}`;
 }

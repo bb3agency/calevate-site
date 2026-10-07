@@ -890,6 +890,8 @@ loaded, no migration applied on a VPS.
    with the detached-checkout message until `git checkout main` is run on the box. Nothing
    about this has been executed and the script's own tests cannot execute it.
 
+> **Current state (7 Oct 2026).** Production runs on the Hostinger VPS: deployed by hand with `scripts/vps-deploy.sh` (22 Sep 2026 at `fc2987e0`, then 7 Oct 2026 at `e341b634`). Automatic deploys are still off (`VPS_DEPLOY_ENABLED` unset; every GitHub Deploy run is skipped), and no Actions runner is installed, which §2b and the runbook §0a advise on this starter host. The step-by-step for the next deploy, including the nginx install that needs a sudo-capable login because `calevate` has none, is in `runbooks/first-deploy.md` "Deploying an update".
+
 Until step 6, **this repo has a deploy mechanism and no automatic deploys**, which is the
 correct state for something nobody has run yet. Step 7 is the one people skip; the first
 rollback should not be the first time anybody has seen one.

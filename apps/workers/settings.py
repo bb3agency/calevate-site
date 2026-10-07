@@ -194,6 +194,11 @@ from apps.workers.retention import (
 )
 from apps.workers.tls_expiry import check_tls_expiry
 from apps.workers.topup_settlement import SETTLEMENT_MINUTES, sweep_topup_settlement
+from apps.workers.trial_notices import (
+    ENDING_SWEEP_MINUTE,
+    notify_trial_started,
+    send_trial_ending_notices,
+)
 from apps.workers.trials import sweep_trials
 from apps.workers.voice_catalogue import REFRESH_MINUTE, refresh_voice_catalogue
 from apps.workers.wallet_alerts import notify_low_balance
@@ -281,6 +286,10 @@ FUNCTIONS: list[Any] = [
         # stated failure ("a client whose phone stops being answered because a top-up
         # lapsed is a client who leaves"). `check_job_wiring` shape 3.
         notify_low_balance,
+        # D-685. THE "YOUR TRIAL HAS STARTED" EMAIL, published by `trial_routes.open_trial`
+        # through the outbox in the trial row's transaction. Unregistered, the outbox marks
+        # the row published and arq drops it: `check_job_wiring` shape 3.
+        notify_trial_started,
         # D-547 EDITABLE RATE CARD. Enqueued through the OUTBOX in the same transaction as
         # the `platform_list_rates` card it announces, so an unregistered name here is the
         # `check_job_wiring` shape 3 failure with a PRICE behind it: the outbox marks the
@@ -858,6 +867,16 @@ CRON_JOBS = [
         walk=fleet_wide("one tenant_session per organization, under a time budget"),
         hour={2},
         minute={33},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-685. HOURLY, because the trial-ending email is due about 24 hours before a trial's
+    # end and trials end at any minute of the day; the daily sweep above would send it
+    # anywhere from 0 to 24 hours ahead. Each send is claimed on the trial row, so a
+    # retried tick cannot mail twice.
+    _cron(
+        traced_job(send_trial_ending_notices),
+        walk=fleet_wide("one tenant_session per organization, under a time budget"),
+        minute={ENDING_SWEEP_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     # D-538. HOURLY. THE MINUTE COMES FROM THE MODULE (`account_closure.SWEEP_MINUTE`),

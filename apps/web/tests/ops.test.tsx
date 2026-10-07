@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import OpsConfigPage from "@/app/admin/ops/config/page";
 import OpsPage from "@/app/admin/ops/page";
-import { sectionOf } from "@/app/admin/ops/config/configSections";
+import { ENGINE_MINUTE_PRICES_PATH } from "@/lib/api/engineMinutePricing";
+import { OPS_CONFIG_SECTIONS, SELF_SERVE_PRICE_META, placed } from "./fixtures/opsConfig";
 import {
   OUTBOX_REPLAY_CONFIRMATION,
   platformConfirmation,
@@ -204,6 +205,8 @@ function configRoutes(
     [OPS_DASHBOARD_DATA_USE_PATH]: dashboardDataUse(),
     // The rate-card panel shares this screen too, and is stubbed for the same reason.
     [OPS_RATE_CARD_PATH]: OPS_RATE_CARD,
+    // The voice-engine section mounts the engine minute-price panel.
+    [ENGINE_MINUTE_PRICES_PATH]: { prices: [], as_of: "2026-10-07T06:30:00Z" },
     [OPS_SECRETS_PATH]: secretsList(),
     [`${OPS_SECRETS_PATH}/kek`]: kekState(),
     ...extra,
@@ -413,6 +416,7 @@ function configField(over: Partial<ConfigField> = {}): ConfigField {
     updated_by: null,
     updated_at: null,
     note: null,
+    ...SELF_SERVE_PRICE_META,
     ...over,
   };
 }
@@ -434,8 +438,10 @@ function configList(over: Partial<ConfigList> = {}): ConfigList {
         kind: "string",
         default: null,
         has_default: false,
+        ...placed("infrastructure", "storage", "Storage bucket"),
       }),
     ],
+    sections: OPS_CONFIG_SECTIONS,
     config_version: 42,
     stale: false,
     never_loaded: false,
@@ -2307,7 +2313,7 @@ describe("the platform configuration panel", () => {
   });
 
   it("renders an env-pinned key read-only, with the variable that pins it", async () => {
-    openSection("platform");
+    openSection("infrastructure");
     const { container } = renderAdminPage(<OpsConfigPage />, configRoutes());
 
     await screen.findByText("object_store_bucket");
@@ -2458,7 +2464,7 @@ describe("the platform configuration panel", () => {
   });
 
   it("warns on a setting that will not take effect until a restart", async () => {
-    openSection("platform");
+    openSection("infrastructure");
     const { container } = renderAdminPage(
       <OpsConfigPage />,
       configRoutes(SUPERADMIN, {
@@ -2466,6 +2472,7 @@ describe("the platform configuration panel", () => {
           fields: [
             configField({
               key: "db_pool_size",
+              ...placed("infrastructure", "database", "Database connection pool size"),
               env_var: "DB_POOL_SIZE",
               value: 16,
               default: 16,
@@ -2526,21 +2533,14 @@ describe("the platform configuration panel", () => {
   });
 
   /**
-   * THE TWO SETTINGS WHOSE BLAST RADIUS IS WIDEST WERE FILED UNDER "no group for yet".
+   * THE SERVER FILES EVERY SETTING; THE SCREEN ARRANGES WHAT IT IS SENT.
    *
-   * "Other" is a safety net — a key this console has never heard of stays editable — and
-   * it is the wrong home for a key whose change is a commercial or security event.
-   * `azure_openai_model` is a LIVE switch between two models 2.7x apart on price, so it
-   * moves every in-call token bill AND every "about N assists" a client reads
-   * (`billing/ai_quota.assist_nominal_inr` derives that estimate per model);
-   * `first_party_auth_enabled` is the kill switch over the only authentication this
-   * product has. Both arrived after the group list was written — the Azure keys with
-   * D-410, the auth switch with D-177 — and prefix matching cannot notice that on its
-   * own, which is the whole reason this test exists rather than a comment.
+   * Sections and subsections used to be guessed from key prefixes here, which is how
+   * `azure_openai_model` and `first_party_auth_enabled` once landed under "Other". The
+   * grouping now arrives with the settings (`ops/config_catalog.py`), so this pins that a
+   * field renders exactly where the server put it, under its served label.
    */
-  it("files the language model and the sign-in switch under their own sections", async () => {
-    expect(sectionOf("azure_openai_model")).toBe("voices-models");
-    expect(sectionOf("first_party_auth_enabled")).toBe("access");
+  it("renders each setting under the section and subsection the server filed it in", async () => {
     const routes = configRoutes(SUPERADMIN, {
       [OPS_CONFIG_PATH]: configList({
         fields: [
@@ -2549,7 +2549,12 @@ describe("the platform configuration panel", () => {
             env_var: "AZURE_OPENAI_MODEL",
             value: "gpt-4o-mini",
             default: "gpt-4o-mini",
-            kind: "string",
+            kind: "enum",
+            options: [
+              { value: "gpt-4o-mini", provider: "azure_openai", unavailable_reason: null },
+              { value: "gpt-4.1-mini", provider: "azure_openai", unavailable_reason: null },
+            ],
+            ...placed("language-models", "azure", "Model behind the Azure deployment"),
           }),
           configField({
             key: "first_party_auth_enabled",
@@ -2557,81 +2562,189 @@ describe("the platform configuration panel", () => {
             value: true,
             default: true,
             kind: "boolean",
+            ...placed("security", "access", "Sign-in enabled"),
           }),
         ],
       }),
     });
 
-    openSection("voices-models");
+    openSection("language-models");
     const first = renderAdminPage(<OpsConfigPage />, routes);
     await screen.findByText("azure_openai_model");
-    expect(screen.getByRole("heading", { name: "Voices and models" })).toBeTruthy();
-    // Neither key falls through to "Other", so the menu does not offer that section.
+    expect(screen.getByRole("heading", { name: "Language models and tiers" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Azure OpenAI" })).toBeTruthy();
+    expect(screen.getByText("Model behind the Azure deployment")).toBeTruthy();
+    // Nothing fell through, so the menu does not offer "Other".
     expect(screen.queryByRole("link", { name: "Other" })).toBeNull();
     first.unmount();
 
-    openSection("access");
+    openSection("security");
     renderAdminPage(<OpsConfigPage />, routes);
     await screen.findByText("first_party_auth_enabled");
-    expect(screen.getByRole("heading", { name: "Sign-in and sign-up" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Security and access" })).toBeTruthy();
   });
 
-  /**
-   * THE SAME DEFECT, ONE ENGINE CHANGE LATER (D-616).
-   *
-   * D-592 moved the conversation loop into a container we deploy, which imports `sarvamai`
-   * directly (`apps/voice-worker/`, hard rule 2's third home). That made the speech legs
-   * OURS to set — and `sarvam_stt_model` and `stt_autodetect_language`, which decide what
-   * an agent HEARS on every call, were still landing in "Other" because no prefix claimed
-   * them. `platform_llm_model` was there for the matching reason on the language side: it
-   * is the platform rung of `agent → organization → platform` and deliberately is NOT an
-   * `azure_openai_*` field, because its value may name a model on any declared leg.
-   *
-   * Asserted through the rendered headings rather than against `GROUPS`, which the route
-   * module does not export (D-196) — the same reason `opsAccess` is exercised through the
-   * DOM one describe over.
-   */
-  it("gives the speech legs and the platform model a section of their own", async () => {
-    for (const key of ["sarvam_stt_model", "stt_autodetect_language", "platform_llm_model"]) {
-      expect(sectionOf(key)).toBe("voices-models");
-    }
-    openSection("voices-models");
+  it("keeps a setting filed under a section it was not sent, under Other", async () => {
+    openSection("unfiled");
     renderAdminPage(
       <OpsConfigPage />,
       configRoutes(SUPERADMIN, {
         [OPS_CONFIG_PATH]: configList({
           fields: [
             configField({
-              key: "sarvam_stt_model",
-              env_var: "SARVAM_STT_MODEL",
-              value: "saaras:v2.5",
-              default: "saaras:v2.5",
-              kind: "string",
+              key: "brand_new_setting",
+              env_var: "BRAND_NEW_SETTING",
+              ...placed("a-section-this-build-never-saw", "x", "Brand new setting"),
             }),
+          ],
+        }),
+      }),
+    );
+    await screen.findByText("brand_new_setting");
+    expect(screen.getByRole("link", { name: "Other" })).toBeTruthy();
+  });
+
+  /**
+   * THE DEFECT FOUND ON 7 OCT 2026. `llm_tier_standard_model` defaults to
+   * `gemini-2.5-flash-lite`, and the dialog offered only the two Azure models, so the
+   * value in force could not be chosen and the select showed a different one. The options
+   * are now the validator's whole set, served with each model's offer state.
+   */
+  it("offers every model the server accepts and pre-selects the value in force", async () => {
+    const option = (value: string, provider: string, unavailable: string | null = null) => ({
+      value,
+      provider,
+      unavailable_reason: unavailable,
+    });
+    openSection("language-models");
+    renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
+        [OPS_CONFIG_PATH]: configList({
+          fields: [
             configField({
-              key: "stt_autodetect_language",
-              env_var: "STT_AUTODETECT_LANGUAGE",
-              value: true,
-              default: true,
-              kind: "boolean",
-            }),
-            configField({
-              key: "platform_llm_model",
-              env_var: "PLATFORM_LLM_MODEL",
+              key: "llm_tier_standard_model",
+              env_var: "LLM_TIER_STANDARD_MODEL",
               value: "gemini-2.5-flash-lite",
               default: "gemini-2.5-flash-lite",
-              kind: "string",
+              kind: "enum",
+              options: [
+                option("gpt-4o-mini", "azure_openai"),
+                option("gpt-4.1-mini", "azure_openai"),
+                option("gpt-5.4-mini", "openai", "this platform holds no API key"),
+                option("gemini-2.5-flash", "google"),
+                option("gemini-2.5-flash-lite", "google"),
+                option("gemini-3.5-flash", "google", "cannot switch thinking off"),
+              ],
+              ...placed("language-models", "tiers", "Standard tier model"),
             }),
           ],
         }),
       }),
     );
 
-    await screen.findByText("sarvam_stt_model");
-    expect(screen.getByText("stt_autodetect_language")).toBeTruthy();
-    expect(screen.getByText("platform_llm_model")).toBeTruthy();
-    // None of the three may sit in "Other", so the menu does not offer that section.
-    expect(screen.queryByRole("link", { name: "Other" })).toBeNull();
+    await screen.findByText("Standard tier model");
+    fireEvent.click(screen.getByRole("button", { name: "Change Standard tier model" }));
+    const select = (await screen.findByRole("combobox", {
+      name: /New value/,
+    })) as HTMLSelectElement;
+    // Pre-selected: the value in force, not the first option.
+    expect(select.value).toBe("gemini-2.5-flash-lite");
+    const texts = Array.from(select.options).map((o) => o.textContent ?? "");
+    expect(texts).toContain("gemini-2.5-flash-lite — Google Gemini · built-in default");
+    expect(texts.some((t) => t.startsWith("gemini-2.5-flash —"))).toBe(true);
+    expect(texts).toContain("gemini-3.5-flash — Google Gemini · unavailable to clients");
+    expect(screen.queryByText("Clients cannot be given this model yet")).toBeNull();
+
+    // Choosing an unavailable model is allowed and says what it means for clients.
+    fireEvent.change(select, { target: { value: "gpt-5.4-mini" } });
+    expect(screen.getByText("Clients cannot be given this model yet")).toBeTruthy();
+    expect(screen.getByText("this platform holds no API key")).toBeTruthy();
+  });
+
+  it("sets aside the settings the current engine does not read", async () => {
+    openSection("voice-engine");
+    renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
+        [OPS_CONFIG_PATH]: configList({
+          fields: [
+            configField({
+              key: "engine",
+              env_var: "ENGINE",
+              value: "pipecat",
+              default: "fake",
+              kind: "enum",
+              options: ["fake", "cartesia", "pipecat", "thinnest"].map((value) => ({
+                value,
+                provider: null,
+                unavailable_reason: null,
+              })),
+              ...placed("voice-engine", "engine", "Active voice engine"),
+            }),
+            configField({
+              key: "thinnest_byok_enabled",
+              env_var: "THINNEST_BYOK_ENABLED",
+              value: false,
+              default: false,
+              kind: "boolean",
+              engine_scope: "Used only when the voice engine is ThinnestAI.",
+              used_by_current_engine: false,
+              ...placed("voice-engine", "thinnest", "ThinnestAI runs on our own keys (BYOK)"),
+            }),
+          ],
+        }),
+      }),
+    );
+
+    await screen.findByText("Active voice engine");
+    const heading = screen.getByRole("heading", { name: "Not used by the current engine" });
+    const disclosure = heading.closest("details");
+    expect(disclosure?.open).toBe(false);
+    // The closed state carries the fact: how many, and which engine is in force.
+    expect(disclosure?.textContent).toContain("1 setting only another engine reads");
+    expect(disclosure?.textContent).toContain("The engine in force is pipecat");
+    // Still there, still editable: an operator prepares an engine switch here.
+    expect(within(disclosure as HTMLElement).getByText("thinnest_byok_enabled")).toBeTruthy();
+  });
+
+  it("searches across every section and narrows to settings that differ from default", async () => {
+    openSection("billing");
+    renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
+        [OPS_CONFIG_PATH]: configList({
+          fields: [
+            configField({ value: "7.25", source: "db" }),
+            configField({
+              key: "object_store_bucket",
+              env_var: "OBJECT_STORE_BUCKET",
+              value: "calevate-prod",
+              default: "calevate-prod",
+              kind: "string",
+              ...placed("infrastructure", "storage", "Storage bucket"),
+            }),
+          ],
+        }),
+      }),
+    );
+
+    const search = await screen.findByRole("searchbox", { name: "Search settings" });
+    fireEvent.change(search, { target: { value: "bucket" } });
+    expect(screen.getByRole("heading", { name: "Matching settings" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Infrastructure" })).toBeTruthy();
+    expect(screen.getByText("object_store_bucket")).toBeTruthy();
+    expect(screen.queryByText("self_serve_inr_per_min")).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("1 setting in 1 section");
+
+    fireEvent.change(search, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Differs from default" }));
+    expect(screen.getByText("self_serve_inr_per_min")).toBeTruthy();
+    expect(screen.queryByText("object_store_bucket")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Clear search/ }));
+    expect(screen.queryByRole("heading", { name: "Matching settings" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Billing and pricing" })).toBeTruthy();
   });
 });
 
@@ -2986,9 +3099,10 @@ describe("the key-management panel", () => {
     );
 
     // Both credential panels are refused, so the refusal title appears once per panel.
-    expect(
-      (await screen.findAllByText("Your admin account cannot see this")).length,
-    ).toBe(2);
+    // Waited for as a pair: the two reads settle independently.
+    await waitFor(() =>
+      expect(screen.getAllByText("Your admin account cannot see this")).toHaveLength(2),
+    );
     // The API's own sentence, printed verbatim rather than paraphrased — an
     // authorization refusal is the server's to word.
     expect(container.textContent).toContain(
@@ -3002,7 +3116,7 @@ describe("the key-management panel", () => {
 });
 
 describe("a model withheld on merit says so, instead of asking for a price", () => {
-  beforeEach(() => openSection("voices-models"));
+  beforeEach(() => openSection("language-models"));
   /**
    * THE SCREEN TOLD THE FOUNDER TO DO SOMETHING THAT COULD NOT WORK.
    *

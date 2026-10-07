@@ -16,6 +16,7 @@ import {
 } from "@/lib/copilot/registry";
 
 import { hubUsageIdle, renderBillingHub } from "./billingHub";
+import { activeTrialBlock } from "./fixtures/sharedReads";
 import { problem, renderClientPage, stillLoading } from "./harness";
 
 /**
@@ -425,6 +426,30 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
     // The state is not carried by colour alone (WCAG 1.4.1): there is a sentence.
     expect(text).toContain("Your calling credit has run out");
     await expectNoA11yViolations(container, "c/[slug]/credits — empty wallet");
+  });
+
+  it("during a free trial, warns of nothing and says an empty balance stops no calls", async () => {
+    /* D-536: while a trial runs the wallet is not debited and an empty one stops neither
+       direction, so the run-out banner and the running-low banner would both be false. */
+    const { container } = await renderBillingHub(
+      routes({
+        [WALLET]: wallet({
+          balance_inr: "0.00",
+          is_low: true,
+          outbound_stopped: false,
+          minutes_left: null,
+          trial: activeTrialBlock(),
+        }),
+      }),
+    );
+
+    await screen.findByText(
+      "During your free trial nothing is taken from this credit, and an empty balance stops no calls.",
+    );
+    expect(container.textContent).not.toContain("running low");
+    expect(container.textContent).not.toContain("has run out");
+    expect(container.textContent).not.toContain("Outgoing calls stop when this reaches zero");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("does not tell a brand-new account that its credit ran out", async () => {

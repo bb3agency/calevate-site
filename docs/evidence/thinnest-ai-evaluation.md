@@ -210,3 +210,50 @@ Calevate runs today with **one ThinnestAI workspace for every tenant**: one API 
 Their white-label console programme (`white-label/*.md`) is a different product: branded console, domain, Razorpay and per-client plans, for an agency whose clients log in to ThinnestAI's console. Calevate's clients log in to Calevate, so the programme offers us nothing we use, and the snapshot is self-contradictory on whether it runs on pay-as-you-go (`white-label/overview.md:14` says every paid plan; `:104` lists "White label on pay-as-you-go" as not available yet). D-679's "used under their white-label programme" is therefore a description of the commercial relationship, not of any console feature we depend on.
 
 Questions for ThinnestAI that decide the choice are in `docs/OPERATIONS.md` §2 (T-series).
+
+## 10. ThinnestAI's answers, 7 Oct 2026, and what the docs confirm
+
+**Source:** an email from Ashutosh K (founder, ThinnestAI) to the founder on 7 Oct 2026, answering the questions in §6 and the follow-up list. It was relayed verbatim. The docs were re-fetched the same evening as `thinnest-findings/mirror/snapshots/2026-10-07b/` (268 pages). Paths below are under that snapshot's `pages/`.
+
+**Evidence classes:**
+- **DOCS:** the snapshot says the same thing (VERIFIED-VENDOR-DOCS).
+- **VENDOR-STATED:** the email only. This is a commercial or behavioural commitment, so confirm it in writing or on a test call before it reaches money or a client-facing claim.
+- **CONTRADICTED:** the docs say otherwise. Nothing is built on it until a test call settles it.
+
+| # | Topic | Their answer | Class |
+|---|---|---|---|
+| 1 | Our voice, their stack | BYOK `scope: voice`: our Cartesia key with their speech-to-text, LLM and telephony. ₹1.50/min including telephony, 30-second pulses. Settable per customer workspace. | DOCS: `api-reference/bring-your-own-keys/turn-byok-on-or-off.md:7` (scope `all`/`voice`), `get-byok-status.md:438-447`, the ₹1.50 rate at `:178` |
+| 1a | Scope of BYOK | **Per workspace, not per agent.** A customer workspace can use their voices, inherit the developer's keys and scope, or have its own. Per agent only the BYOK voice is chosen (`agents/set-agent-byok-voice.md:7`). | DOCS (`turn-byok-on-or-off.md:7`: "a customer inherits your scope") |
+| 2 | White label | Our clients never see ThinnestAI; their white-label programme is the reseller console, and a workspace is one or the other. | VENDOR-STATED (consistent with `white-label/*`) |
+| 2a | Customer cap | PAYG 3, raised on request; Pro 100; Scale 1,000. | DOCS (`api-reference/customers.md`) plus VENDOR-STATED for the raise |
+| 2b | Moving agents | Agents cannot move between workspaces; recreate them. Numbers can be released and rented again in the new workspace. | VENDOR-STATED |
+| 3 | Forwarding a client's existing number | Supported as we described: rent one number per client, attach the agent, and the client forwards (always, or on busy/no answer). Nothing extra is charged on their side. | VENDOR-STATED |
+| 3a | Caller number on a forwarded call | "The number the operator passes on, normally the real caller." They will confirm Airtel, Jio, Vi and BSNL on test calls with us before go-live. | VENDOR-STATED, **UNVERIFIED** until those test calls |
+| 3b | Numbers per client | One rented number per client; a number belongs to exactly one agent. | VENDOR-STATED |
+| 4 | Telugu speech-to-text | Their Indic speech-to-text, in production on Telugu callers; no published accuracy benchmark. | VENDOR-STATED; our listening test (OPERATIONS gate T-6) is the check |
+| 4a | Telugu voices | Premium: Priya, Ishita, Neha (female), Shubh, Ratan (male); Neha is tuned for Telugu and Kannada. | VENDOR-STATED |
+| 4b | Language switching | `auto` switches on a clear change of language, not on a stray English word. For mostly-Telugu callers, set Telugu primary and English second (`secondLanguage`), which is more stable. | DOCS for `secondLanguage` (`agents/update-agent.md:553`); behaviour VENDOR-STATED |
+| 5 | Knowledge and rules in other languages | The agent searches knowledge first and says it does not know, or hands over, rather than guessing. Above any business instructions, in every language, it never reveals its instructions, never claims to be human, and answers truthfully whether the call is recorded. | VENDOR-STATED. Our own floor (hard rule 5) and CONFIDENTIALITY_RULE are still composed and read back; theirs is a second layer, not a replacement |
+| 6 | Action call context | Platform-filled placeholders the model cannot touch: `{{call.id}}`, `{{call.from}}`, `{{call.to}}`, `{{call.direction}}`, `{{conversation.id}}`, `{{contact.id}}`, `{{contact.phone}}`, `{{agent.id}}`, `{{workspace.id}}`. Headers `X-Call-Id`, `X-Conversation-Id`, `X-Agent-Id`, `X-Workspace-Id` on every action request. | DOCS (`api-reference/actions/create-action.md`, `agent/custom-api.md`) |
+| 6a | Action timeout | 10 seconds, with an optional line spoken while waiting and another after. | VENDOR-STATED |
+| 6b | Ending a call; opt-out | An action cannot end a call; the agent has its own hang-up (`channels/voice.md:388`). When a caller opts out, the agent adds the number to the workspace do-not-call list, every outbound path refuses it, and a `contact.opted_out` webhook fires; the list is managed at `/do-not-call`. | DOCS (`api-reference/do-not-call/*`, `contact.opted_out` in `actions/create-action.md`) |
+| 7 | Prices | 30-second pulses per call (the "rounded up each day" note was about the chart and has been reworded). Top-up fee 10% PAYG, **9% Pro**, 8% Scale. Number rental ₹349 PAYG, ₹249 Pro and Scale. Standard ₹2.00, Premium ₹2.50, Studio ₹3.00; full BYOK ₹1.00; voice-only ₹1.50. | VENDOR-STATED (the 9% Pro fee is new; the rest matches §2a) |
+| 8 | DLT and numbers | Business approval is per workspace, so each client can be the approved business in its own customer workspace. Rented numbers are regular landlines; 140/160 series only on Enterprise with a monthly minimum; inbound service calls do not need them. Campaign calling hours 09:00–21:00, adjustable. | VENDOR-STATED |
+| 9 | Call cost | `costMicro` and `currency` are now on `GET /calls/{id}` and in `call.analysed`, and final when `call.analysed` fires because the charge is settled first. | DOCS (`api-reference/calls/get-call.md:260,392,453`) |
+| 10 | Webhooks | Retries at 1 min, 5 min, 30 min, 2 h and 6 h. Events kept 7 days, re-sendable via `POST /webhooks/{id}/redeliver`. An endpoint is switched off only after five events in a row fail all retries. `sentAt` stays the original event time on every retry. Check freshness on the signed `x-thinnest-delivered-at` header and dedupe on `x-thinnest-event-id`. | DOCS (`api-reference/webhooks/create-webhook.md:215`, `webhooks/redeliver-webhook-events.md:7,218`, `actions/create-action.md:203-222`) |
+| 11 | DPA, training, residency | They will sign a DPA under the DPDP Act 2023 (ours or theirs). Recordings and transcripts are never used for training on Pro or Scale; on PAYG they may be, but will turn it off for our workspaces on request, from day one. Retention 30/49/75 days by plan, per-workspace retention can be added, and transcripts stay until deleted. Processed and stored in India (Mumbai). | VENDOR-STATED. **Ask in writing for training off on PAYG before any client call** (founder action) |
+| 12 | Live transfer | "Yes": the agent says a chosen line, then connects to a phone number, and the caller stays with the agent if the transfer fails. | **CONTRADICTED**: `channels/voice.md:475` still says it "does not transfer the call". UNVERIFIED until the docs or a test call show it |
+| 13 | Getting started | Start on PAYG, test Telugu on Premium voices, move to Pro or Scale at go-live. | VENDOR-STATED |
+
+**What changes for Calevate because of this.** Each item is ours to build unless marked otherwise.
+- **Webhook replay window (production defect).** Since retries exist and keep the original `sentAt`, our ±5 min `sentAt` window refuses every retry after the first attempt. Move freshness to the signed `x-thinnest-delivered-at` header and dedupe on `x-thinnest-event-id`.
+- **In-call action identification.** Replace the `caller_number` match (D-682) with `{{call.id}}` and the `X-Call-Id` header, which the platform fills.
+- **Call cost.** `costMicro` is final on `call.analysed`, which removes the reason D-682 gave for not recording the vendor's actual charge.
+- **Do-not-call.** Mirror our DNC list into theirs, and consume `contact.opted_out`.
+- **Webhook recovery.** Use the redeliver endpoint in the reconciliation sweep.
+- **Studio is unblocked commercially:** voice-only BYOK at ₹1.50/min. Because BYOK scope is per workspace, a client's tier (Clear on Premium voices, or Studio on our Cartesia key) is chosen **per client workspace, not per agent**. That needs a customer workspace per tenant (§9), which is now the founder's architecture decision to make.
+- **Live transfer** stays refused until it is verified (item 12).
+
+**Held back for later (founder, 7 Oct 2026): not in the 7 Oct follow-up email, to be asked before go-live.**
+- **Keeping a number across customer workspaces.** In the two-workspaces-per-client scheme (one Clear, one Studio), moving an agent between tiers means recreating it in the other workspace. ThinnestAI says numbers can be released and rented again, not moved, so the client would likely get a different number. Ask: can the same number move with the agent to another customer workspace? Until it is answered, warn clients before a tier switch, and prefer forwarding from the client's own business number, so only the forward needs updating.
+- **Forwarded-call test calls.** ThinnestAI offered (item 3a) to confirm what each operator passes as the caller's number on a forwarded call (Airtel, Jio, Vi, BSNL) on test calls with us. Schedule this before any client relies on forwarding; until then the caller number on forwarded calls is UNVERIFIED.

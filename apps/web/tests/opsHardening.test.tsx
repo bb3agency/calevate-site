@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import OpsConfigPage from "@/app/admin/ops/config/page";
 import { appliesVerdict } from "@/app/admin/ops/config/configField";
+import { OPS_CONFIG_SECTIONS, SELF_SERVE_PRICE_META, placed } from "./fixtures/opsConfig";
 import { testOutcomeCopy } from "@/app/admin/ops/opsLanguage";
 import { ApiProblem } from "@/lib/api/client";
 import {
@@ -154,6 +155,7 @@ function configField(over: Partial<ConfigField> = {}): ConfigField {
     updated_by: null,
     updated_at: null,
     note: null,
+    ...SELF_SERVE_PRICE_META,
     ...over,
   };
 }
@@ -168,6 +170,7 @@ function configList(
     // setting", which is why the server states them rather than the console inferring.
     bootstrap: [],
     fields,
+    sections: OPS_CONFIG_SECTIONS,
     config_version: 42,
     stale: false,
     never_loaded: false,
@@ -792,12 +795,13 @@ describe("two operators, one key", () => {
 describe("what saving will actually do, said before the save", () => {
   beforeEach(() => openSection("billing"));
   it("puts the restart consequence inside the form that has the Save button", async () => {
-    openSection("platform");
+    openSection("infrastructure");
     renderOps(
       opsRoutes({
         [OPS_CONFIG_PATH]: configList([
           configField({
             key: "db_pool_size",
+            ...placed("infrastructure", "database", "Database connection pool size"),
             env_var: "DB_POOL_SIZE",
             value: 16,
             default: 16,
@@ -825,12 +829,13 @@ describe("what saving will actually do, said before the save", () => {
   });
 
   it("does not let a live-but-not-retroactive change read as a finished one", async () => {
-    openSection("calling");
+    openSection("voice-engine");
     renderOps(
       opsRoutes({
         [OPS_CONFIG_PATH]: configList([
           configField({
             key: "webhook_base_url",
+            ...placed("voice-engine", "engine", "Webhook base URL"),
             env_var: "WEBHOOK_BASE_URL",
             value: "https://hooks.calevate.tech",
             default: null,
@@ -940,12 +945,13 @@ describe("what saving will actually do, said before the save", () => {
   });
 
   it("says a key the store can never deliver is not merely awaiting a restart", async () => {
-    openSection("platform");
+    openSection("infrastructure");
     const { container } = renderOps(
       opsRoutes({
         [OPS_CONFIG_PATH]: configList([
           configField({
             key: "db_pool_size",
+            ...placed("infrastructure", "database", "Database connection pool size"),
             env_var: "DB_POOL_SIZE",
             value: 16,
             default: 16,
@@ -1122,7 +1128,7 @@ describe("a write the server did not perform", () => {
 });
 
 describe("the keys this console can never change", () => {
-  beforeEach(() => openSection("platform"));
+  beforeEach(() => openSection("infrastructure"));
   // D-614. The API has published `bootstrap` since D-101 and the console rendered NONE of
   // it, so the surface built to stop "an operator looking for APP_ENV found nothing at
   // all" produced exactly that nothing. These two rows look alike and mean opposite
@@ -1132,6 +1138,7 @@ describe("the keys this console can never change", () => {
       bootstrap: [
         {
           key: "app_env",
+          label: "App env",
           env_var: "APP_ENV",
           reason: "it decides whether dev tokens are accepted.",
           configured: false,
@@ -1139,6 +1146,7 @@ describe("the keys this console can never change", () => {
         },
         {
           key: "plivo_auth_id",
+          label: "Plivo auth ID",
           env_var: "PLIVO_AUTH_ID",
           reason:
             "the carrier credential is read by the voice worker's own telephony serializer.",
@@ -1183,6 +1191,7 @@ describe("the keys this console can never change", () => {
       bootstrap: [
         {
           key: "vobiz_auth_id",
+          label: "Vobiz auth ID",
           env_var: "VOBIZ_AUTH_ID",
           reason: "the Vobiz account id is read by voice-runtime as well.",
           configured: true,
@@ -1190,6 +1199,7 @@ describe("the keys this console can never change", () => {
         },
         {
           key: "vobiz_auth_token",
+          label: "Vobiz auth token",
           env_var: "VOBIZ_AUTH_TOKEN",
           reason: "the Vobiz token places calls.",
           configured: true,
@@ -1233,11 +1243,12 @@ describe("the keys this console can never change", () => {
 describe("a key the environment pins", () => {
   beforeEach(() => openSection("billing"));
   it("offers no form, states the reason, and survives the value moving underneath", async () => {
-    openSection("platform");
+    openSection("infrastructure");
     const pinned = (value: string) =>
       configList([
         configField({
           key: "object_store_bucket",
+          ...placed("infrastructure", "storage", "Storage bucket"),
           env_var: "OBJECT_STORE_BUCKET",
           value,
           source: "env",

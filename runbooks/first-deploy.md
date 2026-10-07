@@ -7,6 +7,8 @@ Hostinger India VPS (D-180), with the domain and the vendor accounts already bou
 not the obvious one — the database roles (step 4) and the TLS certificates (step 9) — and
 getting either wrong is expensive to undo.
 
+> **Current state (7 Oct 2026).** Production runs on the Hostinger VPS: deployed by hand with `scripts/vps-deploy.sh` (22 Sep 2026 at `fc2987e0`, then 7 Oct 2026 at `e341b634`). Automatic deploys are still off (`VPS_DEPLOY_ENABLED` unset; every GitHub Deploy run is skipped), and no Actions runner is installed, which §2b and the runbook §0a advise on this starter host. The step-by-step for the next deploy, including the nginx install that needs a sudo-capable login because `calevate` has none, is in `runbooks/first-deploy.md` "Deploying an update".
+>
 > **STATUS — read it, it changes how you work.** No part of this has run on a real VPS.
 > Every command below was executed during the D-188 readiness audit
 > (`docs/evidence/deploy-readiness.md`) against a scratch database, a local Redis and a
@@ -623,3 +625,43 @@ appears as `email_sender_rejected`.
 
 **Do not** deploy from an edited tree (the preflight refuses, correctly), add a compliance
 bypass "for testing", or weaken a Hard Rule to make something start.
+
+---
+
+## Deploying an update
+
+This is the routine path once the host is live, run by hand: automatic deploys are off on this host, as described in the status note at the top. It is the sequence that deployed `e341b634` on 7 Oct 2026.
+
+1. **Back up the database** (as your sudo login). The dump holds customer data, so the folder is private to `postgres`:
+
+   ```sh
+   sudo install -d -m 700 -o postgres -g postgres /var/backups/calevate
+   sudo -u postgres pg_dump -Fc -d calevate -f /var/backups/calevate/pre-<sha>-$(date +%F-%H%M).dump
+   ```
+
+2. **Add any new `.env` keys** the release needs, as `calevate` (`sudo -u calevate nano /var/www/calevate/.env`). On `ENGINE=thinnest`, `.env` declares `ENGINE=thinnest` itself. The pre-swap check cannot read the console, and without that line it assumes Pipecat and demands the Vobiz secrets; the console then shows the key as set in the environment.
+
+3. **Switch to the service account, export the four nginx variables** (§4, never in `.env`), and update the checkout:
+
+   ```sh
+   sudo -iu calevate
+   cd /var/www/calevate
+   export ROOT_DOMAIN=calevate.tech TLS_LIVE_DIR=/etc/letsencrypt/live/calevate.tech \
+          ORIGIN_CERT_PATH=/etc/ssl/calevate/origin.pem ORIGIN_KEY_PATH=/etc/ssl/calevate/origin.key
+   git pull --ff-only && git log -1 --format=%H
+   ```
+
+4. **Dry run, then deploy**, pinned to the commit CI validated:
+
+   ```sh
+   scripts/vps-deploy.sh --dry-run --all
+   scripts/vps-deploy.sh --all --no-pull --expected-sha <full sha>
+   ```
+
+   If the web build is killed (exit 137, out of memory on the starter host), the other components are already live. Run `pm2 stop calevate-web`, then `scripts/vps-deploy.sh web --no-pull --expected-sha <full sha>`.
+
+5. **When nginx changed**, the script stops and prints `sudo install …` lines. `calevate` has no sudo by design, so `exit` to your sudo login and run them there:
+   - first copy `/etc/nginx/conf.d/00-calevate-log-format.conf`, `calevate-rate-zones.conf` and `calevate-site.conf` to `/root/nginx-backup-<date>/`;
+   - then install the three files and run `nginx -t && systemctl reload nginx`.
+
+   Then repeat step 3's `sudo -iu calevate`, `cd` and exports, and re-run step 4's deploy line so it records the deploy. The image is reused, so the second run is quick.
