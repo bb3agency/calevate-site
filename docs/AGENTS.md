@@ -4,6 +4,30 @@ Guidance for AI coding agents (Codex, Cursor, Copilot, Claude Code, etc.) workin
 Calevate monorepo. `CLAUDE.md` contains the same rules with extra detail; `docs/` is the
 authoritative blueprint. Precedence: docs/ > AGENTS.md/CLAUDE.md > code comments.
 
+## Current engine (8 Oct 2026): `ENGINE=thinnest`
+
+**Production runs `ENGINE=thinnest` (deployed 7 Oct 2026).** ThinnestAI hosts the whole call:
+its own numbers, telephony, STT, LLM, TTS and recording (D-678..D-682). Vobiz, Pipecat Cloud
+and our voice worker carry nothing on this engine. D-687 (8 Oct 2026, superseding D-681's
+"Clear = Premium band" and its "Studio on hold"):
+
+- **Clear** = ThinnestAI's stack end to end, speaking ThinnestAI **studio-band** voices:
+  catalogue voices with `tier: studio` plus voices our **admin** clones (clones are studio
+  band, `thinnest-findings/mirror/snapshots/2026-10-07b/pages/channels/voice-clone.md:9-12,
+  81-89`). Needs ThinnestAI Pro (10 clones; Scale 20, `:93-94`). Vendor rate ₹3.00/min,
+  VENDOR-STATED, operator-attested. Clear agents live in our developer workspace.
+- **Studio** = Cartesia on OUR key through ThinnestAI BYOK `scope: "voice"`, with ThinnestAI's
+  STT, LLM and telephony (`api-reference/bring-your-own-keys.md:13-24`), ₹1.50/min plus
+  Cartesia's charge. BYOK is per workspace (`bring-your-own-keys/turn-byok-on-or-off.md:7`),
+  so Studio agents live in ONE shared customer workspace (`thinnest_studio_workspace_id`).
+- **Clients never clone**; they pick and preview voices the admin added and enabled.
+- **Gnani is not used on ThinnestAI**, and client-facing text names no provider (D-679).
+
+Plan and build state: `docs/THINNEST-INTEGRATION.md`. **The Pipecat, Sarvam-STT, Gnani-Clear,
+`TtsModel`, `voice_offer` and Vobiz text below describes `ENGINE=pipecat`**, which is kept
+unchanged; it is not what production runs. On `ENGINE=thinnest` Sarvam still runs the first
+post-call extraction pass and Azure OpenAI still serves the dashboard assistant.
+
 ## Project
 
 Multi-tenant AI voice-agent SaaS (India, Telugu-first). Our own Pipecat conversation loop
@@ -175,7 +199,8 @@ make web-check                # frontend: typecheck + lint + vitest + browser ax
 - `apps/voice-runtime` — latency-critical carrier answer documents, status callbacks and
   engine webhooks; ack <500ms, defer to workers; deployed independently. Its in-call tool
   routes went with D-650; the voice worker calls `/v1/worker/**` on the api instead.
-- Telephony: Vobiz (D-662), behind a carrier switch. Calls are placed and answered
+- Telephony on `ENGINE=pipecat`: Vobiz (D-662), behind a carrier switch (on
+  `ENGINE=thinnest` ThinnestAI's own numbers carry every call). Calls are placed and answered
   through `apps/api/engine/carrier.py` (`vobiz.py`; `plivo_carrier.py` is the fallback),
   chosen by `Settings.carrier` (`CARRIER`, console-managed, default `vobiz`). Vobiz records
   the call and our copy is kept 90 days (D-668/D-670); every URL we give Vobiz carries

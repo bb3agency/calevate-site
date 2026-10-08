@@ -178,7 +178,7 @@ The docs site was restructured on 7 Oct 2026. Paths in this section are under `t
 |---|---|---|
 | Agent prompt | `instructions` accepts up to 20,000 characters (was 8,000). `greeting` stays at 200; a call's `purpose` should stay under 300. | `api-reference/agents/update-agent.md:426-431` |
 | BYOK | A full API: status, add or replace a key, change its model, switch on or off (`GET/PATCH /byok`, `PUT /byok/credentials`, `PATCH /byok/credentials/{kind}`), plus per-agent BYOK model and voice. Still **all three keys or none**, with **no fallback** to their providers when a key fails. Gnani is not a voice provider; Azure OpenAI goes in as an OpenAI-compatible URL. | `api-reference/bring-your-own-keys.md:18-19,56,62-63,68,85-152`; `api-reference/agents/set-agent-byok-voice.md:155-157` |
-| BYOK for customers | A customer workspace uses the developer's keys while BYOK is on, or a complete set of three of its own, which overrides them. Switching BYOK off for the developer switches it off for every customer. **So TTS-only BYOK, with their speech recognition and model for the rest, is not documented.** | `api-reference/bring-your-own-keys.md:74-76` |
+| BYOK for customers | A customer workspace uses the developer's keys while BYOK is on, or a complete set of three of its own, which overrides them. Switching BYOK off for the developer switches it off for every customer. In this (morning) snapshot TTS-only BYOK was not documented. **Superseded by the evening snapshot (§10, §11): scope `voice` is documented** — `snapshots/2026-10-07b/pages/api-reference/bring-your-own-keys.md:13-24,105-109`. | `api-reference/bring-your-own-keys.md:74-76` |
 | Customers | Isolated workspaces per end customer, created by API and reached with one key plus a `Thinnest-Workspace` header (details in §9). | `api-reference/customers.md`, `guides/build-a-platform.md` |
 | Phone numbers | Renting, importing, pointing at an agent and releasing are API calls now. An Indian number still needs business details approved in the console first. Bringing a number on our own carrier account (`plivo`, `vobiz`, `twilio`, `telnyx`) is documented and not used, by decision (7 Oct 2026, below). | `api-reference/phone-numbers/rent-phone-number.md:7`, `import-phone-number.md:7`, `update-phone-number.md:7`, `save-carrier-account.md:311,365-366` |
 | Recordings | The MP3 lands about a minute after the call and is kept 30 days on Free and pay-as-you-go, 49 on Pro, 75 on Scale and 365 on Enterprise. Any call id from the call list works, so an inbound call's recording can be fetched. | `api-reference/recordings/get-call-recording.md:7` |
@@ -189,7 +189,7 @@ The docs site was restructured on 7 Oct 2026. Paths in this section are under `t
 
 Founder decisions and what stays open:
 - **Numbers (decided, 7 Oct 2026).** `ENGINE=thinnest` uses ThinnestAI's own numbers only (D-678 stands); Vobiz is isolated to `ENGINE=pipecat`. A move back to Pipecat would give clients new numbers; no portability between engines is planned or built.
-- **Studio on ThinnestAI (on hold, D-681).** The founder's wish of BYOK for the voice only, with ThinnestAI's speech recognition and model for the rest, is not documented: BYOK is all three or none.
+- **Studio on ThinnestAI (on hold, D-681; unblocked by D-687).** On the morning snapshot BYOK was all three or none, so the founder's wish of BYOK for the voice only was not documented. The evening snapshot documents it (§10 item 1, §11), and D-687 builds Studio on it.
 
 ## 9. One workspace for every tenant, or a customer workspace per tenant
 
@@ -251,9 +251,32 @@ Questions for ThinnestAI that decide the choice are in `docs/OPERATIONS.md` §2 
 - **Call cost.** `costMicro` is final on `call.analysed`, which removes the reason D-682 gave for not recording the vendor's actual charge.
 - **Do-not-call.** Mirror our DNC list into theirs, and consume `contact.opted_out`.
 - **Webhook recovery.** Use the redeliver endpoint in the reconciliation sweep.
-- **Studio is unblocked commercially:** voice-only BYOK at ₹1.50/min. Because BYOK scope is per workspace, a client's tier (Clear on Premium voices, or Studio on our Cartesia key) is chosen **per client workspace, not per agent**. That needs a customer workspace per tenant (§9), which is now the founder's architecture decision to make.
+- **Studio is unblocked commercially:** voice-only BYOK at ₹1.50/min. Because BYOK scope is per workspace, a client's tier (Clear on Premium voices, or Studio on our Cartesia key) is chosen **per client workspace, not per agent**. That needs a customer workspace per tenant (§9), which is now the founder's architecture decision to make. **Resolved differently by D-687 (§11):** a rung is per WORKSPACE, not per tenant, so one shared Studio workspace serves every tenant's Studio agents and the per-tenant choice stays open.
 - **Live transfer** stays refused until it is verified (item 12).
 
 **Held back for later (founder, 7 Oct 2026): not in the 7 Oct follow-up email, to be asked before go-live.**
 - **Keeping a number across customer workspaces.** In the two-workspaces-per-client scheme (one Clear, one Studio), moving an agent between tiers means recreating it in the other workspace. ThinnestAI says numbers can be released and rented again, not moved, so the client would likely get a different number. Ask: can the same number move with the agent to another customer workspace? Until it is answered, warn clients before a tier switch, and prefer forwarding from the client's own business number, so only the forward needs updating.
 - **Forwarded-call test calls.** ThinnestAI offered (item 3a) to confirm what each operator passes as the caller's number on a forwarded call (Airtel, Jio, Vi, BSNL) on test calls with us. Schedule this before any client relies on forwarding; until then the caller number on forwarded calls is UNVERIFIED.
+
+## 11. Voices on ThinnestAI: the D-687 decision (8 Oct 2026)
+
+**The founder's decision**, built on the 7 Oct evening snapshot (paths under `thinnest-findings/mirror/snapshots/2026-10-07b/pages/`, VERIFIED-VENDOR-DOCS) and the email in §10. It supersedes D-681's "only Premium is sold, as Clear" and its "Studio on hold". The build is described in `docs/THINNEST-INTEGRATION.md` §4a.
+
+| Rung | What speaks | Rate (VENDOR-STATED, §10 item 7) | Workspace |
+|---|---|---|---|
+| Clear | ThinnestAI end to end, in **studio-band** voices: catalogue voices with `tier: studio`, plus the voices our admin clones | ₹3.00/min plus the top-up fee (9% on Pro) | Developer workspace |
+| Studio | Cartesia on our key through BYOK `scope: "voice"`; ThinnestAI's STT, LLM and telephony | ₹1.50/min including the line, plus Cartesia's charge to our key | One shared customer workspace |
+
+What the docs say, and what follows from it:
+
+- **Voice-only BYOK is documented.** Scope `voice`: "Your voice account speaks. Our speech-to-text hears the caller, our model answers, and the phone line is ours", at ₹1.50 a minute (`api-reference/bring-your-own-keys.md:13-24`). It needs only a checked voice key (`:26-28`) and is switched with `PATCH /byok {"enabled": true, "scope": "voice"}` (`:186-198`). This corrects §8's "TTS-only BYOK … is not documented", which was true of the morning snapshot only.
+- **Scope is per workspace.** A customer inherits the developer's scope (`bring-your-own-keys/turn-byok-on-or-off.md:7`; `bring-your-own-keys.md:105-109`), so a rung cannot be set per agent inside one workspace. Clones belong to the workspace that made them (`api-reference/voices/list-voices.md:163-167`; `voice-clones/get-voice-clone.md:371-378`). Hence Clear agents (and clones) in the developer workspace, and Studio agents in one customer workspace with voice-only BYOK on.
+- **A Studio call runs on their low-cost models only** (Prana, Prana [Voice], GPT-OSS 120B, GPT-5 Nano, GPT-4.1 Nano today); another model is refused with 400 (`bring-your-own-keys.md:44-63`). A Studio agent's model choice is narrower than a Clear agent's.
+- **No fallback** if our Cartesia key fails: the voice does not speak (`:98-103`).
+- **Clones** are studio voices at the studio rate, made from a 5–30 s sample under two recorded consents, admin-only, 10 on Pro and 20 on Scale, raised per workspace on request; deleting one moves its agents to a standard voice (`channels/voice-clone.md:9-12,33-51,81-120`). Studio-band voices and cloning need Pro (`api-reference/voices/list-voices.md:7`; `channels/voice-clone.md:20-24`).
+- **Previews:** clones carry a short-lived `previewUrl`; BYOK voices have `POST /byok/voices/preview`, text capped at 200 characters and billed to our key (`bring-your-own-keys.md:219-232`); catalogue voices have none. We store previews in our own object store and never hand a vendor URL to a browser.
+- **Gnani is not used on ThinnestAI.** It is not one of their voice providers (`bring-your-own-keys.md:88`) and we do not bring it.
+
+**Money (calculation from the VENDOR-STATED rates; not invoices).** Clear: ₹3.00 × 1.09 = ₹3.27/min against ₹4.00, an 18.3% gross margin before the Pro subscription (price UNKNOWN here) and GST, down from 31.3% under D-681. Studio: ₹1.50 × 1.09 = ₹1.635/min plus Cartesia's cost per call-minute. Both rates reach money only through an operator's attestation (OPERATIONS gate T-14).
+
+**Still open:** the Pro subscription's monthly price; whether a number can move with an agent between workspaces (§10, "Held back for later"); a rung switch on an agent with a number is refused until it is answered.

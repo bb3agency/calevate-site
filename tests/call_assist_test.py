@@ -792,7 +792,7 @@ async def test_no_provider_at_all_is_a_refusal_with_something_to_do_about_it(
     async with _client() as http:
         response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
 
-    assert response.status_code == 502, response.text
+    assert response.status_code == 503, response.text
     assert response.json()["type"].endswith("/assist_no_credential")
     assert response.json()["remediation"]
     assert await _usage_rows(tenant_id) == []

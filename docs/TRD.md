@@ -1295,6 +1295,16 @@ Razorpay for collection (phase 1 can invoice manually; ledger from day 1 is non-
 > carrier leg we now own (Vobiz ₹0.44 + recording ₹0.10; Clear ₹3.6891, Studio ₹5.2499) and
 > ThinnestAI's Clear floor is ₹2.75 (₹2.50 Premium × 1.10 top-up fee, FOUNDER-RELAYED).
 > `tests/cost_floor_test.py` pins the derivations. Clients are billed in 30-second steps.
+>
+> **8 Oct 2026 (D-687): ThinnestAI's Clear is now its studio band, and Studio is sold.** On
+> `ENGINE=thinnest` Clear costs ₹3.00 studio band × 1.09 Pro top-up fee = **₹3.27/min**
+> against the ₹4.00 Clear price, an **18.3%** gross margin before the Pro subscription
+> (price UNKNOWN here) and GST, down from D-681's 31.3%: **flagged to the founder.** Studio is
+> ₹1.50 voice-only BYOK × 1.09 = ₹1.635/min plus Cartesia's cost per call-minute (§10.1's
+> Cartesia band, ₹2.06–3.09), about ₹3.70–4.73 against ₹7.00–5.50. All three ThinnestAI
+> figures are VENDOR-STATED (`docs/evidence/thinnest-ai-evaluation.md` §10 item 7) and reach
+> money only through an operator's attestation (OPERATIONS gate T-14). The §10.1 TTS table
+> below prices the Pipecat engine's two voices and is unchanged.
 
 Per-minute variable (₹): platform 1.5–2.0 (A-1) · STT 0.50 · **TTS 0.97–1.46 on the Clear
 voice (Gnani Timbre v2.5 since D-629, at the vendor's published per-character rate, `₹27.00 / 10,000 chars` —

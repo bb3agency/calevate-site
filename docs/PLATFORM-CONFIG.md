@@ -170,11 +170,18 @@ the current list. The carrier SWITCHES are console-managed: `carrier`,
 ThinnestAI's own call ceiling, `thinnest_max_concurrent_calls` (default 5, applies live), is
 console-managed the same way and plays `carrier_concurrency`'s part on `ENGINE=thinnest`.
 Its other console-managed settings are `thinnest_byok_enabled` (needs republish; the
-operator's statement that the ThinnestAI workspace runs on its own keys) and
-`engine_actions_base_url` (needs republish; the public API origin its in-call actions call).
-`ENGINE_INTAKE_KEK` is env-only, in `ENV_ONLY_REASONS`. No BYOK provider key is stored here:
-ThinnestAI documents a BYOK API since 7 Oct 2026, but BYOK calls are not on sale (D-681) and
-the keys, when used, are entered in ThinnestAI (`docs/THINNEST-INTEGRATION.md` §4).
+operator's statement that the developer workspace runs on all three of its own keys),
+`engine_actions_base_url` (needs republish; the public API origin its in-call actions call)
+and `thinnest_studio_workspace_id` (added by D-687, 8 Oct 2026: the one shared ThinnestAI
+customer workspace that holds every Studio agent, with voice-only BYOK on and our Cartesia
+key installed, an `org_…` id; set by `POST /v1/ops/voices/studio-workspace`, which creates
+the workspace and installs the key, or
+entered by hand; unset means Studio is not offered on this engine).
+`ENGINE_INTAKE_KEK` is env-only, in `ENV_ONLY_REASONS`. No BYOK provider key is stored
+under a ThinnestAI setting: full (`scope: all`) BYOK is not on sale (D-681), and the Studio
+rung's voice-only BYOK sends our Cartesia key to ThinnestAI once, for the Studio workspace,
+where it is stored encrypted (`thinnest-findings/mirror/snapshots/2026-10-07b/pages/
+api-reference/bring-your-own-keys.md:77-78`; `docs/THINNEST-INTEGRATION.md` §4a).
 The ThinnestAI keys appear in the console's Calling section with plain labels, and
 `/healthz/ready` names `THINNEST_API_KEY`, `ENGINE_INTAKE_KEK`, `WEBHOOK_BASE_URL` and
 `ENGINE_ACTIONS_BASE_URL` on `ENGINE=thinnest` when one is missing or unusable (D-682).

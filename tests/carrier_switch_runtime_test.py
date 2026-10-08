@@ -268,7 +268,7 @@ async def test_an_outbound_answer_without_a_usable_key_is_refused_not_served_uns
 
     response = await _request(answer_path("vobiz", _ref(), call_id=call_id), method="GET")
 
-    assert response.status_code == 502
+    assert response.status_code == 503
     assert response.json()["type"].endswith("/carrier_call_claim_key_missing")
     assert "wss://" not in response.text
 

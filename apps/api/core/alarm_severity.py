@@ -355,6 +355,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # can), which is the compliance tool, so it pages.
     "engine_actions_repaired": "attention",
     "engine_actions_unreachable": "page",
+    # D-687: a live agent speaks a voice the platform no longer has (a deleted clone), so its
+    # callers hear the platform's standard voice. The call works; the voice is wrong.
+    "engine_agent_voice_withdrawn": "attention",
     "engine_actions_not_retired": "attention",
     # THE BIG RED SWITCH FAMILY, AND ALL OF IT PAGES. Outbound was halted — by an
     # operator, or by a regulator's complaint — and these five each say some version of
@@ -471,6 +474,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # applies. This is the guard reporting a catch, not a loss.
     "fx_rate_implausible": "attention",
     "voice_catalogue_empty": "attention",
+    # D-687: the Studio workspace speaks on a voice key that is not our Cartesia one, so its
+    # voices are not offered. Nobody's call fails; somebody must fix the key.
+    "studio_voice_key_wrong_provider": "attention",
     "voice_catalogue_sync_failed": "attention",
     # Payments cannot be verified at all, so money is arriving and nothing is crediting it.
     "razorpay_webhook_unconfigured": "page",

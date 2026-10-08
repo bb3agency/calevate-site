@@ -808,6 +808,53 @@ async def read_engine_payload(key: str) -> bytes | None:
         raise
 
 
+# --- voice previews (D-687) ----------------------------------------------------
+
+#: Where a hosted voice's preview clip lives: one object per catalogue voice, served by our
+#: own authenticated route so a vendor link never reaches a browser. Platform-scoped, like
+#: the catalogue row it belongs to: a voice sample is not a data principal's data.
+VOICE_PREVIEW_PREFIX = "voice-previews"
+
+#: A preview is a short clip; a clone's source recording is at most 10 MB by the vendor's own
+#: rule, so a preview larger than that is not a preview.
+MAX_VOICE_PREVIEW_BYTES = 10 * 1024 * 1024
+
+
+def voice_preview_key(voice_id: str) -> str:
+    """The object key for one catalogue voice's preview. A digest of the id, because a
+    voice id is partly a vendor's alphabet and a key segment should not have to trust it."""
+    return f"{VOICE_PREVIEW_PREFIX}/{hashlib.sha256(voice_id.encode()).hexdigest()}"
+
+
+async def fetch_voice_preview(url: str) -> bytes:
+    """The clip at a vendor's short-lived preview link, through the same vetted, streamed,
+    capped fetch a recording copy uses. The host is the vendor's to choose and is not
+    documented, so no host allow-list applies; `egress_client` still refuses a private one."""
+    data = await _fetch_recording(url)
+    if not data or len(data) > MAX_VOICE_PREVIEW_BYTES:
+        raise RecordingUnavailableError("preview_unusable")
+    return data
+
+
+async def store_voice_preview(*, key: str, data: bytes, content_type: str) -> str:
+    """Put one preview clip. Raises when the store refuses: the catalogue row must not claim
+    a preview we do not hold."""
+    return await _put_document(
+        key=key,
+        data=data,
+        content_type=content_type,
+        log_event="voice_preview_store_failed",
+        refusal="Object storage refused the voice preview",
+    )
+
+
+async def read_voice_preview(key: str) -> bytes | None:
+    """A stored preview clip, or None when it is gone (`read_kb_object`'s contract)."""
+    if not key.startswith(f"{VOICE_PREVIEW_PREFIX}/"):
+        raise ValueError("not a voice preview key")
+    return await read_kb_object(key)
+
+
 # --- carrier compliance documents (reseller stage; evidence doc §5.2) ---------
 
 #: Where a tenant's CARRIER compliance paperwork lives. Its own prefix rather than a slot

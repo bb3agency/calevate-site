@@ -322,6 +322,19 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "storage in India and a language-model step that may be processed outside "
                 "India. MATERIAL: how recipients are disclosed changes.",
             ),
+            # D-687.
+            Revision(
+                "13",
+                True,
+                "Calls run on the hosted voice platform since 7 Oct 2026, so sections 6 and 8 "
+                "describe it as the live path, with its India and no-training statements "
+                "reported as its own (including that it may train on its pay-as-you-go plan "
+                "unless switched off); the speech provider reads transcripts after the call "
+                "and hears calls only on our own call program; the cheaper voice is the "
+                "platform's own and the dearer one a separate company; the platform's own "
+                "recording retention is stated. MATERIAL: a new training position on the "
+                "live call path.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -419,6 +432,14 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "changes how calls are charged. Also, the definition of Engine and the "
                 "dependency clause say suppliers are listed by category on the sub-processor "
                 "list with a named list on request (D-679).",
+            ),
+            # D-687.
+            Revision(
+                "11",
+                False,
+                '"Engine" and clause 9\'s dependency sentence name the hosted voice platform '
+                "that runs calls since 7 Oct 2026 as well as our own call program. "
+                "NON-MATERIAL: a definition and a description; no right or obligation moves.",
             ),
         ),
         effective_date="2026-09-02",
@@ -569,6 +590,16 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "speech provider (untrue since 18 Sep 2026). MATERIAL: the authorisation "
                 "clause changes.",
             ),
+            # D-687.
+            Revision(
+                "12",
+                True,
+                "Clause 5's warranty that every sub-processor is engaged under a written "
+                "contract gains an exception for the hosted voice platform that now runs "
+                "every call, whose data-processing agreement is offered and not recorded as "
+                "signed; clause 2 relays its training statement as its own; clause 9 "
+                "describes it as the live call path. MATERIAL: a narrowed warranty.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -710,6 +741,17 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "against (D-679). Every location, receipt, status, training, retention and "
                 "cross-border fact is kept at category level. MATERIAL: the form of the "
                 "authorised list changes.",
+            ),
+            # D-687.
+            Revision(
+                "13",
+                False,
+                "The Status column follows the live deployment: the hosted voice platform is "
+                "Core, and the carrier on our own account, live speech recognition and the "
+                "in-call language models are configured, not enabled. The platform's written "
+                "DPA and training statements are reported as its statements, it holds our "
+                "admin-cloned voices, and the dearer voice reaches its company through the "
+                "platform on our account. NON-MATERIAL: no company is added.",
             ),
         ),
         effective_date="2026-09-02",

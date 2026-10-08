@@ -33,20 +33,20 @@ are comma-separated keys; aliases are comma-separated words that would identify 
 <!-- register:start -->
 | Identity | Role | Categories | Named publicly | Aliases |
 |---|---|---|---|---|
-| Vobiz | Telephone carrier in use (Calevate's own account) | telephony | no | Vobiz |
+| Vobiz | Telephone carrier on the self-hosted engine (`ENGINE=pipecat`, Calevate's own account); carries nothing on the live deployment | telephony | no | Vobiz |
 | Plivo | Fallback carrier the software can be switched to; no account held | telephony | no | Plivo |
-| ThinnestAI | Hosted voice platform that runs the whole call and rents the numbers, on a deployment switched to it | telephony, voice-platform | no | ThinnestAI, Thinnest |
-| Pipecat Cloud | Container platform our own call program runs on | voice-platform | no | Pipecat |
+| ThinnestAI | Hosted voice platform that runs the whole call and rents the numbers: the live deployment (`ENGINE=thinnest`, since 7 Oct 2026); speaks the Clear voice quality and holds our admin-cloned voices | telephony, voice-platform | no | ThinnestAI, Thinnest |
+| Pipecat Cloud | Container platform our own call program runs on (`ENGINE=pipecat`; not the live deployment) | voice-platform | no | Pipecat |
 | Cartesia | Alternative voice platform (contingency) | voice-platform | no | Cartesia |
-| Sarvam | Speech recognition during the call | speech-to-text | no | Sarvam, Saaras, Bulbul |
+| Sarvam | Speech recognition during the call on the self-hosted engine (`ENGINE=pipecat`); not on the live deployment | speech-to-text | no | Sarvam, Saaras, Bulbul |
 | Sarvam | First post-call extraction pass over the raw transcript | post-call-extraction | no | Sarvam |
 | Sarvam | Standby for the in-app assistant, prose only, no look-up tools | language-models | no | Sarvam |
-| Cartesia | Voice synthesis for the Studio voice quality | text-to-speech | no | Cartesia, Sonic |
-| Gnani | Voice synthesis for the Clear voice quality | text-to-speech | no | Gnani, Timbre |
-| Microsoft | Azure OpenAI: default language model, both legs, East US 2 | language-models | no | Microsoft, Azure |
-| OpenAI | Alternative in-call language model; does not serve the in-app assistant | language-models | no | OpenAI |
-| Google | Gemini API: alternative language model, both legs under conditions | language-models | no | Gemini, Vertex |
-| Hostinger | Application server and PostgreSQL (decided, D-180; not provisioned) | hosting | no | Hostinger |
+| Cartesia | Voice synthesis for the Studio voice quality, on our own account: through the hosted voice platform's voice-only BYOK on the live deployment, directly on `ENGINE=pipecat` | text-to-speech | no | Cartesia, Sonic |
+| Gnani | Voice synthesis for the Clear voice quality on the self-hosted engine (`ENGINE=pipecat`) only; not used on the live deployment | text-to-speech | no | Gnani, Timbre |
+| Microsoft | Azure OpenAI, East US 2: the in-app assistant's default language model on every deployment, and the default in-call model on `ENGINE=pipecat` (on the live deployment the hosted voice platform runs the in-call model) | language-models | no | Microsoft, Azure |
+| OpenAI | Alternative in-call language model on `ENGINE=pipecat`; does not serve the in-app assistant | language-models | no | OpenAI |
+| Google | Gemini API: alternative language model, the in-call leg on `ENGINE=pipecat` and the assistant under conditions | language-models | no | Gemini, Vertex |
+| Hostinger | Application server and PostgreSQL (D-180; the production VPS, deployed 7 Oct 2026) | hosting | no | Hostinger |
 | Cloudflare | R2 object storage: recordings, exports, archived call documents, CRM bodies, backup segments | object-storage | no | Cloudflare, R2 |
 | Cloudflare | Edge in front of the site: TLS, caching, attack protection | edge-network | no | Cloudflare |
 | Resend | Transactional email | email | no | Resend |
@@ -89,25 +89,40 @@ category rows say the same facts without the names. Evidence classes follow hard
   30 days.
 - Location: not stated by the vendor. Nothing Vobiz publishes that we have read says where
   it processes or stores call data; no country is named (founder instruction 2 Oct 2026).
-- Status: Core. Carries the founder's test calls only until Vobiz consents in writing to
-  client traffic (gate V-10).
+- Status: configured, not enabled on the live deployment, which runs `ENGINE=thinnest` and
+  sends Vobiz nothing (founder, 7 Oct 2026). Core only if the deployment is switched back to
+  `ENGINE=pipecat`, and then it carries the founder's test calls only until Vobiz consents in
+  writing to client traffic (gate V-10).
 
 ### ThinnestAI (telephony, voice platform)
 
-- Does: runs the whole call where a deployment is switched to it (`ENGINE=thinnest`,
-  D-678) instead of Pipecat Cloud: holds the agent we configure, answers and places calls on
-  numbers it rents to us, and does its own speech recognition, language model and voice. On
-  such a deployment Vobiz does not carry the calls. Calevate resells it under its
-  white-label programme (founder, 6 Oct 2026).
+- Does: runs the whole call on the live deployment (`ENGINE=thinnest`, D-678; production
+  since 7 Oct 2026) instead of Pipecat Cloud: holds the agent we configure, answers and
+  places calls on numbers it rents to us, and does its own speech recognition, language
+  model and voice. Vobiz carries nothing on this deployment. Calevate resells it under its
+  white-label programme (founder, 6 Oct 2026). Voices (D-687, 8 Oct 2026): the Clear
+  quality is spoken by its own studio-band voices, including voices our admin clones on it;
+  the Studio quality is spoken by Cartesia on OUR key through its voice-only BYOK, so it
+  passes the agent's words to Cartesia on our behalf.
 - Receives: live audio both ways, the transcript, a recording (copied into our storage and
   kept 90 days), caller and called numbers, the agent's instructions and its knowledge.
+  Also the voice samples our admin uploads to clone a voice: a recording of a real person
+  (our staff or someone we engage, never a client's caller), held under the two consents
+  ThinnestAI records with who agreed and when (`thinnest-findings/mirror/snapshots/
+  2026-10-07b/pages/channels/voice-clone.md:33-44`). Deleting a clone deletes the
+  recording, the preview and the voice (`:101-112`).
 - Location: its published privacy policy, read 6 Oct 2026, says it stores data on Google
   Cloud in Mumbai, India, and that the language-model step may be processed outside India
-  by the model providers it names (OpenAI, Anthropic, Google). VENDOR-PUBLISHED.
-- Status: configured, not enabled; no call has run on it. Its policy names Sarvam, OpenAI,
-  Anthropic, Google, Google Cloud, Razorpay and Meta as its own sub-processors and states a
-  default retention of 180 days. It states no data processing agreement and nothing about
-  training on what it receives; we have asked it both.
+  by the model providers it names (OpenAI, Anthropic, Google). VENDOR-PUBLISHED. Its
+  founder's email of 7 Oct 2026 says it is processed and stored in India (Mumbai).
+  VENDOR-STATED. The public page names no city (D-680).
+- Status: Core on the live deployment. Its policy names Sarvam, OpenAI, Anthropic, Google,
+  Google Cloud, Razorpay and Meta as its own sub-processors and states a default retention
+  of 180 days. Its email of 7 Oct 2026 (VENDOR-STATED, `docs/evidence/thinnest-ai-evaluation.md`
+  §10 item 11): it will sign a DPA under the DPDP Act; recordings and transcripts are never
+  used for training on Pro or Scale (on pay-as-you-go they may be, unless switched off on
+  request); recording retention 30/49/75 days by plan, transcripts until deleted. No DPA is
+  recorded as signed in this repository (OPERATIONS gate T-5).
 
 ### Pipecat Cloud (voice platform)
 
@@ -133,7 +148,9 @@ category rows say the same facts without the names. Evidence classes follow hard
 
 ### Sarvam (speech-to-text, post-call extraction, assistant standby)
 
-- Does: speech recognition during the call; the first extraction pass over the transcript;
+- Does: speech recognition during the call on `ENGINE=pipecat` only (on the live deployment
+  the hosted voice platform recognises speech); on every deployment, the first extraction
+  pass over the transcript (`SARVAM_API_KEY` is required);
   standby for the in-app assistant if no other provider can answer, where it answers in
   prose only, is given no look-up tools, cannot read leads, calls or campaigns and cannot
   fill a form or propose a change. Since 18 Sep 2026 (D-629) it synthesises no voice.
@@ -172,7 +189,14 @@ category rows say the same facts without the names. Evidence classes follow hard
 - EVIDENCE: VENDOR-PUBLISHED, RELAYED (`docs/evidence/cartesia-tts-verification-2026-09-06.md`
   §A5); cartesia.ai is egress-blocked here. Certification claims recorded there are
   marketing lines, not certificates, and are not repeated publicly.
-- Status: configured, not enabled. No credential installed, nothing sent.
+- Path on the live deployment (D-687, 8 Oct 2026): the hosted voice platform sends the
+  agent's words to Cartesia on OUR Cartesia key, installed in one shared ThinnestAI
+  customer workspace with voice-only BYOK on (`thinnest-findings/mirror/snapshots/
+  2026-10-07b/pages/api-reference/bring-your-own-keys.md:13-24`). Cartesia bills our
+  account directly; ThinnestAI holds the key encrypted (`:77-78`). On `ENGINE=pipecat` our
+  own call program calls Cartesia directly. Same receipt either way.
+- Status: configured, not enabled. Nothing is sent until the Studio workspace exists with
+  our key installed and a client publishes a Studio agent (OPERATIONS gate T-12).
 
 ### Gnani (text-to-speech, Clear)
 
@@ -181,14 +205,20 @@ category rows say the same facts without the names. Evidence classes follow hard
   `app.gnani.ai/voice/pricing`, founder-relayed 19 Sep 2026, VENDOR-PUBLISHED. Nothing about
   training, retention, residency or a DPA is established. Its published SDK names the
   address its speech service answers on and no region.
-- Status: configured, not enabled. No credential; the Clear rung is unsellable until an
-  operator attests a billed price (hard rule 7). Nothing sent.
+- Status: configured, not enabled, and on `ENGINE=pipecat` only. Not used on the live
+  deployment (`ENGINE=thinnest`), where the Clear quality is the hosted voice platform's own
+  studio-band voices (D-687) and Gnani is not one of its voice providers. On `ENGINE=pipecat`:
+  no credential, and the Clear rung is unsellable until an operator attests a billed price
+  (hard rule 7). Nothing sent. The row stays because `gnani_api_key` is still a setting the
+  Pipecat engine reads.
 
 ### Microsoft — Azure OpenAI (language models)
 
-- Both language legs by default: the in-call model and the in-app assistant (including the
-  fallback for a client whose own model cannot serve the assistant, and the hourly memory
-  distillation job).
+- The in-app assistant on every deployment (including the fallback for a client whose own
+  model cannot serve the assistant, and the hourly memory distillation job), and the
+  default in-call model on `ENGINE=pipecat`. On the live deployment (`ENGINE=thinnest`) the
+  hosted voice platform runs the in-call model with its own providers, so Microsoft
+  receives no call turns there.
 - Receives: in call, the conversation turn by turn; on the dashboard leg, the redacted
   transcript a client asks to have re-read, what a user types, and look-up results (lead
   names and statuses, redacted call summaries, campaign and agent names, counts, knowledge).
@@ -199,7 +229,8 @@ category rows say the same facts without the names. Evidence classes follow hard
 
 ### OpenAI (language models)
 
-- Alternative for the IN-CALL leg only; does not serve the in-app assistant because nobody
+- Alternative for the IN-CALL leg on `ENGINE=pipecat` only (nothing on the live
+  deployment, where the hosted voice platform runs the call's model); does not serve the in-app assistant because nobody
   here has read its data-use position (`DASHBOARD_TERMS_UNREAD`). Receives the conversation
   turn by turn; never the recording. United States; no Indian region to request.
   Client-selectable.
@@ -215,7 +246,10 @@ category rows say the same facts without the names. Evidence classes follow hard
 ### Hostinger (hosting)
 
 - Application, workers and PostgreSQL. Receives everything in the database. A Hostinger VPS
-  in India (D-180); the data centre is not chosen because nothing is provisioned.
+  (D-180), deployed to production on 7 Oct 2026. Which data centre, and so which country, the
+  provisioned VPS is in is NOT RECORDED in this repository; D-180 chose India. Confirm it in
+  the Hostinger panel before the public pages (which still say nothing is provisioned) are
+  updated.
 
 ### Cloudflare (object storage, edge network)
 

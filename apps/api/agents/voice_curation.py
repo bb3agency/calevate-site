@@ -249,6 +249,27 @@ async def count_live_agents_by_voice() -> dict[str, int]:
     return totals
 
 
+#: One tenant's live agents per ENGINE-HOSTED voice (D-687): `agents.engine_voice_id` holds
+#: the hosted catalogue id, where `tts_voice` holds Pipecat's.
+_LIVE_BY_ENGINE_VOICE_SQL: Final = (
+    "SELECT engine_voice_id, count(*) FROM agents WHERE status = 'live' "
+    "AND deleted_at IS NULL AND engine_voice_id IS NOT NULL GROUP BY engine_voice_id"
+)
+
+
+async def count_live_agents_by_engine_voice() -> dict[str, int]:
+    """LIVE agents per hosted voice id, across every tenant — `count_live_agents_by_voice`'s
+    directory-then-tenant shape on the column an engine-hosted voice is stored in."""
+    async with admin_session() as directory:
+        tenants = [row[0] for row in (await directory.execute(text(_DIRECTORY))).all()]
+    totals: dict[str, int] = {}
+    for tenant_id in tenants:
+        async with tenant_session(tenant_id) as scoped:
+            for voice_id, held in (await scoped.execute(text(_LIVE_BY_ENGINE_VOICE_SQL))).all():
+                totals[str(voice_id)] = totals.get(str(voice_id), 0) + int(held)
+    return totals
+
+
 async def count_offered_voices(session: AsyncSession) -> int:
     """How many voices clear offerability GROUND ZERO — enabled and still listed.
 

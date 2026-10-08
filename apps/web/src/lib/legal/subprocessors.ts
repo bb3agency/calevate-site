@@ -49,9 +49,9 @@ interface CategoryRow {
  *
  * ## The `status` column is load-bearing
  *
- * Nothing is deployed to production yet. Each row says which of four states its companies
- * are in — in the running path, configured but off, selected only if the client turns it on,
- * or a contingency nobody has selected.
+ * Production runs `ENGINE=thinnest` since 7 Oct 2026. Each row says which of four states
+ * its companies are in — in the running path, configured but off, selected only if the
+ * client turns it on, or a contingency nobody has selected.
  */
 export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
   {
@@ -59,43 +59,51 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
     category: "Telephony",
     named: [],
     does:
-      "Call carriage and numbers: the calling numbers and the carrier connection the calls " +
-      "run over. The carrier also CARRIES THE AUDIO: the call's media connection " +
-      "terminates at the carrier, and it streams the sound of the call, in both " +
-      "directions, to and from the program of ours that holds the conversation. One " +
-      "carrier is in use, on our own account with it; a second is a fallback our software " +
-      "can be switched to, with which we hold no account, and nothing reaches it unless " +
-      "we make that switch. Where a deployment is switched to the hosted voice platform " +
-      "described in the next row, that platform rents the numbers and carries the calls " +
-      "instead, and the carrier in use does not.",
+      "Call carriage and numbers: the calling numbers and the connection the calls run " +
+      "over. Today the hosted voice platform described in the next row rents the numbers " +
+      "and carries every call, so its row covers this category for live calls. The rest " +
+      "of this row describes the carriers our own call program uses instead, if the " +
+      "service is switched back to that program: a carrier on our own account with it, " +
+      "which CARRIES THE AUDIO — the call's media connection terminates at the carrier, " +
+      "and it streams the sound of the call, in both directions, to and from the program " +
+      "of ours that holds the conversation — and a second, fallback carrier with which we " +
+      "hold no account.",
     receives:
-      "Caller and called numbers, call detail records, the live audio of the call in " +
-      "both directions, and a recording of the call, which we copy and keep for 90 " +
-      "days, and which is deleted from the carrier one day after our copy is saved.",
+      "From the hosted voice platform: as its row describes. From a carrier of our own, " +
+      "if one is switched on: caller and called numbers, call detail records, the live " +
+      "audio of the call in both directions, and a recording of the call, which we copy " +
+      "and keep for 90 days, and which is deleted from the carrier one day after our copy " +
+      "is saved.",
     location:
-      "Not stated by the carrier in use. Nothing it publishes that we have read says " +
-      "where it processes or stores call data, so we name no country for it. Where the " +
-      "hosted voice platform carries the call instead, its own published location is in " +
+      "Not stated by the carrier in use when calls run on our own program. Nothing it " +
+      "publishes that we have read says where it processes or stores call data, so we " +
+      "name no country for it. The hosted voice platform's own published location is in " +
       "the next row.",
     status:
-      "Core: the carrier in use carries every call. The fallback carrier and the hosted " +
-      "voice platform are configured, not enabled.",
+      "Core: the hosted voice platform carries every call. The carrier on our own account " +
+      "and the fallback carrier are configured, not enabled: nothing reaches either " +
+      "unless the service is switched back to our own call program.",
   },
   {
     key: "voice-platform",
     category: "Voice platform",
     named: [],
     does:
-      "RUNS THE CALL. Two kinds of platform, and a deployment uses one of them. The first " +
-      "is a hosting platform on which the conversation is a program of ours — our script, " +
-      "our choice of models, our knowledge lookup — running in a container. The second is " +
-      "a hosted voice platform that runs the whole call itself: it holds the agent we " +
-      "configure, answers and places the calls on numbers it rents to us, and does its own " +
-      "speech recognition, language model and voice, so on such a deployment the separate " +
-      "speech, voice and language-model categories below are replaced by that platform and " +
-      "the companies it uses. A third platform is kept as a contingency. Until 2 October " +
-      "2026 this register also listed a third-party voice platform that was to run the " +
-      "call; it is no longer used and has been removed from the product.",
+      "RUNS THE CALL. Two kinds of platform, and the service uses one of them at a time. " +
+      "Since 7 October 2026 it uses a hosted voice platform that runs the whole call " +
+      "itself: it holds the agent we configure, answers and places the calls on numbers " +
+      "it rents to us, recognises what the caller says, runs the language model that " +
+      "answers, and speaks. The cheaper of our two voice qualities is its own voices, " +
+      "including voices our own staff create on it from a consenting speaker's recording; " +
+      "the dearer quality is spoken by the voice-synthesis company in the text-to-speech " +
+      "row, on our own account with it, which this platform calls on our behalf. So for " +
+      "live calls the speech-recognition and in-call language-model work described below " +
+      "is done by this platform and the companies it uses. The other kind, not in use, is " +
+      "a hosting platform on which the conversation is a program of ours — our script, " +
+      "our choice of models, our knowledge lookup — running in a container. A third " +
+      "platform is kept as a contingency. Until 2 October 2026 this register also listed " +
+      "a third-party voice platform that was to run the call; it is no longer used and " +
+      "has been removed from the product.",
     receives:
       "The most sensitive combination anything in this table receives: the caller's live " +
       "audio in both directions, the transcript as it is produced, the agent's " +
@@ -103,37 +111,46 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "switched caller continuity on — the short note of what a returning caller told the " +
       "agent before. The hosted voice platform also receives the caller and called " +
       "numbers and a recording of the call, which we copy into our own storage and keep " +
-      "for 90 days. A hosting platform does not read those things; it runs the container " +
-      "they pass through, which is a distinction about purpose and not about access.",
+      "for 90 days. The hosted voice platform also holds the voices our own staff create " +
+      "on it: a recording of the person whose voice it is — one of our staff or someone " +
+      "we engage, never one of your callers — kept with that person's recorded consent. " +
+      "A hosting platform does not read any of those things; it runs the container they " +
+      "pass through, which is a distinction about purpose and not about access.",
     location:
-      "Different for each, and neither is India by default. The hosting platform names " +
-      "the region we intend to run in only by its own region label: that is not a " +
-      "residency commitment we have obtained, NOBODY HERE HAS ESTABLISHED WHICH COUNTRY OR " +
-      "CITY IT IS IN, and its own pages cannot be read from our build environment. Do not " +
-      "read India into it. The hosted voice platform's published privacy policy, read on " +
-      "6 October 2026, says it stores data with a cloud provider in India, and that " +
-      "its language-model step may be processed outside India by the model providers it " +
-      "uses. The contingency platform's location is not verified.",
+      "Different for each. The hosted voice platform's published privacy policy, read on " +
+      "6 October 2026, says it stores data with a cloud provider in India, and that its " +
+      "language-model step may be processed outside India by the model providers it uses; " +
+      "it told us in writing on 7 October 2026 that it processes and stores in India, " +
+      "which we report as its statement and not as a commitment we hold. The hosting " +
+      "platform names the region we would run in only by its own region label: that is " +
+      "not a residency commitment we have obtained, NOBODY HERE HAS ESTABLISHED WHICH " +
+      "COUNTRY OR CITY IT IS IN, and its own pages cannot be read from our build " +
+      "environment. Do not read India into it. The contingency platform's location is not " +
+      "verified.",
     status:
-      "Configured, not enabled, for both — and the hosting platform is further from " +
-      "enabled than any other row here: there is no account with it, nothing has been " +
-      "deployed to it and no call has ever run on it. No call has run on the hosted voice " +
-      "platform either. Its published policy names its own sub-processors — speech, " +
-      "language-model, cloud-hosting, payment and messaging companies — and states a " +
-      "default retention of 180 days; it does not state a data processing agreement or " +
-      "whether it trains on what it receives, and we have asked it both. The contingency " +
-      "platform has been sent nothing and no decision to adopt it has been taken. Section " +
-      "3.7 lists what we have not established about the hosting platform.",
+      "Core: the hosted voice platform runs every call. Its published policy names its own " +
+      "sub-processors — speech, language-model, cloud-hosting, payment and messaging " +
+      "companies — and states a default retention of 180 days. It told us in writing on " +
+      "7 October 2026 that it will sign a data processing agreement, and that it never " +
+      "trains on recordings or transcripts on its two higher paid plans (on its " +
+      "pay-as-you-go plan it may, unless switched off on request); until an agreement is " +
+      "signed those are its statements, not terms we hold (section 3.7). The hosting " +
+      "platform is configured, not enabled, and further from enabled than any other row " +
+      "here: there is no account with it, nothing has been deployed to it and no call has " +
+      "ever run on it. The contingency platform has been sent nothing and no decision to " +
+      "adopt it has been taken.",
   },
   {
     key: "speech-to-text",
     category: "Speech-to-text",
     named: [],
     does:
-      "Speech recognition during the call — turning what your caller says into text. It " +
-      "is one company, and it is the same company as the post-call extraction row below " +
-      "and the standby in the language-model row. Since 18 September 2026 it no longer " +
-      "produces the voice your caller hears.",
+      "Speech recognition during the call — turning what your caller says into text — " +
+      "when calls run on our own call program. Today they run on the hosted voice " +
+      "platform, which does this itself, so this company hears no live call at present; " +
+      "it still receives every transcript as the post-call extraction row below. It is " +
+      "one company, the same as that row and the standby in the language-model row. " +
+      "Since 18 September 2026 it no longer produces the voice your caller hears.",
     receives:
       "Call audio and the raw, unredacted transcript. This is the one path that must see " +
       "raw text: a callback-number field needs the actual digits.",
@@ -148,8 +165,10 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "data, not the ordinary speech traffic our calls generate. So the call audio and " +
       "the transcript may be processed outside India on this leg too.",
     status:
-      "Core. Section 3.4 sets out what this company's own terms permit it to do with what " +
-      "it receives, including model training.",
+      "Configured, not enabled for live speech recognition while calls run on the hosted " +
+      "voice platform; Core again if the service is switched back to our own call " +
+      "program. The same company is Core for post-call extraction. Section 3.4 sets out " +
+      "what its own terms permit it to do with what it receives, including model training.",
   },
   {
     key: "post-call-extraction",
@@ -167,10 +186,14 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
     category: "Text-to-speech",
     named: [],
     does:
-      "Turns what an agent says into speech during the call. Two companies, one for each " +
-      "of the two voice qualities the product offers, and each hears nothing of the calls " +
-      "on the other quality. Until 18 September 2026 the cheaper quality was spoken by " +
-      "the speech-to-text company; it no longer synthesises anything.",
+      "Turns what an agent says into speech during the call, for the dearer of the two " +
+      "voice qualities. Today the cheaper quality is spoken by the hosted voice platform " +
+      "itself (the voice-platform row), and the dearer one by a separate voice-synthesis " +
+      "company on our own account with it: the hosted voice platform sends that company " +
+      "the agent's words on our behalf. A second voice-synthesis company is used only " +
+      "for the cheaper quality on our own call program, which is not in use, so nothing " +
+      "reaches it today. Until 18 September 2026 the cheaper quality was spoken by the " +
+      "speech-to-text company; it no longer synthesises anything.",
     receives:
       "The words the agent is about to speak, sent as text a turn at a time — which can " +
       "include a detail the caller has just given, where the agent repeats it back to " +
@@ -184,23 +207,27 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "published privacy policy says its services “are designed for users in the " +
       "United States only and are not intended for users located outside the United " +
       "States” — a statement about who the service is for rather than where data is " +
-      "processed. Of the cheaper quality's company we have read only its price list and " +
-      "its published software package, which names an address and no region. Assume " +
+      "processed. Of the second company we have read only its price list and its " +
+      "published software package, which names an address and no region. Assume " +
       "processing outside India.",
     status:
-      "Configured, not enabled, for both. No credential for either is installed, no " +
-      "voice in either quality can be selected, and nothing has ever been sent to either. " +
-      "The cheaper quality is held off by a second thing as well: nobody has established " +
-      "what a minute of it costs us. Section 3.6 is what a client should read before " +
-      "either becomes live for them.",
+      "Configured, not enabled, for both, and nothing has ever been sent to either. The " +
+      "dearer quality's company starts receiving the words of agents on that quality once " +
+      "we install our key with the hosted voice platform and a client chooses one of its " +
+      "voices. The second company is not used while calls run on the hosted voice " +
+      "platform. Section 3.6 is what a client should read before choosing the dearer " +
+      "quality.",
   },
   {
     key: "language-models",
     category: "Language models",
     named: [],
     does:
-      "The model that holds the conversation during a call, and the in-app assistant a " +
-      "client's own people open from their dashboard. Three providers, and a client's " +
+      "On live calls today the model that holds the conversation is run by the hosted " +
+      "voice platform, with model providers of its own (the voice-platform row). The " +
+      "providers in this row serve the in-app assistant a client's own people open from " +
+      "their dashboard, and also hold the conversation during a call when calls run on " +
+      "our own call program, which is not in use. Three providers, and a client's " +
       "choice of model is also a choice of provider and place (section 3.3). The default " +
       "is a hyperscale cloud provider's service, which serves both legs, is the " +
       "assistant's fallback for a client whose own model cannot serve it, and runs the " +
@@ -215,7 +242,8 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "only, is given none of the assistant's look-up tools, cannot read a client's " +
       "leads, calls or campaigns, and cannot fill in a form or propose a change.",
     receives:
-      "On the call leg, the conversation as it happens — everything the caller says, " +
+      "On the call leg, on our own call program only, the conversation as it happens — " +
+      "everything the caller says, " +
       "turn by turn, as it is said. On the assistant leg, the redacted transcript of a " +
       "call a client asks us to re-read, what a client's user types, and what the " +
       "assistant looks up in that client's own account to answer them: lead names and " +
@@ -234,8 +262,10 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "request. The third: global — its developer service names no region we can " +
       "request, so we cannot pin where it processes and do not claim to.",
     status:
-      "Core for the default provider. Client-selectable for the other two: no client " +
-      "data reaches either unless a client picks one of its models.",
+      "Core for the default provider, on the assistant leg. The second provider receives " +
+      "nothing while calls run on the hosted voice platform. The third serves the " +
+      "assistant only under the condition above, and the call leg only on our own call " +
+      "program.",
   },
   {
     key: "hosting",
@@ -457,14 +487,14 @@ export const SUBPROCESSORS: LegalDocument = {
         {
           kind: "callout",
           tone: "warning",
-          title: "Calevate is not yet running in production",
+          title: "What is running, and what is only configured",
           text:
-            "No client account is live and no production deployment exists. This page " +
-            "describes the system as built and configured, which is the honest thing a " +
-            "buyer needs before they sign, not a description of data flowing today. The " +
-            "Status column tells you which is which, and every entry marked otherwise " +
-            "than Core is one that only starts processing when a specific decision is " +
-            "taken — by us or by you.",
+            "Since 7 October 2026 the service runs its calls on the hosted voice platform " +
+            "described in section 2. This page describes the system as built and " +
+            "configured, including parts that are not in use, because a buyer needs the " +
+            "whole picture before they sign. The Status column tells you which is which, " +
+            "and every entry marked otherwise than Core is one that only starts " +
+            "processing when a specific decision is taken — by us or by you.",
         },
         {
           kind: "definitions",
@@ -553,33 +583,38 @@ export const SUBPROCESSORS: LegalDocument = {
               tone: "warning",
               title: "Assume the call itself may be handled outside India",
               text:
-                "The conversation runs as a program of ours in a container on a hosting " +
-                "platform, in a region that platform names only by its own label; nobody " +
-                "here has established which country that region is in, and section 3.7 " +
-                "lists what else we have not established about it. The sound of the call " +
-                "reaches that program through our telephone carrier, which does not state " +
-                "where it processes or stores call data. The carrier also records the " +
-                "call, and we copy the recording into our own storage. Where a deployment " +
-                "is switched to the hosted voice platform instead, that platform carries " +
-                "the whole call; its published policy places its storage in India and " +
-                "says its language-model step may be processed outside India. So a client " +
+                "The hosted voice platform carries the whole call: it answers, hears the " +
+                "caller, runs the language model, speaks and records. Its published " +
+                "policy places its storage in India and says its language-model step may " +
+                "be processed outside India by the model providers it uses; it has told " +
+                "us in writing that it processes and stores in India, and we report that " +
+                "as its statement. On the dearer voice quality, the agent's words also go " +
+                "to a voice-synthesis company whose location we have not verified " +
+                "(section 3.6). We copy the recording into our own storage. So a client " +
                 "should not assume that the live audio of their calls, or the transcript " +
-                "produced from it, stays in India while the call is happening.",
+                "produced from it, stays in India while the call is happening. If the " +
+                "service is switched back to our own call program, the conversation runs " +
+                "in a container on a hosting platform whose region nobody here has " +
+                "placed in a country (section 3.7), and the sound of the call reaches it " +
+                "through our telephone carrier, which does not state where it processes " +
+                "or stores call data.",
             },
             {
               kind: "para",
               text:
-                "What this does NOT change: the speech and first-extraction work stays " +
-                "with an Indian company, on both call legs. It does NOT follow that it " +
-                "stays in India, and until 27 August 2026 this paragraph let you read it " +
-                "that way. That company's own published privacy policy permits it to " +
+                "What this does NOT change: the first-extraction work after every call " +
+                "stays with an Indian company, and so does live speech recognition when " +
+                "calls run on our own call program. It does NOT follow that it stays in " +
+                "India, and until 27 August 2026 this paragraph let you read it that way. " +
+                "That company's own published privacy policy permits it to " +
                 "transfer personal data to and process it in countries outside India, " +
                 "including on United States cloud infrastructure and with European Union " +
                 "model and security vendors; section 3.4 sets that out with what its " +
                 "terms allow it to do with the data. What none of it sits alongside any " +
                 "more is a language model in India. Until 22 August 2026 this paragraph " +
                 "said the model inference itself did not leave the country; since that " +
-                "date the language model runs in the United States. Section 3.2 says what " +
+                "date the language model we run ourselves is in the United States. " +
+                "Section 3.2 says what " +
                 "moved and what we still promise about it. Our own copy of the recording " +
                 "and transcript — the system of record, the one the product reads " +
                 "and the one our retention periods govern — is in the storage " +
@@ -591,7 +626,7 @@ export const SUBPROCESSORS: LegalDocument = {
                 "Until 2 October 2026 this section was about a third-party voice platform " +
                 "which documented that it ran calls on United States infrastructure by " +
                 "default. That platform is no longer used and has left this list; the " +
-                "call is now handled by the program and the carrier described above.",
+                "call is now handled by the platforms described above.",
             },
           ],
         },
@@ -688,9 +723,13 @@ export const SUBPROCESSORS: LegalDocument = {
             {
               kind: "para",
               text:
-                "The speech and language models run under our own accounts with each " +
-                "provider, against endpoints our code pins, and the program of ours that " +
-                "runs the call holds those credentials.",
+                "While calls run on the hosted voice platform, the model that answers a " +
+                "caller is one of that platform's, run with its own providers, and a " +
+                "client chooses it by quality level rather than by provider. What follows " +
+                "describes the models we run ourselves: the in-app assistant always, and " +
+                "the call when calls run on our own call program. Those run under our own " +
+                "accounts with each provider, against endpoints our code pins, and the " +
+                "program of ours that runs the call holds those credentials.",
             },
             {
               kind: "para",
@@ -851,16 +890,17 @@ export const SUBPROCESSORS: LegalDocument = {
                 "this is the sixth: the product gained a second voice quality, spoken by " +
                 "a second company, and a client choosing it should read what that " +
                 "company's own published documents say before they do. Since " +
-                "18 September 2026 it covers BOTH voice qualities rather than one. The " +
-                "cheaper quality used to be spoken by the same Indian company that hears " +
-                "the call, whose terms section 3.4 sets out; it is now spoken by a third " +
-                "company, and that company's own sites cannot be reached from the " +
-                "environment we build in, so nobody here has read its position on " +
-                "training, on retention, on residency or on anything else it does with " +
-                "what it receives. We state that as the gap it is rather than assuming " +
-                "its answers match the company described next. The three things below " +
-                "are that other company's, all quoted from its documents rather than " +
-                "inferred from them. Its privacy policy says it may use information it " +
+                "7 October 2026 calls run on the hosted voice platform, which speaks the " +
+                "cheaper quality in its own voices and passes the agent's words for the " +
+                "dearer quality to that company, on our own account with it. A third " +
+                "company speaks the cheaper quality only on our own call program, which " +
+                "is not in use; its own sites cannot be reached from the environment we " +
+                "build in, so nobody here has read its position on training, on " +
+                "retention, on residency or on anything else it does with what it " +
+                "receives, and we state that as the gap it is rather than assuming its " +
+                "answers match the company described next. The three things below are " +
+                "the dearer quality's company's, all quoted from its documents rather " +
+                "than inferred from them. Its privacy policy says it may use information it " +
                 "receives to generate output and to train and enhance the models behind " +
                 "its services, and offers an opt-out form whose effect is forward-only — " +
                 "it stops future use for training and does not reach anything used " +
@@ -889,15 +929,15 @@ export const SUBPROCESSORS: LegalDocument = {
                 "on a self-serve plan without a sales conversation, so we do not tell " +
                 "you that one is in place. Each of those is a question with an answer " +
                 "somebody can get, and none of them is a gap we would fill with a " +
-                "plausible sentence. For the company that speaks the cheaper quality the " +
-                "list is shorter and worse: we have established none of those things, " +
-                "because its site cannot be reached from the environment we build in and " +
-                "the one page of its own anybody here has read — its published price " +
-                "list, read on 19 September 2026 — answers none of them. There is one " +
-                "more, and it is the reason no agent can be set to that quality at all " +
-                "today: what that page gives is a list price and not a bill, so nobody " +
-                "has established what one minute of it actually costs us, and we will " +
-                "not put an agent on a leg we have only been quoted for. This paragraph " +
+                "plausible sentence. For the third company, which would speak the " +
+                "cheaper quality on our own call program, the list is shorter and " +
+                "worse: we have established none of those things, because its site " +
+                "cannot be reached from the environment we build in and the one page of " +
+                "its own anybody here has read — its published price list, read on " +
+                "19 September 2026 — answers none of them. There is one more: what that " +
+                "page gives is a list price and not a bill, so nobody has established " +
+                "what one minute of it actually costs us, and no agent can be set to it " +
+                "until somebody does. This paragraph " +
                 "said until 20 September 2026 that the company publishes no price at " +
                 "all, which was a page we had not found written down as a fact about the " +
                 "company, and we would rather correct it here than quietly.",
@@ -907,9 +947,10 @@ export const SUBPROCESSORS: LegalDocument = {
               text:
                 "Two limits on all of the above, both of which cut in your favour. " +
                 "First, nothing has been sent to either of these companies from this " +
-                "system: no credential for either is installed, no voice in either " +
-                "quality can be selected yet, and the product refuses rather than " +
-                "silently working. Second, when one of them does become selectable it " +
+                "system: no voice of either company can be selected yet, and the " +
+                "product refuses rather than silently working. The dearer quality's " +
+                "company becomes selectable only once we install our key with the hosted " +
+                "voice platform. Second, when one of them does become selectable it " +
                 "receives only the words your agent speaks — never the caller's audio, " +
                 "the transcript, the recording, or anything from your dashboard — so the " +
                 "material above bears on what your agent says, which can include a " +
@@ -920,57 +961,80 @@ export const SUBPROCESSORS: LegalDocument = {
                 "the other quality is spoken by the third company described above rather " +
                 "than by the company whose terms section 3.4 sets out, so choosing " +
                 "between the two voice qualities is no longer a way of keeping synthesis " +
-                "with a company whose position anybody has read. What is true of both, " +
-                "and is the limit that matters today, is the sentence this paragraph " +
-                "opens with: nothing has been sent to either of them.",
+                "with a company whose position anybody has read. While calls run on the " +
+                "hosted voice platform, an agent on the cheaper quality sends nothing to " +
+                "either company in this section: its voice is made by that platform and " +
+                "the providers it uses, which it has not named to us voice by voice, so " +
+                "that is not a refuge either — only a different recipient, described in " +
+                "the voice-platform row. What is true of both companies here, and is the " +
+                "limit that matters today, is the sentence this paragraph opens with: " +
+                "nothing has been sent to either of them.",
             },
           ],
         },
         {
           id: "call-runtime",
-          heading: "3.7 The call runs on a platform, and what we have not established about it",
+          heading: "3.7 The platforms the call runs on, and what we have not established about them",
           blocks: [
             {
               kind: "callout",
               tone: "warning",
-              title: "A company is on the call path whose terms we have not read",
+              title: "The call runs on a hosted voice platform, and its commitments are statements until a contract is signed",
               text:
                 "Section 3 was headed “six things” until 15 September 2026, " +
-                "and this is the seventh. The design of the call changed. It used to be " +
-                "that a voice platform took the call, ran the conversation with models " +
-                "it chose on our behalf, and handed us a transcript afterwards — a " +
-                "platform this list no longer includes, because it is no longer used. " +
-                "The call is moving to a program of OURS, running in a container on a " +
-                "hosting platform: we choose the models, we hold the script, and the " +
-                "sound of the call passes through somebody else's compute while it " +
-                "happens. That is better for you in the ways this page can show — fewer " +
-                "parties see the conversation, and the choices about which model hears " +
-                "it become ours and therefore yours — and it puts ONE NEW COMPANY on the " +
-                "most sensitive path in the product, which is why it has this section " +
+                "and this is the seventh. The design of the call has changed twice. It " +
+                "used to be that a voice platform took the call, ran the conversation " +
+                "with models it chose on our behalf, and handed us a transcript " +
+                "afterwards — a platform this list no longer includes, because it is no " +
+                "longer used. The call was then moved to a program of OURS, running in a " +
+                "container on a hosting platform, which is still built and kept as the " +
+                "alternative. Since 7 October 2026 the call runs on a hosted voice " +
+                "platform instead: it answers on numbers it rents to us, hears the " +
+                "caller, runs the model, speaks and records, and we configure the agent " +
+                "and receive the results. Either way a company other than us is on the " +
+                "most sensitive path in the product, which is why this has a section " +
                 "rather than a footnote.",
             },
             {
               kind: "para",
               text:
-                "What we have NOT established about that company, stated plainly " +
-                "because a list that guesses is worth less than one that names its " +
-                "gaps. Which legal entity operates the platform, and in which country " +
-                "it is established: not established. Where the region it labels for us " +
-                "physically is: not established — a region label is not a residency " +
-                "commitment. What its terms permit it to do with what passes through it, " +
-                "including whether anything may be used to train a model: not " +
-                "established. How long anything is kept, and whether any of it is kept " +
-                "at all once a call ends: not established. Whether a data-processing " +
-                "agreement can be entered with it, and on what plan: not established. " +
-                "Which other companies it relies on in turn: not established. Every one " +
-                "of those is a question with an answer somebody can obtain from the " +
-                "company's own documents, and not one of them is a gap we will fill with " +
-                "a plausible sentence.",
+                "What we know about the hosted voice platform. Its published privacy " +
+                "policy, read on 6 October 2026, says it stores data with a cloud " +
+                "provider in India, that its language-model step may be processed " +
+                "outside India by the model providers it uses, that it relies on " +
+                "speech, language-model, cloud-hosting, payment and messaging companies " +
+                "of its own, and that its default retention is 180 days. Its founder " +
+                "told us in writing on 7 October 2026 that it will sign a data " +
+                "processing agreement under Indian data-protection law; that recordings " +
+                "and transcripts are never used for training on its two higher paid " +
+                "plans, and on its pay-as-you-go plan may be unless it is switched off " +
+                "on request; that recordings are kept for 30 to 75 days depending on the " +
+                "plan and transcripts until deleted; and that it processes and stores in " +
+                "India. Until a data processing agreement is signed, those are its " +
+                "statements and not terms we hold, and we represent nothing beyond them.",
             },
             {
               kind: "para",
               text:
-                "Why we cannot simply look: this company's documentation host and its " +
+                "What we have NOT established about the hosting platform our own call " +
+                "program would run on, stated plainly because a list that guesses is " +
+                "worth less than one that names its gaps. Which legal entity operates " +
+                "the platform, and in which country it is established: not established. " +
+                "Where the region it labels for us physically is: not established — a " +
+                "region label is not a residency commitment. What its terms permit it " +
+                "to do with what passes through it, including whether anything may be " +
+                "used to train a model: not established. How long anything is kept, and " +
+                "whether any of it is kept at all once a call ends: not established. " +
+                "Whether a data-processing agreement can be entered with it, and on what " +
+                "plan: not established. Which other companies it relies on in turn: not " +
+                "established. Every one of those is a question with an answer somebody " +
+                "can obtain from the company's own documents, and not one of them is a " +
+                "gap we will fill with a plausible sentence.",
+            },
+            {
+              kind: "para",
+              text:
+                "Why we cannot simply look: that company's documentation host and its " +
                 "own site both refuse a connection from the environment this software " +
                 "is built in — measured again on 15 September 2026, with the same " +
                 "result as every earlier attempt. That is the same reason the messaging " +
@@ -982,28 +1046,13 @@ export const SUBPROCESSORS: LegalDocument = {
             {
               kind: "para",
               text:
-                "The hosted voice platform in the same row is a different case, and its " +
-                "published privacy policy has been read: it says it stores data with a " +
-                "cloud provider in India, that its language-model step may be " +
-                "processed outside India by the model providers it uses, that it relies " +
-                "on speech, language-model, cloud-hosting, payment and messaging " +
-                "companies of its own, and that its default retention is 180 days. It " +
-                "does not say whether it offers a data processing agreement or whether " +
-                "it trains on what it receives. We have asked it both, and until it " +
-                "answers we represent nothing about either.",
-            },
-            {
-              kind: "para",
-              text:
-                "Two limits that cut in your favour, and one that does not. In your " +
-                "favour: nothing has reached either platform from this system — no call " +
-                "has ever run on either — and the record of the call that we keep " +
-                "afterwards is in our own database and storage, not theirs. Not in your " +
-                "favour, and stated rather than left for you to work out: when either " +
-                "goes live it will be handling the caller's AUDIO, which is the one " +
-                "category on this page that cannot be redacted, masked or summarised on " +
-                "its way past. That is why the answers above must be in this section " +
-                "before the first real call, and not after it.",
+                "One limit in your favour, and one that is not. In your favour: nothing " +
+                "has reached the hosting platform from this system — no call has ever " +
+                "run on it — and the record of every call that we keep afterwards is in " +
+                "our own database and storage. Not in your favour, and stated rather " +
+                "than left for you to work out: the hosted voice platform handles the " +
+                "caller's AUDIO on every call, which is the one category on this page " +
+                "that cannot be redacted, masked or summarised on its way past.",
             },
           ],
         },
@@ -1046,10 +1095,10 @@ export const SUBPROCESSORS: LegalDocument = {
             "The move of the language model from South India to East US 2 on 22 August " +
             "2026 is exactly the event that sentence describes: an existing " +
             "sub-processor moving to a materially different location. It cost nothing, " +
-            "and the only reason it cost nothing is that no client account is live, so " +
+            "and the only reason it cost nothing is that no client account was live, so " +
             "there was nobody owed 30 days' notice and nobody with a right to object. " +
-            "We would rather write that than let the change look free. Once the first " +
-            "client is live, the same move would have to be notified by email 30 days " +
+            "We would rather write that than let the change look free. With a client " +
+            "live, the same move would have to be notified by email 30 days " +
             "before it took effect, a client could object on data-protection grounds, " +
             "and if we could not offer them a workaround they could terminate the " +
             "affected part of the service without penalty — which is the cost this " +

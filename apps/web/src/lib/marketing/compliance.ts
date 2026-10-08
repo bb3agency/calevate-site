@@ -74,51 +74,47 @@ export const COMPLIANCE_INVARIANTS: readonly {
 /**
  * WHERE EACH PART OF A CALL RUNS. VERBATIM, AND PINNED IN BOTH DIRECTIONS.
  *
- * The residency card, narrowed FOUR times and now WITHDRAWN as an India claim (D-449,
- * 22 Aug 2026): the declared model region is Azure OpenAI `eastus2`, still Regional and not
- * Global, speech and first extraction untouched and still Sarvam.
+ * This text renders on the public homepage and on /security, so it is a representation
+ * under the Consumer Protection Act 2019, the same class as a price. It describes the live
+ * deployment, `ENGINE=thinnest` since 7 Oct 2026 (D-678, D-687), and names no provider
+ * (D-679):
  *
- * ⚠ NEVER WRITE "SPEECH … ARE INDIAN SERVICES" HERE. This text renders on the public
- * homepage and on /security, so it is a representation under the Consumer Protection Act
- * 2019 — the same class as a price — and "speech" reads as both halves of a leg D-629
- * split: transcription stays with the Indian company, SYNTHESIS is Gnani `timbre-v2.5` or
- * Cartesia `sonic-3.5`, and Cartesia is not Indian (its sub-processor row reads NOT
- * VERIFIED on location). Name the transcription leg explicitly and say the voice leg is a
- * different vendor that may be abroad.
+ * - The hosted voice platform hears, answers, speaks and records. Its policy says India
+ *   storage with the language-model step possibly abroad (VENDOR-PUBLISHED, read 6 Oct
+ *   2026), and its email says India (VENDOR-STATED), so it is reported, never promised.
+ *   No city: D-680 removed cities from public text.
+ * - The first extraction pass is still Sarvam, an Indian COMPANY whose own privacy policy
+ *   permits processing outside India (VENDOR-PUBLISHED, read by the founder 27 Aug 2026).
+ *   The text may say the company is Indian and may NOT let a reader take that for
+ *   residency.
+ * - The dearer voice is a separate vendor (Cartesia, location NOT VERIFIED).
+ * - The dashboard assistant's model is pinned to Azure OpenAI `eastus2` (D-449): checked by
+ *   a person, not proved by a build.
  *
- * The Indian half is narrow too: Sarvam is an Indian COMPANY, and its published privacy
- * policy ("Cross-Border Data Transfers", read by the founder 27 Aug 2026 and relayed;
- * `sarvam.ai` is egress-blocked here) says personal data may be processed outside India,
- * naming US cloud infrastructure and EU model/security vendors. So this text may say the
- * vendor is Indian and may NOT let a reader take that for residency.
- *
- * `publicLanding.test.tsx` pins the exact substrings in BOTH directions — it must say the
- * Indian half is Indian AND that the language model is not, it must keep "checked, not
- * proved by a build", and it must not claim a build proves residency. Deleting any of those
- * clauses is how the over-claim comes back looking like a tidy-up.
+ * `publicLanding.test.tsx` pins the exact substrings in BOTH directions. Deleting a
+ * qualifying clause is how the over-claim comes back looking like a tidy-up.
  *
  * DO NOT SPELL THE AZURE HOSTNAME ANYWHERE NEAR THIS TEXT. `scripts/check_model_residency.
  * py` line-scans (no TS AST), and a string naming the watched host reads to it as an
  * endpoint built by hand.
  */
 export const WHERE_IT_RUNS =
-  "Turning your caller’s words into text, and the first reading of that transcript, are " +
-  "done by an Indian COMPANY on every call — which since 27 August 2026 we no longer let " +
-  "you read as processing that stays in the country: that company’s own published privacy " +
-  "policy permits it to process personal data outside India, including on United States " +
-  "cloud infrastructure, and the sub-processor page says so. The VOICE your caller hears " +
-  "is a different vendor again, and since 18 September 2026 it is not that Indian company " +
-  "at all: neither of the two companies that synthesise our two voices has been " +
-  "established to process in India, and the sub-processor page says what we know and do " +
-  "not know about each. The language model is not Indian either: by default it runs on a " +
-  "large cloud provider’s account in the United States, in its East US 2 region. Until " +
-  "22 August 2026 that account was in South India and this card said so, and we would " +
-  "rather withdraw the sentence than soften it. What our code still does is pin the model " +
-  "to that one region — no part of our code can send it anywhere else without editing one " +
-  "frozen constant — and the account’s own region is confirmed by a person against the " +
-  "provider’s console and filed: checked, not proved by a build. The platform the call " +
-  "runs on has not been established to run it in India, and the sub-processor page says " +
-  "which part is where before you sign.";
+  "Every call runs on a hosted voice platform that hears your caller, answers and " +
+  "speaks. It publishes that it keeps data with a cloud provider in India, but says its " +
+  "language-model step may be processed outside India, and we report what it tells us " +
+  "rather than promise it. The platform the call runs on has not been established to " +
+  "run it in India, and the sub-processor page says which part is where before you " +
+  "sign. The first reading of each transcript after the call is done by an Indian " +
+  "COMPANY on every call — which since 27 August 2026 we no longer let you read as " +
+  "processing that stays in the country: that company’s own published privacy policy " +
+  "permits it to process personal data outside India, including on United States cloud " +
+  "infrastructure. On our dearer voice, the VOICE your caller hears is a different vendor " +
+  "again, which has not been established to process in India. The language model behind " +
+  "your dashboard assistant is not Indian either: by default it runs on a large cloud " +
+  "provider’s account in the United States, in its East US 2 region. What our code does " +
+  "is pin that model to that one region — no part of our code can send it anywhere else " +
+  "without editing one frozen constant — and the account’s own region is confirmed by a " +
+  "person against the provider’s console and filed: checked, not proved by a build.";
 
 /**
  * What happens to a caller's data once the call is over.

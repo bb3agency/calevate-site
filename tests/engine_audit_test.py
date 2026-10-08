@@ -1595,6 +1595,14 @@ _VENDOR_ONLY_KEYS = frozenset(
         # Their per-call charge in integer micro-units (usage call log). Ours is
         # `unit_cost_paid` in NUMERIC rupees; the vendor field never crosses the adapter.
         "costMicro",
+        # ThinnestAI voices, clones, own keys and customer workspaces (D-687): camelCase
+        # nouns only they spell. Ours are `voice_id`, a stored preview, `engine_workspace`.
+        "movedAgents",
+        "previewUrl",
+        "usableOnAgents",
+        "voiceId",
+        "voiceOnlyByok",
+        "workspaceId",
     }
 )
 # `next_page` was here and is gone with the Cartesia listing rewrite (D-270): their page
@@ -1622,6 +1630,18 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         # `using` is GET /byok's on/off flag, and an everyday English word our own code
         # uses too, so it proves nothing about a payload's origin.
         "using",
+        # D-687's ThinnestAI reads that are everyday words in our own code too: `accent`,
+        # `description`, `language`, `sample` and `scope` are columns, fields or settings
+        # here, `complete` is `EngineVoiceListing.complete`, and `kind`/`credentials` name
+        # things across this tree. None proves where a payload came from.
+        "accent",
+        "complete",
+        "credentials",
+        "description",
+        "kind",
+        "language",
+        "sample",
+        "scope",
         # THE VOICE-CONFIG LISTING'S FOUR SHARED WORDS (D-585). `items` is Bolna's
         # pagination envelope, `providers` their top-level array and `models` the array on
         # each provider row — and every one is a word this product already uses in its own

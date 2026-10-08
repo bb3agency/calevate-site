@@ -18,8 +18,9 @@ metered minutes, wallet debit).
   gate row. Mask numbers as `+91XXXXXX1234`.
 - `ENGINE` is **deployment-wide**: every agent on the deployment is published to ThinnestAI
   from the switch on. Use a deployment with no live client traffic.
-- Vendor facts cite the 7 Oct 2026 snapshot of their docs,
-  `thinnest-findings/mirror/snapshots/2026-10-07/pages/` (paths below are under it).
+- Vendor facts cite the 7 Oct 2026 snapshots of their docs,
+  `thinnest-findings/mirror/snapshots/2026-10-07/pages/` and, for voices, BYOK and clones,
+  the evening snapshot `2026-10-07b/pages/` (paths below are under one of them).
   Commercial figures are FOUNDER-RELAYED (`docs/evidence/thinnest-ai-evaluation.md`), not
   invoices.
 
@@ -27,10 +28,12 @@ metered minutes, wallet debit).
 
 ## 0. Before you start (15 minutes)
 
-- [ ] A ThinnestAI account on a paid plan (renting a number needs one). Note the plan:
-      it decides recording retention (30 days on pay-as-you-go, 49 on Pro, 75 on Scale,
-      `api-reference/recordings/get-call-recording.md:7`) and whether Studio voices are
-      listed (Pro and above, `api-reference/voices/list-voices.md:7`).
+- [ ] A ThinnestAI account on **Pro** or above (gate T-11). Our Clear rung is their
+      studio band, which is listed only on Pro and above, and cloning needs Pro too
+      (`2026-10-07b/pages/api-reference/voices/list-voices.md:7`,
+      `2026-10-07b/pages/channels/voice-clone.md:20-24`). The plan also decides recording
+      retention (30 days on pay-as-you-go, 49 on Pro, 75 on Scale,
+      `api-reference/recordings/get-call-recording.md:7`).
 - [ ] Their wallet has money in it. When their balance reaches zero, calls stop.
 - [ ] The test client account in Calevate exists, has accepted every blocking agreement,
       and has credit in its wallet.
@@ -54,7 +57,8 @@ metered minutes, wallet debit).
       in-call actions call it, and publish refuses without it.
 - [ ] `thinnest_max_concurrent_calls` = 5 (the pay-as-you-go ceiling). Raise it only after
       ThinnestAI confirms a raise in writing (gate T-7).
-- [ ] `thinnest_byok_enabled` = **off**. Workspace-keys calls are not on sale (D-681).
+- [ ] `thinnest_byok_enabled` = **off**. Full workspace-keys calls are not on sale (D-681).
+      The Studio rung's voice-only BYOK lives in its own workspace (§3a), not here.
 - [ ] Check `/healthz/ready` on api, workers and voice-runtime: nothing listed missing. On
       this engine it names `THINNEST_API_KEY`, `ENGINE_INTAKE_KEK`, `WEBHOOK_BASE_URL` and
       `ENGINE_ACTIONS_BASE_URL` when any is absent or not usable.
@@ -66,11 +70,46 @@ rule 7). Record each from your own invoice or plan page; each needs a step-up co
 
 - [ ] **Platform minute.** Needed before any voice is offered at all. The row says
       "Not sold on its own".
-- [ ] **Premium voices.** The row says "Sold to clients as Clear". This is the rate a
-      Premium-voice minute costs us; clients pay the Clear rate (₹4.00 on every pack).
-- [ ] Leave Standard and Studio unrecorded. They are not sold (D-681) whatever is recorded.
+- [ ] **Studio-band voices** (`studio`). Sold to clients as **Clear** since D-687: the rate
+      a studio-band or cloned-voice minute costs us (₹3.00 quoted, VENDOR-STATED; gate
+      T-14). Clients pay the Clear rate (₹4.00 on every pack); with the 9% Pro top-up fee
+      that leaves about 18% (`docs/THINNEST-INTEGRATION.md` §5).
+- [ ] **Voice-only BYOK** (`byok_voice`, the Studio rung, D-687): ₹1.50 quoted. Cartesia's
+      own charge to our key is priced separately and is not recorded here.
+- [ ] Leave Standard and Premium unrecorded. They are not sold (D-687) whatever is recorded.
 - [ ] Billing → **Phone number price**: ₹499 per number per month (D-681), with that
       decision as the source.
+
+## 3a. Voices (admin console → Voices; D-687)
+
+Clients never clone and never see the vendor's whole catalogue: they choose from the voices
+you add here AND enable, and can play a preview of each. Paths are under
+`2026-10-07b/pages/`.
+
+- [ ] **Refresh the catalogue.** It lists ThinnestAI's studio-band voices; on a plan below
+      Pro it lists none (gate T-11).
+- [ ] **Clone a voice (optional).** Only you, as admin. Upload a 5–30 second sample (WAV,
+      MP3, M4A or WebM; one speaker, no music), a name your team will recognise, a
+      language and an accent (`channels/voice-clone.md:46-69`). Confirm both statements
+      for the speaker: the recording is their own voice or you hold the rights and their
+      permission, and it will not be used to impersonate anyone or mislead (`:33-44`).
+      Both are recorded with your name and the time. Limit 10 on Pro, 20 on Scale; above
+      that, ask ThinnestAI by email (gate T-13).
+- [ ] **Previews.** Play each voice you mean to offer. A clone's preview comes from
+      ThinnestAI and is kept in our storage; a catalogue voice has no sample of its own, so
+      upload a short clip for it if clients should hear one.
+- [ ] **Enable** the voices clients may choose. A voice added but not enabled is not offered.
+- [ ] **Studio workspace (only if Studio is to be offered; gate T-12).** Run the ops action
+      (`POST /v1/ops/voices/studio-workspace`)
+      that creates the shared Studio workspace and installs our Cartesia key there with
+      voice-only BYOK, or create it by hand and enter its id as
+      `thinnest_studio_workspace_id`. Check: BYOK status in that workspace reads enabled,
+      scope `voice`, complete (`api-reference/bring-your-own-keys.md:115-147`); the
+      Cartesia voices list; one plays a preview. Then add and enable the Cartesia voices
+      clients may choose. Until this is done the rate card says Studio is not available.
+- [ ] Note for Studio agents: on voice-only BYOK the call runs on ThinnestAI's low-cost
+      models only (`bring-your-own-keys.md:44-63`), and if our Cartesia key fails the voice
+      does not speak (`:98-103`).
 
 ## 4. Number (their console)
 
@@ -86,9 +125,12 @@ API. This engine uses ThinnestAI's own numbers only (D-678; Vobiz stays with Pip
 ## 5. Publish the test agent (client console, as the test client)
 
 - [ ] Create the agent. Language: **Telugu** if you are testing Telugu, else English.
-- [ ] Voice panel: choose a **Premium** voice. A publish with no voice is refused
-      (`engine_voice_required`); a Standard or Studio voice shows "This voice is not on
-      offer yet".
+- [ ] Voice panel: play a preview, then choose a **Clear** voice (one you enabled in §3a).
+      A publish with no voice is refused (`engine_voice_required`). Once §3a's Studio
+      workspace exists, publish a second agent on a **Studio** voice and repeat §6 with it.
+      Do not switch an agent between Clear and Studio after it has a number: the switch is
+      refused, because the agent is recreated in the other workspace and a number cannot
+      follow it.
 - [ ] Opening line (AI introduction and recording notice) under 200 characters. An agent
       that calls out needs one: every outbound call speaks it first.
 - [ ] Keep the script short. The instructions hold at most 20,000 characters
@@ -184,7 +226,8 @@ client every one of these must be TRUE, not merely recorded:
 
 ## 10. What stays open after this sitting
 
-The questions for ThinnestAI are OPERATIONS §2 gates T-1..T-10 (BYOK per leg, `null` reset,
-the webhook replay window, the action timeout and call identification, the DPA and
-training, Telugu quality, the concurrency raise, customer workspaces, the DLT roles on our
-numbers, and the per-band invoice). Record each answer with its date and source.
+The questions for ThinnestAI are OPERATIONS §2 gates T-1..T-14 (BYOK per leg — answered,
+`null` reset, the webhook replay window, the action timeout and call identification, the
+DPA and training, Telugu quality, the concurrency raise, customer workspaces, the DLT roles
+on our numbers, the per-band invoice, the Pro plan, the Studio workspace, clone limits, and
+the studio-band and voice-only BYOK rates). Record each answer with its date and source.

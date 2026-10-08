@@ -1242,21 +1242,16 @@ function walletWithLots(over: Partial<Credits> = {}): Credits {
 }
 
 describe("what the balance is made of", () => {
-  it("lists each lot with both rates, both vendors and the client's own words for them", async () => {
+  it("lists each lot with both rates, both rungs and the client's own words for them", async () => {
     await render({ [CREDITS_READ]: walletWithLots() });
 
     await showView("Lots");
     await screen.findByText("Credit lots — what the balance is made of");
     expect(document.body.textContent).toContain("₹1,200.00 left of ₹2,000.00");
-    // VENDOR and tier label together — the admin console's deliberate exception.
-    // ⚠ **THE CHEAPER RUNG'S VENDOR IS GNANI AND WAS SARVAM UNTIL D-629 (18 Sep 2026).**
-    // The wire field and the DB column are still `clear_inr_per_min` — renaming a money
-    // column is a migration nobody has run, and an append-only ledger has to keep
-    // resolving the months a Sarvam voice spoke — so what moved is the NAME PRINTED, which
-    // is there so an operator can connect a lot's rate to the invoice that will arrive.
+    // Named by RUNG, not vendor (D-687): which company speaks a rung depends on the engine.
     // The rate is the RUNG's and is frozen on the lot whoever speaks it.
-    expect(document.body.textContent).toContain("Gnani (Clear) ₹5.0000/min");
-    expect(document.body.textContent).toContain("Cartesia (Studio) ₹8.0000/min");
+    expect(document.body.textContent).toContain("Clear ₹5.0000/min");
+    expect(document.body.textContent).toContain("Studio ₹8.0000/min");
     // The promise, stated where the lots are listed.
     expect(document.body.textContent).toContain("never its rates");
   });
@@ -1309,7 +1304,7 @@ describe("what the balance is made of", () => {
     expect(document.body.textContent).toContain(
       "a restatement moves totals, never rates",
     );
-    expect(document.body.textContent).toContain("Gnani (Clear) ₹5.0000/min");
+    expect(document.body.textContent).toContain("Clear ₹5.0000/min");
   });
 
   it("states the overdraft a downward restatement could not absorb", async () => {

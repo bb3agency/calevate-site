@@ -81,6 +81,7 @@ from typing import Any
 
 from arq import Retry
 
+from apps.api.agents.hosted_voices import agent_voice_withdrawn
 from apps.api.agents.publishing import engine_drift_for
 from apps.api.agents.reconciliation import (
     DRIFT_STATES_OUT_OF_SYNC,
@@ -302,6 +303,25 @@ async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | N
                 f"engine={engine_name}: the voice platform's test call to this live agent's "
                 "in-call actions did not reach our API, so callers cannot opt out or book a "
                 "call-back mid-call. Check ENGINE_ACTIONS_BASE_URL and the /v1/worker/ route"
+            ),
+            agent_id=str(candidate.agent_id),
+            tenant_id=str(candidate.tenant_id),
+        )
+
+    # A VOICE THE ENGINE NO LONGER HAS (D-687): a clone deleted on the platform moves every
+    # agent on it to a standard voice (delete-voice-clone.md:7), so callers hear a voice
+    # nobody chose. The read-back cannot see it; the catalogue row's withdrawal can.
+    async with tenant_session(candidate.tenant_id) as session:
+        withdrawn = await agent_voice_withdrawn(session, agent_id=candidate.agent_id)
+    if withdrawn:
+        alert(
+            "WORKER_STALL",
+            "engine_agent_voice_withdrawn",
+            detail=(
+                f"engine={engine_name}: a live agent's chosen voice is no longer on the voice "
+                "platform (a deleted clone, or a voice the platform dropped), so callers hear "
+                "the platform's standard voice. Choose another voice for the agent and "
+                "republish it."
             ),
             agent_id=str(candidate.agent_id),
             tenant_id=str(candidate.tenant_id),

@@ -192,9 +192,9 @@ async def test_an_unconfigured_deployment_refuses_rather_than_pointing_at_nothin
 
     response = await _get(f"/carrier/v1/plivo/answer/{ref}")
 
-    # `dependency` on the error ladder — 502, and retryable, which is the right answer for
+    # `dependency` on the error ladder — 503, and retryable, which is the right answer for
     # a carrier that will fetch this URL again on the next call.
-    assert response.status_code == 502
+    assert response.status_code == 503
     assert "PIPECAT_STREAM_BASE_URL" in response.text
     # The refusal names the SETTING, never a hostname: nothing here invents an address.
     assert "example.invalid" not in response.text

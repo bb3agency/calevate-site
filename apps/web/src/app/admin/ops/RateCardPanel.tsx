@@ -40,7 +40,7 @@ import {
   rateDelta,
   rateOf,
   rungs,
-  tierVendor,
+  rungLabel,
   useCancelRateCard,
   useOpsRateCard,
   useRecordRateCard,
@@ -249,12 +249,10 @@ function RateCardTable({ card }: { card: RateCard }) {
                       </>
                     ) : null}
                   </td>
-                  {/* THE VENDOR IS NAMED, beside the name the client reads. An operator
-                      installing a Cartesia key has to be able to tell which column that key
-                      turns on; a client never sees this screen. */}
-                  <td className="py-2 pr-4 text-ink-muted">
-                    {tierVendor(cell.voice_tier)} · {cell.tier_label}
-                  </td>
+                  {/* The RUNG, not a vendor: which company speaks a rung depends on the
+                      engine (D-687 put ThinnestAI's studio band behind Clear on one engine
+                      and Gnani is behind it on the other), and this card prices the rung. */}
+                  <td className="py-2 pr-4 text-ink-muted">{cell.tier_label}</td>
                   <td className="py-2 pr-4 text-right tabular-nums text-ink">
                     {formatRupeeRate(cell.inr_per_min)}
                   </td>
@@ -341,7 +339,7 @@ function RateCardTable({ card }: { card: RateCard }) {
           <ul className="mt-2 list-disc space-y-1 pl-5">
             {thin.map((cell) => (
               <li key={`${cell.pack_id}:${cell.voice_tier}`}>
-                {cell.pack_id} on {tierVendor(cell.voice_tier)} ({cell.tier_label}):{" "}
+                {cell.pack_id} on {cell.tier_label}:{" "}
                 {cell.gross_margin_pct === null ? "no margin struck" : `${cell.gross_margin_pct}%`}{" "}
                 at {formatRupeeRate(cell.inr_per_min)}/min against{" "}
                 {formatRupeeRate(cell.cost_floor_inr_per_min)}/min of cost.
@@ -375,7 +373,7 @@ function RateCardTable({ card }: { card: RateCard }) {
           <ul className="mt-2 list-disc space-y-1 pl-5">
             {underAtVolume.map((cell) => (
               <li key={`${cell.pack_id}:${cell.voice_tier}`}>
-                {cell.pack_id} on {tierVendor(cell.voice_tier)} ({cell.tier_label}):{" "}
+                {cell.pack_id} on {cell.tier_label}:{" "}
                 {formatRupeeRate(cell.inr_per_min)}/min against{" "}
                 {cell.cost_inr_per_min_at_volume === null
                   ? "an unstated cost"
@@ -406,7 +404,7 @@ function RateCardTable({ card }: { card: RateCard }) {
           <ul className="mt-2 list-disc space-y-1 pl-5">
             {under.map((cell) => (
               <li key={`${cell.pack_id}:${cell.voice_tier}`}>
-                {cell.pack_id} on {tierVendor(cell.voice_tier)}:{" "}
+                {cell.pack_id} on {rungLabel(cell.voice_tier)}:{" "}
                 {formatRupeeRate(cell.inr_per_min)}/min against{" "}
                 {formatRupeeRate(cell.cost_floor_inr_per_min)}/min of cost.
               </li>
@@ -685,7 +683,7 @@ function ScheduledCard({
           const before = rateOf(inForce, cell.pack_id, cell.voice_tier);
           return (
             <li key={`${cell.pack_id}:${cell.voice_tier}`}>
-              {cell.pack_id} on {tierVendor(cell.voice_tier)} ({cell.tier_label}):{" "}
+              {cell.pack_id} on {cell.tier_label}:{" "}
               {formatRupeeRate(cell.inr_per_min)}/min{" "}
               {before !== null && <DeltaNote delta={rateDelta(before, cell.inr_per_min)} />}
             </li>
@@ -934,10 +932,7 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
               </th>
               {voices.map((voice) => (
                 <th key={voice.voice_tier} scope="col" className="py-2 pr-4 font-semibold">
-                  {/* THE VENDOR, beside the name the client reads. An operator installing a
-                      Cartesia key has to be able to tell which column that key turns on;
-                      the client-facing label crosses the wire and is never spelled here. */}
-                  {tierVendor(voice.voice_tier)} · {voice.tier_label} — ₹/min
+                  {voice.tier_label} — ₹/min
                 </th>
               ))}
             </tr>
@@ -958,16 +953,12 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
                       <input
                         {...valid.field(
                           key,
-                          `Enter the rate for the ${rung.pack_id} pack on the ${tierVendor(
-                            voice.voice_tier,
-                          )} voice.`,
+                          `Enter the rate for the ${rung.pack_id} pack on the ${voice.tier_label} voice.`,
                         )}
                         // The label is built from the two facts that identify the cell, so
                         // a screen reader hears which pack and which voice it is on — a
                         // grid of twelve identically-named boxes is unusable otherwise.
-                        aria-label={`Rupees per minute, ${rung.pack_id} pack on ${tierVendor(
-                          voice.voice_tier,
-                        )} ${voice.tier_label}`}
+                        aria-label={`Rupees per minute, ${rung.pack_id} pack on ${voice.tier_label}`}
                         required
                         value={typed}
                         onChange={(e) => setDraft((held) => ({ ...held, [key]: e.target.value }))}

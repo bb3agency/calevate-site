@@ -58,7 +58,7 @@ import json
 import random
 import re
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Final
 
 import httpx
 
@@ -516,48 +516,19 @@ def throttle_delay_s(
     return capped * rand()
 
 
-async def vendor_request(
+async def _vendor_response(
     client: httpx.AsyncClient,
     method: str,
     path: str,
     *,
     engine: str,
     route: str,
-    absent_is_success: bool = False,
-    extra_refused_statuses: frozenset[int] = frozenset(),
-    parse_float: Callable[[str], Any] | None = None,
+    absent_is_success: bool,
+    extra_refused_statuses: frozenset[int],
     **kwargs: Any,
-) -> dict[str, Any]:
-    """One vendor round trip, with the throttle ladder and the error normalization.
-
-    `route` is the path TEMPLATE (`/Account/{auth_id}/numbers/{number}/application`) and is
-    the only form of the path any log line here carries. The concrete `path` holds whatever
-    the caller interpolated into it — a phone number on the carrier's number-binding routes,
-    the account's auth id on every carrier route — and a log record is read raw by `caplog`,
-    by any handler that is not our formatter, and by Sentry's breadcrumbs, so redacting it at
-    format time is not enough (hard rule 6). It is required, not defaulted to `path`, so a
-    new call site cannot log a concrete path by omission.
-
-    `extra_refused_statuses` widens `REQUEST_REFUSED_STATUSES` for ONE call site, and only
-    with a status that vendor's own documentation defines as a refusal of that request
-    (Vobiz's `402` on call create, `call/make-call.md:132`). The default set is unchanged
-    for every other caller.
-
-    `parse_float` is handed to `json.loads` for the success body, so a caller reading money
-    can take every JSON number as `Decimal` and never pass it through a binary float.
-
-    `absent_is_success` exists for `delete_agent` and for nothing else: the Protocol
-    makes delete IDEMPOTENT, so "the object you asked me to remove is not here" is
-    that method's postcondition rather than a failure. It is opt-in per call site
-    because on every OTHER route a 404 is a real defect — `get_agent` raising on an
-    unknown ref is a contract clause, and a path we got wrong 404s exactly the same
-    way, which is how a wrong path gets FOUND.
-
-    `client` is the adapter's own, already carrying its base URL, its credential and any
-    version pin. This function never builds one, so it holds no vendor specifics and an
-    adapter that has no credential still refuses in its own `_http()` before we are
-    reached.
-    """
+) -> httpx.Response | None:
+    """The throttle ladder and every refusal rung of `vendor_request`, shared with
+    `vendor_audio_request`; None when an absent object is the caller's success."""
     for attempt in range(THROTTLE_MAX_ATTEMPTS):
         try:
             response = await client.request(method, path, **kwargs)
@@ -659,7 +630,7 @@ async def vendor_request(
         # still legible in the record — `delete_agent`'s caller is an orphan
         # reclaimer, and "there was no orphan" is a fact worth having.
         log.info("engine_delete_already_absent", extra={"engine": engine, "route": route})
-        return {}
+        return None
     if response.status_code >= 400:
         # Never echo a vendor error body to a CLIENT — it is not user-safe, it is not our
         # vocabulary, and vendor error bodies quote the request (hard rule 6:
@@ -703,6 +674,63 @@ async def vendor_request(
             vendor_error=vendor_error,
             refused_statuses=REQUEST_REFUSED_STATUSES | extra_refused_statuses,
         )
+    return response
+
+
+async def vendor_request(
+    client: httpx.AsyncClient,
+    method: str,
+    path: str,
+    *,
+    engine: str,
+    route: str,
+    absent_is_success: bool = False,
+    extra_refused_statuses: frozenset[int] = frozenset(),
+    parse_float: Callable[[str], Any] | None = None,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """One vendor round trip, with the throttle ladder and the error normalization.
+
+    `route` is the path TEMPLATE (`/Account/{auth_id}/numbers/{number}/application`) and is
+    the only form of the path any log line here carries. The concrete `path` holds whatever
+    the caller interpolated into it — a phone number on the carrier's number-binding routes,
+    the account's auth id on every carrier route — and a log record is read raw by `caplog`,
+    by any handler that is not our formatter, and by Sentry's breadcrumbs, so redacting it at
+    format time is not enough (hard rule 6). It is required, not defaulted to `path`, so a
+    new call site cannot log a concrete path by omission.
+
+    `extra_refused_statuses` widens `REQUEST_REFUSED_STATUSES` for ONE call site, and only
+    with a status that vendor's own documentation defines as a refusal of that request
+    (Vobiz's `402` on call create, `call/make-call.md:132`). The default set is unchanged
+    for every other caller.
+
+    `parse_float` is handed to `json.loads` for the success body, so a caller reading money
+    can take every JSON number as `Decimal` and never pass it through a binary float.
+
+    `absent_is_success` exists for `delete_agent` and for nothing else: the Protocol
+    makes delete IDEMPOTENT, so "the object you asked me to remove is not here" is
+    that method's postcondition rather than a failure. It is opt-in per call site
+    because on every OTHER route a 404 is a real defect — `get_agent` raising on an
+    unknown ref is a contract clause, and a path we got wrong 404s exactly the same
+    way, which is how a wrong path gets FOUND.
+
+    `client` is the adapter's own, already carrying its base URL, its credential and any
+    version pin. This function never builds one, so it holds no vendor specifics and an
+    adapter that has no credential still refuses in its own `_http()` before we are
+    reached.
+    """
+    response = await _vendor_response(
+        client,
+        method,
+        path,
+        engine=engine,
+        route=route,
+        absent_is_success=absent_is_success,
+        extra_refused_statuses=extra_refused_statuses,
+        **kwargs,
+    )
+    if response is None:
+        return {}
     if not response.content:
         # A successful DELETE may answer 204/empty. `response.json()` raises on an
         # empty body, and a delete that "failed" only because the vendor said
@@ -740,7 +768,56 @@ async def vendor_request(
     return payload if isinstance(payload, dict) else {"data": payload}
 
 
+#: The most audio one vendor answer may carry. A spoken preview line is tens of kilobytes;
+#: ten megabytes is the vendor's own ceiling on a clone's source recording.
+AUDIO_MAX_BYTES: Final = 10 * 1024 * 1024
+
+
+async def vendor_audio_request(
+    client: httpx.AsyncClient,
+    method: str,
+    path: str,
+    *,
+    engine: str,
+    route: str,
+    **kwargs: Any,
+) -> tuple[bytes, str]:
+    """`vendor_request` for a route that answers with audio rather than JSON: the bytes and
+    their content type. A success that is not audio, or is empty or oversized, is refused as
+    `engine_bad_response`, never handed on as a recording."""
+    response = await _vendor_response(
+        client,
+        method,
+        path,
+        engine=engine,
+        route=route,
+        absent_is_success=False,
+        extra_refused_statuses=frozenset(),
+        **kwargs,
+    )
+    content_type = (
+        ("" if response is None else response.headers.get("content-type", "").split(";")[0])
+        .strip()
+        .lower()
+    )
+    body = b"" if response is None else response.content
+    if not content_type.startswith("audio/") or not body or len(body) > AUDIO_MAX_BYTES:
+        log.warning(
+            "engine_audio_unusable",
+            extra={"engine": engine, "route": route, "bytes": len(body)},
+        )
+        raise ProblemError(
+            kind="dependency",
+            code="engine_bad_response",
+            title="Voice engine returned an unreadable response",
+            detail="The voice platform answered without usable audio.",
+            failure_stage="CORE_LOGIC",
+        )
+    return body, content_type
+
+
 __all__ = [
+    "AUDIO_MAX_BYTES",
     "CPS_LIMIT_TYPE",
     "LINES_BUSY_CODE",
     "RECIPIENT_OPTED_OUT_CODE",
@@ -755,5 +832,6 @@ __all__ = [
     "lines_busy_error",
     "recipient_opted_out_error",
     "throttle_delay_s",
+    "vendor_audio_request",
     "vendor_request",
 ]

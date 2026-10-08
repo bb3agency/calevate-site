@@ -1,9 +1,10 @@
 "use client";
 
 import { useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { PRIMARY_BUTTON_SM, ProblemNotice, Skeleton } from "@/components/ui";
+import { VoicePreviewButton } from "@/components/voicePreviewButton";
 import { viewAsSession } from "@/lib/api/admin";
 import { useAgent, useUpdateAgent, type Agent, type AgentUpdateIn } from "@/lib/api/agents";
 import type { Session } from "@/lib/api/client";
@@ -12,6 +13,13 @@ import {
   useTenantEngineCatalogue,
   type EngineCatalogue,
 } from "@/lib/api/engineCatalogue";
+import { CLIENT_PREVIEW_PATH } from "@/lib/api/voicePreview";
+
+/** The two rungs, in the order a client reads them. Names only — never a vendor (D-679). */
+const RUNGS = [
+  { value: "clear", label: "Clear", blurb: "Natural voices for everyday calls." },
+  { value: "studio", label: "Studio", blurb: "Our most lifelike voices, billed at the Studio rate." },
+] as const;
 
 /** The two fields this picker writes through `PATCH /v1/agents/{id}`. */
 export type EngineChoicePatch = Pick<AgentUpdateIn, "engine_voice_id" | "engine_model_id">;
@@ -35,10 +43,13 @@ const DEFAULT = "platform default";
  * The voice platform's own voices and models, each with whether it can be used today, and —
  * given `choice` — a picker that saves this agent's voice and model.
  *
- * Shown where the voice picker says the platform supplies its own voices (D-678). Every entry
+ * Shown where the voice picker says the platform supplies its own voices (D-678). The voices
+ * are the ones an operator added and enabled (D-687), grouped by rung — Clear, then Studio,
+ * which is explained rather than listed while the account cannot have it
+ * (`studio_available`) — each with a preview the reader can play before choosing. Every entry
  * is rendered; one the server says cannot be used is disabled with the server's own sentence
- * (an unpriced voice band, a model too slow for a phone call, a model the plan does not
- * include). The server checks the choice again when it saves and when it publishes, so this
+ * (an unpriced rung, a model too slow for a phone call, a model the plan does not include),
+ * and a Studio voice beside a model that cannot run with one is disabled with that reason. The server checks the choice again when it saves and when it publishes, so this
  * screen composes no refusal of its own. "Platform default" sends `null`, which the server
  * refuses by name once a choice has been published, because the platform keeps the last
  * voice it was given. Where the account runs on its own keys the server says `choosable: false`
@@ -48,9 +59,12 @@ const DEFAULT = "platform default";
 export function EngineCatalogueList({
   catalogue,
   choice,
+  previewSession,
 }: {
   catalogue: UseQueryResult<EngineCatalogue>;
   choice?: EngineChoiceControl;
+  /** The session the preview clips are read through: the reader's own, or view-as. */
+  previewSession?: Session;
 }) {
   const [voice, setVoice] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
@@ -84,6 +98,15 @@ export function EngineCatalogueList({
     ? (data.choice_note ?? null)
     : (choice?.disabledReason ?? null);
   const locked = !choice || lockReason !== null || choice.saving;
+  // A Studio voice and the model must agree, and the server refuses the pair by name
+  // (`engine_model_not_with_studio_voice`). The picker says so before the save: the model
+  // in the selection blocks Studio voices, and a Studio voice in the selection blocks the
+  // models that cannot run beside it.
+  const chosenModel = data.models.find((entry) => entry.model_id === selectedModel);
+  const studioBlockedBy =
+    chosenModel && !chosenModel.usable_with_studio_voice ? chosenModel.label : null;
+  const studioVoiceChosen =
+    data.voices.find((entry) => entry.voice_id === selectedVoice)?.rung === "studio";
 
   const body = (
     <>
@@ -93,41 +116,77 @@ export function EngineCatalogueList({
       </p>
       {choice && lockReason && <p className="text-xs text-ink-muted">{lockReason}</p>}
       {choice?.error && <ProblemNotice error={choice.error} />}
-      <fieldset className="space-y-1">
-        <legend className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
-          The platform&apos;s voices
-        </legend>
-        {data.voices.length === 0 ? (
-          <p className="mt-1 text-sm text-ink-muted">The platform listed no voices.</p>
-        ) : (
-          <ul className="mt-1 divide-y divide-line rounded-card border border-line">
-            {choice && (
-              <Option
-                name="engine-voice"
-                value={DEFAULT}
-                label="Platform default"
-                detail="The voice the platform picks when none is chosen."
-                checked={selectedVoice === DEFAULT}
-                disabled={locked}
-                onChange={setVoice}
-              />
-            )}
-            {data.voices.map((entry) => (
-              <Option
-                key={entry.voice_id}
-                name="engine-voice"
-                value={choice ? entry.voice_id : null}
-                label={entry.label}
-                suffix={`${entry.price_band}${entry.is_custom ? " · cloned for this account" : ""}`}
-                reason={entry.offerable ? null : entry.reason}
-                checked={selectedVoice === entry.voice_id}
-                disabled={locked || !entry.offerable}
-                onChange={setVoice}
-              />
-            ))}
-          </ul>
-        )}
-      </fieldset>
+      {choice && (
+        <ul className="rounded-card border border-line" aria-label="Default voice">
+          <Option
+            name="engine-voice"
+            value={DEFAULT}
+            label="Platform default"
+            detail="The voice the platform picks when none is chosen."
+            checked={selectedVoice === DEFAULT}
+            current={savedVoice === DEFAULT}
+            disabled={locked}
+            onChange={setVoice}
+          />
+        </ul>
+      )}
+      {data.voices.length === 0 ? (
+        <p className="text-sm text-ink-muted">No voice is offered yet.</p>
+      ) : (
+        RUNGS.map((rung) => {
+          const voices = data.voices.filter((entry) => entry.rung === rung.value);
+          if (rung.value === "studio" && !data.studio_available && voices.length === 0) return null;
+          return (
+            <fieldset key={rung.value} className="space-y-1">
+              <legend className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+                {rung.label} voices
+              </legend>
+              <p className="text-xs text-ink-muted">{rung.blurb}</p>
+              {rung.value === "studio" && !data.studio_available ? (
+                <p className="mt-1 text-sm text-ink-muted">
+                  Studio voices are not available on this account yet.
+                </p>
+              ) : voices.length === 0 ? (
+                <p className="mt-1 text-sm text-ink-muted">No {rung.label} voice is offered yet.</p>
+              ) : (
+                <ul className="mt-1 divide-y divide-line rounded-card border border-line">
+                  {voices.map((entry) => {
+                    const blocked =
+                      entry.rung === "studio" && studioBlockedBy !== null
+                        ? `The language model chosen below, ${studioBlockedBy}, cannot be used with a Studio voice. Choose another model to use this voice.`
+                        : null;
+                    return (
+                      <Option
+                        key={entry.voice_id}
+                        name="engine-voice"
+                        value={choice ? entry.voice_id : null}
+                        label={entry.label}
+                        suffix={entry.is_custom ? "made for this platform" : undefined}
+                        detail={entry.language_note}
+                        reason={entry.offerable ? blocked : entry.reason}
+                        checked={selectedVoice === entry.voice_id}
+                        current={savedVoice === entry.voice_id}
+                        disabled={locked || !entry.offerable || blocked !== null}
+                        onChange={setVoice}
+                        extra={
+                          entry.preview_available && previewSession ? (
+                            <VoicePreviewButton
+                              session={previewSession}
+                              path={CLIENT_PREVIEW_PATH}
+                              voiceId={entry.voice_id}
+                              label={entry.label}
+                            />
+                          ) : undefined
+                        }
+                      />
+                    );
+                  })}
+                </ul>
+              )}
+            </fieldset>
+          );
+        })
+      )}
       <fieldset className="space-y-1">
         <legend className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
           The platform&apos;s language models
@@ -143,22 +202,30 @@ export function EngineCatalogueList({
                 label="Platform default"
                 detail="The model the platform picks when none is chosen."
                 checked={selectedModel === DEFAULT}
+                current={savedModel === DEFAULT}
                 disabled={locked}
                 onChange={setModel}
               />
             )}
-            {data.models.map((entry) => (
-              <Option
-                key={entry.model_id}
-                name="engine-model"
-                value={choice ? entry.model_id : null}
-                label={entry.label}
-                reason={entry.offerable ? null : entry.reason}
-                checked={selectedModel === entry.model_id}
-                disabled={locked || !entry.offerable}
-                onChange={setModel}
-              />
-            ))}
+            {data.models.map((entry) => {
+              const clash =
+                studioVoiceChosen && !entry.usable_with_studio_voice
+                  ? "This model cannot be used with a Studio voice. Choose a Clear voice to use it."
+                  : null;
+              return (
+                <Option
+                  key={entry.model_id}
+                  name="engine-model"
+                  value={choice ? entry.model_id : null}
+                  label={entry.label}
+                  reason={entry.offerable ? clash : entry.reason}
+                  checked={selectedModel === entry.model_id}
+                  current={savedModel === entry.model_id}
+                  disabled={locked || !entry.offerable || clash !== null}
+                  onChange={setModel}
+                />
+              );
+            })}
           </ul>
         )}
       </fieldset>
@@ -183,7 +250,11 @@ export function EngineCatalogueList({
   );
 }
 
-/** One row: a radio when the list is a picker (`value` set), plain text when it is not. */
+/**
+ * One row: a radio when the list is a picker (`value` set), plain text when it is not.
+ * `extra` (the preview button) sits OUTSIDE the label, so pressing play never changes the
+ * selection. `current` marks what is saved now, which a moved radio no longer shows.
+ */
 function Option({
   name,
   value,
@@ -192,8 +263,10 @@ function Option({
   detail,
   reason,
   checked,
+  current = false,
   disabled,
   onChange,
+  extra,
 }: {
   name: string;
   value: string | null;
@@ -202,13 +275,20 @@ function Option({
   detail?: string;
   reason?: string | null;
   checked: boolean;
+  current?: boolean;
   disabled: boolean;
   onChange: (value: string) => void;
+  extra?: ReactNode;
 }) {
   const text = (
     <>
       <span className="font-medium text-ink">{label}</span>
       {suffix && <span className="text-ink-muted">{` · ${suffix}`}</span>}
+      {current && (
+        <span className="ml-2 inline-flex rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-brand-strong">
+          In use
+        </span>
+      )}
       {reason ? (
         <span className="mt-0.5 block text-xs font-medium text-amber-700 dark:text-amber-400">
           Cannot be used — {reason}
@@ -218,21 +298,25 @@ function Option({
       )}
     </>
   );
-  if (value === null) return <li className="px-3 py-2 text-sm">{text}</li>;
   return (
-    <li className="px-3 py-2 text-sm">
-      <label className="flex items-start gap-2">
-        <input
-          type="radio"
-          name={name}
-          value={value}
-          checked={checked}
-          disabled={disabled}
-          onChange={() => onChange(value)}
-          className="mt-1"
-        />
-        <span>{text}</span>
-      </label>
+    <li className="flex flex-wrap items-start justify-between gap-2 px-3 py-2 text-sm">
+      {value === null ? (
+        <span className="min-w-0 flex-1">{text}</span>
+      ) : (
+        <label className="flex min-w-0 flex-1 items-start gap-2">
+          <input
+            type="radio"
+            name={name}
+            value={value}
+            checked={checked}
+            disabled={disabled}
+            onChange={() => onChange(value)}
+            className="mt-1"
+          />
+          <span className="min-w-0">{text}</span>
+        </label>
+      )}
+      {extra}
     </li>
   );
 }
@@ -275,6 +359,7 @@ export function TenantEngineCatalogue({
     <EngineCatalogueList
       catalogue={useTenantEngineCatalogue(slug)}
       choice={control(agent, save, disabledReason, refreshRoster)}
+      previewSession={viewAsSession(slug)}
     />
   );
 }
@@ -287,6 +372,7 @@ export function ClientEngineCatalogue({ session, agentId }: { session: Session; 
     <EngineCatalogueList
       catalogue={useEngineCatalogue(session)}
       choice={control(agent.data, save, null)}
+      previewSession={session}
     />
   );
 }

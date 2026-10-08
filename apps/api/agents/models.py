@@ -1122,6 +1122,19 @@ class PlatformVoiceCatalogEntry(Base):
     #: `sync_voice_catalogue`'s upsert: a re-read of the vendor's list reports what the
     #: platform has and can neither create nor revoke an operator's attestation.
     origin: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'synced'"))
+    #: ENGINE-HOSTED ROWS ONLY (D-687, `agents/hosted_voices.py`); NULL on every Pipecat row.
+    #: The accent and description the engine's listing gives the voice.
+    accent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The engine's id for the CLONE behind a voice we cloned (not the voice id), which is
+    #: what deleting it takes.
+    engine_clone_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Our stored copy of the voice's preview: the object key, its content type, and whether
+    #: it came from the engine (`vendor`) or an operator's upload (`upload`). All three or
+    #: none (CHECK). Served by our own route; a vendor link never reaches a browser.
+    preview_object_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    preview_content_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    preview_source: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class PipecatAgent(PKMixin, TimestampMixin, Base):

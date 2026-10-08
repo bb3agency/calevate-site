@@ -488,11 +488,11 @@ describe("the rate card an operator is about to date", () => {
     // The CELLS, once the read lands — the panel header renders before the query does, and
     // asserting on the header alone would pass on an empty table.
     await screen.findByText("17.60%");
-    // The VENDOR and the client-facing label, together — the deliberate exception this
-    // screen is. A cell naming only one of the two leaves an operator unable to connect a
-    // rate to the key they installed, or to the word the client is quoting at them.
-    expect(container.textContent).toContain("Gnani · Clear");
-    expect(container.textContent).toContain("Cartesia · Studio");
+    // The RUNG, not a vendor (D-687): which company speaks a rung depends on the engine,
+    // and this card prices the rung either way.
+    expect(container.textContent).toContain("Clear");
+    expect(container.textContent).toContain("Studio");
+    expect(container.textContent).not.toContain("Gnani");
     // The server's percentage, printed — never a division done in the browser from two
     // rounded figures.
     expect(container.textContent).toContain("17.60%");
@@ -689,7 +689,7 @@ describe("the voice price that decides whether a tier can be sold", () => {
     const { container } = renderOps(routes());
 
     await screen.findByText(/Voice prices/);
-    expect(container.textContent).toContain("Gnani · Clear");
+    expect(container.textContent).toContain("Clear");
     expect(container.textContent).toContain("There is nothing to confirm.");
     expect(container.textContent).toContain("On sale to customers");
   });
@@ -1129,7 +1129,7 @@ describe("recording the next rate card", () => {
       await screen.findByRole("button", { name: /Record a new card/ }),
     );
     fireEvent.change(
-      screen.getByLabelText("Rupees per minute, starter pack on Gnani Clear"),
+      screen.getByLabelText("Rupees per minute, starter pack on Clear"),
       {
         target: { value: "5.5000" },
       },
@@ -1167,7 +1167,7 @@ describe("recording the next rate card", () => {
       await screen.findByRole("button", { name: /Record a new card/ }),
     );
     fireEvent.change(
-      screen.getByLabelText("Rupees per minute, starter pack on Gnani Clear"),
+      screen.getByLabelText("Rupees per minute, starter pack on Clear"),
       {
         target: { value: "5.5000" },
       },

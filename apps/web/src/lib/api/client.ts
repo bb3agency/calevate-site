@@ -66,6 +66,11 @@ export class ApiProblem extends Error {
    * screen with no number says "shortly" rather than rendering `NaN`.
    */
   readonly retryAfterSeconds?: number;
+  /**
+   * The problem's own `title`, when it carried one. `message` is the `detail` (falling back
+   * to this), so a screen that wants the server's headline AND its sentence reads both.
+   */
+  readonly title?: string;
 
   constructor(status: number, body: Record<string, unknown>, retryAfterSeconds?: number) {
     // `??` alone was not enough and the gap only opened in production: `??` falls
@@ -86,6 +91,7 @@ export class ApiProblem extends Error {
     this.fields = body.fields as ApiProblem["fields"];
     this.traceId = text(body.trace_id);
     this.retryAfterSeconds = retryAfterSeconds;
+    this.title = text(body.title);
   }
 }
 
@@ -553,6 +559,11 @@ interface RequestOptions {
    * client waiting longer is waiting for a socket nobody is writing to.
    */
   timeoutMs?: number;
+  /**
+   * `"blob"` hands back the raw bytes of a 2xx, for a body that is media rather than data —
+   * a voice preview clip. A refusal is still parsed by `problemFrom` exactly as for JSON.
+   */
+  responseType?: "json" | "blob";
 }
 
 /**
@@ -848,7 +859,14 @@ export async function apiUpload<T>(
     onProgress,
     signal,
     timeoutMs = UPLOAD_TIMEOUT_MS,
-  }: { onProgress?: (progress: UploadProgress) => void; signal?: AbortSignal; timeoutMs?: number } = {},
+    confirmAction,
+  }: {
+    onProgress?: (progress: UploadProgress) => void;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    /** The step-up confirmation `sendRequest` sends, for a multipart write that needs one. */
+    confirmAction?: string;
+  } = {},
 ): Promise<T> {
   const identity = identityHeaders(session);
   const headers = identity instanceof Promise ? await identity : identity;
@@ -859,6 +877,7 @@ export async function apiUpload<T>(
   // something between here and the origin.
   const correlationId = newCorrelationId();
   headers["X-Correlation-Id"] = correlationId;
+  if (confirmAction) headers["X-Confirm-Action"] = confirmAction;
   return await withDeadline<T>(
     (deadlineSignal) =>
       new Promise<T>((resolve, reject) => {
@@ -920,6 +939,7 @@ async function sendRequest<T>(
     ifMatch,
     signal,
     timeoutMs,
+    responseType = "json",
   }: RequestOptions = {},
 ): Promise<T> {
   const identity = identityHeaders(session);
@@ -974,6 +994,7 @@ async function sendRequest<T>(
     }
 
     if (!response.ok) throw await problemFrom(response);
+    if (responseType === "blob") return (await response.blob()) as T;
     return (await readBody(response)) as T;
   }, { timeoutMs, signal });
 }

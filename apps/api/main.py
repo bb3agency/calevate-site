@@ -189,6 +189,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.dashboard_data_use_routes import router as ops_data_use_router
     from apps.api.ops.engine_minute_routes import router as ops_engine_minute_prices_router
     from apps.api.ops.fx_routes import router as ops_fx_router
+    from apps.api.ops.hosted_voice_routes import router as ops_hosted_voice_router
     from apps.api.ops.maintenance_routes import client_router as client_maintenance_router
     from apps.api.ops.maintenance_routes import router as ops_maintenance_router
     from apps.api.ops.model_price_routes import (
@@ -509,6 +510,8 @@ def _mount_routers(application: FastAPI) -> None:
     # not load-bearing (unlike `voice_router` vs `agents.routes`, where `{agent_id}` eats a
     # literal segment).
     application.include_router(ops_voice_curation_router)
+    # The same panel on an engine that HOSTS its voices (D-687): literal sub-paths only.
+    application.include_router(ops_hosted_voice_router)
     # Which LLM legs the in-app assistant may run on, and the operator attestation behind it
     # (D-477). Its own router beside the price panel for `model_price_routes.py`'s reason:
     # same realm and permission, different store and a different write shape.

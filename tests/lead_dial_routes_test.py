@@ -590,7 +590,7 @@ async def test_a_recording_link_is_presigned_and_the_read_is_audited() -> None:
     # THE CREDENTIALS ARE DECLARED HERE, not inherited from the machine. Presigning is
     # local computation — no object store need exist — but botocore still refuses
     # without a key pair, and `NoCredentialsError` is a `BotoCoreError`, so
-    # `presigned_url` returns None and the route correctly answers 502. This test used
+    # `presigned_url` returns None and the route correctly answers 503. This test used
     # to pass only where a developer happened to have `AWS_*` exported or a `~/.aws`
     # profile on disk, and failed in CI, which has neither. A test that needs a
     # credential must state it; borrowing one asserts about the machine.
@@ -756,7 +756,7 @@ async def test_an_unpresignable_recording_is_a_named_dependency_failure(
     async with _client() as http:
         response = await http.get(f"/v1/calls/{call_id}/recording", headers=headers)
 
-    assert response.status_code == 502, response.text
+    assert response.status_code == 503, response.text
     body = response.json()
     assert body["type"].endswith("recording_unavailable"), body
     assert body["retryable"] is True, "storage being down is worth retrying; the client is told so"

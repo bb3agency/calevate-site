@@ -1378,7 +1378,7 @@ async def test_an_engine_that_refuses_the_republish_says_so_and_saves_nothing() 
                 headers={"Authorization": f"Bearer {admin_token}"},
             )
 
-    assert response.status_code == 502, response.text
+    assert response.status_code == 503, response.text
     body = response.json()
     assert body["type"].endswith("/engine_rejected")
     assert body["detail"], "a refusal with no sentence in it"

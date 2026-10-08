@@ -93,6 +93,7 @@ import {
   cheapestPack,
   formatAmountINR,
   formatRateINR,
+  headlineVoice,
   ladderFalls,
   packMinutes,
   packRate,
@@ -483,13 +484,14 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
   // DEFAULTS TO THE LIST RATE. See the header: pre-selecting the cheapest pack would be
   // the one thing this tool promises not to do.
   const [rateChoice, setRateChoice] = useState<string>(LIST_RATE);
-  // OPENS ON THE VOICE AN AGENT CAN ACTUALLY BE PUT ON. No voice in the cheaper rung is
-  // offerable (hard rule 7 wants an attested invoice figure; Gnani's catalogue rate is not
-  // one, D-631), so opening there would price the whole comparison at a rate this buyer
-  // cannot run at — an UNDER-quote on a public page, the direction `rateFor`'s warning
-  // above is about. The cheaper voice keeps its rate, its radio and the notice saying why
-  // it cannot be chosen. Flip this back the day the Gnani price is attested.
-  const [voice, setVoice] = useState<VoiceTier>("studio");
+  // OPENS ON THE VOICE AN AGENT CAN ACTUALLY BE PUT ON, as the server says per deployment
+  // (`headlineVoice`, from `voice_not_offered`). Which rung is held back depends on the
+  // engine — Studio on ThinnestAI until its Studio workspace is ready (D-687), the cheaper
+  // rung on our own voices (D-629) — so a hard-coded default opens on the wrong one on one
+  // of them. Opening on a voice nobody can buy prices the comparison at a rate the buyer
+  // cannot run at, the direction `rateFor`'s warning above is about. The held-back voice
+  // keeps its rate, its radio and the notice saying why it cannot be chosen.
+  const [voice, setVoice] = useState<VoiceTier>(() => headlineVoice(card));
   const { rate: selectedRate, pack: selectedPack } = rateFor(
     card,
     voice,

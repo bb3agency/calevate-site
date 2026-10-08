@@ -3,13 +3,15 @@
 ## Status
 
 - **Decided 6 Oct 2026 by the founder.**
-- **Phase 1 built 6 Oct 2026; phase 2 (D-682) built 7 Oct 2026** against the 7 Oct snapshot of their docs (`thinnest-findings/mirror/snapshots/2026-10-07/pages/`). No real ThinnestAI call has been placed; `runbooks/thinnest-first-live-call.md` is the founder's checklist for the first one.
+- **Phase 1 built 6 Oct 2026; phase 2 (D-682) built 7 Oct 2026** against the 7 Oct snapshot of their docs (`thinnest-findings/mirror/snapshots/2026-10-07/pages/`). `runbooks/thinnest-first-live-call.md` is the founder's checklist for the first live call.
+- **Deployed to production with `ENGINE=thinnest` on 7 Oct 2026.**
+- **Voices (D-687, 8 Oct 2026)** are built against the 7 Oct evening snapshot (`thinnest-findings/mirror/snapshots/2026-10-07b/pages/`, which wins over `2026-10-07` where they differ). Clear is ThinnestAI's studio band plus admin clones; Studio is our Cartesia key through voice-only BYOK in one shared customer workspace (§4a). This supersedes D-681's "only Premium is sold, as Clear" and its "Studio on hold".
 
 The founder decided three things:
 
 1. ThinnestAI becomes a third selectable voice engine, `ENGINE=thinnest`, behind the existing **deployment-wide** switch.
 2. ThinnestAI's own numbers are used: rented and attached in their console. Confirmed 7 Oct 2026: Vobiz is isolated to `ENGINE=pipecat`, bringing a carrier account to ThinnestAI is not used, by decision, and a move back to Pipecat would give clients new numbers (no portability between engines).
-3. Voices and models come from their catalogue now, with a clearly marked slot for BYOK once ThinnestAI documents how it works.
+3. Voices and models come from their catalogue, with a clearly marked slot for BYOK once ThinnestAI documents how it works. For voices this is superseded by D-687 (§4a): the voice-only BYOK documented on 7 Oct carries the Studio rung, and the language model stays theirs.
 
 **The Pipecat engine is not changed by any of this.** `ENGINE=pipecat` must behave exactly as it does today, and every Pipecat, Vobiz and carrier test must stay green.
 
@@ -32,7 +34,7 @@ That is `AgentHosting = "control_plane"`: the shape the rented engine had before
 |---|---|---|
 | Phone line | Vobiz (our account) | ThinnestAI-rented number only (their carrier; ₹1/min with BYOK includes it). Vobiz is never used on this engine (founder, 7 Oct 2026) |
 | Call control | voice-runtime answer XML → Pipecat Cloud | ThinnestAI |
-| STT / LLM / TTS | Sarvam / Gemini-Azure-OpenAI / Cartesia-Gnani, our keys | Their catalogue (`GET /models`, `GET /voices`), or the workspace's own keys (BYOK, console-only; see §4) |
+| STT / LLM / TTS | Sarvam / Gemini-Azure-OpenAI / Cartesia-Gnani, our keys | STT and LLM: theirs (`GET /models`). TTS: Clear speaks their studio-band catalogue voices and our admin's clones; Studio speaks Cartesia on our key through voice-only BYOK (§4a). No Gnani |
 | Opening | `greeting`-only opening, D-669 | Inbound: agent `greeting`. Outbound: the call's `purpose` (spoken first) |
 | Truthful floor, confidentiality | Prompt plus worker checks plus `PromptLeakGuard` | Prompt only, verified by reading `instructions` back. No output guard is possible |
 | In-call tools | `/v1/worker/**` on our API | ThinnestAI custom actions to our API with `X-Agent-Secret` (`agent/custom-api.md`). Phase 2 |
@@ -55,7 +57,7 @@ That is `AgentHosting = "control_plane"`: the shape the rented engine had before
 | `transfer` | **Refuse by name** | No live transfer (`channels/voice.md`) |
 | `search_numbers`, `provision_number`, `release_number`, `bind_inbound_number`, `unbind_inbound_number` | **Refuse by name**, with the console step | Renting and attaching are console-only (`voices-and-models.md:86-87`) |
 | `list_engine_numbers` | `GET /phone-numbers` | Lets our admin numbers page show what is attached; `agent` is carried as the answering agent (`voices-and-models.md:76,84-86`) |
-| `set_llm_credential` | **The BYOK slot**: refuse with `byok_not_documented` until ThinnestAI documents it | One marked place to change |
+| `set_llm_credential` | **The LLM BYOK slot**: refuse with `byok_not_documented` | Full (`scope: all`) BYOK is not used. The voice-only BYOK of the Studio rung is a separate path (§4a): our Cartesia key and `PATCH /byok {"enabled": true, "scope": "voice"}` in the Studio workspace |
 | `attach_kb` / `detach_kb` / `list_kb` / `list_account_kb` | `POST`, `DELETE` and `GET /agents/{id}/knowledge`, text only (200k characters per document, `knowledge.md:52`) | We send text extracted by our own `document_text`/`document_ocr`. A longer source is split on chunk boundaries (`engine/text_split.split_for_text_cap`) into at most 10 documents (2,000,000 characters; above that it is refused with `engine_kb_text_too_long`). Each part's title carries `[cv-part i/n group]`; the handle is `cv-parts:<id>,<id>…`, which `list_kb` rebuilds from the titles and `detach_kb` removes part by part. A part refused midway removes the parts already sent and refuses with `engine_kb_part_failed` |
 | `list_voices` | `GET /voices` plus `GET /models` | Tier mapping in §4 |
 | `get_execution` | `GET /calls/{id}` | The 6 Oct pages answered 404 for calls the API did not place; the 7 Oct snapshot takes any call id (`snapshots/2026-10-07/pages/api-reference/calls/get-call.md:7`). The signed delivery is still read first, and the call list settles anything missed |
@@ -95,15 +97,34 @@ The capabilities descriptor must be honest. For example:
 ## 4. Voices, models, language
 
 - **Voices.** `GET /voices` returns tiers `standard`, `premium` and `studio`; Studio needs their Pro plan or above (`snapshots/2026-10-07/pages/api-reference/voices/list-voices.md:7`; the 6 Oct pages said Scale).
-- **Price rungs.** Their tiers map to our price rungs only through an **operator-attested ₹/min per tier** (hard rule 7). Since D-681 only the Premium tier is sold, as our Clear rung; Standard and Studio are shown and refused (§5). Until a tier is attested its voices are offered as unavailable, with the reason, through the existing offer-seam pattern (`agents/voice_offer.py`).
+- **Price rungs.** Their tiers map to our price rungs only through an **operator-attested ₹/min per tier** (hard rule 7). Since D-687 their `studio` band is sold as our Clear rung and the voice-only BYOK leg as our Studio rung; `standard` and `premium` are not sold (§4a, §5). Until a rate is attested its voices are offered as unavailable, with the reason.
 - **Models.** `GET /models` lists models with `voice:true` (fast enough for calls) and `available`.
 - **Business facts as knowledge.** On publish (agent and experiment arm alike) the facts document is created, replaced only when the facts changed (sha256 on `engine_agent_routes.facts_digest`; the new document is attached before the old one is removed, and a failed removal removes the new one again and refuses with `engine_facts_replace_failed`), and removed when the script no longer has a facts block. Deleting the vendor agent deletes its knowledge (`agents.md:82`). The handle is recorded on `engine_agent_routes.facts_kb_ref`, and the KB publish gate and drift sweep count it as ours, under the same per-agent publish lock.
 - **Per-agent choice (built).** `agents.engine_voice_id` and `agents.engine_model_id` (migration `b7e2d94f1a30`, NULL = the vendor default) are set through `PATCH /v1/agents/{id}` from the admin and client voice panels and sent as `voice.voice` and `model` (`agents.md:105-110,156`) only on a leg the engine dictates. `agents/engine_choice.py` checks them against a live `GET /voices` + `GET /models` before the vendor write, and on a draft at save time, refusing by name: `engine_voice_not_in_catalogue`, `engine_voice_tier_unpriced` (band not attested, through `engine_minute_is_billable`), `engine_voice_tier_unknown`, `engine_model_not_in_catalogue`, `engine_model_not_call_capable`, `engine_model_not_on_plan`, `engine_catalogue_incomplete`, and `engine_voice_choice_not_offered` / `engine_model_choice_not_offered` on an engine that runs our own voices or models. The route row's `engine_rate_key` is stamped from the chosen voice's band, or `platform` when none is chosen.
 - **Clearing a published choice is refused** (`engine_choice_reset_unsupported`): the mirror documents no value that resets `voice.voice` or `model` to the default, so the vendor would keep the last one sent while our row and rate key said otherwise. UNVERIFIED until ThinnestAI says whether `null` resets either field: the 7 Oct request schema types both as a plain string (`snapshots/2026-10-07/pages/api-reference/agents/update-agent.md:442-450, :731-735`); the `null`s documented at :552-558 and :931-934 describe the response (a retired model, no voice channel), not a reset.
 - **Language.** A Telugu agent is sent `language: "Telugu"`, the console's exact option (FOUNDER-RELAYED console reading, 6 Oct 2026; the console's "Match the customer" is the API's `"auto"`). A language outside the adapter's map is sent as `"auto"`.
-- **BYOK.** A WORKSPACE setting (console: Settings → Your keys). Since the 7 Oct 2026 snapshot it also has an API (`api-reference/bring-your-own-keys.md:85-152`) and a per-agent BYOK model and voice (`api-reference/agents/set-agent-byok-*.md`); a customer workspace may hold its own set (`bring-your-own-keys.md:74-76`). It is still **all three legs or none** (`:18-19`; `agents/set-agent-byok-voice.md:155-157`) with no fallback to their providers (`:68`); calls are then ₹1/min all-in. Gnani is not a voice provider (`:56`), and Azure OpenAI goes in as an OpenAI-compatible URL (`:62-63`). We do not drive the BYOK API: BYOK calls are not on sale (D-681), so `set_llm_credential` still refuses (`byok_not_documented`, the one marked place to change), and an operator who has configured the keys sets the console-managed `THINNEST_BYOK_ENABLED` (needs republish). With it on, a per-agent catalogue voice or model does not apply: the pickers lock with a plain reason (`EngineCatalogueOut.choosable=false`, `choice_note`), a new choice is refused with `engine_choice_under_byok`, a stored one is not sent, and every publish stamps the `platform` rate key (the ₹1 BYOK rate) instead of a voice tier.
+- **BYOK.** A WORKSPACE setting (console: Settings → Your keys). The 7 Oct 2026 morning snapshot documented it as **all three legs or none**; that is **superseded by the evening snapshot**, which documents two scopes: `all` and `voice` (`snapshots/2026-10-07b/pages/api-reference/bring-your-own-keys.md:13-24`; `bring-your-own-keys/turn-byok-on-or-off.md:7`). D-687 uses `voice` for the Studio rung (§4a). Full (`all`) BYOK is still not sold: `set_llm_credential` refuses (`byok_not_documented`), and `THINNEST_BYOK_ENABLED` still describes the developer workspace running on all three of its own keys (D-681). With it on, a per-agent catalogue voice or model does not apply: the pickers lock with a plain reason (`EngineCatalogueOut.choosable=false`, `choice_note`), a new choice is refused with `engine_choice_under_byok`, a stored one is not sent, and every publish stamps the `platform` rate key instead of a voice tier.
 - **Voices (7 Oct 2026 snapshot).** Every voice speaks every supported language and the agent's language decides which; each voice carries an accent tag; Studio voices are listed on Pro and above (`api-reference/voices/list-voices.md:7,345`).
 - **In-app catalogue prices (FOUNDER-RELAYED, not invoices).** Standard ₹2.00/min, Premium ₹2.50, Studio ₹3.00 (Scale plan: ₹1.90 / ₹2.375 / ₹2.85). Telugu Standard voices: Abirami Te, Anjura Te, Divya, Karthik, Tanvi. These are what an operator attests per tier; nothing in code holds them.
+
+### 4a. Voices on this engine (D-687, 8 Oct 2026)
+
+The founder's decision; it supersedes D-681's "Clear = Premium band" and "Studio on hold". Paths are under `thinnest-findings/mirror/snapshots/2026-10-07b/pages/`.
+
+| Our rung | What speaks | Vendor rate (VENDOR-STATED) | Workspace |
+|---|---|---|---|
+| **Clear** | ThinnestAI's own stack end to end, in their **studio-band** voices: catalogue voices with `tier: studio` and the voices our admin clones (`mine: true`) | ₹3.00/min, plus the wallet top-up fee | Our developer workspace |
+| **Studio** | Cartesia on **our** key through BYOK `scope: "voice"`; ThinnestAI's STT, LLM and telephony | ₹1.50/min including the line, plus Cartesia's own charge to our key | One shared customer workspace with voice-only BYOK on |
+
+- **Studio band.** `GET /voices` lists `standard`, `premium` and `studio`, and `tier` is the band a call is billed at; studio voices (the shared catalogue and our clones) are listed only on **Pro** and above (`api-reference/voices/list-voices.md:7,436-451`). A clone is a studio voice at the same per-minute rate (`channels/voice-clone.md:9-12,81-89`). So Clear needs ThinnestAI Pro.
+- **Clones are the admin's, never a client's.** The vendor makes cloning admin-only and records two separate consents against the voice, with who agreed and when (`channels/voice-clone.md:33-44,114-120`); our admin route sends both as explicit admin attestations and writes `audit_log`. A sample is 5 to 30 seconds, WAV, MP3, M4A or WebM (`:47-51`). Limits: **10 clones on Pro, 20 on Scale**, raised per workspace on request (`:93-99`). Deleting a clone moves every agent using it to a **standard** voice (`:103-112`), a band we do not sell, so the drift sweep must notice it.
+- **Clients pick, they do not browse the vendor.** A client sees only voices the admin added to our catalogue AND enabled, with a preview. Previews are stored in our object store and served by us: a clone has a 60-second `previewUrl`, a BYOK voice has `POST /byok/voices/preview` (text capped at 200 characters, billed to our Cartesia key, `api-reference/bring-your-own-keys.md:219-232`), and a catalogue voice has none, so the admin may upload a short sample.
+- **Workspaces.** BYOK is switched per workspace and a customer inherits the developer's scope (`bring-your-own-keys/turn-byok-on-or-off.md:7`; `bring-your-own-keys.md:105-109`). Clones belong to the workspace that made them, with no documented sharing (`api-reference/voices/list-voices.md:163-167`; `voice-clones/get-voice-clone.md:371-378`). So Clear agents stay in the developer workspace with the clones, and Studio agents go into ONE shared customer workspace with voice-only BYOK on and our Cartesia key installed. Its id is the console setting `thinnest_studio_workspace_id` (added by D-687); every call for a Studio agent carries `Thinnest-Workspace` (`bring-your-own-keys.md:113`). The workspace is resolved in one function, `thinnest_workspace_for(tenant_id, rung)`, so a customer workspace per tenant (evaluation §9) stays a one-function change.
+- **Studio voice per agent.** `GET /byok/voices` lists what our Cartesia key reaches (`bring-your-own-keys.md:200-217`) and `PUT /agents/{id}/byok-voice` sets the agent's voice (`:255-258`; `agents/set-agent-byok-voice.md:7`).
+- **Model on a Studio call.** With voice-only BYOK the call minute includes their model, so a call runs only on their low-cost models (Prana, Prana [Voice], GPT-OSS 120B, GPT-5 Nano, GPT-4.1 Nano today; `GET /models` marks `voiceOnlyByok`); setting another model returns 400, and an agent already on another model runs GPT-OSS 120B on calls (`bring-your-own-keys.md:44-63`). A Studio agent's model choice is therefore narrower than a Clear agent's.
+- **No fallback.** If our Cartesia key fails, the voice does not speak; their own STT and LLM keep their usual backups (`bring-your-own-keys.md:98-103`).
+- **Rung switch.** Agents cannot move between workspaces (VENDOR-STATED, evaluation §10 item 2b), so changing an agent's rung deletes the vendor agent in one workspace and creates it in the other on republish. A number cannot follow, so a rung switch is **refused** on an agent that holds a number.
+- **Gnani is not used on this engine.** No ThinnestAI surface, label or price names it.
 
 ## 5. Money
 
@@ -114,9 +135,10 @@ ThinnestAI returns **no per-call cost** (`get-call.md:199-204`). Metering works 
 - **Unit cost:** `unit_cost_paid` = billed minutes × attested rate.
 - **No rate, no sale:** an unattested rate refuses to sell the minute, exactly as the LLM price door does today.
 - **Client billing (D-681):** the client is billed in the same 30-second steps on every engine (`rates.client_billed_minutes`), separately from this cost metering.
-- **What is sold (D-681):** only Premium-band voices, as the Clear rung (₹4.00 on every pack). Standard and Studio voices are refused ("This voice is not on offer yet"), and publish refuses an agent with no voice chosen (`engine_voice_required`) and the workspace-keys mode (`engine_own_keys_not_on_sale`). The client rung comes from the stamped `engine_agent_routes.engine_rate_key`, never from `agents.tts_voice`.
-- **Cost floors (D-681):** the Clear floor on this engine is ₹2.50 Premium × 1.10 wallet top-up fee = **₹2.75/min** (`rates.THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN`, FOUNDER-RELAYED §2a), and the card is judged against it on `ENGINE=thinnest` (31.3% at ₹4.00). The floors were built on Pipecat's ₹0.95 engine leg, not Bolna's ₹1.76. A floor is a margin guard and never the billed cost.
-- **Studio is ON HOLD** pending ThinnestAI's answer on per-sub-workspace BYOK. No BYOK-Studio routing is built.
+- **What is sold (D-687, superseding D-681's Premium-only rule):** the vendor `studio` band is sold as **Clear** (₹4.00 on every pack) and the voice-only BYOK leg as **Studio** (the Studio column, ₹7.00 falling to ₹5.50). `standard` and `premium` voices are refused. Publish still refuses an agent with no voice chosen (`engine_voice_required`) and full workspace-keys mode (`engine_own_keys_not_on_sale`). The client rung comes from the stamped `engine_agent_routes.engine_rate_key`, never from `agents.tts_voice`. The Studio leg has its own rate key, `byok_voice` (D-687), for which the operator attests ₹1.50; Cartesia's own charge to our key is a separate cost line through the existing Cartesia pricing.
+- **Cost floors (D-687).** A floor is a margin guard and never the billed cost. The rates are VENDOR-STATED (evaluation §10 item 7: studio band ₹3.00, voice-only BYOK ₹1.50, top-up fee **9% on Pro**) and reach money only through an operator's attestation.
+  - **Clear:** ₹3.00 × 1.09 = **₹3.27/min** against ₹4.00, an **18.3%** gross margin before the Pro subscription itself (its monthly price is not recorded in this repo: UNKNOWN) and before GST. D-681's Premium floor was ₹2.75 at 31.3%, so **Clear's margin falls by 13 points; the founder should confirm the ₹4.00 Clear price still stands.** Pay-as-you-go (10% fee) would be ₹3.30 (17.5%), but studio voices need Pro.
+  - **Studio:** ₹1.50 × 1.09 = ₹1.635/min, plus Cartesia's cost per call-minute (TRD §10.1: ₹2.06–3.09, `rates.cartesia_tts_inr_per_call_minute`), so about ₹3.70–4.73/min. At the deepest Studio rung (₹5.50) that is 32.8% down to 14.1%.
 
 ## 6. Compliance (unchanged rules, new enforcement points)
 
@@ -144,8 +166,9 @@ ThinnestAI returns **no per-call cost** (`get-call.md:199-204`). Metering works 
 | `WEBHOOK_BASE_URL` | console-managed (needs republish) | Public `https://` origin ThinnestAI posts call results to |
 | `ENGINE_ACTIONS_BASE_URL` | console-managed (needs republish) | Public `https://` API origin the in-call actions call |
 | `THINNEST_MAX_CONCURRENT_CALLS` | console-managed (live), default 5 | The pay-as-you-go ceiling; raise only when ThinnestAI confirms (gate T-7) |
-| `THINNEST_BYOK_ENABLED` | console-managed (needs republish), default off | The workspace runs on its own keys; such calls are not on sale (D-681) |
-| Per-minute rates (`platform`, `standard`, `premium`, `studio`) | ops console **Per-minute rates**, attested with step-up | Hard rule 7; only `premium` is sold, as Clear (`sold_as`, D-681) |
+| `THINNEST_BYOK_ENABLED` | console-managed (needs republish), default off | The developer workspace runs on all three of its own keys (`scope: all`); such calls are not on sale (D-681). Not the Studio rung's voice-only BYOK |
+| `THINNEST_STUDIO_WORKSPACE_ID` (`thinnest_studio_workspace_id`) | console-managed, added by D-687 | The one shared customer workspace that holds every Studio agent, with voice-only BYOK and our Cartesia key. Set by `POST /v1/ops/voices/studio-workspace` (creates the workspace and installs the key) or by hand; an `org_…` id. Unset: Studio is not offered, and publishing a Studio agent is refused with a plain reason |
+| Per-minute rates (`platform`, `standard`, `premium`, `studio`, `byok_voice`) | ops console **Per-minute rates**, attested with step-up | Hard rule 7. `studio` is sold as Clear and `byok_voice` (voice-only BYOK) as Studio (D-687); `standard` and `premium` are not sold |
 | Per-agent webhook signing secrets and action secrets | sealed in the DB | Returned once by the vendor, or generated by us |
 
 Each key has an entry in `check_deploy_env` (env-only ones), `DEPLOYMENT.md` §12.7 and
@@ -184,7 +207,8 @@ Pipecat for a first live call. Pipecat's behaviour is unchanged by both.
   (`engine/recording_source.py`).
 - **Product surfaces (phase 2).** The rate card says, per deployment, which voice no agent
   can be put on (`CreditPacksOut.voice_not_offered`, `billing/payment_routes.
-  voice_tier_not_offered`): Studio on this engine, the cheaper rung on our own voices.
+  voice_tier_not_offered`): on this engine, Studio until the Studio workspace is ready
+  (D-687; it was always Studio under D-681), and the cheaper rung on our own voices.
   `/pricing` leads with the voice that can be bought; the client "What calls cost", the
   public rate card and the ROI calculator print the server's sentence. The ops
   per-minute rate panel says which rate a client is sold (`sold_as`). Number purchase
@@ -194,12 +218,19 @@ Pipecat for a first live call. Pipecat's behaviour is unchanged by both.
 - **Docs.** OPERATIONS §2 T-series (questions for ThinnestAI), FLOWS §3a, this file, and
   `runbooks/thinnest-first-live-call.md`.
 
-**Open, for the founder:** one ThinnestAI workspace for every tenant (today) or a customer
-workspace per tenant (`docs/evidence/thinnest-ai-evaluation.md` §9, gate T-8). Decided:
-ThinnestAI's own numbers only on this engine.
+- **Voices (D-687).** §4a: the studio band and admin clones as Clear, voice-only BYOK
+  Cartesia as Studio in one shared customer workspace, admin clone and preview routes, the
+  client picker limited to admin-enabled voices. The code is in `apps/api` (the D-687 row of
+  `docs/ROADMAP.md` names the files).
 
-**Gates that stay open, needing ThinnestAI's answers:** OPERATIONS §2 T-1..T-10 — BYOK per
-leg and per customer, whether `null` resets `voice.voice` or `model`, the webhook replay
+**Decided (D-687):** Clear agents in the developer workspace and Studio agents in one shared
+customer workspace, resolved by `thinnest_workspace_for(tenant_id, rung)`. A customer
+workspace per tenant (`docs/evidence/thinnest-ai-evaluation.md` §9, gate T-8) stays a
+founder decision and is a change to that one function. Decided: ThinnestAI's own numbers
+only on this engine.
+
+**Gates that stay open, needing ThinnestAI's answers:** OPERATIONS §2 T-1..T-10 (T-1, BYOK
+per leg, is answered by the 7 Oct evening snapshot: scopes `all` and `voice`) — whether `null` resets `voice.voice` or `model`, the webhook replay
 window and redelivery, the action timeout and call identification, the DPA and training,
 Telugu quality, the concurrency raise, customer workspaces, the DLT roles on our numbers,
 and per-band prices on an invoice.

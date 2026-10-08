@@ -525,6 +525,14 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "each agent's per-minute rate is stamped when it is published, so live agents keep "
         "the rate they were published with until they are re-published",
     ),
+    # Which ThinnestAI customer workspace Studio agents live in (D-687). Read at publish to
+    # decide where the vendor agent is created; an agent already published stays where it is
+    # until it is re-published, which re-creates it in the new one.
+    "thinnest_studio_workspace_id": AppliesRule(
+        NEEDS_REPUBLISH,
+        "a Studio agent stays in the workspace it was published in until it is re-published, "
+        "which re-creates it in the new one",
+    ),
     # Read inside every ThinnestAI dial's intent transaction (`agents/service.dispatch_call`)
     # and once per dispatch tick for the outbound pool, like `carrier_concurrency`.
     "thinnest_max_concurrent_calls": AppliesRule(LIVE),

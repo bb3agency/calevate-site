@@ -133,12 +133,18 @@ CARRIER_DOCUMENTS_PREFIX = "carrier-compliance/"
 
 #: Prefixes deliberately left with NO expiry rule, each with the argument for it.
 #:
-#: ⚠ EMPTY, AND KEPT AS A NAMED EMPTY RATHER THAN OMITTED —
 #: `tests/migration_rls_bracket_test.UNAUDITED_PRE_EXISTING`'s pattern. An entry here is a
 #: prefix somebody decided may grow without bound; the register is where that decision has
 #: to be written down instead of being inferred from a rule's absence, which is exactly how
 #: `carrier-compliance/` went unbounded for its whole life.
-UNBOUNDED_PREFIXES: dict[str, str] = {}
+UNBOUNDED_PREFIXES: dict[str, str] = {
+    "voice-previews/": (
+        "One short clip per catalogue voice (D-687), keyed by the voice, so a re-fetch "
+        "overwrites rather than adds: the prefix is bounded by the catalogue's size, not by "
+        "time, and holds no caller's or client's data. An expiry would silently take a live "
+        "voice's preview off the picker."
+    ),
+}
 
 
 class PolicyError(Exception):

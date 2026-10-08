@@ -216,6 +216,21 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:542b86b2eb71834f804a630b6fcf0491cd85acf33455ca3460faae8001f0117c",
       },
+      // D-687 (8 Oct 2026): calls run on the hosted voice platform, so §6 and §8 describe
+      // it as the live path, with its own India and no-training statements reported as its
+      // statements (VENDOR-STATED email, 7 Oct 2026) — including that it may train on its
+      // pay-as-you-go plan unless switched off; the speech provider reads transcripts after
+      // the call and hears calls only on our own program; the cheaper voice is the
+      // platform's own and the dearer one a separate company; the platform's recording
+      // retention. MATERIAL: a reader of revision 12 was told the call ran on our own
+      // program, and a recipient's training position is the class revisions 6 and 8 were
+      // material for. The founder may decide otherwise; this is the conservative reading.
+      {
+        revision: "13",
+        material: true,
+        contentHash:
+          "sha256:ba11f924af7771e39ad73dacdd28ed3ee2c160bf7cdc089c2918036fdd792afc",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -280,6 +295,15 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash:
           "sha256:0b5f11cc9369da17234929ece0e6108ea267b5e53a1edc908a015f8d5664fcf0",
+      },
+      // D-687: "Engine" and clause 9's dependency sentence name the hosted voice platform
+      // that runs calls since 7 Oct 2026 as well as our own call program. NOT material: a
+      // definition and a description, no right or obligation moves.
+      {
+        revision: "11",
+        material: false,
+        contentHash:
+          "sha256:3797db2fafabcbb66c415b4fe0b8336279262b54f21616d4203b466205792ee3",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -394,6 +418,17 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash:
           "sha256:9c3a0900ee0184dd0caf6c259ffe39352cb3eb618a60a367f28827ffa8993e2f",
+      },
+      // D-687: clause 5's warranty that every sub-processor is under a written contract
+      // gains an exception for the hosted voice platform that now runs every call, whose
+      // data-processing agreement is offered and not recorded as signed; clause 2 relays
+      // its training statement as its own; clause 9 describes it as the live call path.
+      // MATERIAL: a narrowed warranty, the class revisions 6 and 7 were material for.
+      {
+        revision: "12",
+        material: true,
+        contentHash:
+          "sha256:e33de3746cd3d2aaaefe1362c30986740b77a5863e483f21276240200dfbeaec",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -529,6 +564,19 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash:
           "sha256:bc64d4f987d47f68b5687b4e1f501e07e7490dd22c7bca97a26d03786343e29e",
+      },
+      // D-687: the Status column follows the live deployment (the hosted voice platform is
+      // Core; the carrier on our own account, live speech recognition and the in-call
+      // language models are configured, not enabled); the platform's written DPA and
+      // training statements are reported as its statements; it holds our admin-cloned
+      // voices; the dearer voice reaches its company through the platform on our account.
+      // NOT material: no company is added, and the founder decided D-639/D-668's status
+      // changes the same way. Flagged for the founder.
+      {
+        revision: "13",
+        material: false,
+        contentHash:
+          "sha256:aa9cf51213205f2f5a50e094c51789c79a73688536231dd7ca5b52788e36c64d",
       },
     ],
     effectiveDate: "2026-09-02",

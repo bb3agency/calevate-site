@@ -227,6 +227,7 @@ const NO_ENGINE_CATALOGUE: EngineCatalogue = {
   available: false,
   complete: true,
   choosable: true,
+  studio_available: false,
   note: "Voices on this account come from Calevate's own catalogue.",
   voices: [],
   models: [],
@@ -237,16 +238,28 @@ const ENGINE_CATALOGUE: EngineCatalogue = {
   available: true,
   complete: true,
   choosable: true,
+  studio_available: false,
   note: "1 of 2 voices can be chosen today.",
   voices: [
-    { voice_id: "3b7e", label: "Anjali", price_band: "standard", is_custom: false, offerable: true, reason: null },
     {
-      voice_id: "priya",
+      voice_id: "engine:3b7e",
+      label: "Anjali",
+      rung: "clear",
+      language_note: "Speaks Telugu, Hindi and English.",
+      preview_available: false,
+      is_custom: false,
+      offerable: true,
+      reason: null,
+    },
+    {
+      voice_id: "engine:priya",
       label: "Priya",
-      price_band: "premium",
+      rung: "clear",
+      language_note: "Speaks Hindi.",
+      preview_available: false,
       is_custom: false,
       offerable: false,
-      reason: "No rupee-per-minute rate is attested for ThinnestAI's 'premium' voice band.",
+      reason: "No rupee-per-minute rate is attested for the Clear rung.",
     },
   ],
   models: [
@@ -257,6 +270,7 @@ const ENGINE_CATALOGUE: EngineCatalogue = {
       plan_allows: false,
       offerable: false,
       reason: "ThinnestAI lists this model as too slow to answer a phone call.",
+      usable_with_studio_voice: true,
     },
   ],
 };
@@ -658,7 +672,7 @@ describe("the voice panel", () => {
     await screen.findByText("Anjali");
     expect(container.textContent).toContain("1 of 2 voices can be chosen today.");
     expect(container.textContent).toContain(
-      "Cannot be used — No rupee-per-minute rate is attested for ThinnestAI's 'premium' voice band.",
+      "Cannot be used — No rupee-per-minute rate is attested for the Clear rung.",
     );
     expect(container.textContent).toContain("too slow to answer a phone call");
     // A picker now (D-678): the priced voice can be chosen, the unpriced one cannot.
@@ -679,7 +693,7 @@ describe("the voice panel", () => {
     const { calls } = await render({
       [VOICES_PATH]: DICTATED_CATALOGUE,
       [ENGINE_CATALOGUE_PATH]: ENGINE_CATALOGUE,
-      [`PATCH /v1/agents/${AGENT}`]: agentRow({ id: AGENT, engine_voice_id: "3b7e" }),
+      [`PATCH /v1/agents/${AGENT}`]: agentRow({ id: AGENT, engine_voice_id: "engine:3b7e" }),
     });
 
     const save = await screen.findByRole("button", { name: "Save voice and model" });
@@ -695,7 +709,7 @@ describe("the voice panel", () => {
       expect(calls.some((c) => c.path === path && c.method === "PATCH")).toBe(true),
     );
     const write = calls.find((c) => c.path === path && c.method === "PATCH")!;
-    expect(JSON.parse(write.body!)).toEqual({ engine_voice_id: "3b7e" });
+    expect(JSON.parse(write.body!)).toEqual({ engine_voice_id: "engine:3b7e" });
     expect(write.headers["X-Impersonate-Org"]).toBe("sunrise");
   });
 

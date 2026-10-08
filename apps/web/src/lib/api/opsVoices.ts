@@ -181,8 +181,11 @@ export function useRefreshVoiceCatalogue(): UseMutationResult<VoiceRefresh, Erro
       apiRequest<VoiceRefresh>(adminSession(), OPS_VOICES_REFRESH_PATH, { method: "POST" }),
     onSuccess: () =>
       Promise.all([
+        // A prefix of the hosted lists' keys too (`opsHostedVoices.ts`), so one refresh
+        // reloads whichever screen the engine put up.
         client.invalidateQueries({ queryKey: opsVoiceKeys.list }),
         client.invalidateQueries({ queryKey: ["agent-voices"] }),
+        client.invalidateQueries({ queryKey: ["engine-catalogue"] }),
       ]),
   });
 }

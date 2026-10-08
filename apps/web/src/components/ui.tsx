@@ -831,12 +831,29 @@ export function ProblemNotice({
   // told the person what it needs is not one, and the id beside it only competes with the
   // instruction.
   const ours = problem !== null && REFERENCE_KINDS.has(problem.kind);
+  // A RESPONSE THAT ARRIVED speaks for itself: its own headline above its own sentence.
+  // Only a received problem (`status > 0`) gets the headline — the browser's own problems
+  // (`status: 0`: no reply, a timeout, a local auth refusal) restate their title in their
+  // detail, and printing both would say the same thing twice.
+  const headline =
+    problem !== null && problem.status > 0 && problem.title && problem.title !== title
+      ? problem.title
+      : null;
   return (
     <div
       role="alert"
       className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
     >
-      <p className="break-words text-[15px] font-semibold leading-snug">
+      {headline && (
+        <p className="break-words text-[15px] font-semibold leading-snug">{headline}</p>
+      )}
+      <p
+        className={
+          headline
+            ? "mt-1 break-words text-rose-900 dark:text-rose-200"
+            : "break-words text-[15px] font-semibold leading-snug"
+        }
+      >
         {title}
       </p>
       {problem?.remediation && (

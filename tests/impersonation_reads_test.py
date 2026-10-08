@@ -29,6 +29,18 @@ from apps.api.main import app
 # no `X-Impersonate-Org` header. Impersonation never touches them, so gating them on a
 # mutating permission costs nobody a view.
 ADMIN_CONSOLE_GETS: dict[str, str] = {
+    "/v1/ops/voices/hosted": (
+        "the platform's hosted voice catalogue and its curation (D-687) — admin console, "
+        "platform-wide, never impersonated"
+    ),
+    "/v1/ops/voices/hosted/preview": (
+        "the operator's player for any hosted voice's stored preview (D-687) — admin "
+        "console, platform-wide, never impersonated"
+    ),
+    "/v1/ops/voices/studio-workspace": (
+        "the Studio workspace's own-key state at the voice platform (D-687) — admin "
+        "console, platform-wide, never impersonated"
+    ),
     "/v1/admin/tenants": "the client directory — admin console, never impersonated",
     "/v1/admin/number-pricing": (
         "the operator's own attested rupee price for a number the carrier supplies — a "

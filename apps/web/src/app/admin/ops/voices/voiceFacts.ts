@@ -1,3 +1,4 @@
+import type { HostedVoices } from "@/lib/api/opsHostedVoices";
 import { CLONE_FIRST, type CuratedVoices } from "@/lib/api/opsVoices";
 
 type Fact = { key: string; label: string; value: string };
@@ -52,5 +53,19 @@ export function voiceFacts(
       value: String(data.voices.filter((row) => row.withdrawn_at !== null).length),
     },
     { key: "adding", label: "How a NEW voice is added", value: CLONE_FIRST },
+  ];
+}
+
+/** The same counts on an engine that hosts its own voices (D-687). */
+export function hostedVoiceFacts(data: HostedVoices): Fact[] {
+  return [
+    { key: "offered", label: "Voices clients can currently choose", value: String(data.offered) },
+    { key: "added", label: "Voices added here", value: String(data.voices.length) },
+    { key: "cached", label: "Voices the voice platform lists", value: String(data.cached) },
+    {
+      key: "studio",
+      label: "The Studio workspace",
+      value: data.studio_workspace_id === null ? "not set up" : "set up",
+    },
   ];
 }

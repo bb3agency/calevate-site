@@ -63,14 +63,13 @@ const PROVIDER_LABELS: Record<string, string> = {
   // The VOICE vendors. Same table, because the question a reader has is the same one
   // ("whose invoice is this?") and two tables would be two spellings of "Cartesia".
   //
-  // `sarvam` STAYS although Sarvam no longer synthesises (D-629, 18 Sep 2026): attested
-  // prices and the usage rows struck against them are append-only, so a historical TTS
-  // price row still arrives keyed `sarvam` and must render with a vendor's name rather than
-  // a bare token. It is also still the STT vendor. `gnani` is the Clear rung's vendor now,
-  // and has no attested price yet — which is exactly what this panel is for.
+  // Keyed by the PROVIDER the wire names, so a label follows the data rather than the
+  // engine: `sarvam` and `gnani` rows exist only where those vendors spoke (`ENGINE=pipecat`,
+  // and append-only history), and `thinnest` rows only where ThinnestAI hosts the call.
   sarvam: "Sarvam",
   cartesia: "Cartesia",
   gnani: "Gnani",
+  thinnest: "ThinnestAI",
 };
 
 function providerLabel(provider: string): string {

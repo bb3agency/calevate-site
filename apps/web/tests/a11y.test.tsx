@@ -3493,6 +3493,16 @@ const ADMIN_SCREENS: Screen[] = [
       // never matched it. The query then errored, the screen rendered its failure state,
       // and axe swept THAT — so this entry's own promise to sweep the table, the warning
       // banner and the Add form was unkept while the gate reported green.
+      // The hosted list is read first (D-687); this entry sweeps the Pipecat catalogue.
+      "/v1/ops/voices/hosted?scope=added": {
+        available: false,
+        scope: "added",
+        voices: [],
+        cached: 0,
+        offered: 0,
+        studio_workspace_id: null,
+        note: "Voices on this platform come from Calevate's own catalogue.",
+      },
       "/v1/ops/voices?scope=decided": {
         source: "engine",
         scope: "decided",
@@ -4279,10 +4289,14 @@ describe("every screen is scanned by axe", () => {
       // only awaits the Suspense boundary) nor `renderAdminPage` (synchronous by design)
       // waits for the network, so without this the scan sees SKELETONS — which is the
       // vacuous pass `assertScreenRendered` refuses. A macrotask is enough: `stubApi`
-      // answers from memory, so the only thing outstanding is React's own flush.
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
+      // answers from memory, so the only thing outstanding is React's own flush. Three
+      // rounds, because a screen may CHAIN reads: the Voices page asks the hosted list first
+      // and only then reads the catalogue it decided on (D-687).
+      for (let round = 0; round < 3; round += 1) {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      }
       await expectNoA11yViolations(container, screen.file);
     },
   );

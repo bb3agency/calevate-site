@@ -1,17 +1,20 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClientEngineCatalogue } from "@/components/engineCatalogueList";
 import { ENGINE_CATALOGUE_PATH, type EngineCatalogue } from "@/lib/api/engineCatalogue";
 import { useClientSession } from "@/lib/api/session";
+import { CLIENT_PREVIEW_PATH, previewUrl } from "@/lib/api/voicePreview";
 
 import { agentRow } from "./fixtures/sharedReads";
 import { problem, renderClientPage } from "./harness";
 
 /*
- * The client's own picker for the voice platform's voices and models (D-678): the saved
- * choice is pre-selected, an entry the server marks unavailable cannot be picked, only the
- * field that moved is sent, and a refusal arrives in the server's own words.
+ * The client's own picker for the voices an operator added and enabled (D-678, D-687): the
+ * voices are grouped by rung, the saved choice is pre-selected and marked in use, an entry
+ * the server marks unavailable cannot be picked, a Studio voice and a model that cannot run
+ * beside it block each other with a reason, each voice can be previewed before choosing,
+ * only the field that moved is sent, and a refusal arrives in the server's own words.
  */
 
 const AGENT = "0192f0aa-8888-7000-8000-0000000000c3";
@@ -21,21 +24,69 @@ const CATALOGUE: EngineCatalogue = {
   available: true,
   complete: true,
   choosable: true,
-  note: "2 of 3 voices can be chosen today.",
+  studio_available: true,
+  note: "3 of 4 voices can be chosen today.",
   voices: [
-    { voice_id: "3b7e", label: "Anjali", price_band: "standard", is_custom: false, offerable: true, reason: null },
-    { voice_id: "kiran", label: "Kiran", price_band: "standard", is_custom: false, offerable: true, reason: null },
     {
-      voice_id: "priya",
+      voice_id: "engine:3b7e",
+      label: "Anjali",
+      rung: "clear",
+      language_note: "Speaks Telugu, Hindi and English.",
+      preview_available: true,
+      is_custom: false,
+      offerable: true,
+      reason: null,
+    },
+    {
+      voice_id: "engine:kiran",
+      label: "Kiran",
+      rung: "clear",
+      language_note: "Speaks Telugu.",
+      preview_available: false,
+      is_custom: true,
+      offerable: true,
+      reason: null,
+    },
+    {
+      voice_id: "engine:priya",
       label: "Priya",
-      price_band: "premium",
+      rung: "clear",
+      language_note: "Speaks Hindi.",
+      preview_available: false,
       is_custom: false,
       offerable: false,
-      reason: "Not available yet: premium voices have not been priced.",
+      reason: "Not available yet: this voice has not been priced.",
+    },
+    {
+      voice_id: "byok:meera",
+      label: "Meera",
+      rung: "studio",
+      language_note: "Speaks English.",
+      preview_available: false,
+      is_custom: false,
+      offerable: true,
+      reason: null,
     },
   ],
   models: [
-    { model_id: "m_6f1c2a9e0b7d4c35", label: "Standard", call_capable: true, plan_allows: true, offerable: true, reason: null },
+    {
+      model_id: "m_fast",
+      label: "Standard",
+      call_capable: true,
+      plan_allows: true,
+      offerable: true,
+      reason: null,
+      usable_with_studio_voice: true,
+    },
+    {
+      model_id: "m_rich",
+      label: "Rich",
+      call_capable: true,
+      plan_allows: true,
+      offerable: true,
+      reason: null,
+      usable_with_studio_voice: false,
+    },
   ],
 };
 
@@ -47,12 +98,13 @@ describe("the platform voice picker", () => {
   it("starts on the saved voice and sends only the voice that moved", async () => {
     const { calls } = await renderClientPage(<Picker />, {
       [ENGINE_CATALOGUE_PATH]: CATALOGUE,
-      [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT, engine_voice_id: "3b7e" }),
-      [`PATCH ${AGENT_PATH}`]: agentRow({ id: AGENT, engine_voice_id: "kiran" }),
+      [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT, engine_voice_id: "engine:3b7e" }),
+      [`PATCH ${AGENT_PATH}`]: agentRow({ id: AGENT, engine_voice_id: "engine:kiran" }),
     });
 
     const anjali = (await screen.findByRole("radio", { name: /Anjali/ })) as HTMLInputElement;
     await waitFor(() => expect(anjali.checked).toBe(true));
+    expect(screen.getByRole("radio", { name: /Anjali/ }).closest("li")?.textContent).toContain("In use");
     expect((screen.getByRole("radio", { name: /Priya/ }) as HTMLInputElement).disabled).toBe(true);
 
     fireEvent.click(screen.getByRole("radio", { name: /Kiran/ }));
@@ -62,30 +114,134 @@ describe("the platform voice picker", () => {
       expect(calls.some((c) => c.path === AGENT_PATH && c.method === "PATCH")).toBe(true),
     );
     const write = calls.find((c) => c.path === AGENT_PATH && c.method === "PATCH")!;
-    expect(JSON.parse(write.body!)).toEqual({ engine_voice_id: "kiran" });
+    expect(JSON.parse(write.body!)).toEqual({ engine_voice_id: "engine:kiran" });
+  });
+
+  it("groups the voices by rung, Clear before Studio", async () => {
+    await renderClientPage(<Picker />, {
+      [ENGINE_CATALOGUE_PATH]: CATALOGUE,
+      [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT }),
+    });
+
+    const clear = await screen.findByRole("group", { name: "Clear voices" });
+    const studio = screen.getByRole("group", { name: "Studio voices" });
+    expect(within(clear).getByRole("radio", { name: /Anjali/ })).toBeTruthy();
+    expect(within(clear).queryByRole("radio", { name: /Meera/ })).toBeNull();
+    expect(within(studio).getByRole("radio", { name: /Meera/ })).toBeTruthy();
+    // Clear is read first.
+    expect(clear.compareDocumentPosition(studio) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("explains Studio rather than listing it when the account cannot have it", async () => {
+    await renderClientPage(<Picker />, {
+      [ENGINE_CATALOGUE_PATH]: {
+        ...CATALOGUE,
+        studio_available: false,
+        voices: CATALOGUE.voices.filter((voice) => voice.rung === "clear"),
+      },
+      [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT }),
+    });
+
+    await screen.findByRole("radio", { name: /Anjali/ });
+    expect(screen.queryByRole("group", { name: "Studio voices" })).toBeNull();
+  });
+
+  it("disables Studio voices while the chosen model cannot run with one, and says why", async () => {
+    await renderClientPage(<Picker />, {
+      [ENGINE_CATALOGUE_PATH]: CATALOGUE,
+      [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT, engine_model_id: "m_rich" }),
+    });
+
+    const meera = (await screen.findByRole("radio", { name: /Meera/ })) as HTMLInputElement;
+    await waitFor(() => expect(meera.disabled).toBe(true));
+    expect(meera.closest("li")?.textContent).toContain("Rich, cannot be used with a Studio voice");
+
+    // Moving the model to one that can releases the Studio voice.
+    fireEvent.click(screen.getByRole("radio", { name: /^Standard/ }));
+    expect(meera.disabled).toBe(false);
+    fireEvent.click(meera);
+    // …and now the Studio voice blocks the model that cannot run beside it.
+    const rich = screen.getByRole("radio", { name: /^Rich/ }) as HTMLInputElement;
+    expect(rich.disabled).toBe(true);
+    expect(rich.closest("li")?.textContent).toContain("cannot be used with a Studio voice");
   });
 
   it("puts the server's refusal on screen", async () => {
     await renderClientPage(<Picker />, {
       [ENGINE_CATALOGUE_PATH]: CATALOGUE,
-      [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT, engine_voice_id: "3b7e" }),
+      [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT, engine_voice_id: "engine:3b7e" }),
       [`PATCH ${AGENT_PATH}`]: problem(422, {
-        type: "urn:calevate:business_rule/engine_choice_reset_unsupported",
-        title: "This agent's voice cannot be put back to the default",
-        detail:
-          "The voice platform keeps the last voice it was given and offers no way to return to its default, so clearing the choice would not change what callers hear.",
+        type: "urn:calevate:business_rule/engine_voice_not_on_offer",
+        title: "That voice is not on offer",
+        detail: "This voice is not on offer to your account any more. Choose another voice.",
         kind: "business_rule",
       }),
     });
 
-    const defaults = await screen.findAllByRole("radio", { name: /Platform default/ });
     await waitFor(() =>
       expect((screen.getByRole("radio", { name: /Anjali/ }) as HTMLInputElement).checked).toBe(true),
     );
-    fireEvent.click(defaults[0]!);
+    fireEvent.click(screen.getByRole("radio", { name: /Kiran/ }));
     fireEvent.click(screen.getByRole("button", { name: "Save voice and model" }));
 
-    await screen.findByText(/keeps the last voice it was given/);
+    await screen.findByText(/not on offer to your account any more/);
+  });
+});
+
+describe("the voice preview", () => {
+  const play = vi.fn(() => Promise.resolve());
+  const pause = vi.fn();
+
+  beforeEach(() => {
+    Object.defineProperty(HTMLMediaElement.prototype, "play", { configurable: true, value: play });
+    Object.defineProperty(HTMLMediaElement.prototype, "pause", { configurable: true, value: pause });
+    Object.assign(URL, {
+      createObjectURL: vi.fn(() => "blob:preview"),
+      revokeObjectURL: vi.fn(),
+    });
+    play.mockClear();
+    pause.mockClear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("reads the clip through the client's own session only when asked, then plays it", async () => {
+    const clipPath = previewUrl(CLIENT_PREVIEW_PATH, "engine:3b7e");
+    const { calls } = await renderClientPage(<Picker />, {
+      [ENGINE_CATALOGUE_PATH]: CATALOGUE,
+      [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT }),
+      [clipPath]: () =>
+        new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "audio/mpeg" } }),
+    });
+
+    const button = await screen.findByRole("button", { name: "Play the preview of Anjali" });
+    // Nothing is downloaded until somebody presses play.
+    expect(calls.some((c) => c.path === clipPath)).toBe(false);
+    // Only voices with a stored clip get a button.
+    expect(screen.queryByRole("button", { name: /preview of Kiran/ })).toBeNull();
+
+    fireEvent.click(button);
+    await waitFor(() => expect(play).toHaveBeenCalled());
+    const read = calls.find((c) => c.path === clipPath)!;
+    expect(read.headers["X-Org-Slug"]).toBe("acme");
+    expect(URL.createObjectURL).toHaveBeenCalled();
+    // Pressing play never moves the selection.
+    expect((screen.getByRole("radio", { name: /Anjali/ }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("says plainly when a voice has no stored clip", async () => {
+    const clipPath = previewUrl(CLIENT_PREVIEW_PATH, "engine:3b7e");
+    await renderClientPage(<Picker />, {
+      [ENGINE_CATALOGUE_PATH]: CATALOGUE,
+      [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT }),
+      [clipPath]: problem(404, { title: "Not found", detail: "Voice preview was not found.", kind: "not_found" }),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Play the preview of Anjali" }));
+    await screen.findByText("No preview is stored for this voice yet.");
+    expect(play).not.toHaveBeenCalled();
   });
 });
 

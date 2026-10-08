@@ -104,6 +104,7 @@ from calevate_shared.engine import (
     openai_base_url,
     truthful_answer_directive,
 )
+from calevate_shared.engine_scope import scope_of
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -113,6 +114,11 @@ from apps.api.agents import handoff as handoff_module
 from apps.api.agents.engine_choice import byok_in_force, engine_rate_key_for
 from apps.api.agents.engine_facts import sync_business_facts
 from apps.api.agents.engine_limits import refuse_over_engine_limits, refuse_unpriced_engine
+from apps.api.agents.hosted_voices import (
+    parse_hosted_voice_id,
+    rung_of_source,
+    thinnest_workspace_for,
+)
 from apps.api.agents.languages import published_extra_languages
 from apps.api.agents.llm_models import (
     ResolvedLlmModel,
@@ -1034,6 +1040,7 @@ def _to_config(
     handoff: HandoffSpec | None = None,
 ) -> AgentConfig:
     settings = get_settings()
+    hosted = _engine_voice_fields(tenant_id, agent, engine=engine)
     return AgentConfig(
         tenant_id=str(tenant_id),
         agent_id=str(agent["id"]),
@@ -1087,8 +1094,10 @@ def _to_config(
             # different: somebody asked for it, so it goes.
             **_model_legs(agent, engine=engine),
         ),
-        engine_voice_id=_engine_choice(agent, engine=engine)[0],
-        engine_model_id=_engine_choice(agent, engine=engine)[1],
+        engine_voice_id=hosted.voice_id,
+        engine_byok_voice_id=hosted.byok_voice_id,
+        engine_workspace=hosted.workspace,
+        engine_model_id=hosted.model_id,
         webhook_url=f"{settings.webhook_base_url}/hooks/v1/engine/{settings.engine}",
         # The cost-runaway guard. Resolved here rather than defaulted in the model, so
         # an agent that has never been given a cap is still published with one.
@@ -2414,9 +2423,20 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     # engine that declares no limits.
     refuse_over_engine_limits(engine, config)
     await refuse_unpriced_engine(session, engine)
-    rate_key = await engine_rate_key_for(session, engine, config)
+    voice_choice, model_choice = _engine_choice(agent, engine=engine)
+    rate_key = await engine_rate_key_for(
+        session, engine, voice_id=voice_choice, model_id=model_choice
+    )
 
     existing_ref = agent["engine_agent_ref"]
+    if (
+        isinstance(existing_ref, str)
+        and existing_ref
+        and scope_of(existing_ref) != config.engine_workspace
+    ):
+        # The voice moved the agent to another workspace (D-687): re-create it there.
+        await _move_to_workspace(session, engine, agent_id=agent_id, old_ref=existing_ref)
+        existing_ref = None
     created = not (isinstance(existing_ref, str) and existing_ref)
     if isinstance(existing_ref, str) and existing_ref:
         await engine.update_agent(existing_ref, config)
@@ -2609,6 +2629,104 @@ def _engine_choice(agent: AgentRow, *, engine: VoiceEngine) -> tuple[str | None,
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _EngineVoiceFields:
+    voice_id: str | None = None
+    byok_voice_id: str | None = None
+    workspace: str | None = None
+    model_id: str | None = None
+
+
+def _engine_voice_fields(
+    tenant_id: UUID, agent: AgentRow, *, engine: VoiceEngine
+) -> _EngineVoiceFields:
+    """The `AgentConfig` fields for the engine-hosted voice and model (D-687).
+
+    The stored voice is OUR catalogue id (`agents/hosted_voices.py`); what the engine is
+    sent is its own voice id, in the slot its source takes — an engine voice as the agent's
+    voice, a voice of our own key through the own-key voice route — and the workspace the
+    rung lives in. An id that is not a hosted one is sent as nothing; publish refuses it
+    first (`engine_choice.require_engine_choice`).
+    """
+    voice, model = _engine_choice(agent, engine=engine)
+    ref = parse_hosted_voice_id(voice)
+    if ref is None:
+        return _EngineVoiceFields(model_id=model)
+    return _EngineVoiceFields(
+        voice_id=ref.vendor_id if ref.source == "engine" else None,
+        byok_voice_id=ref.vendor_id if ref.source == "byok" else None,
+        workspace=thinnest_workspace_for(tenant_id, rung_of_source(engine.name, ref.source)),
+        model_id=model,
+    )
+
+
+#: What keeps a vendor agent in its workspace: a number attached to it, knowledge published
+#: to it, or a running experiment whose arms live beside it. None of them can follow it.
+_HELD_IN_WORKSPACE_SQL: Final = (
+    "SELECT "
+    "(SELECT count(*) FROM phone_numbers WHERE agent_id = :aid AND released_at IS NULL), "
+    "(SELECT count(*) FROM engine_kb_routes r JOIN kb_sources s ON s.id = r.source_id "
+    " WHERE s.agent_id = :aid), "
+    "(SELECT count(*) FROM prompt_experiments WHERE agent_id = :aid AND status = 'running')"
+)
+
+
+async def _move_to_workspace(
+    session: AsyncSession, engine: VoiceEngine, *, agent_id: UUID, old_ref: str
+) -> None:
+    """Retire the vendor agent in its old workspace so publish can create it in the new one.
+
+    An agent cannot move between ThinnestAI workspaces (evaluation §10 item 2b,
+    VENDOR-STATED), so a rung switch is a delete there and a create here. What cannot
+    follow is refused by name BEFORE anything is deleted, rather than silently dropped: a
+    number (released and rented again, never moved), published knowledge, and the arms of
+    a running experiment.
+    """
+    numbers, knowledge, experiments = (
+        await session.execute(text(_HELD_IN_WORKSPACE_SQL), {"aid": agent_id})
+    ).one()
+    if numbers:
+        raise ProblemError(
+            kind="business_rule",
+            code="engine_rung_switch_number_held",
+            title="This agent's phone number cannot move to the new voice",
+            detail=(
+                "Clear and Studio voices run in different parts of the voice platform, and "
+                "a phone number cannot move between them. Switching this agent's voice "
+                "between Clear and Studio would leave its number behind."
+            ),
+            remediation=(
+                "Keep a voice of the same kind (Clear or Studio), or contact us to release "
+                "the number and rent a new one for the agent."
+            ),
+        )
+    if knowledge or experiments:
+        raise ProblemError(
+            kind="business_rule",
+            code="engine_rung_switch_agent_busy",
+            title="Finish this agent's other changes before switching voice",
+            detail=(
+                "Switching between a Clear and a Studio voice re-creates the agent on the "
+                "voice platform, and its published knowledge or a running experiment would "
+                "not come with it."
+            ),
+            remediation=(
+                "Withdraw the agent's knowledge and end any running experiment, switch the "
+                "voice, then publish the knowledge again."
+            ),
+        )
+    await retire_in_call_actions(agent_id=agent_id, ref=old_ref)
+    await engine.delete_agent(old_ref)
+    await session.execute(
+        text(
+            "UPDATE engine_agent_routes SET active = false, updated_at = now() "
+            "WHERE engine = :engine AND engine_agent_ref = :ref"
+        ),
+        {"engine": engine.name, "ref": old_ref},
+    )
+    log.info("engine_agent_moved_workspace", extra={"agent_id": str(agent_id)})
+
+
 def _variant_config(
     tenant_id: UUID,
     agent: AgentRow,
@@ -2717,7 +2835,10 @@ async def publish_variant(
     # ceilings or is refused before the write (`agents/engine_limits.py`).
     refuse_over_engine_limits(engine, config)
     await refuse_unpriced_engine(session, engine)
-    rate_key = await engine_rate_key_for(session, engine, config)
+    voice_choice, model_choice = _engine_choice(agent, engine=engine)
+    rate_key = await engine_rate_key_for(
+        session, engine, voice_id=voice_choice, model_id=model_choice
+    )
     if existing_ref:
         await engine.update_agent(existing_ref, config)
         ref = existing_ref

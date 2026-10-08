@@ -73,6 +73,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
+from apps.api.agents.hosted_voices import rungs_awaiting_setup
 from apps.api.billing.credit_packs import (
     CreditPack,
     pack_by_id,
@@ -578,12 +579,14 @@ def voice_tier_not_offered(engine: str) -> tuple[VoiceTier, str] | None:
     """The rung no agent can be put on under `engine`, with the sentence a page shows.
 
     On an engine that sells its own voices by band, the rungs those bands are sold as are the
-    ones on offer (`engine_minutes.CLIENT_RUNG_OF_RATE_KEY`: ThinnestAI sells Premium as
-    Clear, so Studio is the one held back). Everywhere else the cheaper rung is unpriced.
+    ones on offer (`engine_minutes.CLIENT_RUNG_OF_RATE_KEY`), less a rung whose voices wait
+    on a setup step (ThinnestAI's Studio rung until its workspace is set up, D-687).
+    Everywhere else the cheaper rung is unpriced.
     """
     sold = CLIENT_RUNG_OF_RATE_KEY.get(engine)
     if sold is not None:
-        held = [tier for tier in VOICE_TIERS if tier not in set(sold.values())]
+        waiting = rungs_awaiting_setup(engine)
+        held = [tier for tier in VOICE_TIERS if tier not in set(sold.values()) or tier in waiting]
         return (held[0], _NOT_YET_OPENED_NOTICE) if held else None
     return VALUE_VOICE_TIER, _UNPRICED_VOICE_NOTICE
 

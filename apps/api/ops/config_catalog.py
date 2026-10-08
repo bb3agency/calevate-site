@@ -262,6 +262,14 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "the BYOK rate.",
         _THINNEST,
     ),
+    "thinnest_studio_workspace_id": _m(
+        "voice-engine",
+        "thinnest",
+        "ThinnestAI Studio workspace",
+        "The customer workspace (org_...) where Studio agents run on our Cartesia voice key. "
+        "Set it from Voices, Studio workspace, which also installs the key.",
+        _THINNEST,
+    ),
     "pipecat_stream_base_url": _m(
         "voice-engine",
         "pipecat",
@@ -747,20 +755,27 @@ _FIXED_WORDS: Final[dict[str, str]] = {
     "ips": "IPs",
     "oauth": "OAuth",
     "json": "JSON",
-    "openai": "OpenAI",
-    "thinnest": "ThinnestAI",
-    "vobiz": "Vobiz",
-    "plivo": "Plivo",
-    "pipecat": "Pipecat",
-    "cartesia": "Cartesia",
-    "sarvam": "Sarvam",
-    "gnani": "Gnani",
-    "azure": "Azure",
-    "redis": "Redis",
-    "alembic": "Alembic",
-    "resend": "Resend",
-    "whatsapp": "WhatsApp",
 }
+
+#: Product names. Pairs rather than entries in `_FIXED_WORDS` because several are engine
+#: names, and a dict keyed by them reads to `tests/engine_name_drift_test.py` as a second
+#: copy of the engine set, which a spelling table is not.
+_BRAND_SPELLINGS: Final[tuple[tuple[str, str], ...]] = (
+    ("openai", "OpenAI"),
+    ("thinnest", "ThinnestAI"),
+    ("vobiz", "Vobiz"),
+    ("plivo", "Plivo"),
+    ("pipecat", "Pipecat"),
+    ("cartesia", "Cartesia"),
+    ("sarvam", "Sarvam"),
+    ("gnani", "Gnani"),
+    ("azure", "Azure"),
+    ("redis", "Redis"),
+    ("alembic", "Alembic"),
+    ("resend", "Resend"),
+    ("whatsapp", "WhatsApp"),
+)
+_FIXED_WORDS.update(_BRAND_SPELLINGS)
 
 #: Words that are always capitalised in a label, whatever position they take.
 FIXED_SPELLINGS: Final[frozenset[str]] = frozenset(

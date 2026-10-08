@@ -3395,6 +3395,12 @@ class AgentConfig(BaseModel):
     #: is unchanged for every engine that runs our models.
     engine_voice_id: str | None = None
     engine_model_id: str | None = None
+    #: A voice of the engine account's OWN voice provider (bring-your-own-key), set instead
+    #: of `engine_voice_id` when the agent speaks on that provider. The two are exclusive.
+    engine_byok_voice_id: str | None = None
+    #: The engine sub-account the agent lives in, or None for the account itself. An agent
+    #: cannot move between sub-accounts, so a change here means a new vendor agent (D-687).
+    engine_workspace: str | None = None
     #: The business facts are in the engine's knowledge base, not in `system_prompt`, so the
     #: prompt tells the model to look them up (`FACTS_IN_KNOWLEDGE_GUIDANCE`). False on every
     #: engine that holds the facts in the prompt, which leaves its composition unchanged.

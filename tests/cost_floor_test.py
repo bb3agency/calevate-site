@@ -840,21 +840,42 @@ def test_pipecat_floors_carry_the_carrier_leg_we_now_own() -> None:
     assert cost_floor_inr_per_min("studio", engine="pipecat") == Decimal("5.2499")
 
 
-def test_the_thinnest_clear_floor_is_the_premium_minute_plus_the_top_up_fee() -> None:
-    """₹2.50 Premium (pay-as-you-go) x 1.10 wallet top-up fee = ₹2.75 — FOUNDER-RELAYED,
-    `docs/evidence/thinnest-ai-evaluation.md` §2a. Studio keeps the Cartesia floor: it is not
-    sold on ThinnestAI while the BYOK answer is pending."""
+def test_the_thinnest_floors_are_the_vendor_minutes_plus_the_top_up_fee() -> None:
+    """D-687. Clear: ₹3.00 Studio band x 1.09 Pro top-up fee = ₹3.27. Studio: ₹1.50 own
+    voice key x 1.09, plus Cartesia's synthesis at its dearest marginal plan rate at the
+    frozen evidence rate — the TTS half of the Cartesia floor, not the whole of it (their
+    stack hears and answers the call). VENDOR-STATED figures, evaluation §10 item 7."""
     from apps.api.billing.rates import (
+        CARTESIA_EVIDENCE_USD_INR,
         THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN,
-        THINNEST_PREMIUM_INR_PER_MIN,
+        THINNEST_OWN_VOICE_INR_PER_MIN,
+        THINNEST_STUDIO_BAND_INR_PER_MIN,
+        THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN,
         THINNEST_WALLET_TOPUP_FEE,
+        _worst_marginal_tts,
+        ex_tts_cost_inr_per_min_at,
     )
 
-    assert Decimal("2.50") == THINNEST_PREMIUM_INR_PER_MIN
-    assert Decimal("0.10") == THINNEST_WALLET_TOPUP_FEE
-    assert Decimal("2.7500") == THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN
-    assert cost_floor_inr_per_min("clear", engine="thinnest") == Decimal("2.7500")
-    assert cost_floor_inr_per_min("studio", engine="thinnest") == CARTESIA_COST_FLOOR_INR_PER_MIN
+    assert Decimal("3.00") == THINNEST_STUDIO_BAND_INR_PER_MIN
+    assert Decimal("1.50") == THINNEST_OWN_VOICE_INR_PER_MIN
+    assert Decimal("0.09") == THINNEST_WALLET_TOPUP_FEE
+    assert Decimal("3.2700") == THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN
+    assert cost_floor_inr_per_min("clear", engine="thinnest") == Decimal("3.2700")
+    tts = _worst_marginal_tts(CARTESIA_EVIDENCE_USD_INR)
+    assert (Decimal("1.635") + tts).quantize(
+        Decimal("0.0001")
+    ) == THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN
+    assert cost_floor_inr_per_min("studio", engine="thinnest") == (
+        THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN
+    )
+    # Their speech and model legs replace ours: the floor differs from the Cartesia floor by
+    # exactly the ex-TTS legs swapped for the own-voice minute with its fee.
+    assert abs(
+        THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN
+        - CARTESIA_COST_FLOOR_INR_PER_MIN
+        + ex_tts_cost_inr_per_min_at(CARTESIA_EVIDENCE_USD_INR)
+        - Decimal("1.635")
+    ) <= Decimal("0.0002")
 
 
 def test_an_engine_without_floors_of_its_own_is_judged_at_the_base_pair() -> None:
@@ -871,9 +892,12 @@ def test_the_card_is_judged_at_the_deployments_engine() -> None:
     from apps.api.billing.credit_packs import card_margins
 
     thinnest = {(p, v): m for p, v, m in card_margins(PACK_CATALOGUE, engine="thinnest")}
-    assert thinnest[("starter", "clear")].cost == Decimal("2.7500")
-    assert gross_margin_ratio(rate=Decimal("4.00"), cost=Decimal("2.75")) == Decimal("0.3125")
-    assert not thinnest[("max", "clear")].below_target
+    assert thinnest[("starter", "clear")].cost == Decimal("3.2700")
+    # 18.25% at the ₹4.00 Clear rate: under the 20% target, so warned, and above cost.
+    assert gross_margin_ratio(rate=Decimal("4.00"), cost=Decimal("3.27")) == Decimal("0.1825")
+    assert thinnest[("max", "clear")].below_target
+    assert not thinnest[("max", "clear")].below_cost
+    assert not thinnest[("max", "studio")].below_cost
 
     pipecat = {(p, v): m for p, v, m in card_margins(PACK_CATALOGUE, engine="pipecat")}
     assert pipecat[("starter", "clear")].cost == Decimal("3.6891")

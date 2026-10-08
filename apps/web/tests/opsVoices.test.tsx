@@ -12,6 +12,7 @@ import {
   type CuratedVoices,
 } from "@/lib/api/opsVoices";
 
+import { HOSTED_VOICES_PROBE_PATH, NOT_HOSTED } from "./fixtures/sharedReads";
 import { problem, renderAdminPage, stillLoading, type Routes } from "./harness";
 
 /**
@@ -136,6 +137,8 @@ function catalogue(over: Partial<CuratedVoices> = {}): CuratedVoices {
 function routes(over: Routes = {}): Routes {
   return {
     [ADMIN_ME_PATH]: SUPERADMIN,
+    // The page asks the hosted list first; this engine does not host voices (D-687).
+    [HOSTED_VOICES_PROBE_PATH]: NOT_HOSTED,
     [LIST_PATH]: catalogue(),
     ...over,
   };

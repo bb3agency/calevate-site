@@ -20,15 +20,22 @@ import {
   useRefreshVoiceCatalogue,
   type VoiceScope,
 } from "@/lib/api/opsVoices";
+import { useHostedVoices } from "@/lib/api/opsHostedVoices";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 
 import { AddVoiceDrawer } from "./AddVoiceDrawer";
+import { HostedVoicesScreen } from "./hosted/HostedVoicesScreen";
 import { VoiceCatalogue } from "./VoiceCatalogue";
-import { voiceFacts } from "./voiceFacts";
+import { hostedVoiceFacts, voiceFacts } from "./voiceFacts";
 
 /**
  * The voices this platform has added (D-590): add a cloned voice, and decide which
- * voices clients may pick. The server decides `offered`, the counts and every sentence;
+ * voices clients may pick.
+ *
+ * TWO SCREENS, AND THE SERVER PICKS (D-687). The hosted list is read first: on an engine
+ * that hosts its own voices (ThinnestAI) it answers `available: true` and the hosted screen
+ * is shown; anywhere else it answers `available: false` and the Pipecat catalogue below is
+ * read and shown, unchanged. The engine is never named in this bundle. The server decides `offered`, the counts and every sentence;
  * this screen computes none of them.
  *
  * `ops:manage` gates the READ as well as the writes, asked of `GET /v1/admin/me`; it is a
@@ -38,7 +45,10 @@ export default function VoicesPage() {
   const access = useAdminAccess("ops:manage", "add and manage the voices this platform offers");
   const [scope, setScope] = useState<VoiceScope>("decided");
   const [adding, setAdding] = useState(false);
-  const voices = useCuratedVoices(!access.refused, scope);
+  const hosted = useHostedVoices(!access.refused, "added");
+  const hostedData = hosted.data?.available ? hosted.data : undefined;
+  const pipecat = !access.refused && hosted.data?.available === false;
+  const voices = useCuratedVoices(pipecat, scope);
   const add = useAddVoice();
   const refresh = useRefreshVoiceCatalogue();
   const data = voices.data;
@@ -51,8 +61,12 @@ export default function VoicesPage() {
     // Nothing here is fillable by the assistant: a guessed voice id would be refused by the
     // platform or, worse, belong to a different voice.
     apply: () => undefined,
-    facts: voiceFacts(access.refused, data, voices.error != null),
+    facts: hostedData
+      ? hostedVoiceFacts(hostedData)
+      : voiceFacts(access.refused, data, voices.error != null || hosted.error != null),
   });
+
+  if (hostedData) return <HostedVoicesScreen added={hostedData} />;
 
   const openAdd = () => {
     add.reset();
@@ -97,6 +111,9 @@ export default function VoicesPage() {
         <RestrictionNote reason={access.reason} />
       ) : (
         <>
+          {hosted.error != null && (
+            <ProblemNotice error={hosted.error} onRetry={() => void hosted.refetch()} />
+          )}
           {voices.error != null && (
             <ProblemNotice error={voices.error} onRetry={() => void voices.refetch()} />
           )}
@@ -116,7 +133,7 @@ export default function VoicesPage() {
 
           {/* §52: no data is in flight, failed, or paused — never "no voices". */}
           {!data ? (
-            voices.error ? null : <Skeleton rows={8} label="Loading the voices this platform offers" />
+            voices.error || hosted.error ? null : <Skeleton rows={8} label="Loading the voices this platform offers" />
           ) : (
             <VoiceCatalogue catalogue={data} scope={scope} onScope={setScope} />
           )}

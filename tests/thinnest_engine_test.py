@@ -505,23 +505,22 @@ async def test_failed_knowledge_indexing_is_not_reported_as_attached() -> None:
     assert raised.value.code == "engine_kb_ingest_failed"
 
 
-async def test_the_engine_catalogue_reads_voices_and_models() -> None:
+async def test_the_engine_catalogue_reads_the_models() -> None:
+    """Models only since D-687: the voices a client may pick are the operator's curated
+    list (`agents/hosted_voices.py`), never the live vendor catalogue."""
     handler, _ = _recorder(
         {
-            ("GET", "/voices"): httpx.Response(
-                200,
-                json={
-                    "items": [
-                        {"id": "priya", "name": "Priya", "tier": "premium"},
-                        {"id": "c4a1", "name": "Founder voice", "tier": "studio", "mine": True},
-                    ]
-                },
-            ),
             ("GET", "/models"): httpx.Response(
                 200,
                 json={
                     "items": [
-                        {"id": "prana-voice", "name": "Prana", "voice": True, "available": True},
+                        {
+                            "id": "prana-voice",
+                            "name": "Prana",
+                            "voice": True,
+                            "available": True,
+                            "voiceOnlyByok": True,
+                        },
                         {"id": "gpt-4.1", "name": "GPT-4.1", "voice": False, "available": False},
                     ]
                 },
@@ -530,13 +529,11 @@ async def test_the_engine_catalogue_reads_voices_and_models() -> None:
     )
     catalogue = await engine_catalogue(_engine(handler))
     assert catalogue.complete
-    assert [(v.voice_id, v.price_band, v.is_custom) for v in catalogue.voices] == [
-        ("priya", "premium", False),
-        ("c4a1", "studio", True),
-    ]
-    assert [(m.model_id, m.call_capable, m.plan_allows) for m in catalogue.models] == [
-        ("prana-voice", True, True),
-        ("gpt-4.1", False, False),
+    assert [
+        (m.model_id, m.call_capable, m.plan_allows, m.voice_only_byok) for m in catalogue.models
+    ] == [
+        ("prana-voice", True, True, True),
+        ("gpt-4.1", False, False, False),
     ]
 
 

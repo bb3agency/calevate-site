@@ -60,14 +60,14 @@ export type SpeakingRateByProvider = components["schemas"]["SpeakingRateByProvid
 /**
  * The vendor, named — this is the admin console, and the invoice has a vendor on it.
  *
- * `sarvam` is kept although Sarvam stopped synthesising on 18 Sep 2026 (D-629): this reads
- * `usage_events`, which is append-only, so months that a Sarvam voice spoke still answer
- * with that provider for ever and must name it. `gnani` is the Clear rung's vendor from
- * that date.
+ * Read off the provider each usage row carries, so the name follows the data: `sarvam` and
+ * `gnani` rows are `ENGINE=pipecat` minutes (and append-only history), `thinnest` rows are
+ * minutes ThinnestAI hosted (D-687).
  */
 export function vendorName(provider: string): string {
   if (provider === "sarvam") return "Sarvam";
   if (provider === "cartesia") return "Cartesia";
   if (provider === "gnani") return "Gnani";
+  if (provider === "thinnest") return "ThinnestAI";
   return provider;
 }

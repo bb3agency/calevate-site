@@ -1,51 +1,48 @@
-"""An agent's voice and model from the ENGINE'S OWN catalogue: check it, and price it (D-678).
+"""An agent's voice and model on an engine that HOSTS them: check it, and price it.
 
-On an engine that dictates its speech and model legs (ThinnestAI), an agent may name one of
-the engine's own voices (`agents.engine_voice_id`) and models (`agents.engine_model_id`).
-Both are checked here against a live read of the catalogue, before anything is written to
-the vendor, and the answer is the rate key the agent's minutes are metered at:
+On an engine that dictates its speech and model legs (ThinnestAI), an agent names one of the
+voices the engine hosts that an operator offered (`agents.engine_voice_id`, our catalogue id,
+`agents/hosted_voices.py`) and may name one of the engine's models (`agents.engine_model_id`).
+Both are checked here before anything is written to the vendor, and the answer is the rate
+key the agent's minutes are metered at:
 
-* nothing chosen — `platform`, with no catalogue read, which is every agent's path before
-  this existed;
-* a voice — its `price_band` (`standard` / `premium` / `studio`), because the engine bills a
-  call at the band of the voice it speaks (`thinnest-findings/mirror/pages/api-reference/
-  voices-and-models.md:30-31`). An unattested band is refused: a minute nobody priced may
-  not be sold (hard rule 7, through `billing/engine_minutes.engine_minute_is_billable`).
+* nothing chosen — `platform`, with no read, which is every agent's path on other engines;
+* a voice — its source's rate key: the engine's Studio band (sold as Clear) or a voice of our
+  own Cartesia key (`byok_voice`, sold as Studio), D-687. A voice the operator has not added
+  and enabled, that the engine no longer lists, or whose minute is unattested is refused
+  (hard rule 7, through `billing/engine_minutes.attested_rate_keys`).
 
-Which bands a client may be sold is a founder decision (D-681, 7 Oct 2026): on ThinnestAI
-only Premium, billed as the Clear rung (`billing/engine_minutes.CLIENT_RUNG_OF_RATE_KEY`).
-A Standard or Studio voice is refused (`engine_voice_not_on_offer`), and a PUBLISH also
-refuses an agent with no voice (`engine_voice_required`) and the workspace-keys mode
-(`engine_own_keys_not_on_sale`), since neither names a band that is on sale.
+A PUBLISH also refuses an agent with no voice (`engine_voice_required`), the developer
+workspace on its own keys (`engine_own_keys_not_on_sale`), and a Studio voice while the
+Studio workspace is not on our own voice key.
 
-The refusals reuse `engine_catalogue_offer`'s sentences in the CLIENT's audience: a publish
-refusal can reach a client's screen, and the operator wording names the vendor.
+The refusals are in the CLIENT's audience: a publish refusal can reach a client's screen.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Final, cast
+from typing import Final
 
-from calevate_shared.engine import AgentConfig, VoiceEngine
+from calevate_shared.engine import VoiceEngine
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.engine_catalogue_offer import (
-    NOT_ON_OFFER_CLIENT,
-    model_unofferable_reason,
-    voice_unofferable_reason,
+from apps.api.agents.engine_catalogue_offer import NOT_ON_OFFER_CLIENT, model_unofferable_reason
+from apps.api.agents.hosted_voices import (
+    STUDIO_VOICE_PROVIDER,
+    HostedVoiceRow,
+    hosted_voice_unofferable_reason,
+    read_hosted_voice,
+    studio_workspace_missing,
+    studio_workspace_ready,
 )
-from apps.api.billing.engine_minutes import (
-    BASE_RATE_KEY,
-    ENGINE_RATE_KEYS,
-    EngineRateKey,
-    attested_rate_keys,
-    sold_rate_keys,
-)
+from apps.api.agents.voice_offer import tts_price_is_billable
+from apps.api.billing.engine_minutes import BASE_RATE_KEY, EngineRateKey, attested_rate_keys
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
-from apps.api.engine.catalogue import EngineCatalogue, HoldsCatalogue, ReportsOwnKeys
+from apps.api.engine.catalogue import EngineCatalogue, HoldsCatalogue, HostsVoices, ReportsOwnKeys
 from apps.api.engine.hosted_platform import engine_platform_label
 
 log = get_logger(__name__)
@@ -56,16 +53,19 @@ MODEL_CHOICE_NOT_OFFERED: Final = "engine_model_choice_not_offered"
 CATALOGUE_INCOMPLETE: Final = "engine_catalogue_incomplete"
 VOICE_NOT_IN_CATALOGUE: Final = "engine_voice_not_in_catalogue"
 VOICE_TIER_UNPRICED: Final = "engine_voice_tier_unpriced"
-VOICE_TIER_UNKNOWN: Final = "engine_voice_tier_unknown"
 MODEL_NOT_IN_CATALOGUE: Final = "engine_model_not_in_catalogue"
 MODEL_NOT_CALL_CAPABLE: Final = "engine_model_not_call_capable"
 MODEL_NOT_ON_PLAN: Final = "engine_model_not_on_plan"
+#: A Studio voice runs the call on the engine's low-cost models only (D-687).
+MODEL_NOT_WITH_OWN_VOICE: Final = "engine_model_not_with_studio_voice"
 CHOICE_UNDER_BYOK: Final = "engine_choice_under_byok"
 VOICE_NOT_ON_OFFER: Final = "engine_voice_not_on_offer"
 VOICE_REQUIRED: Final = "engine_voice_required"
 KEYS_NOT_ON_SALE: Final = "engine_own_keys_not_on_sale"
 #: The operator's `THINNEST_BYOK_ENABLED` and the vendor's `GET /byok` disagree.
 KEYS_MODE_MISMATCH: Final = "engine_byok_mismatch"
+#: The Studio workspace is set but the engine says it is not speaking on our voice key.
+STUDIO_KEY_NOT_READY: Final = "engine_studio_voice_key_not_ready"
 
 #: The sentence the pickers lock on, and the refusal's detail. No vendor name: a client reads it.
 BYOK_CHOICE_NOTE: Final = (
@@ -76,8 +76,10 @@ BYOK_CHOICE_NOTE: Final = (
 
 
 def byok_in_force(engine: VoiceEngine) -> bool:
-    """Does `engine` run on the workspace's own keys (`Settings.thinnest_byok_enabled`)? Then
-    a per-agent catalogue choice does not apply and every minute is the `platform` rate."""
+    """Does `engine`'s own (developer) workspace run on all three of its own keys
+    (`Settings.thinnest_byok_enabled`)? Then a per-agent choice does not apply and every
+    minute is the `platform` rate. Not the Studio workspace, whose voice-only key is how the
+    Studio rung is sold (D-687)."""
     return engine.name == "thinnest" and get_settings().thinnest_byok_enabled
 
 
@@ -98,8 +100,7 @@ async def _require_keys_mode_matches(engine: VoiceEngine) -> None:
 
     The setting decides which rate a publish stamps and whether a catalogue voice is sent;
     the vendor decides which keys actually run the call and what it bills. Either
-    disagreement mis-prices every minute: the ₹1 BYOK rate on calls billed at catalogue
-    rates, or a catalogue voice that does not speak while the client is billed for it.
+    disagreement mis-prices every minute.
     """
     if not isinstance(engine, ReportsOwnKeys):
         return
@@ -138,60 +139,76 @@ def _incomplete() -> ProblemError:
     return _refusal(
         CATALOGUE_INCOMPLETE,
         title="The voice platform's list could not be read in full",
-        detail="We could not confirm the chosen voice or model is on the platform's list.",
+        detail="We could not confirm the chosen model is on the platform's list.",
         remediation="Try again. If it keeps failing, contact us.",
     )
 
 
-def _check_voice(
-    catalogue: EngineCatalogue,
-    voice_id: str,
-    *,
-    attested: frozenset[str],
-    platform: str,
-    sold: frozenset[str] | None,
-) -> EngineRateKey:
-    voice = next((v for v in catalogue.voices if v.voice_id == voice_id), None)
-    if voice is None:
-        if not catalogue.complete:
-            raise _incomplete()
-        raise _refusal(
-            VOICE_NOT_IN_CATALOGUE,
-            title="This voice is not offered",
-            detail="The chosen voice is not on the voice platform's list for this account.",
-            remediation="Choose another voice, or clear the choice to use the default.",
-        )
-    if voice.price_band not in ENGINE_RATE_KEYS:
-        # A band we hold no rate key for cannot be attested, so it can never be priced.
-        log.warning("agent_engine_voice_band_unknown", extra={"band": voice.price_band})
-        raise _refusal(
-            VOICE_TIER_UNKNOWN,
-            title="This voice cannot be priced",
-            detail="The chosen voice is in a price band Calevate does not meter.",
-            remediation="Choose another voice, or clear the choice to use the default.",
-        )
-    if sold is not None and voice.price_band not in sold:
+def _not_in_catalogue() -> ProblemError:
+    return _refusal(
+        VOICE_NOT_IN_CATALOGUE,
+        title="This voice is not offered",
+        detail="The chosen voice is not on this account's list of voices.",
+        remediation="Choose a voice from the list on the agent's voice settings.",
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class HostedChoice:
+    """A checked voice: its catalogue row, and so its source and rate key."""
+
+    row: HostedVoiceRow
+
+    @property
+    def rate_key(self) -> EngineRateKey:
+        return self.row.rate_key
+
+    @property
+    def speaks_own_key(self) -> bool:
+        return self.row.source == "byok"
+
+
+async def _check_voice(
+    session: AsyncSession, voice_id: str, *, attested: frozenset[str], platform: str
+) -> HostedChoice:
+    try:
+        row = await read_hosted_voice(session, voice_id)
+    except ProblemError:
+        raise _not_in_catalogue() from None
+    if not row.offered:
         raise _refusal(
             VOICE_NOT_ON_OFFER,
-            title="This voice is not on offer yet",
+            title="This voice is not on offer",
             detail=NOT_ON_OFFER_CLIENT,
             remediation="Choose another voice from the list.",
         )
-    reason = voice_unofferable_reason(
-        voice, attested=attested, platform=platform, audience="client", sold=sold
+    reason = hosted_voice_unofferable_reason(
+        row,
+        attested=attested,
+        studio_ready=studio_workspace_ready(),
+        voice_key_priced=tts_price_is_billable(STUDIO_VOICE_PROVIDER),
+        platform=platform,
+        audience="client",
     )
     if reason is not None:
+        if row.source == "byok" and not studio_workspace_ready():
+            raise studio_workspace_missing()
         raise _refusal(
             VOICE_TIER_UNPRICED,
             title="This voice has not been priced yet",
             detail=reason,
-            remediation="Choose another voice, or clear the choice to use the default.",
+            remediation="Choose another voice.",
         )
-    return cast(EngineRateKey, voice.price_band)
+    return HostedChoice(row=row)
 
 
 def _check_model(
-    catalogue: EngineCatalogue, model_id: str, *, attested: frozenset[str], platform: str
+    catalogue: EngineCatalogue,
+    model_id: str,
+    *,
+    attested: frozenset[str],
+    platform: str,
+    with_own_voice: bool,
 ) -> None:
     model = next((m for m in catalogue.models if m.model_id == model_id), None)
     if model is None:
@@ -206,15 +223,50 @@ def _check_model(
     reason = model_unofferable_reason(
         model, attested=attested, platform=platform, audience="client"
     )
-    if reason is None:
-        return
-    code = MODEL_NOT_CALL_CAPABLE if not model.call_capable else MODEL_NOT_ON_PLAN
-    raise _refusal(
-        code,
-        title="This language model cannot be used",
-        detail=reason,
-        remediation="Choose another model, or clear the choice to use the default.",
-    )
+    if reason is not None:
+        code = MODEL_NOT_CALL_CAPABLE if not model.call_capable else MODEL_NOT_ON_PLAN
+        raise _refusal(
+            code,
+            title="This language model cannot be used",
+            detail=reason,
+            remediation="Choose another model, or clear the choice to use the default.",
+        )
+    if with_own_voice and not model.voice_only_byok:
+        # A call speaking our own voice key runs only on the engine's low-cost models, and
+        # setting another is refused with a 400 (snapshots/2026-10-07b/pages/api-reference/
+        # bring-your-own-keys.md:44-63).
+        raise _refusal(
+            MODEL_NOT_WITH_OWN_VOICE,
+            title="This language model cannot be used with a Studio voice",
+            detail="A Studio voice runs the call on the platform's standard models only.",
+            remediation="Choose a standard model, or clear the choice to use the default.",
+        )
+
+
+async def _require_studio_key_live(engine: HostsVoices) -> None:
+    """At publish, the engine's own word that the Studio workspace speaks on our Cartesia
+    key, because the workspace setting is only what an operator typed."""
+    workspace = get_settings().thinnest_studio_workspace_id
+    if not workspace:
+        raise studio_workspace_missing()
+    state = await engine.own_key_state(workspace=workspace)
+    if not state.speaks_on_own_voice or state.voice_provider != STUDIO_VOICE_PROVIDER:
+        log.warning(
+            "studio_voice_key_not_ready",
+            extra={
+                "enabled": state.enabled,
+                "scope": state.scope,
+                "complete": state.complete,
+                "using": state.using,
+            },
+        )
+        raise _refusal(
+            STUDIO_KEY_NOT_READY,
+            title="Studio voices are not ready yet",
+            detail="The part of the voice platform Studio voices run in is not speaking on "
+            "our voice account yet, so this agent cannot be published on a Studio voice.",
+            remediation="Choose a Clear voice, or contact us.",
+        )
 
 
 async def require_engine_choice(
@@ -227,18 +279,15 @@ async def require_engine_choice(
 ) -> EngineRateKey:
     """Refuse a choice the engine cannot run or we cannot price; else its rate key.
 
-    `for_publish` adds what only a publish needs (D-681): on an engine whose bands are sold
-    selectively, an agent must name a voice on a sold band — the platform default speaks a
-    band nobody can see, and the workspace-keys mode has no band at all. A draft save may
-    leave the voice empty.
+    `for_publish` adds what only a publish needs: on an engine that hosts its voices an
+    agent must name one (the platform default speaks a voice nobody priced), the developer
+    workspace must not be on its own keys, and a Studio voice needs the Studio workspace
+    live on our voice key. A draft save may leave the voice empty.
     """
     caps = engine.capabilities
     refuse_choice_under_byok(engine, voice_id=voice_id, model_id=model_id)
-    sold = sold_rate_keys(engine.name)
-    # Only where a voice CAN be chosen: an adapter with no catalogue offers none, and
-    # requiring one there would make the engine unpublishable rather than priced.
-    choosable = isinstance(engine, HoldsCatalogue) and not caps.is_ours("tts")
-    if for_publish and sold is not None and choosable:
+    hosts = isinstance(engine, HostsVoices) and not caps.is_ours("tts")
+    if for_publish and hosts:
         await _require_keys_mode_matches(engine)
         if byok_in_force(engine):
             raise _refusal(
@@ -264,32 +313,36 @@ async def require_engine_choice(
         raise _not_offered(MODEL_CHOICE_NOT_OFFERED, "language model")
     if voice_id is None and model_id is None:
         return BASE_RATE_KEY
-    if not isinstance(engine, HoldsCatalogue):
-        raise _not_offered(
-            VOICE_CHOICE_NOT_OFFERED if voice_id is not None else MODEL_CHOICE_NOT_OFFERED,
-            "voice" if voice_id is not None else "language model",
-        )
-    catalogue = await engine.read_catalogue()
+    hosting = engine if isinstance(engine, HostsVoices) else None
+    holder = engine if isinstance(engine, HoldsCatalogue) else None
+    if voice_id is not None and hosting is None:
+        raise _not_offered(VOICE_CHOICE_NOT_OFFERED, "voice")
+    if model_id is not None and holder is None:
+        raise _not_offered(MODEL_CHOICE_NOT_OFFERED, "language model")
     attested = await attested_rate_keys(session, engine=engine.name, at=datetime.now(UTC))
     platform = engine_platform_label(engine)
-    if model_id is not None:
-        _check_model(catalogue, model_id, attested=attested, platform=platform)
-    if voice_id is None:
-        return BASE_RATE_KEY
-    return _check_voice(catalogue, voice_id, attested=attested, platform=platform, sold=sold)
+    choice: HostedChoice | None = None
+    if voice_id is not None and hosting is not None:
+        choice = await _check_voice(session, voice_id, attested=attested, platform=platform)
+        if for_publish and choice.speaks_own_key:
+            await _require_studio_key_live(hosting)
+    if model_id is not None and holder is not None:
+        _check_model(
+            await holder.read_catalogue(),
+            model_id,
+            attested=attested,
+            platform=platform,
+            with_own_voice=choice is not None and choice.speaks_own_key,
+        )
+    return BASE_RATE_KEY if choice is None else choice.rate_key
 
 
 async def engine_rate_key_for(
-    session: AsyncSession, engine: VoiceEngine, cfg: AgentConfig
+    session: AsyncSession, engine: VoiceEngine, *, voice_id: str | None, model_id: str | None
 ) -> EngineRateKey:
-    """`require_engine_choice` for the config a publish is about to send. On ThinnestAI it
-    refuses an agent with no voice, and refuses outright under BYOK (D-681)."""
+    """`require_engine_choice` for the agent a publish is about to send."""
     return await require_engine_choice(
-        session,
-        engine,
-        voice_id=cfg.engine_voice_id,
-        model_id=cfg.engine_model_id,
-        for_publish=True,
+        session, engine, voice_id=voice_id, model_id=model_id, for_publish=True
     )
 
 
@@ -303,12 +356,14 @@ __all__ = [
     "MODEL_NOT_CALL_CAPABLE",
     "MODEL_NOT_IN_CATALOGUE",
     "MODEL_NOT_ON_PLAN",
+    "MODEL_NOT_WITH_OWN_VOICE",
+    "STUDIO_KEY_NOT_READY",
     "VOICE_CHOICE_NOT_OFFERED",
     "VOICE_NOT_IN_CATALOGUE",
     "VOICE_NOT_ON_OFFER",
     "VOICE_REQUIRED",
-    "VOICE_TIER_UNKNOWN",
     "VOICE_TIER_UNPRICED",
+    "HostedChoice",
     "byok_in_force",
     "engine_rate_key_for",
     "refuse_choice_under_byok",

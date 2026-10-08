@@ -11,9 +11,16 @@ from apps.api.billing.payment_routes import voice_tier_not_offered
 from apps.api.ops.engine_minute_routes import _row
 
 
-def test_only_the_premium_band_is_marked_as_sold_and_it_is_sold_as_clear() -> None:
+def test_the_studio_band_is_sold_as_clear_and_the_own_voice_minute_as_studio() -> None:
+    """D-687: the engine's Studio band is Clear, a voice of our own key is Studio."""
     sold = {key: _row("thinnest", key, None).sold_as for key in ENGINE_RATE_KEYS}
-    assert sold == {"platform": None, "standard": None, "premium": "Clear", "studio": None}
+    assert sold == {
+        "platform": None,
+        "standard": None,
+        "premium": None,
+        "studio": "Clear",
+        "byok_voice": "Studio",
+    }
 
 
 def test_an_unattested_row_is_not_billable_whatever_it_is_sold_as() -> None:

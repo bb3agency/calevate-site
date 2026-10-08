@@ -642,7 +642,7 @@ async def test_an_unconfigured_receiver_fails_closed(monkeypatch: pytest.MonkeyP
     async with _client() as http:
         response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
 
-    assert response.status_code == 502, response.text
+    assert response.status_code == 503, response.text
     assert response.json()["type"].endswith("/payments_not_configured")
     assert await _ledger(tenant_id) == []
 

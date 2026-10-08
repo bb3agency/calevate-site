@@ -83,7 +83,7 @@ export type VoiceTier = "clear" | "studio";
  * deployment answered at all — is still handled, by the panel's own read state.
  *
  * The one thing lost with the validator is worth naming: `voice_tier` is `string` on the
- * wire, not the two-member union, so nothing narrows it any more. `tierVendor` takes a
+ * wire, not the two-member union, so nothing narrows it any more. `rungLabel` takes a
  * plain string and passes an unrecognised tier through unchanged, which is the same answer
  * it always gave.
  */
@@ -121,26 +121,16 @@ export type CartesiaVolume = Schemas["CartesiaVolumeOut"];
 export type SpeakingRate = Schemas["SpeakingRateOut"];
 
 /**
- * The vendor, named — this is the one surface where that is required rather than avoided.
+ * A rung's name, for sentences about a cell.
  *
- * The KEY is the RUNG (`clear`, `studio`) and the VALUE is the VENDOR currently serving
- * it. They were the same word until 19 Sep 2026, when the rungs stopped being spelled with
- * their vendors' names — and this map is why that mattered: on 18 Sep 2026 Sarvam stopped
- * synthesising anything and Gnani took the Clear rung, so for one day the key said
- * `sarvam` and the value said Gnani. An operator reconciling an invoice needs the company
- * that will send one; the key needs to be the thing the ledger is keyed on. Those are two
- * facts and they now have two spellings.
- *
- * Sarvam is still a vendor of ours — it transcribes every call and reads the first pass over
- * the transcript — but it bills no rung on this card.
+ * Named by RUNG and not by vendor: which company speaks a rung is a property of the engine
+ * (D-687: ThinnestAI's studio band behind Clear and Cartesia on our key behind Studio under
+ * `ENGINE=thinnest`; Gnani and Cartesia under `ENGINE=pipecat`), and this card prices the
+ * rung whichever it is. A vendor compiled in here was wrong on one engine or the other. The
+ * vendors' own invoice lines are on the model-pricing panel, which reads them from the server.
  */
-export const TIER_VENDOR: Record<VoiceTier, string> = {
-  clear: "Gnani",
-  studio: "Cartesia",
-};
-
-export function tierVendor(tier: string): string {
-  return tier === "clear" || tier === "studio" ? TIER_VENDOR[tier] : tier;
+export function rungLabel(tier: string): string {
+  return tier === "clear" ? "Clear" : tier === "studio" ? "Studio" : tier;
 }
 
 /** The rungs, in the order the card ladders, each with its two voices. */
@@ -189,7 +179,7 @@ export function cellVerdict(cell: RateCardCell, targetPct: string): CellVerdict 
       tone: "thin",
       label: "Under water at this volume",
       sentence:
-        `This rung sells a ${tierVendor(cell.voice_tier)} minute at ${cell.inr_per_min} ` +
+        `This rung sells a ${rungLabel(cell.voice_tier)} minute at ${cell.inr_per_min} ` +
         `against ${cell.cost_inr_per_min_at_volume ?? "an unstated cost"}/min of real cost at ` +
         "the volume the platform actually ran this month. It clears the structural floor " +
         `(${cell.cost_floor_inr_per_min}/min, the next minute at the margin), so the card ` +
@@ -206,7 +196,7 @@ export function cellVerdict(cell: RateCardCell, targetPct: string): CellVerdict 
       label: "Thin margin",
       sentence:
         `This rung earns ${cell.gross_margin_pct ?? "an unstated"}% on the ` +
-        `${tierVendor(cell.voice_tier)} voice, under the ${targetPct}% we aim for and above what ` +
+        `${rungLabel(cell.voice_tier)} voice, under the ${targetPct}% we aim for and above what ` +
         `the minute costs us (${cell.cost_floor_inr_per_min}/min). It is sold at this rate ` +
         "deliberately — read it, do not treat it as a fault.",
     };
@@ -215,7 +205,7 @@ export function cellVerdict(cell: RateCardCell, targetPct: string): CellVerdict 
     tone: "ok",
     label: "At or above target",
     sentence:
-      `${cell.gross_margin_pct ?? "—"}% on the ${tierVendor(cell.voice_tier)} voice, at or above ` +
+      `${cell.gross_margin_pct ?? "—"}% on the ${rungLabel(cell.voice_tier)} voice, at or above ` +
       `the ${targetPct}% target.`,
   };
 }

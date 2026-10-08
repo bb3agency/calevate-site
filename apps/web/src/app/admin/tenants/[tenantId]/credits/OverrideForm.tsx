@@ -150,16 +150,16 @@ export function OverrideForm({
           <option value="">Choose a pack…</option>
           {packs.map((row) => (
             <option key={row.pack_id} value={row.pack_id}>
-              {row.pack_id} ({formatINR(row.amount_inr)}) · Gnani {formatRupeeRate(row.clear_inr_per_min)} ·
-              Cartesia {formatRupeeRate(row.studio_inr_per_min)}
+              {row.pack_id} ({formatINR(row.amount_inr)}) · Clear {formatRupeeRate(row.clear_inr_per_min)} ·
+              Studio {formatRupeeRate(row.studio_inr_per_min)}
             </option>
           ))}
         </select>
         {pack && chosen && (
           <span className={FIELD_HINT}>
-            This lot goes from Gnani {formatRupeeRate(chosen.clear_inr_per_min)} / Cartesia{" "}
-            {formatRupeeRate(chosen.studio_inr_per_min)} to Gnani{" "}
-            {formatRupeeRate(pack.clear_inr_per_min)} / Cartesia{" "}
+            This lot goes from Clear {formatRupeeRate(chosen.clear_inr_per_min)} / Studio{" "}
+            {formatRupeeRate(chosen.studio_inr_per_min)} to Clear{" "}
+            {formatRupeeRate(pack.clear_inr_per_min)} / Studio{" "}
             {formatRupeeRate(pack.studio_inr_per_min)} per minute.
           </span>
         )}

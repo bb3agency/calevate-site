@@ -8,18 +8,13 @@ import type { CreditLot } from "@/lib/api/creditLots";
  * One lot, as the rows of the wallet's Lots view and the receipts of the writes that open
  * or restate one.
  *
- * Both vendors are named beside the label the client reads. On this screen that is
- * required rather than merely allowed: the operator answering "why is this client's Studio
- * minute ₹8.00 when the card says ₹6.50" is reading a lot opened before the card moved, and
- * cannot connect it to the Cartesia invoice they attested unless the vendor is on the row.
- *
- * The VENDOR printed on a rung is whoever will send the invoice, and it can change under
- * the rung (the cheaper one went from Sarvam to Gnani, D-629) while the wire and column
- * spelling (`clear_inr_per_min`) does not. A lot opened before such a change carries the
- * same frozen rate either way: the rate is the RUNG's, never the vendor's.
+ * Named by RUNG (the label the client reads), not by vendor. Which company speaks a rung
+ * depends on the engine (D-687) and can change under a lot while its frozen rate does not:
+ * the rate is the RUNG's, never the vendor's. An operator reconciling an invoice reads the
+ * vendor on the model-pricing panel.
  */
 export function lotRates(lot: CreditLot): string {
-  return `Gnani (${lot.clear_label}) ${formatRupeeRate(lot.clear_inr_per_min)}/min · Cartesia (${lot.studio_label}) ${formatRupeeRate(lot.studio_inr_per_min)}/min`;
+  return `${lot.clear_label} ${formatRupeeRate(lot.clear_inr_per_min)}/min · ${lot.studio_label} ${formatRupeeRate(lot.studio_inr_per_min)}/min`;
 }
 
 /**
@@ -35,7 +30,7 @@ export function LotReceipt({ lot, lead }: { lot: CreditLot | null; lead: string 
   return (
     <p className="mt-2 text-xs">
       {lead} <span className="font-mono">{lot.lot_id}</span> — {formatINR(lot.credits_total)} at
-      Gnani ({lot.clear_label}) {formatRupeeRate(lot.clear_inr_per_min)}/min and Cartesia ({lot.studio_label})
+      {lot.clear_label} {formatRupeeRate(lot.clear_inr_per_min)}/min and {lot.studio_label}{" "}
       {formatRupeeRate(lot.studio_inr_per_min)}/min. Those rates are frozen on it: a later change to the rate
       card does not move them.
     </p>
@@ -58,8 +53,8 @@ export function LotRestatementReceipt({ result }: { result: RestatementResult })
       <p className="mt-2 text-xs">
         Lot <span className="font-mono">{lot.lot_id}</span> now holds{" "}
         {formatINR(lot.credits_remaining)} of {formatINR(lot.credits_total)}. Its rates are
-        unchanged at Gnani ({lot.clear_label}) {formatRupeeRate(lot.clear_inr_per_min)}/min and Cartesia (
-        {lot.studio_label}) {formatRupeeRate(lot.studio_inr_per_min)}/min —{" "}
+        unchanged at {lot.clear_label} {formatRupeeRate(lot.clear_inr_per_min)}/min and{" "}
+        {lot.studio_label} {formatRupeeRate(lot.studio_inr_per_min)}/min —{" "}
         <span className="font-semibold">a restatement moves totals, never rates.</span>
       </p>
       {shortfall_inr && (

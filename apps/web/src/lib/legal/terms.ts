@@ -153,8 +153,9 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             {
               term: "Engine",
               detail:
-                "The program that runs the live call: our own, running on a third-party " +
-                "hosting platform listed on the sub-processor list.",
+                "The platform that runs the live call: a hosted voice platform, or our own " +
+                "call program running on a hosting platform; each is listed on the " +
+                "sub-processor list.",
             },
           ],
         },
@@ -533,7 +534,7 @@ export const TERMS_OF_SERVICE: LegalDocument = {
         {
           kind: "para",
           text:
-            "The service depends on a platform that hosts our call program, speech and " +
+            "The service depends on a voice platform that runs the call, speech, voice and " +
             "language model providers, " +
             "telecom operators, a payment gateway and infrastructure suppliers. They are " +
             "listed by category on the sub-processor list, and a named list is available " +

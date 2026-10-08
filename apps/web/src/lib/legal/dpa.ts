@@ -121,7 +121,8 @@ export const DPA: LegalDocument = {
               "will not make one we cannot keep. Until 27 August 2026 this clause said " +
               "our vendor arrangements were selected so that submitted content is not " +
               "used to improve a vendor's products. On the speech leg — the vendor that " +
-              "hears the call and produces the transcript — that is not what the vendor's " +
+              "reads the transcript first after every call, and hears the call when calls " +
+              "run on our own call program — that is not what the vendor's " +
               "terms say. The terms of service governing its APIs (version 2.0, effective " +
               "29 July 2026) permit it, at their paragraph 17.5, to use inputs, outputs and " +
               "usage " +
@@ -145,11 +146,15 @@ export const DPA: LegalDocument = {
             // code. No company is named: a voice quality is a product choice, and the
             // sub-processor register is where a name belongs.
             "The same is true on the voice-synthesis leg, which since " +
-              "18 September 2026 is no longer the company that hears the call at all. " +
+              "18 September 2026 is not the speech vendor's at all. " +
               "An agent speaks in one of two voice qualities, and BOTH voice qualities are " +
-              "synthesised by other companies; the cheaper one was the speech vendor's " +
-              "until that date. " +
-              "Of the two, one has a published privacy policy that " +
+              "synthesised by others: the cheaper by the hosted voice platform that runs " +
+              "the call, and the dearer by a separate company on our own account, to " +
+              "which that platform passes the agent's words; a third company would speak " +
+              "the cheaper one if calls ran on our own call program. The cheaper one was " +
+              "the speech vendor's until that date. " +
+              "Of the two voice-synthesis companies, one has a published privacy policy " +
+              "that " +
               "says it may use the information it receives to generate output and to " +
               "train and enhance the models behind its services, with an opt-out form " +
               "whose effect is forward-only — it does not reach anything used before the " +
@@ -160,8 +165,8 @@ export const DPA: LegalDocument = {
               "to speak, as text, a turn at a time — which can include a detail a caller " +
               "has just given where the agent repeats it back — and never the caller's " +
               "audio, the transcript, the recording or anything from your dashboard. " +
-              "Nothing has been sent to either of them: no credential for either is " +
-              "installed and no voice in either quality can be selected. Of the second " +
+              "Nothing has been sent to either of them: no voice of either can be " +
+              "selected yet. Of the second " +
               "we have read nothing but a price list — its own sites refuse a " +
               "connection from the environment we build in — so its position on " +
               "training and retention " +
@@ -172,6 +177,15 @@ export const DPA: LegalDocument = {
               "no voice quality spoken by a company whose position anybody has read. " +
               "Section 3.6 of the sub-processor page describes both companies and " +
               "carries the rest.",
+            // The hosted voice platform that runs the call (D-678): VENDOR-STATED, its
+            // founder's email of 7 Oct 2026 (`docs/evidence/thinnest-ai-evaluation.md` §10
+            // item 11). Reported as its statement: no signed agreement is recorded (gate T-5).
+            "The hosted voice platform that runs every call has told us in writing that " +
+              "recordings and transcripts are never used for training on its two higher " +
+              "paid plans, and that on its pay-as-you-go plan they may be unless that is " +
+              "switched off on request. Until a data-processing agreement with it is " +
+              "signed (clause 5), that is its statement and not a term we hold, and we " +
+              "pass it on rather than promise it.",
             "We do not pool it across clients, sell it, or share it for anyone's marketing.",
             "The in-app assistant we provide inside your dashboard reads your account to " +
               "answer your own people's questions about it, and it can PROPOSE a small " +
@@ -284,18 +298,23 @@ export const DPA: LegalDocument = {
           // note, and it names the condition that closes it.
           kind: "para",
           text:
-            "Two exceptions to the paragraph above, stated rather than left for you to " +
-            "discover, and both are voice-synthesis vendors nothing has been sent to: no " +
-            "credential for either is installed and no voice in either quality can be " +
-            "selected. The first was added to the register on 7 September 2026. Its " +
+            "Three exceptions to the paragraph above, stated rather than left for you to " +
+            "discover. The first is the hosted voice platform that runs every call. It " +
+            "has told us in writing that it will sign a data-processing agreement under " +
+            "Indian data-protection law; until it is signed we do not represent to you " +
+            "that one is in place with it, and what it has told us about training and " +
+            "retention is its statement rather than a term we hold (section 3.7 of the " +
+            "sub-processor page). The other two are voice-synthesis vendors nothing has " +
+            "been sent to: no voice of either can be selected yet. The first of those " +
+            "was added to the register on 7 September 2026. Its " +
             "data-processing agreement is published, and whether it can be " +
             "entered on a plan we could actually buy — without an enterprise contract — " +
             "is a question we have not settled, so we do not represent to you that one " +
             "is in place. It will not be in place because this clause implies it: it " +
             "will be in place when somebody has established that it can be, and that is " +
             "part of what has to happen before that row stops reading as switched off. " +
-            "The second was added on 15 September 2026 and took the cheaper voice " +
-            "quality from the speech vendor on 18 September 2026; the only page of its " +
+            "The second was added on 15 September 2026 and speaks the cheaper voice " +
+            "quality only when calls run on our own call program; the only page of its " +
             "own we have read is its price list, and nothing it publishes that we can " +
             "reach says whether it offers a data-processing agreement at all, so we " +
             "represent nothing about one. " +
@@ -556,19 +575,30 @@ export const DPA: LegalDocument = {
             "The sub-processor page states, for each category of sub-processor, where it " +
             "processes. The " +
             "material facts, stated here so they are in the contract and not only in a " +
-            "notice: speech recognition and the first pass that reads " +
-            "the transcript run on an Indian provider — voice synthesis did too, for " +
-            "agents on the cheaper of the two voice qualities, until 18 September 2026, " +
-            "and that provider no longer synthesises anything — a " +
-            "statement about the COMPANY " +
+            "notice: the call runs on a hosted voice platform that answers on numbers " +
+            "it rents to us, recognises speech, runs the model that holds the " +
+            "conversation, speaks and records; its published policy says it stores data " +
+            "in India and that its language-model step may be processed outside India, " +
+            "and it has told us in writing that it processes and stores in India, which " +
+            "is its statement and not a term we hold, so the call audio and its " +
+            "transcript should not be assumed to stay in India; the first pass that " +
+            "reads the transcript after the call runs on an Indian provider, which also " +
+            "does the speech recognition when calls run on our own call program instead " +
+            "— voice synthesis was that provider's too, for agents on the cheaper of the " +
+            "two voice qualities, until 18 September 2026, and it no longer synthesises " +
+            "anything — a statement about the COMPANY " +
             "and not about the country, which this clause used to let you read as the " +
             "same thing. That provider's published privacy policy permits it to transfer " +
             "personal data to and process it in countries outside India, including on " +
             "United States cloud infrastructure and with European Union model and " +
             "security vendors, under standard contractual clauses, adequacy decisions " +
-            "and data-processing agreements, so the call audio and its transcript may be " +
-            "processed outside India on that leg as well; BOTH voice qualities are " +
-            "synthesised by other companies, and where either of them processes is a " +
+            "and data-processing agreements, so the transcript, and on our own call " +
+            "program the call audio, may be processed outside India on that leg as " +
+            "well; BOTH voice qualities are synthesised by others — the cheaper by the " +
+            "hosted voice platform, and the dearer by a separate company to which that " +
+            "platform passes the agent's words, with a third company speaking the " +
+            "cheaper quality only on our own call program — and of those two companies, " +
+            "where either of them processes is a " +
             "thing we have not established — for one, its published documents as read to " +
             "us name no region and make no residency commitment; for the other, its own " +
             "sites cannot be reached from the environment we build in at all, so the " +
@@ -578,8 +608,8 @@ export const DPA: LegalDocument = {
             "of them, and the sentence this clause used to carry, that keeping your " +
             "agents on the first voice quality kept it that way, is WITHDRAWN because " +
             "there is no longer a voice quality that does; " +
-            "the language model on " +
-            "both AI legs runs on one of several providers a client can choose between, " +
+            "the language model we run ourselves — the in-app assistant, and the call " +
+            "when calls run on our own call program — runs on one of several providers, " +
             "each described on the sub-processor page with where it processes — the one we " +
             "run by default is a hyperscale provider's service configured for a United " +
             "States region, which our build constrains but cannot prove — see the " +
@@ -589,9 +619,10 @@ export const DPA: LegalDocument = {
             "residency commitment, and that provider offers no India-only jurisdiction, " +
             "so that data is stored outside India; the application host is at " +
             "{{PRIMARY_HOSTING_LOCATION}}, decided but not yet provisioned, because no " +
-            "client data is in production; the call itself runs as a program of ours on a " +
-            "hosting platform in a region whose country we have not established, and its " +
-            "audio travels through our telephone carrier, which does not state where it " +
+            "client data is in production; on our own call program, which is not in " +
+            "use, the call would run on a hosting platform in a region whose country we " +
+            "have not established, with its audio travelling through our telephone " +
+            "carrier, which does not state where it " +
             "processes or stores call data; and transactional email and error monitoring " +
             "are operated from outside " +
             "India. Sign-in is ours and runs on the application host.",
@@ -601,7 +632,10 @@ export const DPA: LegalDocument = {
           text:
             "You can choose which of the AI models we run your agents use — for your " +
             "whole account, or for one agent — and the product shows you a figure " +
-            "against each. This clause used to tell you the choice was not a choice of " +
+            "against each. While calls run on the hosted voice platform, the model that " +
+            "answers a caller is one of that platform's and runs with its providers; what " +
+            "follows is about the models we run ourselves. This clause used to tell you " +
+            "the choice was not a choice of " +
             "where: while every model ran with one vendor, from one account resource, " +
             "in the region named above, picking one moved which model answered and " +
             "nothing about who processed your callers' data or in which country. That " +
@@ -611,9 +645,9 @@ export const DPA: LegalDocument = {
             "sub-processor page — so your choice of model is also a choice of which " +
             "provider handles the language leg and where it runs. The single-vendor, " +
             "single-region promise this clause used to make about that leg is " +
-            "WITHDRAWN, not narrowed. Speech recognition and the first " +
-            "pass that reads your transcript are unaffected BY YOUR MODEL CHOICE: they " +
-            "stay with the same Indian provider, whose own locations and terms are set " +
+            "WITHDRAWN, not narrowed. The first " +
+            "pass that reads your transcript is unaffected BY YOUR MODEL CHOICE: it " +
+            "stays with the same Indian provider, whose own locations and terms are set " +
             "out above and on the sub-processor page — and an Indian provider is not the " +
             "same as processing in India, which this clause used to let you read as one " +
             "claim. Voice synthesis is unaffected by your model choice too — but it is " +
@@ -621,7 +655,7 @@ export const DPA: LegalDocument = {
             "follows the VOICE QUALITY you set on an agent, which is a separate setting " +
             "from the model. " +
             "Neither quality is synthesised by that Indian provider any more: since " +
-            "18 September 2026 each is synthesised by a different company, described " +
+            "18 September 2026 each is synthesised by someone else, described " +
             "above and on the sub-processor page, and choosing between them is a choice " +
             "about which company hears what your agent says. What the figure beside each model is, and whether choosing a " +
             "model changes what you pay, is set out in clause 6.1 of the Terms of " +

@@ -30,6 +30,7 @@ from typing import Any, Final
 from apps.api.core.envelope import Envelope, KekRing
 from apps.api.db.session import untenanted_session
 from apps.api.reliability.engine_intake_keys import open_webhook_secret
+from calevate_shared.engine_scope import SCOPE_SEPARATOR, scoped_handle, split_handle
 from calevate_shared.webhook_signature import sha256_signature_matches
 from engine_intake import keyable, scalar_hint
 from sqlalchemy import text
@@ -155,12 +156,21 @@ def keyed_event(
     data = payload.get("data")
     if not isinstance(data, dict):
         return "unusable execution key"
-    execution_id = keyable(scalar_hint(data.get("id")) or "")
+    # An agent in an engine sub-account is held as `<id>@<workspace>` (D-687); the body names
+    # the bare vendor ids, so the call is scoped to the agent's workspace and the agent is
+    # compared without it.
+    agent_id, workspace = split_handle(engine_agent_ref)
+    raw_call = keyable(scalar_hint(data.get("id")) or "")
+    execution_id = (
+        keyable(scoped_handle(raw_call, workspace))
+        if raw_call is not None and SCOPE_SEPARATOR not in raw_call
+        else None
+    )
     if execution_id is None:
         return "unusable execution key"
     agent = data.get("agent")
     named = scalar_hint(agent.get("id")) if isinstance(agent, dict) else None
-    if named is not None and named != engine_agent_ref:
+    if named is not None and named != agent_id:
         # Signed by this agent's secret yet naming another agent: a misregistered endpoint.
         return "agent mismatch"
     attempt = data.get("attempt")

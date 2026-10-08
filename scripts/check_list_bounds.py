@@ -90,8 +90,19 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     ),
     "GET /v1/agents/engine-catalogue": BoundedByConstruction(
         by=(
-            "the vendor's voice and model lists, read through `ThinnestEngine._walk`, which "
-            "stops at `_LISTING_MAX_PAGES` (20) pages and reports the read as incomplete."
+            "the voices an operator added and enabled out of `platform_voice_catalog`'s hosted "
+            "rows (D-687), which are the vendor account's own Studio band and clones plus our "
+            "voice key's voices, tens of rows; and the vendor's model list read through "
+            "`ThinnestEngine._walk`, which stops at `_LISTING_MAX_PAGES` (20) pages."
+        )
+    ),
+    "GET /v1/ops/voices/hosted": BoundedByConstruction(
+        by=(
+            "the hosted rows of `platform_voice_catalog` (D-687): one per voice our ONE "
+            "vendor account lists in the band we sell, its clones (10 on Pro, 20 on Scale) "
+            "and our Cartesia key's voices. `GET /v1/ops/voices`'s argument applies: it is "
+            "the operator's curation table, and a page of it would be a subset passing for "
+            "the whole. `scope` is a lens, not a page."
         )
     ),
     "GET /v1/admin/numbers/tenants/{tenant_id}/engine": BoundedByConstruction(

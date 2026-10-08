@@ -478,6 +478,38 @@ describe("what each document must contain", () => {
     expect(carrier[0]?.[2] ?? "").toMatch(/one day after our copy is saved/);
   });
 
+  /**
+   * THE LIVE ENGINE IS THE HOSTED VOICE PLATFORM, AND ITS COMMITMENTS ARE NOT OURS (D-687).
+   *
+   * Production runs `ENGINE=thinnest` since 7 Oct 2026, so the register's Status column has
+   * to say the hosted voice platform is Core and the carrier on our own account is not.
+   * Its India and no-training statements came in an email (VENDOR-STATED,
+   * `docs/evidence/thinnest-ai-evaluation.md` §10 item 11) with no signed agreement, so
+   * the Addendum may not warrant a data-processing contract with it, and every document
+   * that relays them must say they are its statements.
+   */
+  it("names the hosted voice platform as running the call, and warrants no contract with it", () => {
+    const rows = blocksOf(bySlug("subprocessors")).flatMap((block) =>
+      block.kind === "table" ? block.rows : [],
+    );
+    const platform = rows.filter((row) => (row[0] ?? "") === "Voice platform");
+    expect(platform, "the voice-platform category must have one row").toHaveLength(1);
+    expect(platform[0]?.[4] ?? "").toMatch(/^Core: the hosted voice platform runs every call/);
+    const carrier = rows.filter((row) => (row[0] ?? "") === "Telephony");
+    expect(carrier[0]?.[4] ?? "").toMatch(/carrier on our own account[^.]*configured, not enabled/);
+
+    const dpa = textOf(bySlug("dpa")).replace(/\s+/g, " ");
+    expect(dpa).toMatch(
+      /until it is signed we do not represent to you that one is in place with it/,
+    );
+    for (const slug of ["privacy", "dpa", "subprocessors"]) {
+      expect(
+        textOf(bySlug(slug)).replace(/\s+/g, " "),
+        `/legal/${slug} adopts the platform's own statement as a term`,
+      ).toMatch(/not (?:as )?(?:a term|terms) we hold/);
+    }
+  });
+
   it("describes the AI disclosure as a client setting with a truthful-answer floor", () => {
     // The founder's posture, and the one paragraph a template would get wrong: the
     // announcement is a toggle, the truthful answer is not, and the duty sits with the

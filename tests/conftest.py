@@ -924,3 +924,32 @@ def _ist_month_boundary_is_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
         return False
 
     monkeypatch.setattr(ai_quota, "month_is_ending", _pinned)
+
+
+# --- engine-hosted voices (D-687) ---------------------------------------------------------
+
+
+@pytest.fixture
+async def hosted_rows() -> Any:
+    """Hosted catalogue rows written for one test and deleted after it
+    (`tests/hosted_voice_fakes.CatalogueRows`): the catalogue is a platform table every
+    test shares."""
+    from tests.hosted_voice_fakes import CatalogueRows
+
+    store = CatalogueRows()
+    try:
+        yield store
+    finally:
+        await store.cleanup()
+
+
+@pytest.fixture
+def studio_workspace(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """A deployment with a Studio workspace set up (`thinnest_studio_workspace_id`)."""
+    monkeypatch.setenv("THINNEST_STUDIO_WORKSPACE_ID", "org_studio")
+    get_settings.cache_clear()
+    try:
+        yield "org_studio"
+    finally:
+        monkeypatch.delenv("THINNEST_STUDIO_WORKSPACE_ID", raising=False)
+        get_settings.cache_clear()

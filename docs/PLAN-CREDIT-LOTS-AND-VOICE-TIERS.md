@@ -1,5 +1,11 @@
 # PLAN — Credit lots with per-lot rates, and a second voice tier (Cartesia)
 
+> **On `ENGINE=thinnest` (production since 7 Oct 2026) the two rungs keep their names and
+> prices but not their vendors (D-687):** Clear is ThinnestAI's studio band and our admin's
+> clones, Studio is our Cartesia key through ThinnestAI's voice-only BYOK. The credit-lot
+> mechanics below are unchanged; the voice vendors and costs described here are
+> `ENGINE=pipecat`'s. See `docs/THINNEST-INTEGRATION.md` §4a and §5.
+
 **Status: LANDED, WITH THREE THINGS OPEN AND NAMED (read §12 before believing anything is
 finished).** Every phase A–F and every frontend lane F1–F4 is COMMITTED on branch
 `claude/calevate-legal-ops-docs-rd2c4t` in `014d77f..be5a5ec` (7–8 Sep 2026); each phase

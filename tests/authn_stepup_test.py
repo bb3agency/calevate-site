@@ -461,7 +461,13 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # (D-678/D-681, prefix carries engine and key), and `campaigns/number_pricing_routes.py`
     # prices the client's monthly number rental (D-681). Both write append-only figures that
     # reach `unit_cost_paid` or a client's bill.
-    assert sites == 40, f"found {sites} step-up call sites, expected 40; the census went stale"
+    #
+    # THE FORTY-FIRST TO FORTY-THIRD are the hosted-voice writes that cannot be undone or
+    # carry an attestation (`ops/hosted_voice_routes.py`, D-687): cloning a voice records
+    # the operator's two legal promises about a person's voice and spends a plan slot,
+    # deleting a clone moves every agent on it to a standard voice and cannot be undone, and
+    # setting up the Studio workspace installs our Cartesia key there.
+    assert sites == 43, f"found {sites} step-up call sites, expected 43; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.
@@ -502,6 +508,24 @@ _OPS_WRITES_WITHOUT_STEP_UP = {
         "page to do teaches them to type confirmations, which is what makes the gate "
         "worthless on `outbox/replay`, where the blast radius is other people's customer "
         "data arriving twice."
+    ),
+    ("apps/api/ops/hosted_voice_routes.py", "add_hosted"): (
+        "marks ONE voice the sync already read as added (D-687). It arrives DISABLED, so it "
+        "reaches no picker and no agent; it calls no vendor and is reversible by archiving."
+    ),
+    ("apps/api/ops/hosted_voice_routes.py", "set_hosted_state"): (
+        "`set_voice_curation`'s write on an engine-hosted voice (D-687), for its reason: it "
+        "moves no agent off the voice it speaks, calls no vendor, and cannot bypass a price "
+        "(an unattested minute is still refused by the offer seam)."
+    ),
+    ("apps/api/ops/hosted_voice_routes.py", "upload_preview"): (
+        "stores a short preview clip for a voice (D-687). It changes what a picker can PLAY, "
+        "not what any call speaks, and a new upload replaces it."
+    ),
+    ("apps/api/ops/hosted_voice_routes.py", "fetch_preview"): (
+        "stores the voice platform's own preview of a voice (D-687): a read from the vendor "
+        "and one stored clip. A Studio preview costs a line's characters on our key, capped "
+        "at 200, which is the cost of an operator listening to a voice once."
     ),
     ("apps/api/ops/voice_curation_routes.py", "set_voice_curation"): (
         "moves ONE voice between enabled/disabled/archived for the platform (D-588), and "

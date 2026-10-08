@@ -374,9 +374,12 @@ export function LaunchCheckMock() {
 
 /**
  * Choosing how the agent sounds — `components/voicePicker.tsx`'s two groups, "Studio voice"
- * and "Clear voice". The Clear names are the real Telugu voices (`apps/api/agents/
- * gnani_voices.py`); Studio names come from the voice engine at runtime and are not in this
- * repository, so that row's name is a bar rather than an invented one. No rate and no
+ * and "Clear voice". On the live engine (`ENGINE=thinnest`, D-687) Clear is the hosted
+ * platform's studio band, and Anjali and Rakesh Khanna are two of its studio-tab voices
+ * (`thinnest-findings/mirror/snapshots/2026-10-07b/pages/channels/voice-clone.md:86-88`);
+ * which voices a client sees is the admin's curated list, so this is illustration only.
+ * Studio names come from our Cartesia key at runtime, so that row's name is a bar rather
+ * than an invented one. No rate and no
  * availability is shown: the console's own rate line is served, and the cost section's
  * rate card is the only place this page prices anything.
  */
@@ -386,8 +389,8 @@ export function VoicePickerMock() {
     {
       tier: "Clear voice",
       voices: [
-        { name: "Suhana", selected: false },
-        { name: "Lavanya", selected: false },
+        { name: "Anjali", selected: false },
+        { name: "Rakesh Khanna", selected: false },
       ],
     },
   ] as const;

@@ -11,6 +11,10 @@ deliveries in a row is switched off rather than retried (:84-88).
 What crosses out of this module is OURS: `WebhookEndpoint` holds an id, the url we
 registered, `enabled` and the failure count — never `delivery.lastError`, which is the
 vendor's sentence about our endpoint.
+
+An agent in a customer workspace (D-687) has its handle as `<id>@<workspace>`; its endpoint is
+registered inside that workspace and its id is held the same way, so every call below finds
+the right workspace from the handle it is given.
 """
 
 from __future__ import annotations
@@ -19,11 +23,12 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 import httpx
+from calevate_shared.engine_scope import scoped_handle, split_handle
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import NO_CREDENTIALS_REASON, engine_not_configured
-from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL
+from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL, WORKSPACE_HEADER
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, vendor_request
 
 ENGINE: Final = "thinnest"
@@ -58,10 +63,11 @@ def _str(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _endpoint(row: dict[str, Any]) -> WebhookEndpoint:
-    webhook_id = _str(row.get("id"))
-    if webhook_id is None:
+def _endpoint(row: dict[str, Any], workspace: str | None) -> WebhookEndpoint:
+    raw = _str(row.get("id"))
+    if raw is None:
         raise _bad("a webhook endpoint without an id")
+    webhook_id = scoped_handle(raw, workspace)
     delivery = row.get("delivery")
     failures = delivery.get("failuresInARow") if isinstance(delivery, dict) else None
     return WebhookEndpoint(
@@ -106,58 +112,74 @@ class ThinnestWebhooks:
             self._client = httpx.AsyncClient(
                 base_url=self._base_url,
                 timeout=REQUEST_TIMEOUT_S,
-                headers={
-                    AUTH_HEADER: f"{AUTH_SCHEME} {self._api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers={AUTH_HEADER: f"{AUTH_SCHEME} {self._api_key}"},
             )
         return self._client
 
     async def _request(
-        self, method: str, path: str, *, route: str, **kwargs: Any
+        self, method: str, path: str, *, route: str, workspace: str | None, **kwargs: Any
     ) -> dict[str, Any]:
+        headers = {WORKSPACE_HEADER: workspace} if workspace else {}
         return await vendor_request(
-            self._http(), method, path, engine=ENGINE, route=route, **kwargs
+            self._http(), method, path, engine=ENGINE, route=route, headers=headers, **kwargs
         )
 
     async def create(self, *, engine_agent_ref: str, url: str) -> CreatedEndpoint:
+        agent, workspace = split_handle(engine_agent_ref)
         row = await self._request(
             "POST",
             "/webhooks",
             route="/webhooks",
-            json={"agent": engine_agent_ref, "url": url, "events": list(CALL_EVENTS)},
+            workspace=workspace,
+            json={"agent": agent, "url": url, "events": list(CALL_EVENTS)},
         )
         secret = _str(row.get("signingSecret"))
         if secret is None:
             raise _bad("a created endpoint without its signingSecret")
-        return CreatedEndpoint(endpoint=_endpoint(row), signing_secret=secret)
+        return CreatedEndpoint(endpoint=_endpoint(row, workspace), signing_secret=secret)
 
     async def list_for_agent(self, engine_agent_ref: str) -> list[WebhookEndpoint]:
         """UNVERIFIED: the page documents no cursor for this list (webhooks.md:46), so it is
         read as a single response."""
+        agent, workspace = split_handle(engine_agent_ref)
         payload = await self._request(
-            "GET", "/webhooks", route="/webhooks", params={"agent": engine_agent_ref}
+            "GET", "/webhooks", route="/webhooks", workspace=workspace, params={"agent": agent}
         )
         rows = payload.get("items")
         if not isinstance(rows, list):
             raise _bad("a webhook list without `items`")
-        return [_endpoint(row) for row in rows if isinstance(row, dict)]
+        return [_endpoint(row, workspace) for row in rows if isinstance(row, dict)]
 
     async def get(self, webhook_id: str) -> WebhookEndpoint:
+        raw, workspace = split_handle(webhook_id)
         return _endpoint(
-            await self._request("GET", f"/webhooks/{webhook_id}", route="/webhooks/{id}")
+            await self._request(
+                "GET", f"/webhooks/{raw}", route="/webhooks/{id}", workspace=workspace
+            ),
+            workspace,
         )
 
     async def enable(self, webhook_id: str) -> WebhookEndpoint:
+        raw, workspace = split_handle(webhook_id)
         return _endpoint(
             await self._request(
-                "PATCH", f"/webhooks/{webhook_id}", route="/webhooks/{id}", json={"enabled": True}
-            )
+                "PATCH",
+                f"/webhooks/{raw}",
+                route="/webhooks/{id}",
+                workspace=workspace,
+                json={"enabled": True},
+            ),
+            workspace,
         )
 
     async def delete(self, webhook_id: str) -> None:
+        raw, workspace = split_handle(webhook_id)
         await self._request(
-            "DELETE", f"/webhooks/{webhook_id}", route="/webhooks/{id}", absent_is_success=True
+            "DELETE",
+            f"/webhooks/{raw}",
+            route="/webhooks/{id}",
+            workspace=workspace,
+            absent_is_success=True,
         )
 
 

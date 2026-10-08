@@ -89,6 +89,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.hosted_voices import sync_hosted_voices
 from apps.api.agents.languages import PRODUCT_LANGUAGES
 from apps.api.agents.models import PlatformVoiceCatalogEntry
 from apps.api.agents.voices import (
@@ -103,6 +104,7 @@ from apps.api.agents.voices import (
 from apps.api.billing.rates import VOICE_TIERS
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.engine.catalogue import HostsVoices
 
 log = get_logger(__name__)
 
@@ -149,6 +151,9 @@ class VoiceSyncResult:
     #: nobody to ask — see `sync_voice_catalogue`. The console and the cron read it to say
     #: so, and `installed` stays False either way because neither writes a catalogue.
     skipped_reason: str | None = None
+    #: Something the sync did not read, said for the operator, or None (D-687: the Studio
+    #: half of an engine-hosted catalogue while no Studio workspace is set up).
+    note: str | None = None
 
     @property
     def installed(self) -> bool:
@@ -292,6 +297,17 @@ async def sync_voice_catalogue(
     The catalogue on such an engine is maintained by `voice_admission.admit_voice`, which is
     the operator attesting a voice — the only authority left once the vendor is gone.
     """
+    if isinstance(engine, HostsVoices) and not engine.capabilities.is_ours("tts"):
+        # An engine that speaks the voices it HOSTS (D-687): its own list and the Studio
+        # workspace's own-key list, never `list_voices`, which refuses there by contract.
+        hosted = await sync_hosted_voices(session, engine, engine_name=engine.name, now=now)
+        return VoiceSyncResult(
+            seen=hosted.seen,
+            written=hosted.written,
+            pruned=hosted.pruned,
+            complete=True,
+            note=hosted.studio_skipped_reason,
+        )
     if not engine.capabilities.lists_voices_independently():
         # A STATED NO-OP: the caller gets a result that says which of "nothing
         # to do" and "we could not look" happened, rather than a zero that reads like both.

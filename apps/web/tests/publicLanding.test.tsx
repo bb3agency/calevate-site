@@ -192,38 +192,30 @@ describe("the landing page's claims", () => {
       /soc\s?2|iso[\s-]?27001|hipaa|pci[\s-]?dss|certified|accredited/i,
     );
     /*
-     * THERE IS NO SURVIVING INDIA CLAIM ABOUT THE MODEL, and the two strings below are
-     * what replaced the one there used to be (`The AI runs on Indian endpoints`).
-     *
-     * D-449 moved the declared region to `eastus2`. A page that kept the old card and
-     * softened the verb would be making a false residency claim, and a page that simply
-     * deleted the card would leave a prospect to assume the Indian speech leg covers
-     * everything — the omission shape §9b of the competitor teardown records. So the
-     * card is pinned in BOTH directions: it must still say the Indian half is Indian,
-     * and it must say in as many words that the language model is not.
-     *
-     * "The Indian half is Indian" is a claim about the VENDOR only: Sarvam's published
-     * privacy policy permits it to process personal data outside India, naming US cloud
-     * infrastructure and EU model and security vendors (VENDOR-PUBLISHED, read by the
-     * founder at `www.sarvam.ai/privacy-policy` on 27 Aug 2026 and relayed; the host is
-     * egress-blocked here). The substring is pinned because deleting the sentence would
-     * restore the omission this test exists for — and the page qualifies it immediately,
-     * so an edit that drops THAT qualification is the defect to catch.
+     * The first-extraction pass is with an Indian COMPANY (Sarvam), which is a claim about
+     * the VENDOR only: its published privacy policy permits it to process personal data
+     * outside India (VENDOR-PUBLISHED, read by the founder at `www.sarvam.ai/privacy-policy`
+     * on 27 Aug 2026 and relayed). The substring is pinned because deleting the sentence
+     * would leave a prospect to assume the call is handled in India by omission, and the
+     * page qualifies it immediately.
      */
     expect(text).toContain(
-      "the first reading of that transcript, are " +
-        "done by an Indian COMPANY on every call",
+      "The first reading of each transcript after the call is done by an Indian " +
+        "COMPANY on every call",
     );
     /*
-     * Two substrings, because D-629 split the speech leg into two omissions: transcription
-     * stayed with the Indian company, synthesis went to Gnani or Cartesia, and Cartesia is
-     * not Indian. A page saying only "speech is Indian" reads as covering both halves and
-     * would be untrue about where the voice is made — on a public page that is a
-     * representation under the Consumer Protection Act 2019, not a wording preference.
+     * The voice is a separate disclosure: since D-687 (8 Oct 2026) the cheaper voice is
+     * the hosted voice platform's own and the dearer one is a different vendor whose
+     * location is NOT VERIFIED. A page silent on the voice reads as covering it.
      */
     expect(text).toContain(
-      "The VOICE your caller hears is a different vendor again",
+      "the VOICE your caller hears is a different vendor again",
     );
+    /*
+     * The hosted voice platform's own India statement is reported, never adopted: its
+     * language-model step may be processed abroad by its own policy.
+     */
+    expect(text).toContain("we report what it tells us rather than promise it");
     expect(text).toContain("account in the United States, in its East US 2 region");
     // D-679: the provider behind it is on the named list given on request, not on this page.
     expect(text).not.toMatch(/(microsoft|azure|openai)/i);
@@ -270,10 +262,9 @@ describe("the landing page's claims", () => {
      *
      * A card about the AI, sitting in a section headed "Your customers' data", reads to
      * a prospect as "the call is handled in India" unless it says otherwise — and the
-     * platform that actually carries the call runs it on US infrastructure by default,
-     * with our
-     * BYOK posture foreclosing that vendor's India routing (D-415,
-     * `docs/evidence/bolna-compliance-residency.md` §2/§5). Every ban above stops the
+     * hosted voice platform that carries the call (D-678) states India storage while its
+     * own policy lets the language-model step leave India, which nobody here has
+     * verified. Every ban above stops the
      * page SAYING something false; none of them stops it implying it by omission, which
      * is the shape a competitor teardown found on the other side of this market
      * (`docs/evidence/outpero-teardown-aug2026.md` §9b: they admit offshore processing

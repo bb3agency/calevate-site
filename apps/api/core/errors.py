@@ -50,6 +50,12 @@ ErrorKind = Literal[
     "internal",
 ]
 
+# A FAILED DEPENDENCY ANSWERS 503, NOT 502. Cloudflare sits in front of every host and
+# replaces an origin's 502 or 504 with its own branded page
+# (Cloudflare docs, "Error 502 or 504", support/troubleshooting/http-status-codes,
+# read 8 Oct 2026). That page carries no CORS header, so the browser withholds it and the
+# console showed "No reply reached this page" instead of our problem body. Keep 502 and 504
+# for real gateway failures, which only nginx and Cloudflare produce.
 _DEFAULT_STATUS: dict[ErrorKind, int] = {
     "validation": 422,
     "auth": 401,
@@ -57,7 +63,7 @@ _DEFAULT_STATUS: dict[ErrorKind, int] = {
     "not_found": 404,
     "conflict": 409,
     "business_rule": 422,
-    "dependency": 502,
+    "dependency": 503,
     "transient": 503,
     "internal": 500,
 }

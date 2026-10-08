@@ -2694,11 +2694,14 @@ def voice_tier_label(voice: TtsProvider | VoiceTier) -> str:
 #
 #   Vobiz's card is VENDOR-PUBLISHED, FOUNDER-RELAYED and before tax (`VOBIZ_INR_PER_MIN`);
 #   its billing pulse is UNKNOWN (gate V-7), so per-minute is assumed.
-# * **`thinnest`** — ThinnestAI sells telephony, speech and model as one minute, and the
-#   Clear rung is sold on its Premium voices: ₹2.50 pay-as-you-go plus the 10% wallet top-up
-#   fee = ₹2.75 /min (FOUNDER-RELAYED console and website reading, 6 Oct 2026,
-#   `docs/evidence/thinnest-ai-evaluation.md` §2a; not an invoice). The Studio column keeps
-#   the Cartesia floor: Studio is not sold on ThinnestAI while its BYOK answer is pending.
+# * **`thinnest`** — ThinnestAI sells telephony, speech and model as one minute (D-687).
+#   Clear is sold on its Studio voice band, ₹3.00 a minute, plus the 9% wallet top-up fee
+#   on Pro, the plan Studio voices need = ₹3.27 /min. Studio is our Cartesia key on their
+#   stack: ₹1.50 a minute plus the same fee, plus Cartesia's own synthesis at its worst
+#   marginal plan rate (the TTS half of `CARTESIA_COST_FLOOR_INR_PER_MIN`). Both vendor
+#   figures are VENDOR-STATED (ThinnestAI's email of 7 Oct 2026, evaluation §10 item 7;
+#   the ₹1.50 is also published, bring-your-own-keys.md:19-24 in the 07b snapshot), not an
+#   invoice.
 #
 # Any other engine (`fake`, the retired `cartesia` engine) is judged at the base floors.
 # Hard rule 7: a floor is a margin GUARD. Nothing here reaches `unit_cost_paid`, and the
@@ -2710,17 +2713,31 @@ OWNED_CARRIER_INR_PER_MIN: Final[Decimal] = vobiz_rate_inr_per_min(
     VOBIZ_OUR_CALL_USAGE
 ) + vobiz_rate_inr_per_min(VOBIZ_RECORDING_USAGE)
 
-#: ThinnestAI's Premium-band voice minute on pay-as-you-go, FOUNDER-RELAYED (evaluation
-#: §2a, 6 Oct 2026). A floor input only; the billed cost is the attested `premium` rate.
-THINNEST_PREMIUM_INR_PER_MIN: Final[Decimal] = Decimal("2.50")
+#: ThinnestAI's Studio-band voice minute on pay-as-you-go, VENDOR-STATED (evaluation §10
+#: item 7, 7 Oct 2026). A floor input only; the billed cost is the attested `studio` rate.
+THINNEST_STUDIO_BAND_INR_PER_MIN: Final[Decimal] = Decimal("3.00")
 
-#: ThinnestAI's wallet top-up fee on pay-as-you-go, as a fraction. Website-only reading
-#: (evaluation §2a); it adds to every rupee spent there.
-THINNEST_WALLET_TOPUP_FEE: Final[Decimal] = Decimal("0.10")
+#: ThinnestAI's own-voice-key minute (BYOK scope `voice`), their phone line included:
+#: VENDOR-PUBLISHED, `thinnest-findings/mirror/snapshots/2026-10-07b/pages/api-reference/
+#: bring-your-own-keys.md:19-24`. A floor input only; the billed cost is the attested
+#: `byok_voice` rate.
+THINNEST_OWN_VOICE_INR_PER_MIN: Final[Decimal] = Decimal("1.50")
 
-#: ₹2.75 — the Clear floor on ENGINE=thinnest. Derived.
+#: ThinnestAI's wallet top-up fee on Pro, the plan Studio voices and cloning need, as a
+#: fraction: VENDOR-STATED (evaluation §10 item 7). It adds to every rupee spent there.
+THINNEST_WALLET_TOPUP_FEE: Final[Decimal] = Decimal("0.09")
+
+#: ₹3.27 — the Clear floor on ENGINE=thinnest. Derived.
 THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN: Final[Decimal] = (
-    THINNEST_PREMIUM_INR_PER_MIN * (Decimal("1") + THINNEST_WALLET_TOPUP_FEE)
+    THINNEST_STUDIO_BAND_INR_PER_MIN * (Decimal("1") + THINNEST_WALLET_TOPUP_FEE)
+).quantize(MONEY_Q, rounding=ROUNDING)
+
+#: The Studio floor on ENGINE=thinnest: the own-voice minute with the fee, plus Cartesia's
+#: synthesis per call-minute at its dearest marginal plan rate and the frozen evidence rate
+#: (the same TTS half `CARTESIA_COST_FLOOR_INR_PER_MIN` carries). Derived.
+THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN: Final[Decimal] = (
+    THINNEST_OWN_VOICE_INR_PER_MIN * (Decimal("1") + THINNEST_WALLET_TOPUP_FEE)
+    + _worst_marginal_tts(CARTESIA_EVIDENCE_USD_INR)
 ).quantize(MONEY_Q, rounding=ROUNDING)
 
 
@@ -2747,8 +2764,12 @@ def cost_floor_inr_per_min(voice: VoiceTier, *, engine: str | None = None) -> De
     )
     if engine == "pipecat":
         return base + OWNED_CARRIER_INR_PER_MIN
-    if engine == "thinnest" and voice == VALUE_VOICE_TIER:
-        return THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN
+    if engine == "thinnest":
+        return (
+            THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN
+            if voice == VALUE_VOICE_TIER
+            else THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN
+        )
     return base
 
 
@@ -3249,7 +3270,9 @@ __all__ = [
     "TELEPHONY_NUMBER_RENTAL_INR_PER_MONTH",
     "TELEPHONY_PULSE_SECONDS",
     "THINNEST_CLEAR_COST_FLOOR_INR_PER_MIN",
-    "THINNEST_PREMIUM_INR_PER_MIN",
+    "THINNEST_OWN_VOICE_INR_PER_MIN",
+    "THINNEST_STUDIO_BAND_INR_PER_MIN",
+    "THINNEST_STUDIO_COST_FLOOR_INR_PER_MIN",
     "THINNEST_WALLET_TOPUP_FEE",
     "TTS_ASSUMED_CHARS_PER_CALL_MINUTE",
     "TTS_INR_PER_10K_CHARS",

@@ -237,6 +237,22 @@
         "title": "AddContactsOut",
         "type": "object"
       },
+      "AddHostedVoiceIn": {
+        "additionalProperties": false,
+        "properties": {
+          "voice_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Voice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "voice_id"
+        ],
+        "title": "AddHostedVoiceIn",
+        "type": "object"
+      },
       "AddNumbersIn": {
         "additionalProperties": false,
         "properties": {
@@ -2407,6 +2423,67 @@
         "title": "BlockerOut",
         "type": "object"
       },
+      "Body_create_clone_v1_ops_voices_clones_post": {
+        "properties": {
+          "consent_no_impersonation": {
+            "title": "Consent No Impersonation",
+            "type": "boolean"
+          },
+          "consent_own_voice": {
+            "title": "Consent Own Voice",
+            "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "maxLength": 12,
+                "pattern": "^[A-Za-z]{2,3}([-_][A-Za-z]{2,4})?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "name": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "remove_noise": {
+            "default": true,
+            "title": "Remove Noise",
+            "type": "boolean"
+          },
+          "sample": {
+            "contentMediaType": "application/octet-stream",
+            "title": "Sample",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sample",
+          "name",
+          "consent_own_voice",
+          "consent_no_impersonation"
+        ],
+        "title": "Body_create_clone_v1_ops_voices_clones_post",
+        "type": "object"
+      },
       "Body_submit_v1_compliance_carrier_application_post": {
         "properties": {
           "document": {
@@ -2472,6 +2549,27 @@
           "file"
         ],
         "title": "Body_upload_document_v1_kb_uploads_post",
+        "type": "object"
+      },
+      "Body_upload_preview_v1_ops_voices_hosted_preview_post": {
+        "properties": {
+          "sample": {
+            "contentMediaType": "application/octet-stream",
+            "title": "Sample",
+            "type": "string"
+          },
+          "voice_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Voice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "voice_id",
+          "sample"
+        ],
+        "title": "Body_upload_preview_v1_ops_voices_hosted_preview_post",
         "type": "object"
       },
       "BootstrapConfirmIn": {
@@ -4987,6 +5085,29 @@
           "state"
         ],
         "title": "ClientMaintenanceOut",
+        "type": "object"
+      },
+      "CloneOut": {
+        "additionalProperties": false,
+        "properties": {
+          "next_step": {
+            "title": "Next Step",
+            "type": "string"
+          },
+          "usable_on_agents": {
+            "title": "Usable On Agents",
+            "type": "boolean"
+          },
+          "voice": {
+            "$ref": "#/components/schemas/HostedVoiceOut"
+          }
+        },
+        "required": [
+          "voice",
+          "usable_on_agents",
+          "next_step"
+        ],
+        "title": "CloneOut",
         "type": "object"
       },
       "CloseIn": {
@@ -7789,6 +7910,30 @@
         "title": "DeadLetterQueueOut",
         "type": "object"
       },
+      "DeleteCloneOut": {
+        "additionalProperties": false,
+        "properties": {
+          "moved_agents": {
+            "title": "Moved Agents",
+            "type": "integer"
+          },
+          "next_step": {
+            "title": "Next Step",
+            "type": "string"
+          },
+          "voice_id": {
+            "title": "Voice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "voice_id",
+          "moved_agents",
+          "next_step"
+        ],
+        "title": "DeleteCloneOut",
+        "type": "object"
+      },
       "DeletionRequestAcceptedOut": {
         "additionalProperties": false,
         "properties": {
@@ -8880,6 +9025,10 @@
               }
             ],
             "title": "Reason"
+          },
+          "usable_with_studio_voice": {
+            "title": "Usable With Studio Voice",
+            "type": "boolean"
           }
         },
         "required": [
@@ -8887,6 +9036,7 @@
           "label",
           "call_capable",
           "plan_allows",
+          "usable_with_studio_voice",
           "offerable",
           "reason"
         ],
@@ -8931,6 +9081,11 @@
             "title": "Note",
             "type": "string"
           },
+          "studio_available": {
+            "default": false,
+            "title": "Studio Available",
+            "type": "boolean"
+          },
           "voices": {
             "items": {
               "$ref": "#/components/schemas/EngineCatalogueVoiceOut"
@@ -8960,13 +9115,17 @@
             "title": "Label",
             "type": "string"
           },
+          "language_note": {
+            "title": "Language Note",
+            "type": "string"
+          },
           "offerable": {
             "title": "Offerable",
             "type": "boolean"
           },
-          "price_band": {
-            "title": "Price Band",
-            "type": "string"
+          "preview_available": {
+            "title": "Preview Available",
+            "type": "boolean"
           },
           "reason": {
             "anyOf": [
@@ -8979,6 +9138,14 @@
             ],
             "title": "Reason"
           },
+          "rung": {
+            "enum": [
+              "clear",
+              "studio"
+            ],
+            "title": "Rung",
+            "type": "string"
+          },
           "voice_id": {
             "title": "Voice Id",
             "type": "string"
@@ -8987,8 +9154,10 @@
         "required": [
           "voice_id",
           "label",
-          "price_band",
+          "rung",
           "is_custom",
+          "language_note",
+          "preview_available",
           "offerable",
           "reason"
         ],
@@ -10420,6 +10589,47 @@
         "title": "FeatureFlagsOut",
         "type": "object"
       },
+      "FetchPreviewIn": {
+        "additionalProperties": false,
+        "properties": {
+          "language": {
+            "anyOf": [
+              {
+                "maxLength": 12,
+                "pattern": "^[A-Za-z]{2,3}([-_][A-Za-z]{2,4})?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "voice_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Voice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "voice_id"
+        ],
+        "title": "FetchPreviewIn",
+        "type": "object"
+      },
       "FieldLimit": {
         "additionalProperties": false,
         "description": "One column of the client's leads list that the configured model does not fill.\n\nNamed by the client's own LABEL, never our key: `budget_lakhs` is our column and\n\"Budget (lakhs)\" is theirs.",
@@ -11808,6 +12018,237 @@
           "recorded"
         ],
         "title": "HolderOut",
+        "type": "object"
+      },
+      "HostedVoiceOut": {
+        "additionalProperties": false,
+        "description": "One hosted voice as the operator's table shows it.",
+        "properties": {
+          "accent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accent"
+          },
+          "added": {
+            "title": "Added",
+            "type": "boolean"
+          },
+          "curated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Curated At"
+          },
+          "deletable_clone": {
+            "title": "Deletable Clone",
+            "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "is_custom": {
+            "title": "Is Custom",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "language_note": {
+            "title": "Language Note",
+            "type": "string"
+          },
+          "live_agents": {
+            "title": "Live Agents",
+            "type": "integer"
+          },
+          "offered": {
+            "title": "Offered",
+            "type": "boolean"
+          },
+          "preview_available": {
+            "title": "Preview Available",
+            "type": "boolean"
+          },
+          "preview_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "vendor",
+                  "upload"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Source"
+          },
+          "rung": {
+            "enum": [
+              "clear",
+              "studio"
+            ],
+            "title": "Rung",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "engine",
+              "byok"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "enabled",
+              "disabled",
+              "archived"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "synced_at": {
+            "format": "date-time",
+            "title": "Synced At",
+            "type": "string"
+          },
+          "voice_id": {
+            "title": "Voice Id",
+            "type": "string"
+          },
+          "withdrawn_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withdrawn At"
+          }
+        },
+        "required": [
+          "voice_id",
+          "label",
+          "source",
+          "rung",
+          "is_custom",
+          "accent",
+          "description",
+          "language_note",
+          "state",
+          "added",
+          "offered",
+          "synced_at",
+          "curated_at",
+          "withdrawn_at",
+          "preview_available",
+          "preview_source",
+          "deletable_clone",
+          "live_agents"
+        ],
+        "title": "HostedVoiceOut",
+        "type": "object"
+      },
+      "HostedVoiceWriteOut": {
+        "additionalProperties": false,
+        "properties": {
+          "next_step": {
+            "title": "Next Step",
+            "type": "string"
+          },
+          "voice": {
+            "$ref": "#/components/schemas/HostedVoiceOut"
+          }
+        },
+        "required": [
+          "voice",
+          "next_step"
+        ],
+        "title": "HostedVoiceWriteOut",
+        "type": "object"
+      },
+      "HostedVoicesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "cached": {
+            "title": "Cached",
+            "type": "integer"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "offered": {
+            "title": "Offered",
+            "type": "integer"
+          },
+          "scope": {
+            "enum": [
+              "added",
+              "all"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "studio_workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Studio Workspace Id"
+          },
+          "voices": {
+            "items": {
+              "$ref": "#/components/schemas/HostedVoiceOut"
+            },
+            "title": "Voices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "available",
+          "scope",
+          "voices",
+          "cached",
+          "offered",
+          "studio_workspace_id",
+          "note"
+        ],
+        "title": "HostedVoicesOut",
         "type": "object"
       },
       "ImpersonationGrantIn": {
@@ -17398,6 +17839,59 @@
         "title": "OverridePackOut",
         "type": "object"
       },
+      "OwnVoiceKeyOut": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "speaks_on_own_voice": {
+            "title": "Speaks On Own Voice",
+            "type": "boolean"
+          },
+          "using": {
+            "title": "Using",
+            "type": "string"
+          },
+          "voice_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice Provider"
+          }
+        },
+        "required": [
+          "enabled",
+          "scope",
+          "complete",
+          "using",
+          "voice_provider",
+          "speaks_on_own_voice"
+        ],
+        "title": "OwnVoiceKeyOut",
+        "type": "object"
+      },
       "ParamIn": {
         "additionalProperties": false,
         "properties": {
@@ -21742,6 +22236,32 @@
         "title": "SetCurationOut",
         "type": "object"
       },
+      "SetHostedCurationIn": {
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "enum": [
+              "enabled",
+              "disabled",
+              "archived"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "voice_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Voice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "voice_id",
+          "state"
+        ],
+        "title": "SetHostedCurationIn",
+        "type": "object"
+      },
       "SetVoiceIn": {
         "additionalProperties": false,
         "description": "One field, because the tenant and the agent are both in the path now.\n\n`extra=\"forbid\"` so a caller cannot smuggle a second config string (an llm_model, a\ntts_provider) into a request whose whole point is one curated choice \u2014 and so a\ncaller still sending the old `tenant_id` body field is told, rather than having it\nsilently dropped while the path decides the tenant.",
@@ -22745,6 +23265,80 @@
           "minutes_used"
         ],
         "title": "StatementSummaryOut",
+        "type": "object"
+      },
+      "StudioSetupIn": {
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "pattern": "^org_[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          }
+        },
+        "title": "StudioSetupIn",
+        "type": "object"
+      },
+      "StudioWorkspaceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OwnVoiceKeyOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "key",
+          "ready",
+          "note"
+        ],
+        "title": "StudioWorkspaceOut",
         "type": "object"
       },
       "SubjectExportCallOut": {
@@ -34020,6 +34614,7 @@
     },
     "/v1/agents/engine-catalogue": {
       "get": {
+        "description": "On a voice platform that hosts its own voices: the voices an operator added and enabled, each with its rung (Clear or Studio), a language note, whether a preview can be played, and whether it can be chosen right now. The models are the platform's own list. On any other platform `available` is false and the voice picker at `/v1/agents/voices` is the one to read.",
         "operationId": "engine_catalogue_v1_agents_engine_catalogue_get",
         "responses": {
           "200": {
@@ -34039,7 +34634,56 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The voice platform's own voices and models, each with its availability",
+        "summary": "The voices an agent may be put on, and the platform's models, with availability",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/agents/engine-catalogue/preview": {
+      "get": {
+        "description": "The stored preview audio for one voice, served by Calevate (never a link to the voice platform). A client may play a voice on offer; an admin impersonating a client may play any voice that has a preview. A voice with no preview, or one the reader may not see, is a 404. The ops console plays from `GET /v1/ops/voices/hosted/preview`.",
+        "operationId": "engine_voice_preview_v1_agents_engine_catalogue_preview_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "voice_id",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Voice Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "audio/mpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "audio/wav": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The preview audio."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Play one voice's preview clip",
         "tags": [
           "agents"
         ],
@@ -44742,6 +45386,373 @@
         "x-calevate-permission": "ops:manage"
       }
     },
+    "/v1/ops/voices/clones": {
+      "delete": {
+        "description": "Deletes the clone on the voice platform, which forgets it everywhere and moves every agent on it to a standard voice; it cannot be undone. Refused with `voice_clone_in_use` while live agents here are on it, unless `confirm=true`. Requires `X-Confirm-Action: delete_voice_clone:<voice_id>`.",
+        "operationId": "delete_clone_v1_ops_voices_clones_delete",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "voice_id",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Voice Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "confirm",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Confirm",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteCloneOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Delete one of our cloned voices (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      },
+      "post": {
+        "description": "Sends a 5-30 second recording (WAV, MP3, M4A or WebM, at most 2 MB, the API's request limit) to the voice platform to clone. Both consents are the operator's own attestations and are recorded with who gave them and when. The clone is saved ADDED and DISABLED, with the platform's preview stored here. Requires `X-Confirm-Action: clone_voice`.",
+        "operationId": "create_clone_v1_ops_voices_clones_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_clone_v1_ops_voices_clones_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloneOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Clone a voice from a recording (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voices/hosted": {
+      "get": {
+        "description": "On a voice platform that hosts its own voices: by default the voices an operator added; `?scope=all` adds every voice the last sync read. Only ADDED and ENABLED voices are offered to clients. `available` is false on a platform whose voices come from Calevate's own catalogue.",
+        "operationId": "list_hosted_v1_ops_voices_hosted_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "added",
+              "enum": [
+                "added",
+                "all"
+              ],
+              "title": "Scope",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostedVoicesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The voices the voice platform hosts, as curated here (admin realm)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      },
+      "patch": {
+        "description": "Only an ADDED voice can be enabled. It changes no agent and no call: an agent on this voice keeps speaking it; disabling only takes it off the picker. Idempotent.",
+        "operationId": "set_hosted_state_v1_ops_voices_hosted_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetHostedCurationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostedVoiceWriteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Enable, disable or archive one hosted voice for every client (audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      },
+      "post": {
+        "description": "Marks a voice the last sync read as ADDED. It arrives disabled, so a client cannot choose it until it is enabled; give it a preview first. Idempotent.",
+        "operationId": "add_hosted_v1_ops_voices_hosted_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddHostedVoiceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostedVoiceWriteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Add one synced voice to the voices that can be offered (audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voices/hosted/preview": {
+      "get": {
+        "description": "The stored preview audio for one hosted voice, added or not and in any state, served by Calevate. A voice with no stored preview is a 404.",
+        "operationId": "hosted_voice_preview_v1_ops_voices_hosted_preview_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "voice_id",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Voice Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "audio/mpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "audio/wav": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The preview audio."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Play any hosted voice's stored preview (admin realm)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      },
+      "post": {
+        "description": "For a voice the platform gives no sample of: an MP3 or WAV clip, at most 2 MB, stored here and played to clients from Calevate. Replaces any earlier preview.",
+        "operationId": "upload_preview_v1_ops_voices_hosted_preview_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_preview_v1_ops_voices_hosted_preview_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostedVoiceWriteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Upload a preview clip for one hosted voice (audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voices/hosted/preview/fetch": {
+      "post": {
+        "description": "For a Studio voice, the platform speaks one line on our voice key (charged per character by the provider; `text` at most 200 characters). For one of our clones, the platform's preview is fetched. A platform voice with no sample is refused: upload one instead.",
+        "operationId": "fetch_preview_v1_ops_voices_hosted_preview_fetch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FetchPreviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostedVoiceWriteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Store the voice platform's own preview of one hosted voice (audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
     "/v1/ops/voices/refresh": {
       "post": {
         "description": "Reads the voice platform account's own TTS voice list into the cache the admin console's Voices page is built from. Use it after importing or cloning a voice with your TTS vendor, or after adding one with Add Voice \u2014 the hourly job would otherwise take up to an hour to notice. Where the voice platform keeps no catalogue of its own there is nothing to re-read, and the returned note says so. A NEWLY SEEN VOICE ARRIVES DISABLED and has to be enabled on that page before anybody can be put on it (D-588), so this alone changes what nobody may choose. It changes no agent and no call either: an agent already speaking a voice keeps speaking it whatever this returns. A sync that reads nothing is refused rather than applied, so a bad credential cannot empty the catalogue.",
@@ -44765,6 +45776,89 @@
           }
         },
         "summary": "Re-read the voice catalogue from the voice platform (audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voices/studio-workspace": {
+      "get": {
+        "operationId": "studio_workspace_v1_ops_voices_studio_workspace_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioWorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The workspace Studio agents run in, and its voice key",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      },
+      "post": {
+        "description": "Creates the customer workspace (or uses `workspace_id`), installs our Cartesia key there as its voice key, switches on own keys for the voice only, and records the workspace as `thinnest_studio_workspace_id`. Our developer workspace keeps its own keys off. Idempotent. Requires `X-Confirm-Action: setup_studio_workspace`.",
+        "operationId": "setup_studio_workspace_v1_ops_voices_studio_workspace_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudioSetupIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioWorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set up the Studio workspace on our Cartesia key (step-up confirmed, audited)",
         "tags": [
           "ops"
         ],

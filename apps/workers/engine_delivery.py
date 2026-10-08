@@ -31,6 +31,7 @@ from typing import Any, Final, Protocol, runtime_checkable
 from uuid import UUID
 
 from calevate_shared.engine import ExecutionSnapshot, VoiceEngine
+from calevate_shared.engine_scope import split_handle
 from sqlalchemy import text
 
 from apps.api.core.alerting import alert
@@ -45,7 +46,9 @@ from apps.workers.storage import read_engine_payload
 class ReadsDeliveries(Protocol):
     """An adapter that can read a verified delivery body (`ThinnestEngine` today)."""
 
-    def snapshot_from_delivery(self, payload: dict[str, Any]) -> ExecutionSnapshot: ...
+    def snapshot_from_delivery(
+        self, payload: dict[str, Any], *, workspace: str | None = None
+    ) -> ExecutionSnapshot: ...
 
 
 def _unreadable(detail: str) -> ProblemError:
@@ -69,7 +72,9 @@ def snapshot_of_document(
         raise _unreadable("the delivered document is not JSON") from exc
     if not isinstance(payload, dict):
         raise _unreadable("the delivered document is not an object")
-    snapshot = engine.snapshot_from_delivery(payload)
+    # The receiver scoped the job's execution id to the delivering agent's workspace
+    # (D-687), so the snapshot is read in the same one.
+    snapshot = engine.snapshot_from_delivery(payload, workspace=split_handle(execution_id)[1])
     if snapshot.engine_call_id != execution_id:
         raise _unreadable("the delivered document names a different call than its job")
     return snapshot.model_copy(update={"raw_document": document})

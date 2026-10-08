@@ -8,6 +8,7 @@ import type { DeliveryList } from "@/lib/api/kb";
 import type { KycRecord } from "@/lib/api/kyc";
 import type { ClientLlmDefaults } from "@/lib/api/llmModels";
 import type { ClientMaintenance } from "@/lib/api/maintenance";
+import type { HostedVoices } from "@/lib/api/opsHostedVoices";
 import type { Lanes } from "@/lib/api/publishing";
 import type { OfferedVoice, VoiceCatalogue } from "@/lib/api/voices";
 import type { WalletLots } from "@/app/c/[slug]/billing/lots";
@@ -456,3 +457,19 @@ export function clientLlmTiers(over: Partial<ClientLlmDefaults> = {}): ClientLlm
     ...over,
   };
 }
+
+/**
+ * `GET /v1/ops/voices/hosted?scope=added` on an engine whose voices are our own catalogue
+ * (`ENGINE=pipecat`): the Voices page reads it first and, on `available: false`, shows the
+ * Pipecat catalogue (D-687).
+ */
+export const HOSTED_VOICES_PROBE_PATH = "/v1/ops/voices/hosted?scope=added";
+export const NOT_HOSTED = {
+  available: false,
+  scope: "added",
+  voices: [],
+  cached: 0,
+  offered: 0,
+  studio_workspace_id: null,
+  note: "Voices on this platform come from Calevate's own catalogue.",
+} satisfies HostedVoices;

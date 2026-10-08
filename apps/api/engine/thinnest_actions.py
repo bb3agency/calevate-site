@@ -37,11 +37,12 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 import httpx
+from calevate_shared.engine_scope import scoped_handle, split_handle
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import NO_CREDENTIALS_REASON, engine_not_configured
-from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL
+from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL, WORKSPACE_HEADER
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, vendor_request
 
 ENGINE: Final = "thinnest"
@@ -213,18 +214,25 @@ class ThinnestActions:
             self._client = httpx.AsyncClient(
                 base_url=self._base_url,
                 timeout=REQUEST_TIMEOUT_S,
-                headers={
-                    AUTH_HEADER: f"{AUTH_SCHEME} {self._api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers={AUTH_HEADER: f"{AUTH_SCHEME} {self._api_key}"},
             )
         return self._client
 
     async def _request(
-        self, method: str, path: str, *, route: str, **kwargs: Any
+        self, method: str, path: str, *, route: str, agent_ref: str, **kwargs: Any
     ) -> dict[str, Any]:
+        """`path` names `{agent}` where the vendor agent id goes; the workspace comes from the
+        agent's handle (`calevate_shared.engine_scope`, D-687)."""
+        agent, workspace = split_handle(agent_ref)
+        headers = {WORKSPACE_HEADER: workspace} if workspace else {}
         return await vendor_request(
-            self._http(), method, path, engine=ENGINE, route=route, **kwargs
+            self._http(),
+            method,
+            path.replace("{agent}", agent),
+            engine=ENGINE,
+            route=route,
+            headers=headers,
+            **kwargs,
         )
 
     async def list_actions(self, agent_ref: str) -> list[VendorAction]:
@@ -237,7 +245,11 @@ class ThinnestActions:
             if cursor:
                 params["cursor"] = cursor
             page = await self._request(
-                "GET", f"/agents/{agent_ref}/actions", route="/agents/{id}/actions", params=params
+                "GET",
+                "/agents/{agent}/actions",
+                route="/agents/{id}/actions",
+                agent_ref=agent_ref,
+                params=params,
             )
             rows = page.get("items")
             if not isinstance(rows, list):
@@ -254,8 +266,9 @@ class ThinnestActions:
         return _action(
             await self._request(
                 "POST",
-                f"/agents/{agent_ref}/actions",
+                "/agents/{agent}/actions",
                 route="/agents/{id}/actions",
+                agent_ref=agent_ref,
                 json={**definition.wire(), "headers": {SECRET_HEADER: secret}},
             )
         )
@@ -277,8 +290,9 @@ class ThinnestActions:
         return _action(
             await self._request(
                 "PATCH",
-                f"/agents/{agent_ref}/actions/{action_id}",
+                f"/agents/{{agent}}/actions/{action_id}",
                 route="/agents/{id}/actions/{actionId}",
+                agent_ref=agent_ref,
                 json=body,
             )
         )
@@ -286,8 +300,9 @@ class ThinnestActions:
     async def delete(self, agent_ref: str, action_id: str) -> None:
         await self._request(
             "DELETE",
-            f"/agents/{agent_ref}/actions/{action_id}",
+            f"/agents/{{agent}}/actions/{action_id}",
             route="/agents/{id}/actions/{actionId}",
+            agent_ref=agent_ref,
             absent_is_success=True,
         )
 
@@ -297,8 +312,9 @@ class ThinnestActions:
         """One real call through the vendor to our endpoint. A failed call is `ok: false`."""
         data = await self._request(
             "POST",
-            f"/agents/{agent_ref}/actions/{action_id}/test",
+            f"/agents/{{agent}}/actions/{action_id}/test",
             route="/agents/{id}/actions/{actionId}/test",
+            agent_ref=agent_ref,
             json={"arguments": arguments},
         )
         status = data.get("status")
@@ -309,11 +325,13 @@ class ThinnestActions:
     async def live_calls(self, agent_ref: str) -> list[LiveCall]:
         """The agent's connected calls. One page of 100: a vendor agent with more live calls
         than that is far past the workspace's concurrency, so a longer list is refused."""
+        agent, workspace = split_handle(agent_ref)
         page = await self._request(
             "GET",
             "/calls",
             route="/calls",
-            params={"agent": agent_ref, "status": "connected", "limit": _PAGE_SIZE},
+            agent_ref=agent_ref,
+            params={"agent": agent, "status": "connected", "limit": _PAGE_SIZE},
         )
         rows = page.get("items")
         if not isinstance(rows, list):
@@ -326,7 +344,7 @@ class ThinnestActions:
                 continue
             calls.append(
                 LiveCall(
-                    engine_call_id=str(row["id"]),
+                    engine_call_id=scoped_handle(str(row["id"]), workspace),
                     direction=_str(row.get("direction")),
                     phone=_str(row.get("phone")),
                     reference=_str(row.get("reference")),

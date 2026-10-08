@@ -242,7 +242,7 @@ async def test_an_expired_body_and_an_unreachable_store_are_different_answers(
     assert gone.json()["type"].endswith("/delivery_body_not_retained")
     assert gone.json()["retryable"] is False, "trying again will not bring it back"
 
-    assert unreachable.status_code == 502
+    assert unreachable.status_code == 503
     assert unreachable.json()["type"].endswith("/delivery_body_unavailable")
     assert unreachable.json()["retryable"] is True, "this one IS worth trying again"
     assert "has not been deleted" in json.dumps(unreachable.json())

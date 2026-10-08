@@ -2115,8 +2115,31 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The voice platform's own voices and models, each with its availability */
+        /**
+         * The voices an agent may be put on, and the platform's models, with availability
+         * @description On a voice platform that hosts its own voices: the voices an operator added and enabled, each with its rung (Clear or Studio), a language note, whether a preview can be played, and whether it can be chosen right now. The models are the platform's own list. On any other platform `available` is false and the voice picker at `/v1/agents/voices` is the one to read.
+         */
         get: operations["engine_catalogue_v1_agents_engine_catalogue_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/engine-catalogue/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Play one voice's preview clip
+         * @description The stored preview audio for one voice, served by Calevate (never a link to the voice platform). A client may play a voice on offer; an admin impersonating a client may play any voice that has a preview. A voice with no preview, or one the reader may not see, is a 404. The ops console plays from `GET /v1/ops/voices/hosted/preview`.
+         */
+        get: operations["engine_voice_preview_v1_agents_engine_catalogue_preview_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6901,6 +6924,102 @@ export interface paths {
         patch: operations["set_voice_curation_v1_ops_voices_patch"];
         trace?: never;
     };
+    "/v1/ops/voices/clones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clone a voice from a recording (step-up confirmed, audited)
+         * @description Sends a 5-30 second recording (WAV, MP3, M4A or WebM, at most 2 MB, the API's request limit) to the voice platform to clone. Both consents are the operator's own attestations and are recorded with who gave them and when. The clone is saved ADDED and DISABLED, with the platform's preview stored here. Requires `X-Confirm-Action: clone_voice`.
+         */
+        post: operations["create_clone_v1_ops_voices_clones_post"];
+        /**
+         * Delete one of our cloned voices (step-up confirmed, audited)
+         * @description Deletes the clone on the voice platform, which forgets it everywhere and moves every agent on it to a standard voice; it cannot be undone. Refused with `voice_clone_in_use` while live agents here are on it, unless `confirm=true`. Requires `X-Confirm-Action: delete_voice_clone:<voice_id>`.
+         */
+        delete: operations["delete_clone_v1_ops_voices_clones_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voices/hosted": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The voices the voice platform hosts, as curated here (admin realm)
+         * @description On a voice platform that hosts its own voices: by default the voices an operator added; `?scope=all` adds every voice the last sync read. Only ADDED and ENABLED voices are offered to clients. `available` is false on a platform whose voices come from Calevate's own catalogue.
+         */
+        get: operations["list_hosted_v1_ops_voices_hosted_get"];
+        put?: never;
+        /**
+         * Add one synced voice to the voices that can be offered (audited)
+         * @description Marks a voice the last sync read as ADDED. It arrives disabled, so a client cannot choose it until it is enabled; give it a preview first. Idempotent.
+         */
+        post: operations["add_hosted_v1_ops_voices_hosted_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Enable, disable or archive one hosted voice for every client (audited)
+         * @description Only an ADDED voice can be enabled. It changes no agent and no call: an agent on this voice keeps speaking it; disabling only takes it off the picker. Idempotent.
+         */
+        patch: operations["set_hosted_state_v1_ops_voices_hosted_patch"];
+        trace?: never;
+    };
+    "/v1/ops/voices/hosted/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Play any hosted voice's stored preview (admin realm)
+         * @description The stored preview audio for one hosted voice, added or not and in any state, served by Calevate. A voice with no stored preview is a 404.
+         */
+        get: operations["hosted_voice_preview_v1_ops_voices_hosted_preview_get"];
+        put?: never;
+        /**
+         * Upload a preview clip for one hosted voice (audited)
+         * @description For a voice the platform gives no sample of: an MP3 or WAV clip, at most 2 MB, stored here and played to clients from Calevate. Replaces any earlier preview.
+         */
+        post: operations["upload_preview_v1_ops_voices_hosted_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voices/hosted/preview/fetch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Store the voice platform's own preview of one hosted voice (audited)
+         * @description For a Studio voice, the platform speaks one line on our voice key (charged per character by the provider; `text` at most 200 characters). For one of our clones, the platform's preview is fetched. A platform voice with no sample is refused: upload one instead.
+         */
+        post: operations["fetch_preview_v1_ops_voices_hosted_preview_fetch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/voices/refresh": {
         parameters: {
             query?: never;
@@ -6915,6 +7034,27 @@ export interface paths {
          * @description Reads the voice platform account's own TTS voice list into the cache the admin console's Voices page is built from. Use it after importing or cloning a voice with your TTS vendor, or after adding one with Add Voice — the hourly job would otherwise take up to an hour to notice. Where the voice platform keeps no catalogue of its own there is nothing to re-read, and the returned note says so. A NEWLY SEEN VOICE ARRIVES DISABLED and has to be enabled on that page before anybody can be put on it (D-588), so this alone changes what nobody may choose. It changes no agent and no call either: an agent already speaking a voice keeps speaking it whatever this returns. A sync that reads nothing is refused rather than applied, so a bad credential cannot empty the catalogue.
          */
         post: operations["refresh_voice_catalogue_route_v1_ops_voices_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voices/studio-workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The workspace Studio agents run in, and its voice key */
+        get: operations["studio_workspace_v1_ops_voices_studio_workspace_get"];
+        put?: never;
+        /**
+         * Set up the Studio workspace on our Cartesia key (step-up confirmed, audited)
+         * @description Creates the customer workspace (or uses `workspace_id`), installs our Cartesia key there as its voice key, switches on own keys for the voice only, and records the workspace as `thinnest_studio_workspace_id`. Our developer workspace keeps its own keys off. Idempotent. Requires `X-Confirm-Action: setup_studio_workspace`.
+         */
+        post: operations["setup_studio_workspace_v1_ops_voices_studio_workspace_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7172,6 +7312,11 @@ export interface components {
             foreign: number;
             /** Malformed */
             malformed: number;
+        };
+        /** AddHostedVoiceIn */
+        AddHostedVoiceIn: {
+            /** Voice Id */
+            voice_id: string;
         };
         /** AddNumbersIn */
         AddNumbersIn: {
@@ -8111,6 +8256,26 @@ export interface components {
             /** Rule */
             rule: string;
         };
+        /** Body_create_clone_v1_ops_voices_clones_post */
+        Body_create_clone_v1_ops_voices_clones_post: {
+            /** Consent No Impersonation */
+            consent_no_impersonation: boolean;
+            /** Consent Own Voice */
+            consent_own_voice: boolean;
+            /** Description */
+            description?: string | null;
+            /** Language */
+            language?: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Remove Noise
+             * @default true
+             */
+            remove_noise: boolean;
+            /** Sample */
+            sample: string;
+        };
         /** Body_submit_v1_compliance_carrier_application_post */
         Body_submit_v1_compliance_carrier_application_post: {
             /** Document */
@@ -8134,6 +8299,13 @@ export interface components {
             file: string;
             /** Name */
             name?: string | null;
+        };
+        /** Body_upload_preview_v1_ops_voices_hosted_preview_post */
+        Body_upload_preview_v1_ops_voices_hosted_preview_post: {
+            /** Sample */
+            sample: string;
+            /** Voice Id */
+            voice_id: string;
         };
         /** BootstrapConfirmIn */
         BootstrapConfirmIn: {
@@ -9150,6 +9322,14 @@ export interface components {
              * @enum {string}
              */
             state: "none" | "scheduled" | "draining" | "active";
+        };
+        /** CloneOut */
+        CloneOut: {
+            /** Next Step */
+            next_step: string;
+            /** Usable On Agents */
+            usable_on_agents: boolean;
+            voice: components["schemas"]["HostedVoiceOut"];
         };
         /** CloseIn */
         CloseIn: {
@@ -10355,6 +10535,15 @@ export interface components {
             /** Oldest At */
             oldest_at: string | null;
         };
+        /** DeleteCloneOut */
+        DeleteCloneOut: {
+            /** Moved Agents */
+            moved_agents: number;
+            /** Next Step */
+            next_step: string;
+            /** Voice Id */
+            voice_id: string;
+        };
         /** DeletionRequestAcceptedOut */
         DeletionRequestAcceptedOut: {
             /** Already Open */
@@ -10875,6 +11064,8 @@ export interface components {
             plan_allows: boolean;
             /** Reason */
             reason: string | null;
+            /** Usable With Studio Voice */
+            usable_with_studio_voice: boolean;
         };
         /** EngineCatalogueOut */
         EngineCatalogueOut: {
@@ -10893,6 +11084,11 @@ export interface components {
             models: components["schemas"]["EngineCatalogueModelOut"][];
             /** Note */
             note: string;
+            /**
+             * Studio Available
+             * @default false
+             */
+            studio_available: boolean;
             /** Voices */
             voices: components["schemas"]["EngineCatalogueVoiceOut"][];
         };
@@ -10902,12 +11098,19 @@ export interface components {
             is_custom: boolean;
             /** Label */
             label: string;
+            /** Language Note */
+            language_note: string;
             /** Offerable */
             offerable: boolean;
-            /** Price Band */
-            price_band: string;
+            /** Preview Available */
+            preview_available: boolean;
             /** Reason */
             reason: string | null;
+            /**
+             * Rung
+             * @enum {string}
+             */
+            rung: "clear" | "studio";
             /** Voice Id */
             voice_id: string;
         };
@@ -11495,6 +11698,15 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /** FetchPreviewIn */
+        FetchPreviewIn: {
+            /** Language */
+            language?: string | null;
+            /** Text */
+            text?: string | null;
+            /** Voice Id */
+            voice_id: string;
         };
         /**
          * FieldLimit
@@ -12084,6 +12296,86 @@ export interface components {
             holder_type?: ("individual" | "business") | null;
             /** Recorded */
             recorded: boolean;
+        };
+        /**
+         * HostedVoiceOut
+         * @description One hosted voice as the operator's table shows it.
+         */
+        HostedVoiceOut: {
+            /** Accent */
+            accent: string | null;
+            /** Added */
+            added: boolean;
+            /** Curated At */
+            curated_at: string | null;
+            /** Deletable Clone */
+            deletable_clone: boolean;
+            /** Description */
+            description: string | null;
+            /** Is Custom */
+            is_custom: boolean;
+            /** Label */
+            label: string;
+            /** Language Note */
+            language_note: string;
+            /** Live Agents */
+            live_agents: number;
+            /** Offered */
+            offered: boolean;
+            /** Preview Available */
+            preview_available: boolean;
+            /** Preview Source */
+            preview_source: ("vendor" | "upload") | null;
+            /**
+             * Rung
+             * @enum {string}
+             */
+            rung: "clear" | "studio";
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "engine" | "byok";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "enabled" | "disabled" | "archived";
+            /**
+             * Synced At
+             * Format: date-time
+             */
+            synced_at: string;
+            /** Voice Id */
+            voice_id: string;
+            /** Withdrawn At */
+            withdrawn_at: string | null;
+        };
+        /** HostedVoiceWriteOut */
+        HostedVoiceWriteOut: {
+            /** Next Step */
+            next_step: string;
+            voice: components["schemas"]["HostedVoiceOut"];
+        };
+        /** HostedVoicesOut */
+        HostedVoicesOut: {
+            /** Available */
+            available: boolean;
+            /** Cached */
+            cached: number;
+            /** Note */
+            note: string;
+            /** Offered */
+            offered: number;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "added" | "all";
+            /** Studio Workspace Id */
+            studio_workspace_id: string | null;
+            /** Voices */
+            voices: components["schemas"]["HostedVoiceOut"][];
         };
         /** ImpersonationGrantIn */
         ImpersonationGrantIn: {
@@ -14588,6 +14880,21 @@ export interface components {
             /** Studio Inr Per Min */
             studio_inr_per_min: string;
         };
+        /** OwnVoiceKeyOut */
+        OwnVoiceKeyOut: {
+            /** Complete */
+            complete: boolean;
+            /** Enabled */
+            enabled: boolean;
+            /** Scope */
+            scope: string | null;
+            /** Speaks On Own Voice */
+            speaks_on_own_voice: boolean;
+            /** Using */
+            using: string;
+            /** Voice Provider */
+            voice_provider: string | null;
+        };
         /** ParamIn */
         ParamIn: {
             /**
@@ -16411,6 +16718,16 @@ export interface components {
             offered: number;
             voice: components["schemas"]["CuratedVoiceOut"];
         };
+        /** SetHostedCurationIn */
+        SetHostedCurationIn: {
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "enabled" | "disabled" | "archived";
+            /** Voice Id */
+            voice_id: string;
+        };
         /**
          * SetVoiceIn
          * @description One field, because the tenant and the agent are both in the path now.
@@ -16864,6 +17181,23 @@ export interface components {
             total_inr: string;
             /** Wallet Spent Inr */
             wallet_spent_inr: string;
+        };
+        /** StudioSetupIn */
+        StudioSetupIn: {
+            /** Model */
+            model?: string | null;
+            /** Workspace Id */
+            workspace_id?: string | null;
+        };
+        /** StudioWorkspaceOut */
+        StudioWorkspaceOut: {
+            key: components["schemas"]["OwnVoiceKeyOut"] | null;
+            /** Note */
+            note: string;
+            /** Ready */
+            ready: boolean;
+            /** Workspace Id */
+            workspace_id: string | null;
         };
         /**
          * SubjectExportCallOut
@@ -22908,6 +23242,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EngineCatalogueOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    engine_voice_preview_v1_agents_engine_catalogue_preview_get: {
+        parameters: {
+            query: {
+                voice_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The preview audio. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "audio/mpeg": string;
+                    "audio/wav": string;
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -30801,6 +31167,270 @@ export interface operations {
             };
         };
     };
+    create_clone_v1_ops_voices_clones_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_create_clone_v1_ops_voices_clones_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CloneOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    delete_clone_v1_ops_voices_clones_delete: {
+        parameters: {
+            query: {
+                voice_id: string;
+                confirm?: boolean;
+            };
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteCloneOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_hosted_v1_ops_voices_hosted_get: {
+        parameters: {
+            query?: {
+                scope?: "added" | "all";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostedVoicesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_hosted_v1_ops_voices_hosted_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddHostedVoiceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostedVoiceWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_hosted_state_v1_ops_voices_hosted_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetHostedCurationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostedVoiceWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    hosted_voice_preview_v1_ops_voices_hosted_preview_get: {
+        parameters: {
+            query: {
+                voice_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The preview audio. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "audio/mpeg": string;
+                    "audio/wav": string;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    upload_preview_v1_ops_voices_hosted_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_preview_v1_ops_voices_hosted_preview_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostedVoiceWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    fetch_preview_v1_ops_voices_hosted_preview_fetch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FetchPreviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostedVoiceWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     refresh_voice_catalogue_route_v1_ops_voices_refresh_post: {
         parameters: {
             query?: never;
@@ -30817,6 +31447,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VoiceCatalogueRefreshOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    studio_workspace_v1_ops_voices_studio_workspace_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudioWorkspaceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    setup_studio_workspace_v1_ops_voices_studio_workspace_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StudioSetupIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudioWorkspaceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
