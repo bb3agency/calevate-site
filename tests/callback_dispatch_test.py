@@ -458,8 +458,11 @@ async def test_a_platform_opt_out_settles_the_promise_instead_of_retrying(
 ) -> None:
     """The voice platform refusing the PERSON is a fact waiting cannot lift, so the
     call-back is settled `refused` on the first refusal, like the gate's person-level
-    refusals, rather than re-asked until `GRACE` runs out."""
-    from apps.api.engine.vendor_http import RECIPIENT_OPTED_OUT_CODE, recipient_opted_out_error
+    refusals, rather than re-asked until `GRACE` runs out. The person is not on this
+    client's own list, so the refusal is the platform's list's (D-691) — and the client's
+    list is left as it was."""
+    from apps.api.compliance.platform_dnc import PLATFORM_DNC_BLOCK_CODE
+    from apps.api.engine.vendor_http import recipient_opted_out_error
 
     tenant_id, agent_id = await _dialable_tenant()
     callback_id = await _book(tenant_id, agent_id)
@@ -473,5 +476,12 @@ async def test_a_platform_opt_out_settles_the_promise_instead_of_retrying(
 
     row = await _row(tenant_id, callback_id)
     assert row["status"] == "refused"
-    assert row["last_refusal_rule"] == RECIPIENT_OPTED_OUT_CODE
+    assert row["last_refusal_rule"] == PLATFORM_DNC_BLOCK_CODE
     assert row["settled_at"] is not None
+    async with tenant_session(tenant_id) as session:
+        listed = (
+            await session.execute(
+                text("SELECT count(*) FROM dnc_list WHERE tenant_id = :tid"), {"tid": tenant_id}
+            )
+        ).scalar_one()
+    assert listed == 0

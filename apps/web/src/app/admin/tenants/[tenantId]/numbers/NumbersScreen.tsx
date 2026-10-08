@@ -166,7 +166,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
 
       {/* Only on a voice platform that rents and attaches numbers in its own console;
           renders nothing otherwise. */}
-      <EngineNumbersPanel tenantId={tenantId} />
+      <EngineNumbersPanel tenantId={tenantId} canWrite={write.allowed} />
 
       {held.error ? (
         <ProblemNotice error={held.error} onRetry={() => held.refetch()} />

@@ -170,7 +170,7 @@ async def _tenant_knowing_in_telugu(
     tenant_id, agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name=name, body=body
+            session, tenant_id=tenant_id, name=name, body=body
         )
         if gloss is not None:
             await session.execute(

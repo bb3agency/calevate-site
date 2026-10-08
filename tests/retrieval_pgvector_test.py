@@ -78,7 +78,7 @@ def attested_embedding_price() -> Any:
 async def _published(tenant_id: Any, agent_id: Any, name: str, body: str) -> uuid.UUID:
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name=name, body=body
+            session, tenant_id=tenant_id, name=name, body=body
         )
         await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
         await kb_service.publish_source(
@@ -356,9 +356,7 @@ async def test_the_machine_written_gloss_is_a_key_and_never_an_answer(
         # The projection is refreshed the way a real republish refreshes it — `tsv` is
         # recomputed `ON CONFLICT`, which is what carries a late-arriving gloss into the
         # sparse key at all.
-        await kb_service.project_chunks(
-            session, tenant_id=tenant_id, agent_id=agent_id, source_id=source_id
-        )
+        await kb_service.project_chunks(session, tenant_id=tenant_id, source_id=source_id)
 
     monkeypatch.setattr(embedding_module, "embedding_leg", lambda: None)
     async with tenant_session(tenant_id) as session:

@@ -44,13 +44,15 @@ import { lookup } from "@/lib/lookup";
  * with a different pipeline — `KnowledgeGaps`, which redacts server-side — and nothing on
  * this one is derived from a conversation.
  */
+const DELIVERY_TITLE = "Agents using your knowledge";
+
 export function KnowledgeDelivery({ className }: { className?: string }) {
   const session = useClientSession();
   const delivery = useKbDelivery(session);
 
   if (delivery.isLoading) {
     return (
-      <Panel title="On the phone" className={className}>
+      <Panel title={DELIVERY_TITLE} className={className}>
         <Skeleton rows={3} />
       </Panel>
     );
@@ -58,7 +60,7 @@ export function KnowledgeDelivery({ className }: { className?: string }) {
 
   if (delivery.error || !delivery.data) {
     return (
-      <Panel title="On the phone" className={className}>
+      <Panel title={DELIVERY_TITLE} className={className}>
         <ProblemNotice
           error={
             delivery.error ??
@@ -74,7 +76,7 @@ export function KnowledgeDelivery({ className }: { className?: string }) {
 
   return (
     <Panel
-      title="On the phone"
+      title={DELIVERY_TITLE}
       className={className}
       action={
         not_delivered_count > 0 ? (
@@ -87,16 +89,17 @@ export function KnowledgeDelivery({ className }: { className?: string }) {
       bodyClassName="px-3 pb-3"
     >
       <p className="px-1 pb-3 text-[12px] text-ink-muted">
-        Adding a document is not the same as your agent knowing it yet. This is what each
-        agent is actually answering callers out of, right now.
+        Every one of your agents answers from the same business knowledge. Adding something
+        is not the same as your agents knowing it yet — this is what each agent is actually
+        answering callers out of, right now.
       </p>
       {items.length === 0 ? (
         <EmptyState
           message="No agents yet"
-          hint="Once you have an agent, this is where you will see whether the knowledge you published has reached it."
+          hint="You can still add knowledge now. It reaches your first agent as soon as that agent is set up, and this is where you will see it arrive."
         />
       ) : (
-        <ul className="space-y-2" aria-label="Whether each agent's knowledge is live">
+        <ul className="space-y-2" aria-label="Whether your knowledge is live on each agent">
           {items.map((row) => (
             <DeliveryRow key={row.agent_id} row={row} />
           ))}
@@ -150,9 +153,9 @@ function sentence(row: AgentDelivery): string {
       // affected, which is the thing they are actually judging.
       return `We are preparing ${row.awaiting_translation} of your ${row.live_chunks} ${row.live_chunks === 1 ? "fact" : "facts"} so the agent can find ${row.awaiting_translation === 1 ? "it" : "them"} however a caller asks. This finishes on its own, usually within the hour — nothing for you to do.`;
     case "not_delivered":
-      return "Your newest knowledge has not reached this agent, and it is still answering callers from the version before it. Publish any document on this agent again to retry — if it stays like this, send us the reference below.";
+      return "Your newest knowledge has not reached this agent, and it is still answering callers from the version before it. Publish any document again to retry — if it stays like this, send us the reference below.";
     case "no_knowledge":
-      return "This agent has nothing published yet, so it tells callers it does not have that information. Add a fact or a document above to change it.";
+      return "This agent has nothing published yet, so it tells callers it does not have that information. Add a fact or a document above — every one of your agents will use it.";
   }
 }
 

@@ -65,6 +65,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.callbacks.service import cancel_for_phones, cancel_for_phones_fleet_wide
 from apps.api.compliance.dnc_recall import enqueue_dnc_recall
+from apps.api.compliance.engine_dnc import queue_engine_dnc_push
 from apps.api.compliance.export import subject_ref
 from apps.api.compliance.models import CALLBACK_SUPPRESSED_REASON, DNC_REMOVABLE_SOURCES
 from apps.api.core.errors import ProblemError
@@ -216,6 +217,8 @@ async def add_numbers(
         # twice costs a scan, while missing one leaves a suppressed number's dial sitting
         # in the vendor's queue. The two questions have different safe directions.
         await enqueue_dnc_recall(session, tenant_id=tenant_id, phones=fresh)
+        # D-691: and onto the client's own voice platform workspace list, where it has one.
+        await queue_engine_dnc_push(session, tenant_id=tenant_id, phones=fresh)
         # D-514: and the call-backs this client's agents PROMISED these people, which are
         # dials that have not been placed yet and so are invisible to the recall above.
         #

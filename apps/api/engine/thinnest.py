@@ -10,12 +10,13 @@ Where the mirror is silent the value is marked UNVERIFIED at the line and the ad
 sends nothing or refuses by name. The open items: the shape of a `call.completed` body, and
 which number `from` names on an inbound call.
 
-TWO WORKSPACES (D-687). Clear-rung agents live in our developer workspace; Studio-rung agents
-live in one customer workspace whose own voice key is our Cartesia key (BYOK scope `voice`,
-`thinnest-findings/mirror/snapshots/2026-10-07b/pages/api-reference/bring-your-own-keys.md:
-13-24`). Every request inside a customer carries `Thinnest-Workspace` (`customers.md:68-89`),
-and every id issued there is held by us as `<id>@<workspace>` (`calevate_shared.engine_scope`),
-so a handle always says where it lives and nothing outside this package needs to know.
+ONE WORKSPACE, TWO RUNGS (D-688). Every agent lives in our developer workspace, which runs on
+voice-only BYOK with our Cartesia key (`thinnest-findings/mirror/snapshots/2026-10-07b/pages/
+api-reference/bring-your-own-keys.md:13-24`). Each agent says whether it follows that:
+`byok: "workspace"` speaks a Cartesia voice (Studio), `byok: "off"` stays on ThinnestAI's own
+voices and models at their normal rate (Clear). The field is sent on every create and update,
+never left to its `workspace` default (LIVE-DOCS `docs.thinnest.ai/api-reference/agents/
+update-agent`, read 8 Oct 2026; evaluation §12 item 1).
 
 Three properties of the vendor shape the adapter more than any field name does:
 
@@ -36,9 +37,9 @@ import json
 import re
 import uuid
 from collections.abc import Callable, Sequence
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Final
+from typing import Any, Final, get_args
 from urllib.parse import quote, urlsplit
 
 import httpx
@@ -69,9 +70,19 @@ from calevate_shared.engine import (
     WebhookVerdict,
     compose_engine_prompt,
 )
-from calevate_shared.engine_scope import scoped_handle, split_handle
-from calevate_shared.events import CallDirection, CallEvent, CallStatus, Speaker, TranscriptTurn
-from calevate_shared.webhook_signature import sha256_signature_matches
+from calevate_shared.events import (
+    CallDirection,
+    CallEvent,
+    CallStatus,
+    EngineNotice,
+    EngineNoticeKind,
+    Speaker,
+    TranscriptTurn,
+)
+from calevate_shared.webhook_signature import (
+    signed_time_is_fresh,
+    timestamped_sha256_signature_matches,
+)
 
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
@@ -88,6 +99,7 @@ from apps.api.engine.catalogue import (
     CatalogueModel,
     EngineCatalogue,
     HostedVoice,
+    HostedVoiceBand,
     HostedVoiceListing,
     OwnVoiceKeyState,
     PreviewAudio,
@@ -112,12 +124,14 @@ log = get_logger(__name__)
 BASE_URL: Final = "https://app.thinnest.ai/api/v1"
 AUTH_HEADER: Final = "Authorization"
 AUTH_SCHEME: Final = "Bearer"
-# webhooks.md:37-39, get-call.md:68-69: HMAC-SHA256 of the raw body under the endpoint's
-# `signingSecret`, sent as `sha256=<hex>` (mcp/own-database.md:75-86 prints the verifier).
-SIGNATURE_HEADER: Final = "x-thinnest-signature"
+# snapshots/2026-10-08/pages/api-reference/webhooks.md:100-108: `sha256=<hex>` HMAC-SHA256 of
+# `<delivered-at>.<raw body>` under the endpoint's `signingSecret`, with the attempt's send time.
+SIGNATURE_HEADER: Final = "x-thinnest-signature-v2"
+DELIVERED_AT_HEADER: Final = "x-thinnest-delivered-at"
+#: How far a delivery time may be from our clock (webhooks.md:129-131).
+DELIVERY_TOLERANCE: Final = timedelta(minutes=5)
 IDEMPOTENCY_HEADER: Final = "Idempotency-Key"
 # customers.md:68-91: any request runs inside the customer this header names.
-WORKSPACE_HEADER: Final = "Thinnest-Workspace"
 
 # Every list takes `limit` (up to 100) and `cursor` and answers `{items, nextCursor}`
 # (introduction.md:55-57; list-calls.md:56-61). The page cap is ours: a walk with no bound
@@ -162,22 +176,61 @@ CALL_VARIABLES_MAX: Final = 20
 #: `text` on `POST /byok/voices/preview` (snapshots/2026-10-07b/pages/api-reference/
 #: bring-your-own-keys/preview-byok-voice.md:453-458).
 BYOK_PREVIEW_TEXT_MAX_CHARS: Final = 200
+#: `handOver.line` and `voice.unavailableMessage` (snapshots/2026-10-08/pages/api-reference/
+#: tools/update-built-in-tools.md:612-621; agents/update-agent.md:999-1016). Both refuse
+#: longer with a 400 rather than cutting.
+HANDOVER_LINE_MAX_CHARS: Final = 300
+UNAVAILABLE_MESSAGE_MAX_CHARS: Final = 300
+#: What a caller hears while an agent's line is paused (`override_call_script`). The same
+#: words as `agents.service.CREDIT_STOP_MESSAGE` (`tests/thinnest_sync_test.py` holds them
+#: equal): no reason, no claim about the business, English so the carrier's voice can read it.
+PAUSED_LINE_MESSAGE: Final = "Sorry, we cannot take your call right now. Please try again later."
 #: `costMicro` is integer micro-units: 1,000,000 is one rupee
 #: (snapshots/2026-10-07/pages/api-reference/usage/list-call-log.md:533-540).
 _MICRO_PER_UNIT: Final = Decimal(1_000_000)
 
-# Language values the mirror actually prints: `"auto"` plus "a language the console
-# offers — "Hindi", "English", "Tamil"…" (agents.md:120-123) and "Marathi"
-# (channels/voice.md:198-201). "Telugu" is the console's exact option (FOUNDER-RELAYED console
-# reading, 6 Oct 2026; its "Match the customer" is the API's `auto`). A tag outside this map is
-# sent as `auto` (follow the caller).
+# The agent's `language` is `auto` or one of the 37 English names the console offers
+# (snapshots/2026-10-08/pages/api-reference/agents/create-agent.md:603-614); keyed here by our
+# BCP-47 primary subtag. A tag outside this map is sent as `auto` (follow the caller).
 _AUTO_LANGUAGE: Final = "auto"
 _DOCUMENTED_LANGUAGES: Final[dict[str, str]] = {
-    "hi": "Hindi",
     "en": "English",
-    "ta": "Tamil",
+    "hi": "Hindi",
+    "as": "Assamese",
+    "bn": "Bengali",
+    "brx": "Bodo",
+    "doi": "Dogri",
+    "fr": "French",
+    "de": "German",
+    "gu": "Gujarati",
+    "id": "Indonesian",
+    "it": "Italian",
+    "ja": "Japanese",
+    "kn": "Kannada",
+    "ks": "Kashmiri",
+    "kok": "Konkani",
+    "ko": "Korean",
+    "mai": "Maithili",
+    "ml": "Malayalam",
+    "mni": "Manipuri",
     "mr": "Marathi",
+    "ne": "Nepali",
+    "or": "Odia",
+    "pl": "Polish",
+    "pt": "Portuguese",
+    "pa": "Punjabi",
+    "ru": "Russian",
+    "sa": "Sanskrit",
+    "sat": "Santali",
+    "sd": "Sindhi",
+    "es": "Spanish",
+    "sw": "Swahili",
+    "ta": "Tamil",
     "te": "Telugu",
+    "th": "Thai",
+    "tr": "Turkish",
+    "ur": "Urdu",
+    "vi": "Vietnamese",
 }
 
 # Call `status` and `hangup` vocabularies (get-call.md:134-144). `missed` is refined by the
@@ -213,23 +266,19 @@ _NAME_TAG_RE: Final = re.compile(r" #cv-[0-9a-f]{12}$")
 # request was sent", shared with the owned runtime's dial for the same situation.
 DIAL_PRECONDITION_FAILED: Final = "carrier_dial_precondition_failed"
 
-#: The call id the key-level probe cancels. Not an id the vendor issues (theirs are `out_…`,
-#: `sch_…` or a call reference, snapshots/2026-10-07/pages/api-reference/calls/
-#: get-call.md:7), so it can only ever answer 403 or 404.
-_KEY_PROBE_CALL_ID: Final = "cv-key-scope-probe"
-
 #: Logged when the LLM key slot refuses: no language-model key of ours is installed on this
-#: engine. Only the VOICE key is ours, and only in the Studio workspace (D-687).
+#: engine. Only the VOICE key is ours (D-688).
 LLM_KEY_NOT_INSTALLED: Final = "llm_key_not_installed"
 
-#: `GET /voices` `tier` of the voices sold on this engine, as the Clear rung (D-687). Studio
-#: voices and the account's own clones carry it (snapshots/2026-10-07b/pages/api-reference/
-#: voices/list-voices.md:7, :441-447; channels/voice-clone.md:10-12).
-SOLD_VOICE_TIER: Final = "studio"
+#: `GET /voices` `tier` -> our band word (snapshots/2026-10-07b/pages/api-reference/voices/
+#: list-voices.md:436-442). A row in a band not named here cannot be priced or sold, so it is
+#: not read. Which band is sold is `Settings.thinnest_clear_voice_band`; clones are Studio
+#: (channels/voice-clone.md:10-12).
+_VOICE_BANDS: Final[dict[str, HostedVoiceBand]] = {band: band for band in get_args(HostedVoiceBand)}
 
 # Capability profile. Each line's evidence:
 # * stt/tts/llm `engine`: the engine dictates every leg. Voices and models are chosen from
-#   what it hosts (`GET /voices`, `GET /models`, and in the Studio workspace the voices of
+#   what it hosts (`GET /voices`, `GET /models`, and the voices of
 #   our own voice key, `GET /byok/voices`); `ModelConfig`'s legs never reach it.
 # * `control_plane`: agents are created, read, edited and deleted over REST (agents.md:74-82)
 #   and `GET /agents/{id}` returns `instructions` and `greeting` for the read-back.
@@ -240,8 +289,13 @@ SOLD_VOICE_TIER: Final = "studio"
 #   in their console (voices-and-models.md:85-87; agents.md:167-168).
 # * `caller_id` True: `from` names which of the agent's numbers rings, and a number that is
 #   not the agent's is refused rather than swapped (place-call.md:178-192, :260-263).
-# * `transfer` and `in_call_handoff` False: "The agent cannot put a caller through to a
-#   person" (channels/voice.md:420-424).
+# * `transfer` False: nothing outside a running call can move it to a person.
+#   `in_call_handoff` True: the agent puts a caller through itself to the `handOver` phone
+#   fixed at publish, with `tools.escalate_to_human` on (snapshots/2026-10-08/pages/
+#   channels/voice.md:483-492; api-reference/tools/update-built-in-tools.md:553-637). It
+#   transfers on numbers rented from ThinnestAI and on Plivo or Telnyx numbers; on any other
+#   carrier the platform falls back to a chat hand-over (its team is told, and the agent says
+#   somebody will follow up).
 # * `action_tools` False: a CLIENT's own during-call actions (D-615, `AgentConfig.action_tools`)
 #   are not sent by this adapter. Our platform's in-call tools (opt-out, call-back, call-back
 #   cancel, handoff) ARE vendor custom actions, registered beside the agent by
@@ -261,7 +315,7 @@ THINNEST_CAPABILITIES = EngineCapabilities(
     caller_id=True,
     inbound_binding=False,
     transfer=False,
-    in_call_handoff=False,
+    in_call_handoff=True,
     action_tools=False,
     script_override=True,
     webhook_auth="hmac",
@@ -422,15 +476,99 @@ def _dial_precondition_failed(*, missing: str) -> ProblemError:
     )
 
 
+#: `POST /calls` refusals the vendor documents as "the call was not placed", whatever their
+#: status (snapshots/2026-10-08/pages/api-reference/errors.md:109-134). A 5xx with one of
+#: these codes is therefore a refusal and not "the phone may be ringing".
+# `idempotency_in_progress` is deliberately absent: the first request may have placed it.
+_DIAL_NOT_PLACED_CODES: Final = frozenset(
+    {
+        "opted_out",
+        "do_not_call",
+        "stop_list_unknown",
+        "insufficient_balance",
+        "outside_calling_hours",
+        "number_never_callable",
+        "call_in_progress",
+        "call_already_scheduled",
+        "calling_not_set_up",
+        "carrier_unavailable",
+        "agent_not_found",
+        "agent_ambiguous",
+        "from_number_invalid",
+        "invalid_number",
+        "needs_own_carrier_keys",
+        "key_scope_build",
+        "key_scope_read",
+        "unauthorized",
+    }
+)
+#: Refusals that are OUR configuration at the vendor, not the person or the moment: every
+#: dial fails the same way until an operator acts, so each is alarmed by its code.
+_DIAL_SETUP_CODES: Final = frozenset(
+    {
+        "calling_not_set_up",
+        "agent_not_found",
+        "agent_ambiguous",
+        "from_number_invalid",
+        "needs_own_carrier_keys",
+    }
+)
+
+
+def _dial_refusal(exc: EngineRejectedError) -> ProblemError:
+    """`POST /calls`' refusal in our vocabulary, branching on the vendor's `code` and never
+    on its sentence (errors.md:18-37). A code we do not know keeps the status's generic
+    meaning, which is the ladder's own reading of it."""
+    code = exc.vendor_code
+    if code in ("opted_out", "do_not_call"):
+        # The person, on the workspace's shared list. Whether the entry is this client's is
+        # decided above the adapter (`compliance/platform_dnc.py`).
+        return recipient_opted_out_error()
+    if code in ("key_scope_build", "key_scope_read"):
+        alert(
+            "CORE_LOGIC",
+            "engine_key_cannot_place_calls",
+            detail=f"ThinnestAI refused a dial with {code}: THINNEST_API_KEY is not a full "
+            "key, so every dial is refused; set it to a full-access key",
+        )
+    elif code == "insufficient_balance" or exc.vendor_status == 402:
+        reason = f" ({exc.vendor_reason})" if exc.vendor_reason else ""
+        alert(
+            "CORE_LOGIC",
+            "engine_balance_exhausted",
+            detail=f"ThinnestAI refused a dial because the workspace balance cannot pay for "
+            f"a call{reason}; no call is placed until it is topped up",
+        )
+    elif code in _DIAL_SETUP_CODES or (code == "carrier_unavailable" and exc.vendor_status == 502):
+        alert(
+            "CORE_LOGIC",
+            "engine_dial_setup_refused",
+            detail=f"ThinnestAI refused a dial with {code}: the agent, its number or the "
+            "phone provider is not set up to place this call, so every such dial fails "
+            "until it is fixed",
+        )
+    if code in _DIAL_NOT_PLACED_CODES and not exc.request_refused:
+        return EngineRejectedError(
+            status=exc.vendor_status,
+            vendor_error=exc.vendor_error,
+            refused_statuses=frozenset({exc.vendor_status}),
+            vendor_code=code,
+            vendor_reason=exc.vendor_reason,
+        )
+    return exc
+
+
 def _clone_refusal(exc: EngineRejectedError) -> ProblemError:
     """`POST /voice-clones`' documented refusals in our words (create-voice-clone.md:
     384-460): `400` the recording or a field, `403` the plan, `409` the clone limit."""
     if exc.vendor_status == 403:
         return _business_refusal(
             "voice_clone_not_on_plan",
-            title="Voice cloning is not on the voice platform's plan",
-            detail="The voice platform account's plan does not include cloning.",
-            remediation="Upgrade the voice platform account to Pro or above.",
+            title="Voice cloning needs ThinnestAI Pro",
+            detail="Cloning a voice needs the ThinnestAI Pro plan or above, and this account is "
+            "not on it. Clones are Studio-tier voices, so they can be sold as Clear only while "
+            "Clear is sold on the Studio tier.",
+            remediation="Upgrade the ThinnestAI account to Pro or above, then clone again.",
         )
     if exc.vendor_status == 409:
         return _business_refusal(
@@ -477,6 +615,173 @@ def _key_state(data: dict[str, Any]) -> OwnVoiceKeyState:
     )
 
 
+def _byok_value(on: bool) -> str:
+    """Our "speaks on our own voice key" as the agent's `byok`: `workspace` follows the
+    workspace's voice-only BYOK (our Cartesia key), `off` keeps the agent on ThinnestAI's own
+    voices and models at their normal rate (LIVE-DOCS `docs.thinnest.ai/api-reference/
+    agents/update-agent`, 8 Oct 2026)."""
+    return "workspace" if on else "off"
+
+
+def _tools_not_pinned() -> ProblemError:
+    return _business_refusal(
+        "engine_tools_not_pinned",
+        title="The voice platform did not take this agent's tool settings",
+        detail="The voice platform did not save every one of the agent's built-in tool "
+        "settings, so the agent was not published with tools we did not choose.",
+        remediation="Publish the agent again. If it keeps failing, contact us.",
+    )
+
+
+def _digits(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return "".join(ch for ch in value if ch.isdigit()) or None
+
+
+def _tools_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
+    """Which of `built_in_tools_body`'s settings the vendor does NOT hold, by our names.
+
+    `held` is a `GET`/`PATCH /agents/{id}/tools` answer: `tools` is a list of `{id, enabled}`
+    and `handOver` is `{mode, phone, line}` (update-built-in-tools.md:705-790). A switch the
+    answer does not report is drift, never "probably off": a tool we cannot see is one we
+    cannot vouch for. The phone is compared by its digits, because the vendor stores what it
+    was sent in E.164 and our value already is.
+    """
+    rows = held.get("tools")
+    switches = {
+        row.get("id"): row.get("enabled")
+        for row in (rows if isinstance(rows, list) else [])
+        if isinstance(row, dict)
+    }
+    drifted = [
+        f"tools.{tool}" for tool, on in wanted["tools"].items() if switches.get(tool) is not on
+    ]
+    want, have = wanted["handOver"], held.get("handOver")
+    have = have if isinstance(have, dict) else {}
+    if want["mode"] == "call":
+        # A chat hand-over keeps whatever phone and line were saved before; only a live
+        # transfer depends on them.
+        if have.get("mode") != "call":
+            drifted.append("handOver.mode")
+        if _digits(have.get("phone")) != _digits(want["phone"]):
+            drifted.append("handOver.phone")
+        if (have.get("line") or None) != want["line"]:
+            drifted.append("handOver.line")
+    elif have.get("phone") is not None:
+        drifted.append("handOver.phone")
+    return drifted
+
+
+#: Our setting label (`agents/engine_settings.AGENT_SETTING_LABELS`) -> the agent field that
+#: carries it (`voice.` for a field of the agent's `voice` object, update-agent.md:940-1016).
+_SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
+    "voice": ("voice.voice",),
+    "model": ("model",),
+    "language": ("language",),
+    "call_language": ("voice.language",),
+    "record_calls": ("voice.recordCalls",),
+    "max_call_seconds": ("voice.maxCallSeconds",),
+    "caller_memory": ("voice.pastConversations",),
+    "machine_detection": ("voice.detectMachines",),
+    "call_summaries": ("voice.summariseCalls",),
+    "escalation": ("escalation",),
+    "scheduled_callbacks": ("scheduleCallbacks",),
+    "lead_capture": ("captureLeads",),
+    "collected_fields": ("collectFields",),
+}
+_LANGUAGE_KEYS: Final = frozenset({"language", "voice.language"})
+
+
+def _same_language(wanted: Any, held: Any) -> bool:
+    """A language may come back as its name or its tag (`hi-IN`, update-agent.md:962-970)."""
+    if wanted is None or held is None:
+        return wanted is held
+    if not isinstance(held, str):
+        return False
+    name = _DOCUMENTED_LANGUAGES.get(_subtag(held), held)
+    return str(wanted).lower() in {held.lower(), name.lower()}
+
+
+def _field(body: dict[str, Any], key: str) -> tuple[bool, Any]:
+    """`(present, value)` of `key` in an agent body; `voice.x` reads the voice object."""
+    if key.startswith("voice."):
+        voice = body.get("voice")
+        if not isinstance(voice, dict):
+            return False, None
+        name = key.removeprefix("voice.")
+        return name in voice, voice.get(name)
+    return key in body, body.get(key)
+
+
+def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
+    """The labels whose value in `held` (a `GET /agents/{id}` answer) is not `wanted`'s
+    (an `_agent_body`). A setting `wanted` does not state is not ours to compare, and a
+    voice or model left on the vendor default (`null` sent) comes back as the default's own
+    id, so it is not compared either."""
+    drifted: list[str] = []
+    for label, keys in _SETTING_KEYS.items():
+        for key in keys:
+            stated, want = _field(wanted, key)
+            if not stated or (key in ("voice.voice", "model") and want is None):
+                continue
+            present, have = _field(held, key)
+            if key in _LANGUAGE_KEYS:
+                same = present and _same_language(want, have)
+            elif key == "escalation":
+                same = isinstance(have, dict) and all(
+                    have.get(flag) is value for flag, value in want.items()
+                )
+            elif key == "collectFields":
+                same = isinstance(have, list) and have == want
+            else:
+                same = present and have == want and type(have) is type(want)
+            if not same:
+                drifted.append(label)
+                break
+    return drifted
+
+
+def _charged_inr(call: dict[str, Any]) -> Decimal | None:
+    """What the call cost the workspace in rupees: `costMicro` is integer millionths of
+    `currency` (6370000 is 6.37), null until the call is settled
+    (snapshots/2026-10-08/pages/api-reference/calls/get-call.md:498-523). Divided as
+    `Decimal`, never through a float; a currency other than INR is not converted here."""
+    micro = call.get("costMicro")
+    if not isinstance(micro, int) or isinstance(micro, bool) or micro < 0:
+        return None
+    if call.get("currency") != "INR":
+        return None
+    return Decimal(micro) / _MICRO_PER_UNIT
+
+
+def _handover_destinations(tools: dict[str, Any]) -> tuple[tuple[str, ...], bool]:
+    """The numbers this agent puts callers through to, from `GET /agents/{id}/tools`, and
+    whether the answer could be read. A live transfer needs `escalate_to_human` on AND
+    `handOver.mode` `call` with a phone; anything else transfers nobody
+    (update-built-in-tools.md:705-790; channels/voice.md:483-492)."""
+    rows = tools.get("tools")
+    hand_over = tools.get("handOver")
+    if not isinstance(rows, list) or not isinstance(hand_over, dict):
+        return (), False
+    escalates = any(
+        isinstance(row, dict)
+        and row.get("id") == "escalate_to_human"
+        and row.get("enabled") is True
+        for row in rows
+    )
+    phone = _e164(hand_over.get("phone"))
+    if escalates and hand_over.get("mode") == "call" and phone is not None:
+        return (phone,), True
+    return (), True
+
+
+def _own_voice_key_of(agent: dict[str, Any]) -> bool | None:
+    """An Agent's `byok` read back as ours; None when absent or not a documented value."""
+    value = agent.get("byok")
+    return {"workspace": True, "off": False}.get(value) if isinstance(value, str) else None
+
+
 def _name_tag(cfg: AgentConfig) -> str:
     digest = hashlib.sha256(f"{cfg.tenant_id}:{cfg.agent_id}".encode()).hexdigest()[:12]
     return f"{_NAME_TAG_PREFIX}{digest}"
@@ -494,17 +799,33 @@ def _our_name(vendor_name: str | None) -> str | None:
     return _NAME_TAG_RE.sub("", vendor_name) if vendor_name is not None else None
 
 
-def _language_fields(cfg: AgentConfig) -> dict[str, str | None]:
-    primary = _DOCUMENTED_LANGUAGES.get(cfg.language_primary.split("-")[0].lower())
-    if primary is None:
-        # `secondLanguage` is ignored under `auto` (agents.md:125-128); null clears a stale one.
-        return {"language": _AUTO_LANGUAGE, "secondLanguage": None}
-    extras = [
-        name
-        for tag in cfg.languages_extra
-        if (name := _DOCUMENTED_LANGUAGES.get(tag.split("-")[0].lower())) and name != primary
-    ]
-    return {"language": primary, "secondLanguage": extras[0] if extras else None}
+def _subtag(tag: str) -> str:
+    return tag.split("-")[0].lower()
+
+
+def language_fields(cfg: AgentConfig) -> tuple[str, str | None]:
+    """`(language, voice.language)` for an agent.
+
+    An agent has ONE language: a fixed one is the only language it answers in, and on a call
+    it also tells the speech recogniser what to listen for; `auto` ("Match the customer")
+    works the language out per sentence. "To serve two, leave the agent on Match the
+    customer" — there is no second-language setting, and `secondLanguage` is retired and
+    ignored (snapshots/2026-10-08/pages/channels/voice.md:225-239; agent/behaviour.md:51-60;
+    api-reference/agents/update-agent.md:560-573). `voice.language` takes a language name or
+    null to follow `language`; `auto` there is a 400 (:962-970).
+
+    So a Telugu agent with English as a second language is sent `auto` with the call language
+    following it: a fixed Telugu would refuse English replies and mis-hear English callers.
+    Its opening line is still the Telugu greeting we compose, so the call starts in Telugu.
+    A one-language agent is fixed to that language on both fields, which gives the recogniser
+    the language rather than leaving it to guess. A primary tag outside the console's list
+    is `auto` as well, because no fixed value we could send would be the agent's language.
+    """
+    primary = _DOCUMENTED_LANGUAGES.get(_subtag(cfg.language_primary))
+    others = {_subtag(tag) for tag in cfg.languages_extra} - {_subtag(cfg.language_primary)}
+    if primary is None or others:
+        return _AUTO_LANGUAGE, None
+    return primary, primary
 
 
 class ThinnestEngine:
@@ -521,18 +842,11 @@ class ThinnestEngine:
         base_url: str = BASE_URL,
         client: httpx.AsyncClient | None = None,
         signing_secret_for: SigningSecretResolver | None = None,
-        studio_workspace: Callable[[], str | None] | None = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url
         self._client = client
         self._signing_secret_for = signing_secret_for
-        #: The customer workspace Studio agents live in, read per use because an operator
-        #: sets it in the console while the process runs (`Settings.thinnest_studio_workspace_id`).
-        self._studio_workspace = studio_workspace or (lambda: None)
-        #: Whether this key may place calls, learned once (a key's level never changes,
-        #: `authentication.md:29-31`). None until a 403 makes the question matter.
-        self._key_places_calls: bool | None = None
 
     def holds_credentials(self) -> bool:
         return bool(self._api_key) or self._client is not None
@@ -552,20 +866,12 @@ class ThinnestEngine:
             )
         return self._client
 
-    @staticmethod
-    def _workspace_headers(workspace: str | None, headers: dict[str, str] | None) -> dict[str, str]:
-        merged = dict(headers or {})
-        if workspace:
-            merged[WORKSPACE_HEADER] = workspace
-        return merged
-
     async def _request(
         self,
         method: str,
         path: str,
         *,
         route: str,
-        workspace: str | None = None,
         absent_is_success: bool = False,
         extra_refused_statuses: frozenset[int] = frozenset(),
         headers: dict[str, str] | None = None,
@@ -579,14 +885,9 @@ class ThinnestEngine:
             route=route,
             absent_is_success=absent_is_success,
             extra_refused_statuses=extra_refused_statuses,
-            headers=self._workspace_headers(workspace, headers),
+            headers=headers,
             **kwargs,
         )
-
-    def _workspaces(self) -> tuple[str | None, ...]:
-        """Every workspace our agents live in: ours, and the Studio one when it is set."""
-        studio = self._studio_workspace()
-        return (None, studio) if studio else (None,)
 
     async def _walk(
         self,
@@ -594,7 +895,6 @@ class ThinnestEngine:
         *,
         route: str,
         params: dict[str, Any] | None = None,
-        workspace: str | None = None,
     ) -> tuple[list[dict[str, Any]], ListingIncompleteReason | None, int]:
         """Every row of a cursor-paged list, the reason it is short if it is, and the page
         count. A `nextCursor` of null is the vendor saying there is no further page."""
@@ -606,9 +906,7 @@ class ThinnestEngine:
             query: dict[str, Any] = {**(params or {}), "limit": _LISTING_PAGE_SIZE}
             if cursor is not None:
                 query["cursor"] = cursor
-            payload = await self._request(
-                "GET", path, route=route, params=query, workspace=workspace
-            )
+            payload = await self._request("GET", path, route=route, params=query)
             pages += 1
             rows.extend(_items(payload))
             following = _str(payload.get("nextCursor"))
@@ -632,20 +930,6 @@ class ThinnestEngine:
             require_capability("in_call_handoff", engine=self)
         if cfg.action_tools:
             require_capability("action_tools", engine=self)
-        if cfg.caller_memory_enabled:
-            # The memory slot is per-call data and agent state here is shared by every
-            # caller, so the facts have nowhere to ride; their own cross-channel memory is
-            # switched off (`pastConversations: "fresh"`) because it remembers without the
-            # notice D-507 requires.
-            raise _business_refusal(
-                "engine_caller_memory_unsupported",
-                title="Caller memory is not available on this voice platform",
-                detail=(
-                    "This agent is set to remember its callers, and the voice platform in use "
-                    "cannot be given what it remembers."
-                ),
-                remediation="Switch caller memory off for this agent, then publish again.",
-            )
 
     @staticmethod
     def _within(value: str, limit: int, *, code: str, what: str) -> str:
@@ -689,25 +973,27 @@ class ThinnestEngine:
                     f"{CALL_SECONDS_MAX // 60} minutes, then publish again."
                 ),
             )
-        # agents.md:152-169. `detectMachines` off (plan §2). `summariseCalls` off and
-        # `collectFields` empty: our own extraction pass is the record, and theirs is
-        # billed per call (get-call.md:199-204). `pastConversations: fresh`: see
-        # `_refuse_what_this_engine_cannot_carry`.
+        language, call_language = language_fields(cfg)
+        # snapshots/2026-10-08/pages/api-reference/agents/update-agent.md:940-1016.
+        # `answersCalls` true and `unavailableMessage` null on every publish: a publish is
+        # what lifts a pause (`override_call_script`), so it must switch the line back on.
+        # `detectMachines` off (plan §2). `summariseCalls` off and `collectFields` empty: our
+        # own extraction pass is the record, and theirs is billed per call.
+        # `pastConversations`: `recap` for an agent whose client switched caller memory on
+        # (D-507's notice and gates are on OUR switch, `agents.publishing.set_caller_memory`),
+        # `fresh` otherwise; never the vendor default `quiet`, which uses earlier
+        # conversations without saying so (founder, 8 Oct 2026). Memory is the vendor's and
+        # per agent; our own distillation does not run for this engine.
         voice: dict[str, Any] = {
+            "answersCalls": True,
+            "unavailableMessage": None,
+            "language": call_language,
             "recordCalls": True,
             "maxCallSeconds": seconds,
             "detectMachines": False,
             "summariseCalls": False,
-            "pastConversations": "fresh",
+            "pastConversations": "recap" if cfg.caller_memory_enabled else "fresh",
         }
-        # Ids from `GET /voices` and `GET /models` (voices-and-models.md:9-10; agents.md:105,
-        # :156), checked against the catalogue before publish (`agents/engine_choice.py`).
-        # None sends nothing, so the agent keeps the engine's default. UNVERIFIED: no value is
-        # documented that resets a previously set `voice.voice` or `model` to the default —
-        # the request schema types both as a plain string (snapshots/2026-10-07/pages/
-        # api-reference/agents/update-agent.md:442-450, :731-735); the `null`s at :552-558
-        # and :931-934 are the RESPONSE describing a retired model or an absent voice
-        # channel. So clearing a choice leaves the last one sent in place on their side.
         if cfg.engine_voice_id and cfg.engine_byok_voice_id:
             raise _business_refusal(
                 "engine_voice_choice_conflict",
@@ -716,36 +1002,111 @@ class ThinnestEngine:
                 "voice provider, never both.",
                 remediation="Choose one voice for the agent, then publish again.",
             )
-        # A voice of our own voice key is not set here: it goes to `PUT /agents/{id}/byok-voice`
-        # after the write (`_apply_own_key_voice`).
-        if cfg.engine_voice_id:
-            voice["voice"] = cfg.engine_voice_id
         body: dict[str, Any] = {
             "name": vendor_agent_name(cfg),
             "instructions": instructions,
             "greeting": greeting,
-            **_language_fields(cfg),
+            "language": language,
             "voice": voice,
-            # Stated, not left to the defaults (agents.md:43-45): the vendor's own call-back
-            # would ring the caller from their side, outside our dial gate and our DNC list,
-            # and its escalation promises "a person will follow up" that nobody here
-            # receives. Our call-back and handoff are in-call actions
-            # (`reliability/engine_actions.py`).
+            # Stated, not left to the defaults: the vendor's own call-back would ring the
+            # caller from their side, outside our dial gate and our DNC list, and its lead
+            # capture would collect details our extraction already records. Our call-back is
+            # an in-call action (`reliability/engine_actions.py`). The hand-over to a person
+            # happens only when a destination is on duty (`cfg.handoff`, D-533), and then on
+            # request only; the built-in tools that carry it are pinned separately
+            # (`built_in_tools_body`).
             "scheduleCallbacks": False,
-            "escalation": {"onNoAnswer": False, "onRequest": False},
+            "captureLeads": False,
+            "escalation": {"onNoAnswer": False, "onRequest": cfg.handoff is not None},
             "collectFields": [],
         }
+        # Ids from `GET /voices` and `GET /models`, checked against the catalogue before
+        # publish (`agents/engine_choice.py`). A voice of our own voice key goes to
+        # `PUT /agents/{id}/byok-voice` after the write instead (`_apply_own_key_voice`).
+        if cfg.engine_voice_id:
+            voice["voice"] = cfg.engine_voice_id
         if cfg.engine_model_id:
             body["model"] = cfg.engine_model_id
+        if cfg.engine_own_voice_key is not None:
+            # Always stated, never left to the vendor's `workspace` default: with voice-only
+            # BYOK on in the workspace, an agent that omitted it would speak Cartesia.
+            body["byok"] = _byok_value(cfg.engine_own_voice_key)
+            # A choice that was cleared is sent as `null`, which puts the agent back on the
+            # vendor's default (voice Kavya, model Prana [Voice]) (update-agent.md:536-545,
+            # :951-961). Kavya bills at the Premium band; publish refuses an agent with no
+            # voice chosen (`agents/engine_choice.VOICE_REQUIRED`), so a published agent never
+            # runs on it, and the drift sweep repairs one found there. Not sent while the
+            # workspace runs on all three of its own keys (`engine_own_voice_key` None), where
+            # no per-agent voice or model applies, nor for a voice of our own key.
+            if not cfg.engine_byok_voice_id:
+                voice.setdefault("voice", None)
+            body.setdefault("model", None)
         return body
 
+    @staticmethod
+    def built_in_tools_body(cfg: AgentConfig) -> dict[str, Any]:
+        """`PATCH /agents/{id}/tools` for this agent: every switchable built-in tool stated.
+
+        Off: `call_them_now` (it would dial outside our dial gate and DNC list), the three
+        that message a customer on another channel, `capture_lead` and `schedule_callback`
+        (ours are the extraction pass and the call-back action). `escalate_to_human` is on
+        only when a hand-over destination is on duty (D-533), with `handOver` naming that
+        phone and the line the agent says first; otherwise it is off and `handOver` is
+        cleared, so a number entered in the vendor console cannot receive our callers
+        (snapshots/2026-10-08/pages/api-reference/tools/update-built-in-tools.md:553-637).
+        """
+        handoff = cfg.handoff
+        return {
+            "tools": {
+                "call_them_now": False,
+                "send_sms": False,
+                "send_whatsapp": False,
+                "reply_by_email": False,
+                "capture_lead": False,
+                "schedule_callback": False,
+                "escalate_to_human": handoff is not None,
+            },
+            "handOver": (
+                {
+                    "mode": "call",
+                    "phone": handoff.destination_e164,
+                    "line": ThinnestEngine._within(
+                        handoff.spoken_line.strip(),
+                        HANDOVER_LINE_MAX_CHARS,
+                        code="engine_handover_line_too_long",
+                        what="hand-over line",
+                    )
+                    or None,
+                }
+                if handoff is not None
+                else {"mode": "chat", "phone": None, "line": None}
+            ),
+        }
+
+    async def _apply_built_in_tools(self, ref: EngineAgentRef, cfg: AgentConfig) -> None:
+        """Pin the built-in tools, then read what was saved. The vendor applies a change in
+        order and stops at the first refusal, keeping what came before, so a refusal or a
+        saved state that differs from what was sent is a partial apply: the publish is
+        refused rather than left live with a tool we did not choose."""
+        wanted = self.built_in_tools_body(cfg)
+        try:
+            saved = await self._request(
+                "PATCH", f"/agents/{ref}/tools", route="/agents/{ref}/tools", json=wanted
+            )
+        except EngineRejectedError as exc:
+            if exc.vendor_status != 400:
+                raise
+            raise _tools_not_pinned() from exc
+        drifted = _tools_drift(wanted, saved)
+        if drifted:
+            log.warning("thinnest_tools_not_pinned", extra={"fields": ",".join(drifted)})
+            raise _tools_not_pinned()
+
     async def _find_agent(self, cfg: AgentConfig) -> str | None:
-        """The vendor id of an agent this adapter already made for `cfg` in its workspace,
-        found by its name tag."""
+        """The vendor id of an agent this adapter already made for `cfg`, found by its name
+        tag."""
         tag = _name_tag(cfg)
-        rows, reason, _ = await self._walk(
-            "/agents", route="/agents", workspace=cfg.engine_workspace
-        )
+        rows, reason, _ = await self._walk("/agents", route="/agents")
         for row in rows:
             name = _str(row.get("name"))
             if name is not None and name.endswith(tag):
@@ -773,7 +1134,6 @@ class ThinnestEngine:
                 "PUT",
                 f"/agents/{raw}/byok-voice",
                 route="/agents/{ref}/byok-voice",
-                workspace=cfg.engine_workspace,
                 json={"voice": cfg.engine_byok_voice_id},
                 extra_refused_statuses=frozenset({409}),
             )
@@ -793,46 +1153,52 @@ class ThinnestEngine:
 
     async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef:
         body = self._agent_body(cfg)
-        workspace = cfg.engine_workspace
+        # Built (and so checked) before any write, so a refusal leaves nothing behind.
+        self.built_in_tools_body(cfg)
         raw = await self._find_agent(cfg)
         if raw is not None:
-            await self._request(
-                "PATCH", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace, json=body
-            )
+            await self._request("PATCH", f"/agents/{raw}", route="/agents/{ref}", json=body)
         else:
-            data = await self._request(
-                "POST", "/agents", route="/agents", workspace=workspace, json=body
-            )
+            data = await self._request("POST", "/agents", route="/agents", json=body)
             raw = _str(data.get("id"))
             if raw is None:
                 raise _bad_response("The voice platform did not return an agent id.")
         await self._apply_own_key_voice(raw, cfg)
-        return scoped_handle(raw, workspace)
+        await self._apply_built_in_tools(raw, cfg)
+        return raw
 
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None:
-        raw, workspace = split_handle(ref)
-        if workspace != cfg.engine_workspace:
-            # An agent cannot move between workspaces (evaluation §10 item 2b, VENDOR-STATED):
-            # the publish path re-creates it instead, and reaching here is that path's bug.
-            raise _business_refusal(
-                "engine_agent_workspace_mismatch",
-                title="This agent lives in another part of the voice platform",
-                detail="The agent's voice needs it to run elsewhere on the voice platform, "
-                "and an agent cannot be moved there.",
-                remediation="Publish the agent again. If it keeps failing, contact us.",
-            )
-        await self._request(
-            "PATCH",
-            f"/agents/{raw}",
-            route="/agents/{ref}",
-            workspace=workspace,
-            json=self._agent_body(cfg),
-        )
-        await self._apply_own_key_voice(raw, cfg)
+        body = self._agent_body(cfg)
+        self.built_in_tools_body(cfg)
+        await self._request("PATCH", f"/agents/{ref}", route="/agents/{ref}", json=body)
+        await self._apply_own_key_voice(ref, cfg)
+        await self._apply_built_in_tools(ref, cfg)
 
     async def override_call_script(
         self, ref: EngineAgentRef, *, opening_line: str, system_prompt: str
     ) -> None:
+        """PAUSE the agent's line rather than rewrite what it says: `answersCalls: false`
+        with `voice.unavailableMessage` (snapshots/2026-10-08/pages/api-reference/agents/
+        update-agent.md:940-1016; channels/voice.md:696-725). The agent's greeting and
+        instructions are untouched, and the restoring publish switches the line back on.
+
+        Rewriting the script instead answered every call with a 60-second AI conversation
+        that ThinnestAI billed and nobody paid for. A paused line is not answered: the phone
+        provider's own voice reads one sentence and the call ends, so no AI speaks and
+        nothing is recorded. That is why the message is NOT `opening_line`: the opening
+        carries the AI disclosure and the recording notice, and on a call no agent answers
+        and nothing records, "this call is recorded" would be false. The message is the
+        reasonless sentence the empty-wallet path already speaks (`PAUSED_LINE_MESSAGE`),
+        which is true in both a maintenance window and an empty wallet and gives a caller no
+        reason that would harm our client. It is read on Plivo and Twilio numbers, in
+        English; other carriers decline or give a busy tone, and the vendor plays its own
+        standard sentence where it cannot read ours.
+
+        The greeting and instructions are still replaced with the ones we were handed, as the
+        Protocol requires: nothing speaks them while the line is off, and they keep the agent
+        holding the maintenance words rather than its ordinary ones should any surface reach
+        it before the restoring publish.
+        """
         body: dict[str, Any] = {
             "greeting": self._within(
                 opening_line.strip(),
@@ -846,34 +1212,24 @@ class ThinnestEngine:
                 code="engine_prompt_too_long",
                 what="maintenance script",
             ),
-            # The shortest call the vendor allows (60 s) while the agent can only say it
-            # cannot take the call: every minute here is billed to us by ThinnestAI and to
-            # nobody by us, since a script override runs when a wallet is empty or the
-            # platform is in maintenance. `voice` takes any subset, so the rest of the
-            # agent's call settings are untouched (snapshots/2026-10-07/pages/api-reference/
-            # agents/update-agent.md:725), and the restoring publish sends the agent's own
-            # cap back.
-            "voice": {"maxCallSeconds": CALL_SECONDS_MIN},
+            "voice": {"answersCalls": False, "unavailableMessage": PAUSED_LINE_MESSAGE},
         }
-        raw, workspace = split_handle(ref)
-        await self._request(
-            "PATCH", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace, json=body
-        )
+        await self._request("PATCH", f"/agents/{ref}", route="/agents/{ref}", json=body)
 
     async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
         """`GET /agents/{id}` (agents.md:80), with the agent's documents from its knowledge
         list: documents are agent-scoped here, so that list IS what the agent references."""
-        raw, workspace = split_handle(ref)
-        data = await self._request(
-            "GET", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace
-        )
+        data = await self._request("GET", f"/agents/{ref}", route="/agents/{ref}")
         returned = _str(data.get("id"))
-        if returned is not None and returned != raw:
+        if returned is not None and returned != ref:
             raise _bad_response("The voice platform described a different agent.")
         instructions = data.get("instructions")
         greeting = data.get("greeting")
         # A present-but-null greeting is an agent with none; an absent key is unread.
         greeting_readable = "greeting" in data and (greeting is None or isinstance(greeting, str))
+        destinations, destinations_readable = _handover_destinations(
+            await self._request("GET", f"/agents/{ref}/tools", route="/agents/{ref}/tools")
+        )
         return AgentSnapshot(
             engine_agent_ref=ref,
             name=_our_name(_str(data.get("name"))),
@@ -883,18 +1239,59 @@ class ThinnestEngine:
             greeting_readable=greeting_readable,
             knowledge_base_refs=await self.list_kb(ref),
             knowledge_base_refs_readable=True,
+            engine_own_voice_key=_own_voice_key_of(data),
+            handoff_destinations=destinations,
+            handoff_destinations_readable=destinations_readable,
             engine=self.name,
         )
 
+    async def settings_drift(self, ref: EngineAgentRef, cfg: AgentConfig) -> list[str]:
+        """The call settings `GET /agents/{id}` and `GET /agents/{id}/tools` hold that differ
+        from what a publish of `cfg` sends (`apps/api/agents/engine_settings.py`).
+
+        Not compared: the script and greeting (`verify_publish` scores them), `byok` (the
+        sweep's own-voice-key leg repairs it), and `answersCalls` / `unavailableMessage`,
+        which a pause sets on purpose. A voice or model we leave on the vendor's default is
+        not compared either: the default comes back as its own id, which we do not hold."""
+        agent = await self._request("GET", f"/agents/{ref}", route="/agents/{ref}")
+        tools = await self._request("GET", f"/agents/{ref}/tools", route="/agents/{ref}/tools")
+        drifted = _settings_drift(self._agent_body(cfg), agent)
+        tool_drift = _tools_drift(self.built_in_tools_body(cfg), tools)
+        if any(name.startswith("tools.") for name in tool_drift):
+            drifted.append("built_in_tools")
+        if any(name.startswith("handOver.") for name in tool_drift):
+            drifted.append("hand_over")
+        return drifted
+
+    async def repair_settings(
+        self, ref: EngineAgentRef, cfg: AgentConfig, drifted: Sequence[str]
+    ) -> None:
+        """`PATCH /agents/{id}` with only the drifted settings, and the built-in tools again
+        when they or the hand-over drifted. The script, greeting and line state are not
+        sent, so a repair cannot lift a pause or overwrite an emergency console edit of the
+        script, which is a human's decision (`agents/publishing.engine_drift_for`)."""
+        wanted = self._agent_body(cfg)
+        body: dict[str, Any] = {}
+        voice: dict[str, Any] = {}
+        for label in drifted:
+            for key in _SETTING_KEYS.get(label, ()):
+                if key.startswith("voice."):
+                    field_name = key.removeprefix("voice.")
+                    if field_name in wanted["voice"]:
+                        voice[field_name] = wanted["voice"][field_name]
+                elif key in wanted:
+                    body[key] = wanted[key]
+        if voice:
+            body["voice"] = voice
+        if body:
+            await self._request("PATCH", f"/agents/{ref}", route="/agents/{ref}", json=body)
+        if {"built_in_tools", "hand_over"} & set(drifted):
+            await self._apply_built_in_tools(ref, cfg)
+
     async def delete_agent(self, ref: EngineAgentRef) -> None:
         """`DELETE /agents/{id}`, 204; it takes the agent's knowledge with it (agents.md:82)."""
-        raw, workspace = split_handle(ref)
         await self._request(
-            "DELETE",
-            f"/agents/{raw}",
-            route="/agents/{ref}",
-            workspace=workspace,
-            absent_is_success=True,
+            "DELETE", f"/agents/{ref}", route="/agents/{ref}", absent_is_success=True
         )
 
     # --- calls ---------------------------------------------------------------
@@ -907,11 +1304,8 @@ class ThinnestEngine:
         Read per dial: a cached copy would speak a superseded disclosure after a republish.
         Any failure here is before `POST /calls`, so it is reported as not placed.
         """
-        raw, workspace = split_handle(ref)
         try:
-            data = await self._request(
-                "GET", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace
-            )
+            data = await self._request("GET", f"/agents/{ref}", route="/agents/{ref}")
         except ProblemError as exc:
             raise _dial_precondition_failed(missing="published agent") from exc
         greeting = _str(data.get("greeting"))
@@ -940,11 +1334,10 @@ class ThinnestEngine:
         if len(variables) > CALL_VARIABLES_MAX:
             raise _dial_precondition_failed(missing=f"room for {len(variables)} call variables")
         purpose = await self._outbound_opening(ref)
-        raw_agent, workspace = split_handle(ref)
         body: dict[str, Any] = {
             "to": to,
             "purpose": purpose,
-            "agent": raw_agent,
+            "agent": ref,
             "ifOutsideHours": "refuse",
         }
         if ctx.from_e164:
@@ -969,7 +1362,6 @@ class ThinnestEngine:
                 "POST",
                 "/calls",
                 route="/calls",
-                workspace=workspace,
                 json=body,
                 headers=headers,
                 # Every 409 on this route is a call that was not placed: outside hours, a
@@ -981,56 +1373,16 @@ class ThinnestEngine:
                 extra_refused_statuses=frozenset({402, 409}),
             )
         except EngineRejectedError as exc:
-            if exc.vendor_status == 402:
-                alert(
-                    "CORE_LOGIC",
-                    "engine_balance_exhausted",
-                    detail="ThinnestAI refused a dial because the workspace balance cannot "
-                    "pay for a call; no call is placed until it is topped up",
-                )
-            # 403 is the person (opted out, or on the workspace's do-not-call list) OR a key
-            # that is not a full key (snapshots/2026-10-07/pages/api-reference/calls/
-            # place-call.md:390-410), told apart only by the message, which the ladder does
-            # not hand back. The key is asked once; only a full key's 403 is the person's.
-            if exc.vendor_status == 403 and await self._key_places_calls_probe():
-                raise recipient_opted_out_error() from exc
-            raise
+            refusal = _dial_refusal(exc)
+            if refusal is exc:
+                raise
+            raise refusal from exc
         handle = _str(data.get("id"))
         if handle is None:
             raise _bad_response("The voice platform did not return a call id.")
         if data.get("status") == "scheduled":
             log.warning("thinnest_call_scheduled_not_placed", extra={"engine_call_id": handle})
-        return scoped_handle(handle, workspace)
-
-    async def _key_places_calls_probe(self) -> bool:
-        """May this API key place calls? Answered by cancelling a call id that cannot exist:
-        a key without call rights is refused `403`, a full key is told `404` "no call you
-        placed with that id" (snapshots/2026-10-07/pages/api-reference/calls/
-        cancel-call.md:336-347). Cached once known, since a key's level never changes.
-
-        UNVERIFIED: that the vendor checks the key's level before looking the id up. Any
-        answer other than those two is not cached and reads as "not proven", so a 403 is
-        never taken as the person's on a guess — the dial is refunded instead.
-        """
-        if self._key_places_calls is not None:
-            return self._key_places_calls
-        try:
-            await self._request("DELETE", f"/calls/{_KEY_PROBE_CALL_ID}", route="/calls/{id}")
-        except EngineRejectedError as exc:
-            if exc.vendor_status in (403, 404):
-                self._key_places_calls = exc.vendor_status == 404
-                if not self._key_places_calls:
-                    alert(
-                        "CORE_LOGIC",
-                        "engine_key_cannot_place_calls",
-                        detail="the ThinnestAI API key is not a full key, so every dial "
-                        "is refused; set THINNEST_API_KEY to a full-access key",
-                    )
-                return self._key_places_calls
-            return False
-        except ProblemError:
-            return False
-        return False
+        return handle
 
     async def end_call(self, call_id: str) -> RecallOutcome:
         """`DELETE /calls/{id}`: 200 with `status: cancelled` for a call still waiting, 202 for
@@ -1050,11 +1402,8 @@ class ThinnestEngine:
             current = None
         if current is not None and current.raw_status == "connected":
             return RecallOutcome.ALREADY_RUNNING
-        raw_call, workspace = split_handle(call_id)
         try:
-            report = await self._request(
-                "DELETE", f"/calls/{raw_call}", route="/calls/{id}", workspace=workspace
-            )
+            report = await self._request("DELETE", f"/calls/{call_id}", route="/calls/{id}")
         except EngineRejectedError as exc:
             if exc.vendor_status != 409:
                 raise
@@ -1090,35 +1439,29 @@ class ThinnestEngine:
         raise engine_lacks("numbers", engine=self.name)
 
     async def list_engine_numbers(self) -> Sequence[ProvisionedNumber]:
-        """`GET /phone-numbers` (voices-and-models.md:67-87) in every workspace our agents
-        live in. The number string is the engine's handle for it (it is what `from` takes).
+        """`GET /phone-numbers` (voices-and-models.md:67-87). The number string is the
+        engine's handle for it (it is what `from` takes).
         `rented` is a number we pay ThinnestAI for; `brought` is one on our own carrier
         account. `agent` is the agent answering it, or null while unassigned or lent only for
         calling out (:84-86)."""
         numbers: list[ProvisionedNumber] = []
-        for workspace in self._workspaces():
-            rows, reason, _ = await self._walk(
-                "/phone-numbers", route="/phone-numbers", workspace=workspace
-            )
-            if reason is not None:
-                log.warning("thinnest_number_listing_incomplete", extra={"reason": reason})
-            for row in rows:
-                raw = _str(row.get("number"))
-                e164 = _e164(raw)
-                if raw is None or e164 is None:
-                    continue
-                agent = _str(row.get("agent"))
-                numbers.append(
-                    ProvisionedNumber(
-                        e164=e164,
-                        provider=_str(row.get("provider")),
-                        engine_number_ref=raw,
-                        engine_owned=row.get("source") == "rented",
-                        answering_agent_ref=(
-                            scoped_handle(agent, workspace) if agent is not None else None
-                        ),
-                    )
+        rows, reason, _ = await self._walk("/phone-numbers", route="/phone-numbers")
+        if reason is not None:
+            log.warning("thinnest_number_listing_incomplete", extra={"reason": reason})
+        for row in rows:
+            raw = _str(row.get("number"))
+            e164 = _e164(raw)
+            if raw is None or e164 is None:
+                continue
+            numbers.append(
+                ProvisionedNumber(
+                    e164=e164,
+                    provider=_str(row.get("provider")),
+                    engine_number_ref=raw,
+                    engine_owned=row.get("source") == "rented",
+                    answering_agent_ref=_str(row.get("agent")),
                 )
+            )
         return numbers
 
     async def bind_inbound_number(self, ref: EngineAgentRef, number: ProvisionedNumber) -> None:
@@ -1133,8 +1476,8 @@ class ThinnestEngine:
         """THE LANGUAGE-MODEL KEY SLOT, which this engine never fills. ThinnestAI does take
         our own keys per workspace through its API (`PUT /byok/credentials`,
         snapshots/2026-10-07b/pages/api-reference/bring-your-own-keys.md:149-170), and we use
-        that for the VOICE leg only, in the Studio workspace (`install_own_voice_key`, D-687):
-        a voice-only workspace runs on their speech-to-text and their model (:13-17). No
+        that for the VOICE leg only (`install_own_voice_key`, D-688): a voice-only workspace
+        runs on their speech-to-text and their model (:13-17). No
         language-model key of ours is installed, so this refuses on the LLM capability."""
         log.warning(LLM_KEY_NOT_INSTALLED, extra={"engine": self.name, "provider": provider})
         raise engine_lacks("llm", engine=self.name)
@@ -1149,9 +1492,8 @@ class ThinnestEngine:
     async def _post_knowledge(self, ref: EngineAgentRef, title: str, text: str) -> str:
         data = await self._request(
             "POST",
-            f"/agents/{split_handle(ref)[0]}/knowledge",
+            f"/agents/{ref}/knowledge",
             route="/agents/{ref}/knowledge",
-            workspace=split_handle(ref)[1],
             json={"title": title, "text": text},
         )
         handle = _str(data.get("id"))
@@ -1223,9 +1565,8 @@ class ThinnestEngine:
             try:
                 await self._request(
                     "DELETE",
-                    f"/agents/{split_handle(ref)[0]}/knowledge/{handle}",
+                    f"/agents/{ref}/knowledge/{handle}",
                     route="/agents/{ref}/knowledge/{kb}",
-                    workspace=split_handle(ref)[1],
                     absent_is_success=True,
                 )
             except Exception as exc:
@@ -1249,9 +1590,8 @@ class ThinnestEngine:
             try:
                 await self._request(
                     "DELETE",
-                    f"/agents/{split_handle(ref)[0]}/knowledge/{handle}",
+                    f"/agents/{ref}/knowledge/{handle}",
                     route="/agents/{ref}/knowledge/{kb}",
-                    workspace=split_handle(ref)[1],
                 )
             except EngineRejectedError as exc:
                 if exc.vendor_status != 404:
@@ -1269,9 +1609,8 @@ class ThinnestEngine:
             raise absent
 
     async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]:
-        raw, workspace = split_handle(ref)
         rows, reason, _ = await self._walk(
-            f"/agents/{raw}/knowledge", route="/agents/{ref}/knowledge", workspace=workspace
+            f"/agents/{ref}/knowledge", route="/agents/{ref}/knowledge"
         )
         if reason is not None:
             raise ProblemError(
@@ -1287,25 +1626,18 @@ class ThinnestEngine:
         """The union over the account's agents: knowledge here is agent-scoped, so there is
         no account-level list to ask. A failure on one agent makes the answer incomplete."""
         objects: list[AccountKBObject] = []
-        reason: ListingIncompleteReason | None = None
-        pages = 0
-        for workspace in self._workspaces():
-            agents, listed, walked = await self._walk(
-                "/agents", route="/agents", workspace=workspace
-            )
-            reason = reason or listed
-            pages += walked
-            for row in agents:
-                raw = _str(row.get("id"))
-                if raw is None:
-                    continue
-                try:
-                    handles = await self.list_kb(scoped_handle(raw, workspace))
-                except ProblemError:
-                    reason = reason or "partial_fan_out"
-                    continue
-                pages += 1
-                objects.extend(AccountKBObject(handle=handle, state="ready") for handle in handles)
+        agents, reason, pages = await self._walk("/agents", route="/agents")
+        for row in agents:
+            raw = _str(row.get("id"))
+            if raw is None:
+                continue
+            try:
+                handles = await self.list_kb(raw)
+            except ProblemError:
+                reason = reason or "partial_fan_out"
+                continue
+            pages += 1
+            objects.extend(AccountKBObject(handle=handle, state="ready") for handle in handles)
         return AccountKBListing(
             objects=objects,
             complete=reason is None,
@@ -1314,8 +1646,8 @@ class ThinnestEngine:
         )
 
     # --- voices --------------------------------------------------------------
-    # The voices this engine speaks are its own (`GET /voices`), and in the Studio workspace
-    # the voices of the voice key we installed there (`GET /byok/voices`). Which of them a
+    # The voices this engine speaks are its own (`GET /voices`), and the voices of the voice
+    # key we installed (`GET /byok/voices`). Which of them a
     # client may choose is an operator's decision, kept in `platform_voice_catalog` and
     # synced by `agents/hosted_voices.py`; nothing here decides it.
 
@@ -1324,11 +1656,12 @@ class ThinnestEngine:
         raise engine_lacks("tts", engine=self.name)
 
     async def list_hosted_voices(self) -> HostedVoiceListing:
-        """`GET /voices` in our own workspace, keeping only the band we sell (`tier:
-        studio`). Not paged; Studio voices and our clones (`mine: true`) are listed on the Pro
-        plan and above, and "every voice speaks every supported language"
-        (snapshots/2026-10-07b/pages/api-reference/voices/list-voices.md:7, :346-347,
-        :417-451)."""
+        """`GET /voices` in our own workspace: every voice, with its price band. Not paged;
+        Studio voices and our clones (`mine: true`) are listed on the Pro plan and above only,
+        so a lower plan answers standard and premium voices and no Studio ones; "every voice
+        speaks every supported language" (snapshots/2026-10-07b/pages/api-reference/voices/
+        list-voices.md:7, :346-347, :417-451). Which band may be sold is the caller's
+        decision (`agents/hosted_voices.py`)."""
         data = await self._request("GET", "/voices", route="/voices")
         voices = [
             HostedVoice(
@@ -1338,20 +1671,21 @@ class ThinnestEngine:
                 is_custom=row.get("mine") is True,
                 language=_str(row.get("accent")),
                 description=_str(row.get("description")),
+                band=band,
             )
             for row in _items(data)
             if (voice_id := _str(row.get("id")))
             and (label := _str(row.get("name")))
-            and row.get("tier") == SOLD_VOICE_TIER
+            and (band := _VOICE_BANDS.get(str(row.get("tier")))) is not None
         ]
         return HostedVoiceListing(voices=voices)
 
-    async def list_own_key_voices(self, *, workspace: str) -> HostedVoiceListing:
-        """`GET /byok/voices` inside `workspace`: the voices our installed voice key reaches,
-        with the provider's own sample when it hosts one. `409` when the workspace is not on
-        its own keys (snapshots/2026-10-07b/pages/api-reference/bring-your-own-keys/
+    async def list_own_key_voices(self) -> HostedVoiceListing:
+        """`GET /byok/voices`: the voices our installed voice key reaches, with the
+        provider's own sample when it hosts one. `409` when the workspace is not on its own
+        keys (snapshots/2026-10-07b/pages/api-reference/bring-your-own-keys/
         list-byok-voices.md:7, :344-379, :452-485)."""
-        data = await self._request("GET", "/byok/voices", route="/byok/voices", workspace=workspace)
+        data = await self._request("GET", "/byok/voices", route="/byok/voices")
         provider = data.get("provider")
         voices = [
             HostedVoice(
@@ -1370,7 +1704,7 @@ class ThinnestEngine:
         )
 
     async def preview_own_key_voice(
-        self, *, workspace: str, voice_id: str, text: str | None, language: str | None
+        self, *, voice_id: str, text: str | None, language: str | None
     ) -> PreviewAudio:
         """`POST /byok/voices/preview`: one spoken line as audio, charged by the provider per
         character, so `text` is capped at 200 (snapshots/2026-10-07b/pages/api-reference/
@@ -1392,7 +1726,6 @@ class ThinnestEngine:
             engine=self.name,
             route="/byok/voices/preview",
             json=body,
-            headers=self._workspace_headers(workspace, None),
         )
         return PreviewAudio(data=audio, content_type=content_type)
 
@@ -1413,7 +1746,7 @@ class ThinnestEngine:
         )
 
     async def create_voice_clone(self, sample: VoiceCloneSample) -> VoiceClone:
-        """`POST /voice-clones`, multipart, in our own workspace (Clear agents live there).
+        """`POST /voice-clones`, multipart, in our own workspace.
         Both consents are sent as the string `"true"`, the only value the vendor accepts;
         without them nothing is stored (snapshots/2026-10-07b/pages/api-reference/
         voice-clones/create-voice-clone.md:7, :341-349, :530-588). `403` is the plan, `409`
@@ -1484,26 +1817,28 @@ class ThinnestEngine:
         moved = data.get("movedAgents")
         return moved if isinstance(moved, int) and not isinstance(moved, bool) else 0
 
-    # --- own keys (BYOK) and workspaces ---------------------------------------
+    # --- own keys (BYOK) -----------------------------------------------------
 
     async def own_keys_in_use(self) -> bool:
-        """`GET /byok` in our own workspace: do calls there run on our own keys? `using` is
-        `own`, `developer` (a customer on its developer's keys) or `none`
-        (snapshots/2026-10-07/pages/api-reference/bring-your-own-keys/get-byok-status.md:
-        247-350). A body without a readable `using` is refused rather than read as "no",
-        because the answer decides which rate a publish stamps."""
-        return (await self.own_key_state(workspace=None)).using != "none"
+        """`GET /byok`: do calls run on ALL THREE of our own keys? `using` is `own`,
+        `developer` (a customer on its developer's keys) or `none`, and `scope` is `all` or
+        `voice` (snapshots/2026-10-07b/pages/api-reference/bring-your-own-keys.md:115-147).
+        Voice-only is not this: it is how the Studio rung is sold, per agent (D-688). A body
+        without a readable `using` is refused rather than read as "no", because the answer
+        decides which rate a publish stamps."""
+        state = await self.own_key_state()
+        return state.using != "none" and state.scope == "all"
 
-    async def own_key_state(self, *, workspace: str | None) -> OwnVoiceKeyState:
-        """`GET /byok` in `workspace` (snapshots/2026-10-07b/pages/api-reference/
+    async def own_key_state(self) -> OwnVoiceKeyState:
+        """`GET /byok` (snapshots/2026-10-07b/pages/api-reference/
         bring-your-own-keys.md:115-147)."""
-        data = await self._request("GET", "/byok", route="/byok", workspace=workspace)
+        data = await self._request("GET", "/byok", route="/byok")
         return _key_state(data)
 
     async def install_own_voice_key(
-        self, *, workspace: str, provider: str, api_key: str, model: str | None
+        self, *, provider: str, api_key: str, model: str | None
     ) -> None:
-        """`PUT /byok/credentials` with `kind: tts` inside `workspace`. The provider checks
+        """`PUT /byok/credentials` with `kind: tts`. The provider checks
         the key before it is stored; `400` is a key or model it rejected, `502` a provider it
         could not reach (bring-your-own-keys.md:149-170). The key is never logged."""
         credentials: dict[str, str] = {"apiKey": api_key}
@@ -1514,7 +1849,6 @@ class ThinnestEngine:
                 "PUT",
                 "/byok/credentials",
                 route="/byok/credentials",
-                workspace=workspace,
                 json={"kind": "tts", "provider": provider, "credentials": credentials},
             )
         except EngineRejectedError as exc:
@@ -1528,16 +1862,15 @@ class ThinnestEngine:
                 remediation="Check the voice provider key and model, then try again.",
             ) from exc
 
-    async def enable_own_voice_key(self, *, workspace: str) -> OwnVoiceKeyState:
-        """`PATCH /byok {enabled: true, scope: "voice"}` inside `workspace`, then the state
-        as read back. `409` until the voice key is added, checked and has a model
+    async def enable_own_voice_key(self) -> OwnVoiceKeyState:
+        """`PATCH /byok {enabled: true, scope: "voice"}`, then the state as read back. `409`
+        until the voice key is added, checked and has a model
         (bring-your-own-keys.md:186-198)."""
         try:
             await self._request(
                 "PATCH",
                 "/byok",
                 route="/byok",
-                workspace=workspace,
                 json={"enabled": True, "scope": "voice"},
                 extra_refused_statuses=frozenset({409}),
             )
@@ -1551,45 +1884,31 @@ class ThinnestEngine:
                 "added, checked and has a model.",
                 remediation="Install the voice key first, then switch it on.",
             ) from exc
-        return await self.own_key_state(workspace=workspace)
+        return await self.own_key_state()
 
-    async def create_workspace(self, *, name: str, external_id: str) -> str:
-        """`POST /customers` from our own workspace, idempotent twice over: the
-        `Idempotency-Key` returns the same customer on a retry, and a `409` on `externalId`
-        (one we made earlier) is answered by finding it (customers.md:18-66, :93-102)."""
-        try:
-            data = await self._request(
-                "POST",
-                "/customers",
-                route="/customers",
-                json={"name": name, "externalId": external_id},
-                headers={IDEMPOTENCY_HEADER: f"calevate-workspace-{external_id}"},
-                extra_refused_statuses=frozenset({402, 409}),
-            )
-        except EngineRejectedError as exc:
-            if exc.vendor_status == 402:
-                raise _business_refusal(
-                    "engine_workspace_limit_reached",
-                    title="The voice platform's plan allows no more workspaces",
-                    detail="The voice platform account has reached its plan's customer limit.",
-                    remediation="Raise the limit with the voice platform, then try again.",
-                ) from exc
-            if exc.vendor_status != 409:
-                raise
-            rows, _, _ = await self._walk(
-                "/customers", route="/customers", params={"externalId": external_id}
-            )
-            found = next((ref for row in rows if (ref := _str(row.get("id")))), None)
-            if found is None:
-                raise
-            return found
-        workspace = _str(data.get("id"))
-        if workspace is None:
-            raise _bad_response("The voice platform did not return a workspace id.")
-        return workspace
+    async def disable_own_voice_key(self) -> OwnVoiceKeyState:
+        """`PATCH /byok {enabled: false}`, then the state as read back. Every agent on
+        `byok: workspace` returns to the platform's own voices at their next call
+        (bring-your-own-keys.md:186-198)."""
+        await self._request("PATCH", "/byok", route="/byok", json={"enabled": False})
+        return await self.own_key_state()
+
+    async def agent_own_voice_key(self, ref: EngineAgentRef) -> bool | None:
+        """The agent's `byok` as `GET /agents/{id}` holds it, as ours; None when unreported."""
+        return _own_voice_key_of(
+            await self._request("GET", f"/agents/{ref}", route="/agents/{ref}")
+        )
+
+    async def set_agent_own_voice_key(self, ref: EngineAgentRef, *, on: bool) -> None:
+        """`PATCH /agents/{id} {byok}` alone, leaving every other field as it is. The vendor
+        reads it once when a call starts, so a ringing call keeps the old value (evaluation
+        §12 item 1)."""
+        await self._request(
+            "PATCH", f"/agents/{ref}", route="/agents/{ref}", json={"byok": _byok_value(on)}
+        )
 
     async def list_call_charges(self, *, since: date) -> EngineChargeListing:
-        """`GET /usage/calls?from=` in every workspace our agents live in — the billing view:
+        """`GET /usage/calls?from=` — the billing view:
         what each call was charged, as `costMicro` (integer micro-units of `currency`, null
         when nothing was charged) (snapshots/2026-10-07/pages/api-reference/usage/
         list-call-log.md:247-300, :456-459, :533-547). `from` is a date in the workspace's
@@ -1598,42 +1917,33 @@ class ThinnestEngine:
         """
         charges: list[EngineCharge] = []
         other_currency = 0
-        complete = True
-        for workspace in self._workspaces():
-            rows, reason, _pages = await self._walk(
-                "/usage/calls",
-                route="/usage/calls",
-                params={"from": since.isoformat()},
-                workspace=workspace,
+        rows, reason, _pages = await self._walk(
+            "/usage/calls", route="/usage/calls", params={"from": since.isoformat()}
+        )
+        for row in rows:
+            call_id = _str(row.get("id"))
+            if call_id is None:
+                continue
+            if (_str(row.get("currency")) or "INR") != "INR":
+                other_currency += 1
+                continue
+            micro = row.get("costMicro")
+            charged = (
+                Decimal(micro) / _MICRO_PER_UNIT
+                if isinstance(micro, int) and not isinstance(micro, bool)
+                else None
             )
-            complete = complete and reason is None
-            for row in rows:
-                call_id = _str(row.get("id"))
-                if call_id is None:
-                    continue
-                if (_str(row.get("currency")) or "INR") != "INR":
-                    other_currency += 1
-                    continue
-                micro = row.get("costMicro")
-                charged = (
-                    Decimal(micro) / _MICRO_PER_UNIT
-                    if isinstance(micro, int) and not isinstance(micro, bool)
-                    else None
+            agent = row.get("agent")
+            charges.append(
+                EngineCharge(
+                    engine_call_id=call_id,
+                    engine_agent_ref=_str(agent.get("id")) if isinstance(agent, dict) else None,
+                    charged_inr=charged,
                 )
-                agent = row.get("agent")
-                agent_id = _str(agent.get("id")) if isinstance(agent, dict) else None
-                charges.append(
-                    EngineCharge(
-                        engine_call_id=scoped_handle(call_id, workspace),
-                        engine_agent_ref=(
-                            scoped_handle(agent_id, workspace) if agent_id is not None else None
-                        ),
-                        charged_inr=charged,
-                    )
-                )
+            )
         return EngineChargeListing(
             charges=charges,
-            complete=complete and other_currency == 0,
+            complete=reason is None and other_currency == 0,
             other_currency=other_currency,
         )
 
@@ -1659,11 +1969,8 @@ class ThinnestEngine:
 
     # --- reading the truth ---------------------------------------------------
 
-    def _snapshot(
-        self, payload: dict[str, Any], *, fallback_id: str = "", workspace: str | None = None
-    ) -> ExecutionSnapshot:
-        """A call object (get-call.md:14-47, :110-197) as our snapshot, its call and agent ids
-        scoped to the workspace it was read in.
+    def _snapshot(self, payload: dict[str, Any], *, fallback_id: str = "") -> ExecutionSnapshot:
+        """A call object (get-call.md:14-47, :110-197) as our snapshot.
 
         `billable_ready` waits for `analysedAt` (results final, get-call.md:190-193) and NOT for
         the recording: an inbound call's only copy of its transcript is the `call.analysed`
@@ -1690,14 +1997,13 @@ class ThinnestEngine:
             duration_s = int(seconds)
         if duration_s is None and started is not None and ended is not None:
             duration_s = max(int((ended - started).total_seconds()), 0)
-        call_id = scoped_handle(call_id, workspace) if call_id else call_id
         turns, unparsed = parse_transcript(payload.get("transcript"), call_id)
         fields = payload.get("fields")
         analysed = payload.get("analysedAt") is not None or hangup == "not_placed"
         agent = _agent_ref_of(payload)
         return ExecutionSnapshot(
             engine_call_id=call_id,
-            engine_agent_ref=scoped_handle(agent, workspace) if agent is not None else None,
+            engine_agent_ref=agent,
             direction=direction,
             status=_our_status(raw_status, hangup),
             raw_status=raw_status or "unknown",
@@ -1715,6 +2021,7 @@ class ThinnestEngine:
             transcript=turns,
             transcript_lines_unparsed=unparsed,
             cost=None,
+            engine_charged_inr=_charged_inr(payload),
             engine_extracted=fields if isinstance(fields, dict) else {},
             engine=self.name,
         )
@@ -1724,11 +2031,8 @@ class ThinnestEngine:
         list hands out, inbound calls included (snapshots/2026-10-07/pages/api-reference/
         calls/get-call.md:7); the first docs said it answered 404 for calls the API did not
         place, and `workers/engine_delivery` keeps its fallbacks for when it does."""
-        raw, workspace = split_handle(call_id)
-        payload = await self._request(
-            "GET", f"/calls/{raw}", route="/calls/{id}", workspace=workspace
-        )
-        return self._snapshot(payload, fallback_id=raw, workspace=workspace).model_copy(
+        payload = await self._request("GET", f"/calls/{call_id}", route="/calls/{id}")
+        return self._snapshot(payload, fallback_id=call_id).model_copy(
             update={"raw_document": engine_document(payload, engine=self.name)}
         )
 
@@ -1749,7 +2053,7 @@ class ThinnestEngine:
         if snapshot.recording_url is None and snapshot.raw_status != "completed":
             return None
         host = (urlsplit(self._base_url).hostname or "").lower()
-        raw, workspace = split_handle(snapshot.engine_call_id)
+        raw = snapshot.engine_call_id
         return EngineRecordingSource(
             url=f"{self._base_url.rstrip('/')}/calls/{quote(raw, safe='')}/recording",
             rules=RecordingFetchRules(
@@ -1758,25 +2062,19 @@ class ThinnestEngine:
                 not_ready_status=404,
                 gone_status=410,
             ),
-            auth_headers=self._workspace_headers(
-                workspace, {AUTH_HEADER: f"{AUTH_SCHEME} {self._api_key}"}
-            ),
+            auth_headers={AUTH_HEADER: f"{AUTH_SCHEME} {self._api_key}"},
             auth_hosts=frozenset({host}),
         )
 
-    def snapshot_from_delivery(
-        self, payload: dict[str, Any], *, workspace: str | None = None
-    ) -> ExecutionSnapshot:
+    def snapshot_from_delivery(self, payload: dict[str, Any]) -> ExecutionSnapshot:
         """The snapshot a VERIFIED `call.analysed` delivery carries: "exactly the object
         above" (get-call.md:56-65), the only source of an inbound call's transcript and
-        recording. Call it after `verify_webhook` has passed, never before. `workspace` is the
-        one the delivering endpoint lives in, which the receiver knows from the agent handle
-        its url names; without it, the body's own `workspaceId` is read (`_delivery_workspace`)."""
+        recording. Call it after `verify_webhook` has passed, never before."""
         data = payload.get("data")
         call = data if isinstance(data, dict) else {}
-        return self._snapshot(
-            call, workspace=workspace or self._delivery_workspace(call)
-        ).model_copy(update={"raw_document": engine_document(call, engine=self.name)})
+        return self._snapshot(call).model_copy(
+            update={"raw_document": engine_document(call, engine=self.name)}
+        )
 
     async def list_executions(self, *, since: datetime) -> ExecutionListing:
         """`GET /calls?since=` with the cursor (list-calls.md:56-61). `since` filters on
@@ -1790,19 +2088,13 @@ class ThinnestEngine:
         snapshots: list[ExecutionSnapshot] = []
         seen: set[str] = set()
         reason: ListingIncompleteReason | None = None
-        pages = 0
-        for workspace in self._workspaces():
-            rows, listed, walked = await self._walk(
-                "/calls", route="/calls", params={"since": instant}, workspace=workspace
-            )
-            reason = reason or listed
-            pages += walked
-            for row in rows:
-                snapshot = self._snapshot(row, workspace=workspace)
-                if not snapshot.engine_call_id or snapshot.engine_call_id in seen:
-                    continue
-                seen.add(snapshot.engine_call_id)
-                snapshots.append(snapshot)
+        rows, reason, pages = await self._walk("/calls", route="/calls", params={"since": instant})
+        for row in rows:
+            snapshot = self._snapshot(row)
+            if not snapshot.engine_call_id or snapshot.engine_call_id in seen:
+                continue
+            seen.add(snapshot.engine_call_id)
+            snapshots.append(snapshot)
         if reason is not None:
             return ExecutionListing(
                 snapshots=snapshots, complete=False, incomplete_reason=reason, pages_fetched=pages
@@ -1811,30 +2103,21 @@ class ThinnestEngine:
 
     # --- webhooks ------------------------------------------------------------
 
-    def _delivery_workspace(self, call: dict[str, Any]) -> str | None:
-        """The Studio workspace when a delivery names it in `data.workspaceId`, else None.
-
-        `workspaceId` is documented on deliveries to an `includeCustomers` endpoint
-        (snapshots/2026-10-07b/pages/api-reference/webhooks.md:62-66); whether a per-agent
-        endpoint inside a customer carries it is UNKNOWN, which is why voice-runtime scopes a
-        delivery from the agent handle in its url and passes it in instead. Only a workspace
-        our agents live in is honoured; any other value is read as our own."""
-        named = _str(call.get("workspaceId"))
-        return named if named is not None and named in self._workspaces() else None
-
     def verify_webhook(
         self, headers: dict[str, str], body: bytes, source_ip: str
     ) -> WebhookVerdict:
-        """HMAC-SHA256 of the raw body under the agent's own endpoint secret.
+        """`x-thinnest-signature-v2`: HMAC-SHA256 of `<delivered-at>.<raw body>` under the
+        agent's own endpoint secret, and the delivery time within five minutes of our clock
+        (`snapshots/2026-10-08/pages/api-reference/webhooks.md:100-147`). The v1 header,
+        which signs no time, is not accepted; `apps/voice-runtime/signed_intake.py` argues it.
 
         The agent named in the body only selects WHICH secret to check against; a sender
-        naming another agent still needs that agent's secret. There is no timestamp in the
-        scheme (webhooks.md:36-39), so replay protection is the inbox's dedupe.
+        naming another agent still needs that agent's secret.
         """
-        signature = next(
-            (value for key, value in headers.items() if key.lower() == SIGNATURE_HEADER), None
-        )
-        if not signature:
+        lowered = {key.lower(): value for key, value in headers.items()}
+        signature = lowered.get(SIGNATURE_HEADER)
+        delivered_at = lowered.get(DELIVERED_AT_HEADER)
+        if not signature or not delivered_at:
             return WebhookVerdict(ok=False, method="hmac", reason="signature_missing")
         try:
             payload = json.loads(body)
@@ -1842,18 +2125,20 @@ class ThinnestEngine:
             return WebhookVerdict(ok=False, method="hmac", reason="body_unreadable")
         data = payload.get("data") if isinstance(payload, dict) else None
         agent = _agent_ref_of(data) if isinstance(data, dict) else None
-        ref = (
-            scoped_handle(agent, self._delivery_workspace(data))
-            if agent is not None and isinstance(data, dict)
-            else None
-        )
+        ref = agent
         if ref is None:
             return WebhookVerdict(ok=False, method="hmac", reason="agent_unidentified")
         secret = self._signing_secret_for(ref) if self._signing_secret_for else None
         if secret is None:
             return WebhookVerdict(ok=False, method="hmac", reason="signing_secret_unavailable")
-        if not sha256_signature_matches(body, signature, secret):
+        if not timestamped_sha256_signature_matches(
+            body, signature, secret, signed_at=delivered_at
+        ):
             return WebhookVerdict(ok=False, method="hmac", reason="signature_mismatch")
+        if not signed_time_is_fresh(
+            delivered_at, now=datetime.now(UTC), tolerance=DELIVERY_TOLERANCE
+        ):
+            return WebhookVerdict(ok=False, method="hmac", reason="delivery_stale")
         return WebhookVerdict(ok=True, method="hmac")
 
     def parse_webhook(self, payload: dict[str, Any]) -> CallEvent:
@@ -1872,12 +2157,9 @@ class ThinnestEngine:
         ours = _e164(call.get("from"))
         recording = call.get("recording")
         recording_url = _str(recording.get("url")) if isinstance(recording, dict) else None
-        workspace = self._delivery_workspace(call)
-        call_id = _str(call.get("id"))
-        agent = _agent_ref_of(call)
         return CallEvent(
-            call_id=scoped_handle(call_id, workspace) if call_id is not None else "",
-            engine_agent_ref=scoped_handle(agent, workspace) if agent is not None else None,
+            call_id=_str(call.get("id")) or "",
+            engine_agent_ref=_agent_ref_of(call),
             direction=direction,
             status=_our_status(raw_status, hangup),
             raw_status=raw_status or "unknown",
@@ -1889,14 +2171,49 @@ class ThinnestEngine:
             engine=self.name,
         )
 
+    def parse_notice(self, payload: dict[str, Any]) -> EngineNotice | None:
+        """A VERIFIED `lead.captured` or `conversation.escalated` delivery as our notice, or
+        None for any other event (`{id, event, sentAt, data}`, snapshots/2026-10-08/pages/
+        api-reference/webhooks.md:70-99). Call it after `verify_webhook` has passed.
+
+        UNVERIFIED: the mirror prints these two bodies as `data: { … }`. The agent is read
+        the way a call object carries it (`agent: {id}`, or `agentId`), and the call from
+        `callId`, the field `contact.opted_out` documents (:85); either may be absent, and
+        a chat escalation has no call. Nothing else in `data` is read: the lead's name and
+        number are the caller's personal data and our extraction pass is the record.
+        """
+        kind = _NOTICE_KINDS.get(str(payload.get("event")))
+        notice_id = _str(payload.get("id"))
+        if kind is None or notice_id is None:
+            return None
+        data = payload.get("data")
+        body: dict[str, Any] = data if isinstance(data, dict) else {}
+        return EngineNotice(
+            kind=kind,
+            notice_id=notice_id,
+            engine_agent_ref=_agent_ref_of(body) or _str(body.get("agentId")),
+            engine_call_id=_str(body.get("callId")),
+            occurred_at=_parse_dt(payload.get("sentAt")),
+            engine=self.name,
+        )
+
+
+#: The vendor events that become an `EngineNotice` (webhooks.md:79-80).
+_NOTICE_KINDS: Final[dict[str, EngineNoticeKind]] = {
+    "lead.captured": "lead_captured",
+    "conversation.escalated": "conversation_escalated",
+}
+#: Every event a ThinnestAI endpoint of ours should be subscribed to for the notices above.
+NOTICE_EVENTS: Final = tuple(_NOTICE_KINDS)
+
 
 __all__ = [
     "BASE_URL",
     "LLM_KEY_NOT_INSTALLED",
+    "NOTICE_EVENTS",
+    "PAUSED_LINE_MESSAGE",
     "SIGNATURE_HEADER",
-    "SOLD_VOICE_TIER",
     "THINNEST_CAPABILITIES",
-    "WORKSPACE_HEADER",
     "SigningSecretResolver",
     "ThinnestEngine",
     "parse_transcript",

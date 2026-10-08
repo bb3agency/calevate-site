@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from dataclasses import asdict
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -78,8 +79,15 @@ from apps.api.billing.number_rental import (
     today_ist,
 )
 from apps.api.billing.service import current_billing_month
+from apps.api.campaigns.engine_numbers import (
+    alarm_lapsed_business_details,
+    engine_number_provider,
+    read_business_details,
+    reconcile_engine_number_attachments,
+)
 from apps.api.campaigns.provisioning import number_provisioning_capability
 from apps.api.core.alerting import alert
+from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import admin_session, tenant_session
@@ -92,7 +100,11 @@ log = get_logger(__name__)
 #: Read inside a `tenant_session`, so the policy answers it rather than being worked around.
 _LIVE_BOUGHT = (
     "SELECT id, provider, monthly_rental_usd, engine_number_ref "
-    "FROM phone_numbers WHERE engine_owned AND released_at IS NULL ORDER BY created_at, id"
+    "FROM phone_numbers WHERE engine_owned AND released_at IS NULL "
+    # A number rented in ThinnestAI's console carries no USD quote: that vendor charges its
+    # rental from the workspace balance (`campaigns/engine_numbers.py`). Metering it here
+    # would alarm `number_rental_price_missing` every month for a cost this meter cannot read.
+    "AND provider IS DISTINCT FROM 'thinnest' ORDER BY created_at, id"
 )
 
 #: The directory, and the only statement in this module that runs as the admin role.
@@ -204,10 +216,17 @@ async def reconcile_engine_numbers(ctx: dict[str, Any]) -> str:
     records missing from the vendor's page is reported at a lower confidence, in the same
     line, saying so.
 
+    ON AN ENGINE WHOSE NUMBERS ARE RENTED IN ITS OWN CONSOLE (ThinnestAI, D-691) the job is
+    `engine_numbers.reconcile_engine_number_attachments` instead: every number either side
+    holds, both ways, with each attachment put back to our binding, and the workspace's
+    business-details application checked.
+
     SKIPPED ENTIRELY where the deployment may not buy numbers: there is nothing to
     reconcile, the vendor call would spend a rate-limit budget on a certain answer, and the
     engine would refuse it by name anyway.
     """
+    if engine_number_provider() is not None:
+        return await _reconcile_console_numbers()
     if not number_provisioning_capability().available:
         log.info("number_reconciliation_skipped", extra={"reason": "supply_unavailable"})
         return "skipped"
@@ -247,6 +266,21 @@ async def reconcile_engine_numbers(ctx: dict[str, Any]) -> str:
     }
     log.info("number_reconciliation", extra=summary)
     return str(summary)
+
+
+async def _reconcile_console_numbers() -> str:
+    summary = await reconcile_engine_number_attachments()
+    try:
+        details = await read_business_details()
+    except ProblemError as exc:
+        # The numbers half is done and must not be retried for this; the status is read
+        # again tomorrow and on the ops page on demand.
+        log.warning("engine_business_details_unreadable", extra={"code": exc.code})
+        return str({**asdict(summary), "business_details": "unreadable"})
+    status = details.status if details is not None else "not_applicable"
+    if details is not None:
+        alarm_lapsed_business_details(details)
+    return str({**asdict(summary), "business_details": status})
 
 
 #: A tenant's numbers that renew: priced for the client and not given back. Read inside

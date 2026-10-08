@@ -1,22 +1,15 @@
-"""Tenant isolation of knowledge-base content (hard rule 1), and the one hole in it.
+"""Tenant isolation of knowledge-base content (hard rule 1).
 
 `rls_sweep_test` proves the generic property for every tenant table: tenant B's session
 counts zero of tenant A's rows. That is READ isolation, and for `kb_sources` /
 `kb_documents` it holds. This file is about the half a row-visibility policy cannot
 reach.
 
-A KB source is not addressed by its own id alone — it is addressed by `(agent_id, name,
-version)`, and that triple is enforced by a UNIQUE INDEX. Unique indexes are not
-subject to row-level security; PostgreSQL evaluates them across every row in the table,
-visible or not. So a tenant-scoped INSERT can collide with a row its own session cannot
-see, and the collision is observable. That is a write reaching across a tenant boundary
-through a mechanism RLS does not mediate, which is exactly the shape hard rule 1's
-"cross-tenant zero-rows test" is blind to.
-
-The other half of the same hole is the FOREIGN KEY: `kb_sources.agent_id` references
-`agents.id`, and referential-integrity checks also bypass RLS by design. Nothing in
-`submit_source` checked that the named agent is the caller's own, so the tenant_id on
-the row and the agent it points at could belong to different businesses.
+A KB source is addressed by `(tenant_id, name, version)` since D-689 — knowledge belongs
+to the client, not to one agent — and that triple is enforced by a UNIQUE INDEX, which
+PostgreSQL evaluates across every row, visible or not. Keying it on the TENANT is what
+closes the hole the agent-keyed index had: a slot can only ever be taken by the tenant
+the session is scoped to (RLS's `WITH CHECK`), so another tenant cannot wedge it.
 """
 
 from __future__ import annotations
@@ -29,6 +22,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.kb import service
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from tests.kb_workflow_test import _tenant_with_published_agent
 
 FEES = "A consultation costs 500 rupees, payable at reception before the appointment."
@@ -37,66 +31,38 @@ FEES = "A consultation costs 500 rupees, payable at reception before the appoint
 async def _submit(
     tenant_id: uuid.UUID, agent_id: uuid.UUID, name: str, body: str = FEES
 ) -> dict[str, object]:
+    del agent_id
     async with tenant_session(tenant_id) as session:
-        return await service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name=name, body=body
-        )
+        return await service.submit_source(session, tenant_id=tenant_id, name=name, body=body)
 
 
 # --------------------------------------------------------------------------------
-# The hole: a write that crosses the boundary the FK and the unique index do not police
+# The unique index: one tenant cannot take another tenant's version slot
 # --------------------------------------------------------------------------------
-
-
-async def test_a_tenant_cannot_file_knowledge_against_another_tenants_agent() -> None:
-    """The row must not exist at all — not merely be unpublishable.
-
-    Publishing it was always refused (the publish query joins `agents`, which IS
-    RLS'd, so it resolved to nothing). That refusal made the hole look harmless, and it
-    is not: the row lands in `kb_sources` with tenant B's `tenant_id` and tenant A's
-    `agent_id`, taking a slot in the unique index that A can no longer use, and it does
-    so with no authorisation to that agent whatsoever. A row nobody may publish is
-    still a row that changes what somebody else may write.
-    """
-    _, agent_a = await _tenant_with_published_agent()
-    tenant_b, _ = await _tenant_with_published_agent()
-
-    with pytest.raises(ProblemError) as raised:
-        await _submit(tenant_b, agent_a, "Fees")
-    assert raised.value.code in ("not_found", "agent_not_found")
 
 
 async def test_one_tenant_cannot_wedge_another_tenants_source_name() -> None:
-    """The consequence, stated as the client experiences it.
-
-    Tenant B names tenant A's agent first; tenant A then submits its own knowledge
-    under an ordinary name and the INSERT collides on `uq_kb_sources_agent_id_name_
-    version` — a unique index, evaluated over rows A's session cannot see. Before the
-    check in `submit_source`, A got a 500 from a row that was not theirs, forever, for
-    every version number B had taken. It is also an existence oracle: the error tells B
-    whether A already has a source of that name at that version.
-    """
+    """The same name in two tenants is two independent version sequences."""
     tenant_a, agent_a = await _tenant_with_published_agent()
-    tenant_b, _ = await _tenant_with_published_agent()
+    tenant_b, agent_b = await _tenant_with_published_agent()
 
-    with pytest.raises(ProblemError):
-        await _submit(tenant_b, agent_a, "Fees")
-
-    # A's own submission must be unaffected by anything B did.
+    theirs = await _submit(tenant_b, agent_b, "Fees")
     mine = await _submit(tenant_a, agent_a, "Fees")
+    assert theirs["version"] == 1
     assert mine["version"] == 1
     assert mine["status"] == "pending_approval"
 
 
-async def test_the_agent_check_reads_agents_under_the_callers_own_rls() -> None:
-    """The check must be a tenant-scoped read, not a `tenant_id` comparison passed in
-    by the caller. `submit_source` receives `tenant_id` as an argument; a check that
-    compares two arguments to each other proves nothing about the database."""
+async def test_a_submission_cannot_be_filed_under_another_tenant() -> None:
+    """`tenant_id` is an argument, and RLS's WITH CHECK is what refuses a mismatch: a
+    session scoped to tenant B cannot write a row that names tenant A."""
     tenant_a, _ = await _tenant_with_published_agent()
-    # A nonexistent agent is refused for the same reason a foreign one is: it is not
-    # visible in this tenant's session.
-    with pytest.raises(ProblemError):
-        await _submit(tenant_a, uuid.uuid4(), "Fees")
+    tenant_b, _ = await _tenant_with_published_agent()
+    with pytest.raises(DBAPIError):
+        async with tenant_session(tenant_b) as session:
+            await service.submit_source(session, tenant_id=tenant_a, name="Fees", body=FEES)
+    async with tenant_session(tenant_a) as session:
+        assert await service.list_sources(session) == []
 
 
 # --------------------------------------------------------------------------------
@@ -200,11 +166,11 @@ async def test_the_vendor_handle_is_not_a_capability_another_tenant_can_use() ->
         await service.publish_source(session, tenant_id=tenant_a, source_id=source_id)
 
     async with tenant_session(tenant_a) as session:
-        handle = await service._engine_kb_ref(session, source_id)
+        handle = await service._engine_kb_ref(session, source_id, agent_a)
     assert handle, "the publish recorded no engine handle"
 
     async with tenant_session(tenant_b) as session:
-        assert await service._engine_kb_ref(session, source_id) is None, (
+        assert await service._engine_kb_ref(session, source_id, agent_a) is None, (
             "another tenant can read the vendor handle that deletes this client's knowledge"
         )
 

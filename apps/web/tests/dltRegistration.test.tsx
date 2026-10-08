@@ -53,6 +53,17 @@ const KYC: KycRecord = {
   verification_reference: null,
   verified_name: null,
   self_verification_available: false,
+  kyc_path: null,
+  legal_business_name: null,
+  gst_registered: null,
+  gstin: null,
+  owner_id_type: null,
+  owner_id_masked: null,
+  name_match: null,
+  digilocker_required: false,
+  digilocker_required_reason: null,
+  digilocker_outstanding: false,
+  documents: [],
 };
 
 function registration(over: Partial<PeRegistration> = {}): PeRegistration {
@@ -85,7 +96,7 @@ describe("the client's DLT registration on /verification", () => {
   it("reads the client-realm route, once, and prints what is on file", async () => {
     const { container, calls } = await render(registration());
 
-    await screen.findByText("Your business is registered to run campaigns.");
+    await screen.findByText("Your business is registered on DLT.");
     expect(calls.filter((c) => c.path === PE_REGISTRATION_PATH)).toHaveLength(
       1,
     );
@@ -118,7 +129,8 @@ describe("the client's DLT registration on /verification", () => {
       "Your business as a Principal Entity: Active",
     );
     // Inbound is unaffected and it is said, for the same reason the KYC half says it.
-    expect(container.textContent).toContain("Calls coming IN are unaffected");
+    // D-692: an inactive DLT registration no longer pauses outgoing calls.
+    expect(container.textContent).not.toContain("Calls coming IN are unaffected");
   });
 
   it("never renders an active verdict off the statuses alone", async () => {
@@ -136,10 +148,10 @@ describe("the client's DLT registration on /verification", () => {
 
     await screen.findByText("Your DLT registration is not active yet.");
     expect(container.textContent).not.toContain(
-      "Your business is registered to run campaigns.",
+      "Your business is registered on DLT.",
     );
     expect(container.textContent).toContain(
-      "Outbound campaigns cannot launch until both lines below are active.",
+      "Not needed for outgoing calls, which depend on your verified business and the no-cold-calls pledge. Kept here for the record.",
     );
   });
 
@@ -163,7 +175,7 @@ describe("the client's DLT registration on /verification", () => {
       "We have not filed a DLT registration for your business.",
     );
     expect(container.textContent).not.toContain(
-      "Your business is registered to run campaigns.",
+      "Your business is registered on DLT.",
     );
     expect(container.textContent).not.toContain(
       "Your DLT registration is not active yet.",

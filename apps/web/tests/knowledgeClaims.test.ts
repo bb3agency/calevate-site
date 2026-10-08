@@ -288,7 +288,7 @@ describe("the knowledge-base claim, across every client- and prospect-facing str
     // reason.
     const scanned = haystacks();
     expect(scanned.length).toBeGreaterThan(150);
-    expect(scanned.some((h) => h.text.includes("What your agent knows"))).toBe(true);
+    expect(scanned.some((h) => h.text.includes("every one of your agents answers from it"))).toBe(true);
   });
 
   it.each(BANNED.map((shape) => [shape.name, shape] as const))(

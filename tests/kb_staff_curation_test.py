@@ -142,7 +142,7 @@ async def _pending_source(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str:
     auto-approves (`submit_source`'s default), the way an operator's intake seed is."""
     async with tenant_session(tenant_id) as session:
         created = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Consultation fee", body=BODY
+            session, tenant_id=tenant_id, name="Consultation fee", body=BODY
         )
     assert created["status"] == "pending_approval"
     return str(created["id"])

@@ -184,6 +184,14 @@ async def test_detaching_a_handle_the_engine_does_not_hold_raises() -> None:
 # `byok:<id>` for Studio); the model is the engine's own.
 
 
+def _tools_echo(request: httpx.Request) -> httpx.Response:
+    """The built-in tools route answering with what it was sent (D-690)."""
+    from tests.thinnest_engine_test import tools_state
+
+    sent = json.loads(request.content) if request.content else None
+    return httpx.Response(200, json=tools_state(sent))
+
+
 def _cfg(**update: Any) -> AgentConfig:
     base = AgentConfig(
         tenant_id=str(uuid.uuid4()),
@@ -200,6 +208,8 @@ async def test_the_chosen_voice_and_model_are_sent_and_nothing_when_none_is_chos
     bodies: list[dict[str, Any]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if _path(request).endswith("/tools"):
+            return _tools_echo(request)
         bodies.append(json.loads(request.content))
         return httpx.Response(200, json={"id": "ag_1"})
 
@@ -211,9 +221,9 @@ async def test_the_chosen_voice_and_model_are_sent_and_nothing_when_none_is_chos
     assert "voice" not in default["voice"] and "model" not in default
 
 
-async def test_a_studio_voice_is_set_through_the_own_key_route_in_its_workspace() -> None:
-    """set-agent-byok-voice.md:322-460: `PUT /agents/{id}/byok-voice {voice}` with the
-    workspace header; the agent body names no catalogue voice. The handle comes back scoped."""
+async def test_a_studio_voice_is_set_through_the_own_key_route() -> None:
+    """set-agent-byok-voice.md:322-460: `PUT /agents/{id}/byok-voice {voice}`; the agent body
+    names no catalogue voice and says `byok: workspace`. No workspace header (D-688)."""
     seen: list[tuple[str, str, str | None, dict[str, Any]]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -221,29 +231,21 @@ async def test_a_studio_voice_is_set_through_the_own_key_route_in_its_workspace(
         seen.append(
             (request.method, _path(request), request.headers.get("Thinnest-Workspace"), body)
         )
+        if _path(request).endswith("/tools"):
+            return _tools_echo(request)
         if request.method == "GET":
             return httpx.Response(200, json={"items": [], "nextCursor": None})
         return httpx.Response(201, json={"id": "ag_9", "voice": "cv-1"})
 
-    cfg = _cfg(engine_byok_voice_id="cv-1", engine_workspace="org_studio")
+    cfg = _cfg(engine_byok_voice_id="cv-1", engine_own_voice_key=True)
     ref = await _engine(handler).create_agent(cfg)
-    assert ref == "ag_9@org_studio"
-    listing, create, voice = seen
-    assert listing[:3] == ("GET", "/agents", "org_studio")
-    assert create[:3] == ("POST", "/agents", "org_studio")
-    assert "voice" not in create[3]["voice"]
-    assert voice == ("PUT", "/agents/ag_9/byok-voice", "org_studio", {"voice": "cv-1"})
-
-
-async def test_an_agent_cannot_be_updated_into_another_workspace() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        raise AssertionError("no request may be sent")
-
-    with pytest.raises(ProblemError) as caught:
-        await _engine(handler).update_agent(
-            "ag_1", _cfg(engine_byok_voice_id="cv-1", engine_workspace="org_studio")
-        )
-    assert caught.value.code == "engine_agent_workspace_mismatch"
+    assert ref == "ag_9"
+    listing, create, voice, tools = seen
+    assert tools[:2] == ("PATCH", "/agents/ag_9/tools")
+    assert listing[:3] == ("GET", "/agents", None)
+    assert create[:3] == ("POST", "/agents", None)
+    assert "voice" not in create[3]["voice"] and create[3]["byok"] == "workspace"
+    assert voice == ("PUT", "/agents/ag_9/byok-voice", None, {"voice": "cv-1"})
 
 
 async def test_two_voices_on_one_agent_are_refused() -> None:
@@ -268,7 +270,7 @@ async def test_a_refused_studio_voice_is_said_in_our_words(status: int) -> None:
 
     with pytest.raises(ProblemError) as caught:
         await _engine(handler).update_agent(
-            "ag_1@org_studio", _cfg(engine_byok_voice_id="cv-1", engine_workspace="org_studio")
+            "ag_1", _cfg(engine_byok_voice_id="cv-1", engine_own_voice_key=True)
         )
     assert caught.value.code == "engine_byok_voice_unavailable"
 
@@ -281,7 +283,7 @@ async def test_another_failure_on_the_studio_voice_route_is_not_reworded() -> No
 
     with pytest.raises(ProblemError) as caught:
         await _engine(handler).update_agent(
-            "ag_1@org_studio", _cfg(engine_byok_voice_id="cv-1", engine_workspace="org_studio")
+            "ag_1", _cfg(engine_byok_voice_id="cv-1", engine_own_voice_key=True)
         )
     assert caught.value.code != "engine_byok_voice_unavailable"
 
@@ -289,7 +291,7 @@ async def test_another_failure_on_the_studio_voice_route_is_not_reworded() -> No
 @pytest.fixture
 def attested(monkeypatch: pytest.MonkeyPatch) -> set[str]:
     """The attested rate keys, as a set a test edits: the base minute and both sold keys."""
-    keys = {"platform", "studio", "byok_voice"}
+    keys = {"platform", "premium", "studio", "byok_voice"}
 
     async def _keys(session: Any, *, engine: str, at: Any) -> frozenset[str]:
         assert engine == "thinnest"
@@ -321,12 +323,12 @@ async def test_no_choice_is_the_base_rate_without_reading_the_catalogue(
     assert engine.reads == 0
 
 
-async def test_a_clear_voice_meters_at_the_studio_band_and_a_studio_voice_at_its_own_key(
-    attested: set[str], hosted_rows: CatalogueRows, studio_workspace: str
+async def test_a_clear_voice_meters_at_its_band_and_a_studio_voice_at_its_own_key(
+    attested: set[str], hosted_rows: CatalogueRows
 ) -> None:
     clear = await hosted_rows.add("engine")
     studio = await hosted_rows.add("byok")
-    assert await _choose(voice_id=clear, model_id="gpt-4.1") == "studio"
+    assert await _choose(voice_id=clear, model_id="gpt-4.1") == "premium"
     assert await _choose(voice_id=studio, model_id="prana-voice", for_publish=True) == (
         "byok_voice"
     )
@@ -373,25 +375,15 @@ async def test_a_choice_that_is_not_allowed_is_refused_by_name(
 async def test_an_unpriced_rung_is_refused_as_unpriced(
     attested: set[str], hosted_rows: CatalogueRows
 ) -> None:
-    attested.discard("studio")
+    attested.discard("premium")
     voice = await hosted_rows.add("engine")
     with pytest.raises(ProblemError) as caught:
         await _choose(voice_id=voice, model_id=None)
     assert caught.value.code == engine_choice.VOICE_TIER_UNPRICED
 
 
-async def test_a_studio_voice_without_a_studio_workspace_is_refused_plainly(
-    attested: set[str], hosted_rows: CatalogueRows
-) -> None:
-    voice = await hosted_rows.add("byok")
-    with pytest.raises(ProblemError) as caught:
-        await _choose(voice_id=voice, model_id=None)
-    assert caught.value.code == "engine_studio_workspace_missing"
-    assert "Cartesia" not in (caught.value.detail or "")
-
-
 async def test_a_studio_voice_runs_only_on_the_standard_models(
-    attested: set[str], hosted_rows: CatalogueRows, studio_workspace: str
+    attested: set[str], hosted_rows: CatalogueRows
 ) -> None:
     """bring-your-own-keys.md:44-63 (07b): a voice-only workspace answers on its low-cost
     models, and setting another is a 400."""
@@ -402,7 +394,7 @@ async def test_a_studio_voice_runs_only_on_the_standard_models(
 
 
 async def test_a_studio_publish_needs_the_engine_to_say_the_key_is_live(
-    attested: set[str], hosted_rows: CatalogueRows, studio_workspace: str
+    attested: set[str], hosted_rows: CatalogueRows
 ) -> None:
     voice = await hosted_rows.add("byok")
     for state in (OFF_KEY, READY_KEY.model_copy(update={"voice_provider": "elevenlabs"})):
@@ -415,17 +407,6 @@ async def test_a_studio_publish_needs_the_engine_to_say_the_key_is_live(
     assert await _choose(HostingEngine(key_state=OFF_KEY), voice_id=voice, model_id=None) == (
         "byok_voice"
     )
-
-
-async def test_a_studio_publish_with_the_workspace_unset_is_refused_before_any_read(
-    attested: set[str], hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The workspace setting can be cleared between the voice check and the live check."""
-    voice = await hosted_rows.add("byok")
-    monkeypatch.setattr(engine_choice, "studio_workspace_ready", lambda: True)
-    with pytest.raises(ProblemError) as caught:
-        await _choose(voice_id=voice, model_id=None, for_publish=True)
-    assert caught.value.code == "engine_studio_workspace_missing"
 
 
 async def test_a_model_missing_from_a_short_list_is_not_called_unknown(
@@ -464,7 +445,7 @@ async def test_a_dictated_leg_that_hosts_nothing_refuses_a_choice(attested: set[
 def no_webhook(monkeypatch: pytest.MonkeyPatch) -> None:
     from apps.api.agents import service
 
-    async def _ensure(session: Any, *, engine: str, engine_agent_ref: str) -> None:
+    async def _ensure(session: Any, *, engine: str, engine_agent_ref: str, **_kw: Any) -> None:
         return None
 
     async def _retire(*, agent_id: Any, ref: Any) -> int:
@@ -526,7 +507,7 @@ async def _publish(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str:
         return await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
 
 
-async def test_publish_sends_a_clear_voice_in_our_workspace_and_meters_its_band(
+async def test_publish_sends_a_clear_voice_kept_off_our_key_and_meters_its_band(
     attested: set[str], no_webhook: None, hosted_rows: CatalogueRows
 ) -> None:
     tenant_id, agent_id = await _agent()
@@ -537,13 +518,14 @@ async def test_publish_sends_a_clear_voice_in_our_workspace_and_meters_its_band(
     assert isinstance(engine, HostingEngine)
     sent = engine.sent[-1]
     assert sent.engine_voice_id == voice.removeprefix("engine:")
-    assert (sent.engine_byok_voice_id, sent.engine_workspace) == (None, None)
+    assert (sent.engine_byok_voice_id, sent.engine_own_voice_key) == (None, False)
     assert sent.engine_model_id == "prana-voice"
-    assert "@" not in ref and await _route(tenant_id, ref) == ("studio", True)
+    assert engine.own_voice_key[ref] is False
+    assert await _route(tenant_id, ref) == ("premium", True)
 
 
-async def test_publish_puts_a_studio_voice_in_the_studio_workspace(
-    attested: set[str], no_webhook: None, hosted_rows: CatalogueRows, studio_workspace: str
+async def test_publish_puts_a_studio_voice_on_our_key(
+    attested: set[str], no_webhook: None, hosted_rows: CatalogueRows
 ) -> None:
     tenant_id, agent_id = await _agent()
     voice = await hosted_rows.add("byok")
@@ -556,13 +538,15 @@ async def test_publish_puts_a_studio_voice_in_the_studio_workspace(
         None,
         voice.removeprefix("byok:"),
     )
-    assert sent.engine_workspace == studio_workspace and ref.endswith(f"@{studio_workspace}")
+    assert sent.engine_own_voice_key is True and engine.own_voice_key[ref] is True
     assert await _route(tenant_id, ref) == ("byok_voice", True)
 
 
-async def test_a_rung_switch_re_creates_the_agent_in_the_other_workspace(
-    attested: set[str], no_webhook: None, hosted_rows: CatalogueRows, studio_workspace: str
+async def test_a_rung_switch_is_a_field_change_on_the_same_agent(
+    attested: set[str], no_webhook: None, hosted_rows: CatalogueRows
 ) -> None:
+    """D-688: one workspace holds both rungs, so switching Clear to Studio updates the vendor
+    agent in place; its number and knowledge stay where they are."""
     tenant_id, agent_id = await _agent()
     clear = await hosted_rows.add("engine")
     studio = await hosted_rows.add("byok")
@@ -572,58 +556,30 @@ async def test_a_rung_switch_re_creates_the_agent_in_the_other_workspace(
         await _set_columns(tenant_id, agent_id, studio, None)
         second = await _publish(tenant_id, agent_id)
     assert isinstance(engine, HostingEngine)
-    assert engine.deleted == [first]
-    assert second.endswith(f"@{studio_workspace}") and second != first
-    assert await _route(tenant_id, first) == ("studio", False)
-    assert await _route(tenant_id, second) == ("byok_voice", True)
+    assert engine.deleted == [] and second == first
+    assert engine.own_voice_key[first] is True
+    assert await _route(tenant_id, first) == ("byok_voice", True)
 
 
-@pytest.mark.parametrize("held", ["number", "experiment"])
-async def test_a_rung_switch_is_refused_while_something_cannot_follow_the_agent(
-    attested: set[str],
-    no_webhook: None,
-    hosted_rows: CatalogueRows,
-    studio_workspace: str,
-    held: str,
+async def test_a_publish_the_platform_holds_on_the_wrong_key_is_not_applied(
+    attested: set[str], no_webhook: None, hosted_rows: CatalogueRows
 ) -> None:
+    """A Clear agent the platform still holds on our Cartesia key would bill at the Studio
+    rate: the read-back refuses it."""
     tenant_id, agent_id = await _agent()
-    clear = await hosted_rows.add("engine")
-    studio = await hosted_rows.add("byok")
-    await _set_columns(tenant_id, agent_id, clear, None)
-    with selected(HostingEngine()) as engine:
-        first = await _publish(tenant_id, agent_id)
-        async with tenant_session(tenant_id) as session:
-            if held == "number":
-                await session.execute(
-                    text(
-                        "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, "
-                        "dlt_status, created_at, updated_at) VALUES (:id, :tid, :aid, :e, "
-                        "'160', 'registered', now(), now())"
-                    ),
-                    {
-                        "id": uuid.uuid4(),
-                        "tid": tenant_id,
-                        "aid": agent_id,
-                        "e": f"+91160{uuid.uuid4().int % 10_000_000:07d}",
-                    },
-                )
-            else:
-                await session.execute(
-                    text(
-                        "INSERT INTO prompt_experiments (id, tenant_id, agent_id, name, status, "
-                        "conversion_metric, started_at, created_at, updated_at) VALUES (:i, :t, "
-                        ":a, 'arm test', 'running', 'lead_won', now(), now(), now())"
-                    ),
-                    {"i": uuid.uuid4(), "t": tenant_id, "a": agent_id},
-                )
-        await _set_columns(tenant_id, agent_id, studio, None)
-        with pytest.raises(ProblemError) as caught:
-            await _publish(tenant_id, agent_id)
-    assert caught.value.code == (
-        "engine_rung_switch_number_held" if held == "number" else "engine_rung_switch_agent_busy"
-    )
-    assert isinstance(engine, HostingEngine) and engine.deleted == []
-    assert await _route(tenant_id, first) == ("studio", True)
+    voice = await hosted_rows.add("engine")
+    await _set_columns(tenant_id, agent_id, voice, None)
+    engine = HostingEngine()
+    real_create = engine.create_agent
+
+    async def _create_stuck_on(cfg: AgentConfig) -> EngineAgentRef:
+        ref = await real_create(cfg)
+        engine.own_voice_key[ref] = True
+        return ref
+
+    engine.create_agent = _create_stuck_on  # type: ignore[method-assign]
+    with selected(engine), pytest.raises(ProblemError):
+        await _publish(tenant_id, agent_id)
 
 
 @pytest.mark.parametrize(
@@ -659,7 +615,7 @@ async def test_an_engine_running_our_voices_never_sees_a_stored_choice(no_webhoo
     with selected(_Recording()):
         await _publish(tenant_id, agent_id)
     last = sent[-1]
-    assert (last.engine_voice_id, last.engine_byok_voice_id, last.engine_workspace) == (
+    assert (last.engine_voice_id, last.engine_byok_voice_id, last.engine_own_voice_key) == (
         None,
         None,
         None,
@@ -715,7 +671,10 @@ async def test_a_draft_stores_a_valid_choice_and_refuses_an_invalid_one(
     assert tuple(row) == (voice, None)
 
 
-async def test_a_published_choice_cannot_be_cleared(attested: set[str]) -> None:
+async def test_a_published_choice_can_be_cleared(attested: set[str]) -> None:
+    """`null` puts a vendor agent back on its default (snapshots/2026-10-08/pages/
+    api-reference/agents/update-agent.md:536-545, :951-961), so clearing is stored (D-690);
+    the next publish sends `null`, and refuses a cleared VOICE (`engine_voice_required`)."""
     tenant_id, agent_id = await _agent()
     await _set_columns(tenant_id, agent_id, "engine:anjali", None)
     async with tenant_session(tenant_id) as session:
@@ -723,7 +682,7 @@ async def test_a_published_choice_cannot_be_cleared(attested: set[str]) -> None:
             text("UPDATE agents SET engine_agent_ref = 'ag_x', status = 'paused' WHERE id = :a"),
             {"a": agent_id},
         )
-    with selected(HostingEngine()), pytest.raises(ProblemError) as caught:
+    with selected(HostingEngine()):
         async with tenant_session(tenant_id) as session:
             await lifecycle.update_agent(
                 session,
@@ -732,7 +691,13 @@ async def test_a_published_choice_cannot_be_cleared(attested: set[str]) -> None:
                 engine_voice_id=None,
                 set_engine_voice_id=True,
             )
-    assert caught.value.code == lifecycle.ENGINE_CHOICE_RESET_UNSUPPORTED
+    async with tenant_session(tenant_id) as session:
+        held = (
+            await session.execute(
+                text("SELECT engine_voice_id FROM agents WHERE id = :a"), {"a": agent_id}
+            )
+        ).scalar_one()
+    assert held is None
 
 
 # --- our own workspace on all three of its own keys (BYOK) --------------------------
@@ -811,19 +776,20 @@ async def test_a_telugu_agent_is_sent_telugu_and_an_unmapped_one_follows_the_cal
     bodies: list[dict[str, Any]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if _path(request).endswith("/tools"):
+            return _tools_echo(request)
         bodies.append(json.loads(request.content))
         return httpx.Response(200, json={"id": "ag_1"})
 
     engine = _engine(handler)
     await engine.update_agent("ag_1", _cfg(language_primary="te-IN"))
-    await engine.update_agent("ag_1", _cfg(language_primary="kn-IN"))
+    await engine.update_agent("ag_1", _cfg(language_primary="xx-YY"))
     assert [b["language"] for b in bodies] == ["Telugu", "auto"]
 
 
 async def test_a_studio_voice_is_refused_while_our_voice_keys_synthesis_is_unpriced(
     attested: set[str],
     hosted_rows: CatalogueRows,
-    studio_workspace: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(engine_choice, "tts_price_is_billable", lambda provider: False)

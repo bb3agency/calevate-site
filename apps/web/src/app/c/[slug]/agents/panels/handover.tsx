@@ -229,6 +229,8 @@ export function Handover({ agent }: { agent: Agent }) {
             .
           </p>
         )}
+        {/* Where a live transfer works on this voice platform, in the server's words. */}
+        {data.platform_note && <p className="mt-2 text-sm text-ink-muted">{data.platform_note}</p>}
 
         <ul className="mt-4 space-y-3">
           {rows.map((row, index) => (

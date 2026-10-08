@@ -335,6 +335,17 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "recording retention is stated. MATERIAL: a new training position on the "
                 "live call path.",
             ),
+            # D-692.
+            Revision(
+                "14",
+                True,
+                "D-692: section 4's KYC entry now says what verification keeps: the "
+                "business document (encrypted, kept while the account is open), the owner "
+                "ID file until review or 30 days, the masked number, the name check and the "
+                "provider reference; the outbound pledge record replaces the DLT "
+                "registration row. MATERIAL: a stored document class that revision 13 said "
+                "we never hold.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -441,6 +452,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "that runs calls since 7 Oct 2026 as well as our own call program. "
                 "NON-MATERIAL: a definition and a description; no right or obligation moves.",
             ),
+            # D-692.
+            Revision(
+                "12",
+                True,
+                "D-692: outbound calling rests on verification and the no-cold-calls "
+                "pledge, not DLT registrations; Calevate is no longer described as the "
+                "client's telemarketer; numbers rented through Calevate are described, and "
+                "released on closure. MATERIAL: the client's outbound obligations change.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -471,6 +491,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "number on a per-number sender confirmation. MATERIAL — each is a new "
                 "obligation rather than a clarification, and the old 2.2 told clients "
                 "to do something the product now refuses.",
+            ),
+            # D-692.
+            Revision(
+                "4",
+                True,
+                "D-692: section 2.1 replaces the three DLT registrations with business "
+                "verification and the no-cold-calls pledge, and section 2.2 drops the "
+                "number-series and sender-confirmation rules. MATERIAL: what the client "
+                "must do before an outbound call changes.",
             ),
         ),
         effective_date="2026-09-02",
@@ -752,6 +781,13 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "DPA and training statements are reported as its statements, it holds our "
                 "admin-cloned voices, and the dearer voice reaches its company through the "
                 "platform on our account. NON-MATERIAL: no company is added.",
+            ),
+            # D-692.
+            Revision(
+                "14",
+                True,
+                "D-692: adds the identity-verification category (DigiLocker), configured, "
+                "not enabled until its credentials are set. MATERIAL: a new sub-processor.",
             ),
         ),
         effective_date="2026-09-02",

@@ -389,6 +389,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/kyc/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Clients whose identity verification is waiting for a reviewer
+         * @description Built the way `admin/holds.held_tenants` is: the admin GUC lists organizations, and
+         *     each tenant's record is read under its OWN RLS session, so no policy is widened to
+         *     let an admin session read `kyc_records`. Oldest submission first.
+         */
+        get: operations["kyc_review_queue_v1_admin_kyc_reviews_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/me": {
         parameters: {
             query?: never;
@@ -442,6 +464,26 @@ export interface paths {
          * @description Searches the voice platform's own inventory. Read-only: nothing is reserved and nothing is charged. Refused with `number_resale_not_authorized` until a written reseller authorisation is recorded for this deployment, and with `number_provisioning_not_configured` on a voice platform that sells no numbers. Prices are the vendor's own, in USD; the rupee is struck when the rental is metered, at that month's published rate.
          */
         get: operations["available_numbers_v1_admin_numbers_available_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/numbers/engine/business-details": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The voice platform's business-details application status
+         * @description Read live from the voice platform on every request. Read-only: the details are sent in the platform's own console.
+         */
+        get: operations["engine_business_details_v1_admin_numbers_engine_business_details_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -516,6 +558,26 @@ export interface paths {
         get: operations["tenant_engine_numbers_v1_admin_numbers_tenants__tenant_id__engine_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/numbers/tenants/{tenant_id}/engine/record": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a number the voice platform holds for this client, price it, attach it
+         * @description For a number rented in the voice platform's own console. Refused with `engine_number_not_held` when the platform does not hold it, `engine_number_answered_by_other_client` when another client's agent answers it, `number_taken` when it is already recorded, and `number_price_not_attested` for a rented number while no monthly price is attested. A rented number's first month is collected now and it renews monthly from today.
+         */
+        post: operations["record_tenant_engine_number_v1_admin_numbers_tenants__tenant_id__engine_record_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1739,13 +1801,75 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** One client's identity verification, documents on file and pledge */
+        get: operations["read_tenant_kyc_v1_admin_tenants__tenant_id__kyc_get"];
         put?: never;
         /**
          * Record the outcome of verifying this business's identity (R-11's last gate)
          * @description Records what Calevate verified about a client's business, against which registry document, and who verified it. Upserts: re-recording is what happens on every re-verification. Only a `verified` record clears the identity gate (every plan tier) and opens outbound dialling for a self-serve account. There is deliberately no client-facing twin — a business that could mark its own identity verified would be marking the telecom gate green on a check nobody performed.
          */
         post: operations["record_kyc_verification_v1_admin_tenants__tenant_id__kyc_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/kyc/digilocker-requirement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Require (or stop requiring) a DigiLocker verification for this client
+         * @description Requiring blocks this client's OUTBOUND calls until a DigiLocker verification completes after this moment; inbound calls are unaffected. Clearing lifts it.
+         */
+        post: operations["set_tenant_digilocker_requirement_v1_admin_tenants__tenant_id__kyc_digilocker_requirement_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/kyc/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download one KYC file, decrypted, for review
+         * @description Decrypted in memory and returned as an attachment; never via a presigned URL,
+         *     because the stored object is ciphertext and the key is ours.
+         */
+        get: operations["download_kyc_document_v1_admin_tenants__tenant_id__kyc_documents__document_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/kyc/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve or reject a client's identity verification
+         * @description Approving records the business as verified against its certificate and registry number; rejecting needs a reason the client is shown. Either way the owner's ID file is deleted and only its type and masked number are kept.
+         */
+        post: operations["review_kyc_v1_admin_tenants__tenant_id__kyc_review_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1833,7 +1957,7 @@ export interface paths {
         put?: never;
         /**
          * Record a calling number for the client — the series is the compliance-bearing field
-         * @description Records a telephone number Calevate provides for this client on its own carrier account (Vobiz), so the campaign launch gate can match its series against a campaign's classification. The client opens no operator account and issues no credentials. `dlt_status` starts `pending` and is a separate, deliberate step.
+         * @description Records a telephone number Calevate provides for this client on its own carrier account (Vobiz), so the campaign launch gate can match its series against a campaign's classification. The client opens no operator account and issues no credentials. `dlt_status` starts `pending` and is a separate, deliberate step. A number held on the voice platform (`provider: thinnest`) must be on the platform's own list (`engine_number_not_held`), may not be another client's line (`engine_number_answered_by_other_client`), and a rented one is priced from the attested monthly rate with its first month collected.
          */
         post: operations["provision_number_v1_admin_tenants__tenant_id__numbers_post"];
         delete?: never;
@@ -4503,6 +4627,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/compliance/kyc/details": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save this business's legal name, GST status and owner name
+         * @description Needed on both verification paths. Locked once a reviewer has the record or it is verified. A GSTIN is required when the business is GST-registered.
+         */
+        put: operations["save_details_v1_compliance_kyc_details_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/kyc/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload the business certificate or the owner's ID
+         * @description `slot` is `business` (kind `gst`, `incorporation` or `udyam`) or `owner_id` (kind `aadhaar` — the masked copy only — or `pan_card`). PDF, JPEG or PNG, at most 5 MB, a filename of at most 99 characters. Files are encrypted before storage. The owner's ID is deleted once a reviewer decides, or after 30 days if nobody does.
+         */
+        post: operations["upload_document_v1_compliance_kyc_documents_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/kyc/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send the uploaded documents for review
+         * @description The manual path: needs the business details, the business certificate and the owner's ID on file. For a PAN send the full PAN (only a masked form is kept); for an Aadhaar send ONLY its last four digits.
+         */
+        post: operations["submit_for_review_v1_compliance_kyc_submit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/compliance/kyc/verification": {
         parameters: {
             query?: never;
@@ -4517,6 +4701,26 @@ export interface paths {
          * @description Opens a verification run and returns the provider URL to send the signed-in user to. Calevate receives only whether it succeeded, the provider's reference and the verified name — never an Aadhaar number, a PAN or a document. A sole proprietorship is verified outright; for any other entity type this verifies the authorised signatory and Calevate operations still checks the business against its public registry entry.
          */
         post: operations["start_verification_v1_compliance_kyc_verification_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/kyc/verification/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish a DigiLocker verification when the client returns from the provider
+         * @description Asks the provider, with Calevate's own credentials, how this run ended and records the result. The run must be one this account opened. Calevate keeps the result, the ID type, the verified name, a masked ID number and the provider's reference — never the document.
+         */
+        post: operations["complete_verification_v1_compliance_kyc_verification_complete_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4554,6 +4758,27 @@ export interface paths {
         put?: never;
         /** May we message this number? (POST: the identifier IS the personal data) */
         post: operations["lookup_v1_compliance_messaging_consent_lookup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/outbound-pledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The no-cold-calls pledge and whether this account has accepted it */
+        get: operations["read_outbound_pledge_v1_compliance_outbound_pledge_get"];
+        put?: never;
+        /**
+         * Accept the current no-cold-calls pledge
+         * @description Records who accepted which version, when and from which address. Outbound calling needs a current acceptance; a new version needs accepting again.
+         */
+        post: operations["accept_outbound_pledge_v1_compliance_outbound_pledge_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5150,8 +5375,8 @@ export interface paths {
         get: operations["list_sources_v1_kb_sources_get"];
         put?: never;
         /**
-         * Add knowledge — an account member's goes to the agent without review
-         * @description An account member's submission (the owner, or staff the owner lets curate) is approved on submission and published to the agent by a background job: `status` is `approved`, and the source turns live once that job has run and the agent is published. A view-as session's submission is `pending_approval` and waits for an admin.
+         * Add knowledge — an account member's goes to every agent without review
+         * @description An account member's submission (the owner, or staff the owner lets curate) is approved on submission and published to every agent of the account by a background job: `status` is `approved`, and the source turns live once that job has run. A view-as session's submission is `pending_approval` and waits for an admin.
          */
         post: operations["submit_v1_kb_sources_post"];
         delete?: never;
@@ -5231,7 +5456,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Remove a document or link from the agent, and delete it
+         * Remove a document or link from every agent, and delete it
          * @description Withdraws the copy the voice platform holds before deleting anything of ours, so neither side is left holding knowledge the other cannot see.
          */
         delete: operations["delete_upload_v1_kb_uploads__upload_id__delete"];
@@ -6957,13 +7182,13 @@ export interface paths {
         };
         /**
          * The voices the voice platform hosts, as curated here (admin realm)
-         * @description On a voice platform that hosts its own voices: by default the voices an operator added; `?scope=all` adds every voice the last sync read. Only ADDED and ENABLED voices are offered to clients. `available` is false on a platform whose voices come from Calevate's own catalogue.
+         * @description On a voice platform that hosts its own voices: by default the voices an operator added; `?scope=all` adds every voice the last sync read, in every band the platform lists, with `band` and `sold`. Only ADDED and ENABLED voices in a sold band are offered to clients; `plan_note` says why when the platform lists none in the band we sell. `available` is false on a platform whose voices come from Calevate's own catalogue.
          */
         get: operations["list_hosted_v1_ops_voices_hosted_get"];
         put?: never;
         /**
          * Add one synced voice to the voices that can be offered (audited)
-         * @description Marks a voice the last sync read as ADDED. It arrives disabled, so a client cannot choose it until it is enabled; give it a preview first. Idempotent.
+         * @description Marks a voice the last sync read as ADDED. It arrives disabled, so a client cannot choose it until it is enabled; give it a preview first. Only a voice in a band we sell (the platform's band sold as Clear, or a Studio voice of our own key) can be added: any other is refused with `voice_band_not_sold`. Idempotent.
          */
         post: operations["add_hosted_v1_ops_voices_hosted_post"];
         delete?: never;
@@ -7031,7 +7256,7 @@ export interface paths {
         put?: never;
         /**
          * Re-read the voice catalogue from the voice platform (audited)
-         * @description Reads the voice platform account's own TTS voice list into the cache the admin console's Voices page is built from. Use it after importing or cloning a voice with your TTS vendor, or after adding one with Add Voice — the hourly job would otherwise take up to an hour to notice. Where the voice platform keeps no catalogue of its own there is nothing to re-read, and the returned note says so. A NEWLY SEEN VOICE ARRIVES DISABLED and has to be enabled on that page before anybody can be put on it (D-588), so this alone changes what nobody may choose. It changes no agent and no call either: an agent already speaking a voice keeps speaking it whatever this returns. A sync that reads nothing is refused rather than applied, so a bad credential cannot empty the catalogue.
+         * @description Reads the voice platform account's own TTS voice list into the cache the admin console's Voices page is built from. Use it after importing or cloning a voice with your TTS vendor, or after adding one with Add Voice — the hourly job would otherwise take up to an hour to notice. Where the voice platform keeps no catalogue of its own there is nothing to re-read, and the returned note says so. A NEWLY SEEN VOICE ARRIVES DISABLED and has to be enabled on that page before anybody can be put on it (D-588), so this alone changes what nobody may choose. It changes no agent and no call either: an agent already speaking a voice keeps speaking it whatever this returns. A sync that reads nothing is refused rather than applied, so a bad credential cannot empty the catalogue. On a platform that hosts its own voices every band it lists is cached, `bands` counts them, and the note says so plainly when none is in the band sold as Clear.
          */
         post: operations["refresh_voice_catalogue_route_v1_ops_voices_refresh_post"];
         delete?: never;
@@ -7040,21 +7265,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/ops/voices/studio-workspace": {
+    "/v1/ops/voices/studio-voices": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** The workspace Studio agents run in, and its voice key */
-        get: operations["studio_workspace_v1_ops_voices_studio_workspace_get"];
+        /** Whether Studio voices (our Cartesia key) are switched on in the workspace */
+        get: operations["studio_voices_v1_ops_voices_studio_voices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voices/studio-voices/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
         put?: never;
         /**
-         * Set up the Studio workspace on our Cartesia key (step-up confirmed, audited)
-         * @description Creates the customer workspace (or uses `workspace_id`), installs our Cartesia key there as its voice key, switches on own keys for the voice only, and records the workspace as `thinnest_studio_workspace_id`. Our developer workspace keeps its own keys off. Idempotent. Requires `X-Confirm-Action: setup_studio_workspace`.
+         * Switch Studio voices off (step-up confirmed, audited)
+         * @description Switches the workspace's own keys off and takes every Studio voice off offer. Agents on a Studio voice speak the platform's default voice from their next call, so this is refused with `studio_voices_in_use` while any is published, unless `confirm=true`. Requires `X-Confirm-Action: disable_studio_voices`.
          */
-        post: operations["setup_studio_workspace_v1_ops_voices_studio_workspace_post"];
+        post: operations["disable_studio_v1_ops_voices_studio_voices_disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voices/studio-voices/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Switch Studio voices on: Clear agents kept off first (step-up confirmed, audited)
+         * @description In order: sets every published agent that is not on a Studio voice to stay on the platform's own voices and reads each back, refusing with `studio_agents_not_kept_off` if any is not; installs our Cartesia key as the workspace's voice key unless one is already there; switches own keys on for the voice only; reads the state back and re-reads the Studio voices. Idempotent. Requires `X-Confirm-Action: enable_studio_voices`.
+         */
+        post: operations["enable_studio_v1_ops_voices_studio_voices_enable_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7529,6 +7790,68 @@ export interface components {
             /** Total Inr */
             total_inr: string;
             usage: components["schemas"]["InvoiceUsageOut"];
+        };
+        /** AdminKycOut */
+        AdminKycOut: {
+            /** Digilocker Outstanding */
+            digilocker_outstanding: boolean;
+            /** Digilocker Required */
+            digilocker_required: boolean;
+            /** Digilocker Required At */
+            digilocker_required_at: string | null;
+            /** Digilocker Required Reason */
+            digilocker_required_reason: string | null;
+            /** Digilocker Verified At */
+            digilocker_verified_at: string | null;
+            /** Documents */
+            documents: components["schemas"]["KycDocumentOut"][];
+            /** Entity Type */
+            entity_type: string | null;
+            /** Gst Registered */
+            gst_registered: boolean | null;
+            /** Gstin */
+            gstin: string | null;
+            /** Is Verified */
+            is_verified: boolean;
+            /** Kyc Path */
+            kyc_path: string | null;
+            /** Legal Business Name */
+            legal_business_name: string | null;
+            /** Name Match */
+            name_match: boolean | null;
+            /** Owner Id Masked */
+            owner_id_masked: string | null;
+            /** Owner Id Type */
+            owner_id_type: string | null;
+            /** Owner Name */
+            owner_name: string | null;
+            /** Pledge Accepted At */
+            pledge_accepted_at: string | null;
+            /** Pledge Accepted Version */
+            pledge_accepted_version: number | null;
+            /** Pledge Current Version */
+            pledge_current_version: number;
+            /** Recorded */
+            recorded: boolean;
+            /** Rejection Reason */
+            rejection_reason: string | null;
+            /** Status */
+            status: string | null;
+            /** Submitted At */
+            submitted_at: string | null;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Verification Provider */
+            verification_provider: string | null;
+            /** Verification Reference */
+            verification_reference: string | null;
+            /** Verified At */
+            verified_at: string | null;
+            /** Verified Name */
+            verified_name: string | null;
         };
         /**
          * AdminMeOut
@@ -8288,13 +8611,23 @@ export interface components {
             /** Signed Application */
             signed_application?: string | null;
         };
+        /** Body_upload_document_v1_compliance_kyc_documents_post */
+        Body_upload_document_v1_compliance_kyc_documents_post: {
+            /** File */
+            file: string;
+            /** Kind */
+            kind: string;
+            /** Slot */
+            slot: string;
+        };
         /** Body_upload_document_v1_kb_uploads_post */
         Body_upload_document_v1_kb_uploads_post: {
             /**
              * Agent Id
-             * Format: uuid
+             * @deprecated
+             * @description Deprecated and ignored: knowledge is shared by every agent of the account (D-689).
              */
-            agent_id: string;
+            agent_id?: string | null;
             /** File */
             file: string;
             /** Name */
@@ -8371,6 +8704,46 @@ export interface components {
             address: string;
             /** Label */
             label: string;
+        };
+        /**
+         * BusinessDetailsIn
+         * @description The legal facts a numbering application in the client's own name needs.
+         */
+        BusinessDetailsIn: {
+            /** Entity Type */
+            entity_type: string;
+            /** Gst Registered */
+            gst_registered: boolean;
+            /** Gstin */
+            gstin?: string | null;
+            /** Legal Business Name */
+            legal_business_name: string;
+            /** Owner Name */
+            owner_name: string;
+        };
+        /**
+         * BusinessDetailsOut
+         * @description The voice platform's business-details application, which India requires before it
+         *     rents a number (D-691). `available` is False on a deployment whose numbers are not the
+         *     platform's; every other field is then empty.
+         */
+        BusinessDetailsOut: {
+            /** Available */
+            available: boolean;
+            /** Business Name */
+            business_name: string | null;
+            /** Can Rent */
+            can_rent: boolean;
+            /** Lapsed */
+            lapsed: boolean;
+            /** Platform */
+            platform: string | null;
+            /** Review Note */
+            review_note: string | null;
+            /** Status */
+            status: string | null;
+            /** Submitted At */
+            submitted_at: string | null;
         };
         /**
          * BuyNumberIn
@@ -9445,6 +9818,17 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /** CompleteVerificationIn */
+        CompleteVerificationIn: {
+            /** Provider Ref */
+            provider_ref: string;
+        };
+        /** CompleteVerificationOut */
+        CompleteVerificationOut: {
+            record: components["schemas"]["apps__api__compliance__kyc_routes__KycRecordOut"];
+            /** Status */
+            status: string;
         };
         /**
          * ConcludeExperimentIn
@@ -10712,6 +11096,13 @@ export interface components {
             /** Truncated */
             truncated: boolean;
         };
+        /** DigiLockerRequirementIn */
+        DigiLockerRequirementIn: {
+            /** Reason */
+            reason?: string | null;
+            /** Required */
+            required: boolean;
+        };
         /**
          * DisclosureIn
          * @description Which notices this agent volunteers. `null` on a field leaves it alone.
@@ -11244,6 +11635,8 @@ export interface components {
             e164: string;
             /** Engine Owned */
             engine_owned: boolean | null;
+            /** Number Id */
+            number_id?: string | null;
             /** Provider */
             provider: string | null;
             /** Unassigned */
@@ -12204,6 +12597,8 @@ export interface components {
             members: components["schemas"]["HandoffMemberOut"][];
             /** On Duty Member Id */
             on_duty_member_id: string | null;
+            /** Platform Note */
+            platform_note?: string | null;
             /** Published */
             published: boolean;
             /** Recent */
@@ -12306,6 +12701,8 @@ export interface components {
             accent: string | null;
             /** Added */
             added: boolean;
+            /** Band */
+            band: ("standard" | "premium" | "studio") | null;
             /** Curated At */
             curated_at: string | null;
             /** Deletable Clone */
@@ -12320,17 +12717,18 @@ export interface components {
             language_note: string;
             /** Live Agents */
             live_agents: number;
+            /** Not Sold Reason */
+            not_sold_reason: string | null;
             /** Offered */
             offered: boolean;
             /** Preview Available */
             preview_available: boolean;
             /** Preview Source */
             preview_source: ("vendor" | "upload") | null;
-            /**
-             * Rung
-             * @enum {string}
-             */
-            rung: "clear" | "studio";
+            /** Rung */
+            rung: ("clear" | "studio") | null;
+            /** Sold */
+            sold: boolean;
             /**
              * Source
              * @enum {string}
@@ -12361,19 +12759,27 @@ export interface components {
         HostedVoicesOut: {
             /** Available */
             available: boolean;
+            /** Bands */
+            bands: {
+                [key: string]: number;
+            };
             /** Cached */
             cached: number;
+            /** Clear Band */
+            clear_band: ("standard" | "premium" | "studio") | null;
             /** Note */
             note: string;
             /** Offered */
             offered: number;
+            /** Plan Note */
+            plan_note: string | null;
             /**
              * Scope
              * @enum {string}
              */
             scope: "added" | "all";
-            /** Studio Workspace Id */
-            studio_workspace_id: string | null;
+            /** Studio Ready */
+            studio_ready: boolean;
             /** Voices */
             voices: components["schemas"]["HostedVoiceOut"][];
         };
@@ -13087,6 +13493,34 @@ export interface components {
             topic_label: string;
         };
         /**
+         * KycDocumentOut
+         * @description One file on record. Metadata only; the bytes are never returned to the client.
+         */
+        KycDocumentOut: {
+            /** Content Type */
+            content_type: string;
+            /** Filename */
+            filename: string;
+            /** Held */
+            held: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Slot */
+            slot: string;
+            /**
+             * Uploaded At
+             * Format: date-time
+             */
+            uploaded_at: string;
+        };
+        /**
          * KycRecordIn
          * @description What an operator recorded after verifying a business's identity (R-11).
          *
@@ -13121,6 +13555,40 @@ export interface components {
              * @enum {string}
              */
             status: "not_started" | "submitted" | "in_review" | "verified" | "rejected" | "expired";
+        };
+        /** KycReviewIn */
+        KycReviewIn: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approve" | "reject";
+            /** Document Ref */
+            document_ref?: string | null;
+            /** Reason */
+            reason?: string | null;
+        };
+        /** KycReviewItem */
+        KycReviewItem: {
+            /** Digilocker Required */
+            digilocker_required: boolean;
+            /** Kyc Path */
+            kyc_path: string | null;
+            /** Name */
+            name: string;
+            /** Owner Id Type */
+            owner_id_type: string | null;
+            /** Slug */
+            slug: string;
+            /** Status */
+            status: string;
+            /** Submitted At */
+            submitted_at: string | null;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
         };
         /** LaneOut */
         LaneOut: {
@@ -13912,9 +14380,10 @@ export interface components {
         LinkIn: {
             /**
              * Agent Id
-             * Format: uuid
+             * @deprecated
+             * @description Deprecated and ignored: knowledge is shared by every agent of the account (D-689).
              */
-            agent_id: string;
+            agent_id?: string | null;
             /** Name */
             name?: string | null;
             /** Url */
@@ -14154,6 +14623,19 @@ export interface components {
              */
             state: "scheduled" | "draining" | "active" | "completed" | "cancelled";
             stragglers: components["schemas"]["InFlightOut"] | null;
+        };
+        /**
+         * ManualSubmitIn
+         * @description The owner ID the uploaded file shows. For Aadhaar, ONLY the last four digits.
+         */
+        ManualSubmitIn: {
+            /** Owner Id Number */
+            owner_id_number: string;
+            /**
+             * Owner Id Type
+             * @enum {string}
+             */
+            owner_id_type: "aadhaar" | "pan";
         };
         /**
          * MarginOut
@@ -14533,6 +15015,12 @@ export interface components {
              * Format: uuid
              */
             number_id: string;
+            /**
+             * Platform Attachment
+             * @default not_applicable
+             * @enum {string}
+             */
+            platform_attachment: "not_applicable" | "unchanged" | "applied" | "partial" | "refused";
             /** Released */
             released: number;
             /** Unsupported */
@@ -14861,6 +15349,32 @@ export interface components {
         OutboundConsentPolicyOut: {
             /** Outbound Requires Consent */
             outbound_requires_consent: boolean;
+        };
+        /**
+         * OutboundPledgeIn
+         * @description Echoes what the screen showed, so a page rendered before a new version cannot
+         *     accept words the client never saw.
+         */
+        OutboundPledgeIn: {
+            /** Text Sha256 */
+            text_sha256: string;
+            /** Version */
+            version: number;
+        };
+        /** OutboundPledgeOut */
+        OutboundPledgeOut: {
+            /** Accepted At */
+            accepted_at: string | null;
+            /** Accepted Version */
+            accepted_version: number | null;
+            /** Is Current */
+            is_current: boolean;
+            /** Pledge Text */
+            pledge_text: string;
+            /** Text Sha256 */
+            text_sha256: string;
+            /** Version */
+            version: number;
         };
         /**
          * OverridePackOut
@@ -15855,6 +16369,27 @@ export interface components {
             status: "granted" | "declined" | "withdrawn";
         };
         /**
+         * RecordEngineNumberIn
+         * @description A number from the platform's own list, recorded for this client (D-691).
+         *
+         *     Only the number is taken from the screen: the vendor's handle, whether it is rented and
+         *     which series it is are read from the platform's list and its own digits, never typed.
+         */
+        RecordEngineNumberIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /**
+             * Direction
+             * @default both
+             * @enum {string}
+             */
+            direction: "inbound" | "outbound" | "both";
+            /** E164 */
+            e164: string;
+            /** Purpose */
+            purpose?: string | null;
+        };
+        /**
          * RecordOperatorOptInIn
          * @description An operator recording that the owner already agreed. Carries the document.
          */
@@ -15883,6 +16418,25 @@ export interface components {
             state: string;
             /** Superseded Plan Id */
             superseded_plan_id: string | null;
+        };
+        /** RecordedEngineNumberOut */
+        RecordedEngineNumberOut: {
+            /** Client Inr Per Month */
+            client_inr_per_month: string | null;
+            /** E164 */
+            e164: string;
+            /**
+             * Number Id
+             * Format: uuid
+             */
+            number_id: string;
+            /**
+             * Platform Attachment
+             * @enum {string}
+             */
+            platform_attachment: "not_applicable" | "unchanged" | "applied" | "partial" | "refused";
+            /** Series */
+            series: string;
         };
         /**
          * RecordingLinkOut
@@ -16842,11 +17396,6 @@ export interface components {
         };
         /** SourceOut */
         SourceOut: {
-            /**
-             * Agent Id
-             * Format: uuid
-             */
-            agent_id: string;
             /** Chunks */
             chunks: number;
             /**
@@ -17138,6 +17687,12 @@ export interface components {
         StartVerificationIn: {
             /** Entity Type */
             entity_type: string;
+            /**
+             * Id Document
+             * @default aadhaar
+             * @enum {string}
+             */
+            id_document: "aadhaar" | "pan";
         };
         /**
          * StartVerificationOut
@@ -17182,22 +17737,24 @@ export interface components {
             /** Wallet Spent Inr */
             wallet_spent_inr: string;
         };
-        /** StudioSetupIn */
-        StudioSetupIn: {
+        /** StudioEnableIn */
+        StudioEnableIn: {
             /** Model */
             model?: string | null;
-            /** Workspace Id */
-            workspace_id?: string | null;
         };
-        /** StudioWorkspaceOut */
-        StudioWorkspaceOut: {
-            key: components["schemas"]["OwnVoiceKeyOut"] | null;
+        /** StudioVoicesOut */
+        StudioVoicesOut: {
+            /** Cartesia Key Configured */
+            cartesia_key_configured: boolean;
+            /** Explanation */
+            explanation: string;
+            key: components["schemas"]["OwnVoiceKeyOut"];
+            /** Live Studio Agents */
+            live_studio_agents: number;
             /** Note */
             note: string;
             /** Ready */
             ready: boolean;
-            /** Workspace Id */
-            workspace_id: string | null;
         };
         /**
          * SubjectExportCallOut
@@ -17453,9 +18010,10 @@ export interface components {
         SubmitIn: {
             /**
              * Agent Id
-             * Format: uuid
+             * @deprecated
+             * @description Deprecated and ignored: knowledge is shared by every agent of the account (D-689).
              */
-            agent_id: string;
+            agent_id?: string | null;
             /** Body */
             body: string;
             /**
@@ -18816,11 +19374,6 @@ export interface components {
          *     `pending_approval` — read, ready, and deliberately not live.
          */
         UploadOut: {
-            /**
-             * Agent Id
-             * Format: uuid
-             */
-            agent_id: string;
             /** Byte Size */
             byte_size?: number | null;
             /** Change Detected At */
@@ -19134,6 +19687,10 @@ export interface components {
          *     which — see `agents/voice_sync.VoiceSyncResult`.
          */
         VoiceCatalogueRefreshOut: {
+            /** Bands */
+            bands?: {
+                [key: string]: number;
+            } | null;
             /** Complete */
             complete: boolean;
             /** In Force */
@@ -19516,18 +20073,40 @@ export interface components {
          *     answer for itself, and this response and the dispatch gate must never disagree.
          */
         apps__api__compliance__kyc_routes__KycRecordOut: {
+            /** Digilocker Outstanding */
+            digilocker_outstanding: boolean;
+            /** Digilocker Required */
+            digilocker_required: boolean;
+            /** Digilocker Required Reason */
+            digilocker_required_reason: string | null;
             /** Document Kind */
             document_kind: string | null;
             /** Document Ref */
             document_ref: string | null;
+            /** Documents */
+            documents: components["schemas"]["KycDocumentOut"][];
             /** Entity Type */
             entity_type: string | null;
             /** Evidence Ref */
             evidence_ref: string | null;
+            /** Gst Registered */
+            gst_registered: boolean | null;
+            /** Gstin */
+            gstin: string | null;
             /** Is Verified */
             is_verified: boolean;
+            /** Kyc Path */
+            kyc_path: string | null;
+            /** Legal Business Name */
+            legal_business_name: string | null;
+            /** Name Match */
+            name_match: boolean | null;
             /** Number Purchase Available */
             number_purchase_available: boolean;
+            /** Owner Id Masked */
+            owner_id_masked: string | null;
+            /** Owner Id Type */
+            owner_id_type: string | null;
             /** Recorded */
             recorded: boolean;
             /** Rejection Reason */
@@ -20059,6 +20638,37 @@ export interface operations {
             };
         };
     };
+    kyc_review_queue_v1_admin_kyc_reviews_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycReviewItem"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     admin_me_v1_admin_me_get: {
         parameters: {
             query?: never;
@@ -20186,6 +20796,35 @@ export interface operations {
             };
         };
     };
+    engine_business_details_v1_admin_numbers_engine_business_details_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessDetailsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     tenant_numbers_v1_admin_numbers_tenants__tenant_id__get: {
         parameters: {
             query?: {
@@ -20272,6 +20911,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EngineNumbersOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_tenant_engine_number_v1_admin_numbers_tenants__tenant_id__engine_record_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordEngineNumberIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordedEngineNumberOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -22513,6 +23187,37 @@ export interface operations {
             };
         };
     };
+    read_tenant_kyc_v1_admin_tenants__tenant_id__kyc_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminKycOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     record_kyc_verification_v1_admin_tenants__tenant_id__kyc_post: {
         parameters: {
             query?: never;
@@ -22535,6 +23240,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["apps__api__admin__routes__KycRecordOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_tenant_digilocker_requirement_v1_admin_tenants__tenant_id__kyc_digilocker_requirement_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DigiLockerRequirementIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminKycOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    download_kyc_document_v1_admin_tenants__tenant_id__kyc_documents__document_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    review_kyc_v1_admin_tenants__tenant_id__kyc_review_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KycReviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminKycOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -27039,6 +27846,105 @@ export interface operations {
             };
         };
     };
+    save_details_v1_compliance_kyc_details_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessDetailsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["apps__api__compliance__kyc_routes__KycRecordOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    upload_document_v1_compliance_kyc_documents_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_document_v1_compliance_kyc_documents_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycDocumentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    submit_for_review_v1_compliance_kyc_submit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualSubmitIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["apps__api__compliance__kyc_routes__KycRecordOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     start_verification_v1_compliance_kyc_verification_post: {
         parameters: {
             query?: never;
@@ -27059,6 +27965,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StartVerificationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    complete_verification_v1_compliance_kyc_verification_complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteVerificationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompleteVerificationOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -27125,6 +28064,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MessagingConsentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_outbound_pledge_v1_compliance_outbound_pledge_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboundPledgeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    accept_outbound_pledge_v1_compliance_outbound_pledge_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OutboundPledgeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboundPledgeOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -28176,6 +29177,10 @@ export interface operations {
     list_uploads_v1_kb_uploads_get: {
         parameters: {
             query?: {
+                /**
+                 * @deprecated
+                 * @description Deprecated and ignored: knowledge is shared by every agent of the account (D-689).
+                 */
                 agent_id?: string | null;
                 limit?: number;
             };
@@ -31460,7 +32465,7 @@ export interface operations {
             };
         };
     };
-    studio_workspace_v1_ops_voices_studio_workspace_get: {
+    studio_voices_v1_ops_voices_studio_voices_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -31475,7 +32480,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["StudioWorkspaceOut"];
+                    "application/json": components["schemas"]["StudioVoicesOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -31489,7 +32494,40 @@ export interface operations {
             };
         };
     };
-    setup_studio_workspace_v1_ops_voices_studio_workspace_post: {
+    disable_studio_v1_ops_voices_studio_voices_disable_post: {
+        parameters: {
+            query?: {
+                confirm?: boolean;
+            };
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudioVoicesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    enable_studio_v1_ops_voices_studio_voices_enable_post: {
         parameters: {
             query?: never;
             header?: {
@@ -31500,7 +32538,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["StudioSetupIn"];
+                "application/json": components["schemas"]["StudioEnableIn"];
             };
         };
         responses: {
@@ -31510,7 +32548,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["StudioWorkspaceOut"];
+                    "application/json": components["schemas"]["StudioVoicesOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

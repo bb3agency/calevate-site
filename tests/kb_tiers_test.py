@@ -104,7 +104,6 @@ async def test_publishing_knowledge_recompiles_the_t0_block() -> None:
         submitted = await kb_service.submit_source(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Fees",
             body="A consultation costs 500 rupees and is payable at reception.",
         )

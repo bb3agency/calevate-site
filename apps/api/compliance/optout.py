@@ -187,7 +187,9 @@ OPTOUT_CONSENT_SOURCE = "inbound_call_verbal"
 # OPERATIONS gate 8 verifies it.
 DETECTED_IN_CALL = "in_call_tool"
 DETECTED_POST_CALL = "post_call_transcript"
-DETECTION_SOURCES = (DETECTED_IN_CALL, DETECTED_POST_CALL)
+# The voice platform's own agent heard it and reported it by `contact.opted_out` (D-691).
+DETECTED_BY_ENGINE = "engine_platform"
+DETECTION_SOURCES = (DETECTED_IN_CALL, DETECTED_POST_CALL, DETECTED_BY_ENGINE)
 
 
 class SpokenTurn(Protocol):
@@ -518,6 +520,7 @@ async def record_call_optout(
 
 __all__ = [
     "CALL_OPTOUT_SOURCE",
+    "DETECTED_BY_ENGINE",
     "DETECTED_IN_CALL",
     "DETECTED_POST_CALL",
     "DETECTION_SOURCES",

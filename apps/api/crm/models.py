@@ -107,6 +107,11 @@ class Call(PKMixin, TimestampMixin, Base):
             "AND carrier_recording_id !~ '^[0-9]{7,}$')",
             name="carrier_recording_id_shape",
         ),
+        # What the voice platform charged, never negative (migration f3b8d1e5a7c2).
+        CheckConstraint(
+            "engine_charged_inr IS NULL OR engine_charged_inr >= 0",
+            name="engine_charged_inr_not_negative",
+        ),
         # Recordings the carrier reported and we have not copied yet: the copy sweep's
         # worklist (`workers/carrier_recordings`), a handful of rows at any moment.
         Index(
@@ -281,6 +286,10 @@ class Call(PKMixin, TimestampMixin, Base):
     # different question and stays where it is.
     crm_notified_at: Mapped[datetime | None]
     engine_payload_ref: Mapped[str | None] = mapped_column(Text)  # raw vendor payload (debug only)
+    #: What the voice platform says it charged for this call, in rupees, set once when it
+    #: settles (ThinnestAI `costMicro`). A reconciliation input, never `unit_cost_paid`
+    #: (hard rule 7): `workers/engine_charges.reconcile_call_charge`.
+    engine_charged_inr: Mapped[Decimal | None] = mapped_column(Numeric(14, 6))
     # The one-way handle a DPDP erasure leaves behind when it clears this row's numbers
     # (D-310, migration c1e9a4f7d302). Without it an erased call is orphaned from its
     # subject forever — the two phone columns were the only join — so records that arrive

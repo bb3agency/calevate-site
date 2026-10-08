@@ -10,6 +10,12 @@ an engine whose `HostedAgentLimits.facts_in_knowledge` is set (the founder's dec
 up (`calevate_shared.engine.FACTS_IN_KNOWLEDGE_GUIDANCE`), and the block itself is pushed as
 one knowledge document through the same `attach_kb` text path the KB publisher uses.
 
+The document carries the INTAKE half of the block only. The "Published knowledge:" half is
+the client's published sources, and on such an engine each source already reaches every
+vendor agent as its own document (`kb/service.py`, D-689); sending it again inside the facts
+document handed the engine every source twice, and a withdrawn source survived in the facts
+copy until the agent was next published.
+
 One document per VENDOR AGENT, recorded on its `engine_agent_routes` row with the digest of
 the text it was made from:
 
@@ -22,9 +28,12 @@ the text it was made from:
 A document the vendor no longer holds (404 on removal) is already gone, which is the
 outcome wanted. Deleting the vendor agent deletes its knowledge with it (`agents.md:82`).
 
-The agent's KB-publish lock is taken first (`kb/service.lock_agent_publishes`): the KB drift
+The publish path is also where an agent published after the client's knowledge catches up on
+it (`kb/service.converge_agent_knowledge`), on every engine with a knowledge base.
+
+The tenant's knowledge lock is taken first (`kb/service.lock_tenant_knowledge`): the KB drift
 sweep reads our recorded handles on either side of a vendor listing under the same lock, and
-a facts swap in flight would otherwise read to it as a divergence.
+a facts swap or a catch-up in flight would otherwise read to it as a divergence.
 """
 
 from __future__ import annotations
@@ -37,6 +46,7 @@ from calevate_shared.engine import KBSourceRef, VoiceEngine
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.t0_block import facts_without_knowledge
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.engine.hosted_platform import hosted_agent_limits
@@ -70,18 +80,54 @@ async def sync_business_facts(
     ref: str,
     facts: str | None,
 ) -> None:
-    """Make the vendor agent `ref` hold `facts` as its one facts document, or none.
+    """Make the vendor agent `ref` hold what our tables say it should know.
 
-    For the publish paths, after the `engine_agent_routes` row for `ref` is written and in
-    the same transaction. A no-op on an engine that keeps the facts in the prompt.
+    Two halves, both for the publish paths, after the `engine_agent_routes` row for `ref`
+    is written and in the same transaction:
+
+    * on an engine that keeps facts out of the prompt, the facts document — the intake half
+      of `facts` only (`t0_block.facts_without_knowledge`; see the module docstring);
+    * on an engine with a knowledge base, the tenant's published knowledge, for the agent's
+      OWN vendor agent (`kb/service.converge_agent_knowledge`). An experiment arm holds no
+      knowledge of ours, by construction.
+
+    A no-op on an engine with neither.
     """
-    if not hosted_agent_limits(engine).facts_in_knowledge:
+    in_knowledge = hosted_agent_limits(engine).facts_in_knowledge
+    holds_kb = engine.capabilities.has("knowledge_base")
+    if not in_knowledge and not holds_kb:
         return
     # Imported here: `kb.service` imports `agents.t0`, which imports `agents.service`, which
     # imports this module.
-    from apps.api.kb.service import lock_agent_publishes
+    from apps.api.kb.service import converge_agent_knowledge, lock_tenant_knowledge
 
-    await lock_agent_publishes(session, agent_id=agent_id)
+    owner = (
+        await session.execute(
+            text("SELECT tenant_id, engine_agent_ref FROM agents WHERE id = :aid"),
+            {"aid": agent_id},
+        )
+    ).one()
+    tenant_id = UUID(str(owner[0]))
+    await lock_tenant_knowledge(session, tenant_id=tenant_id)
+    if in_knowledge:
+        await _sync_facts_document(
+            session, engine, agent_id=agent_id, ref=ref, facts=facts_without_knowledge(facts)
+        )
+    if holds_kb and owner[1] == ref:
+        await converge_agent_knowledge(
+            session, engine, tenant_id=tenant_id, agent_id=agent_id, ref=ref
+        )
+
+
+async def _sync_facts_document(
+    session: AsyncSession,
+    engine: VoiceEngine,
+    *,
+    agent_id: UUID,
+    ref: str,
+    facts: str | None,
+) -> None:
+    """Make the vendor agent `ref` hold `facts` as its one facts document, or none."""
     row = (
         await session.execute(
             text(

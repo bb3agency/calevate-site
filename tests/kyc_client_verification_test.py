@@ -40,7 +40,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, put_business_on_file_for_tests
 
 pytestmark = [pytest.mark.rls]
 
@@ -99,7 +99,7 @@ async def _tenant() -> dict[str, Any]:
         language="te-IN",
         created_by=None,
     )
-    await accept_agreements(uuid.UUID(str(created["id"])))
+    await accept_agreements(uuid.UUID(str(created["id"])), kyc_and_pledge=False)
     return created
 
 
@@ -109,7 +109,9 @@ async def _headers(org: dict[str, Any]) -> dict[str, str]:
 
 
 async def _start(org: dict[str, Any], entity_type: str) -> str:
-    """Begin a run the way a client does, and hand back the provider reference."""
+    """Begin a run the way a client does, and hand back the provider reference. The
+    business details and certificate go on file first, as D-692 requires on this path."""
+    await put_business_on_file_for_tests(uuid.UUID(str(org["id"])), entity_type=entity_type)
     async with _client() as http:
         response = await http.post(
             START_PATH, headers=await _headers(org), json={"entity_type": entity_type}
@@ -198,7 +200,7 @@ async def test_an_unsigned_delivery_is_refused_and_writes_nothing() -> None:
 
     async with tenant_session(tenant_id) as session:
         record = await read_kyc(session, tenant_id=tenant_id)
-    assert not record.recorded, "an unsigned delivery must leave no record at all"
+    assert record.status == "not_started", "an unsigned delivery must not move the record"
 
 
 async def test_a_delivery_signed_with_the_wrong_secret_is_refused() -> None:
@@ -213,7 +215,7 @@ async def test_a_delivery_signed_with_the_wrong_secret_is_refused() -> None:
     assert response.status_code == 401, response.text
 
     async with tenant_session(tenant_id) as session:
-        assert not (await read_kyc(session, tenant_id=tenant_id)).recorded
+        assert (await read_kyc(session, tenant_id=tenant_id)).status == "not_started"
 
 
 async def test_a_correctly_signed_outcome_for_an_unknown_run_is_refused() -> None:
@@ -283,7 +285,7 @@ async def test_a_failed_run_leaves_the_record_untouched() -> None:
 
     async with tenant_session(tenant_id) as session:
         record = await read_kyc(session, tenant_id=tenant_id)
-    assert not record.recorded
+    assert record.status == "not_started"
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
@@ -373,11 +375,10 @@ async def test_an_aadhaar_shaped_value_cannot_be_stored_on_the_record(column: st
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "INSERT INTO kyc_records (id, tenant_id, status, verification_source, "
-                "  created_at, updated_at) "
-                "VALUES (:id, :tid, 'submitted', 'operator', now(), now())"
+                "UPDATE kyc_records SET status = 'submitted', "
+                "  verification_source = 'operator' WHERE tenant_id = :tid"
             ),
-            {"id": uuid.uuid4(), "tid": tenant_id},
+            {"tid": tenant_id},
         )
     with pytest.raises(IntegrityError):
         async with tenant_session(tenant_id) as session:
@@ -542,13 +543,12 @@ async def test_a_run_opened_before_the_record_was_verified_cannot_downgrade_it()
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "INSERT INTO kyc_records (id, tenant_id, status, entity_type, document_kind, "
-                "  document_ref, verification_source, verified_by_admin_id, submitted_at, "
-                "  verified_at, created_at, updated_at) "
-                "VALUES (:id, :tid, 'verified', 'private_limited', 'cin', 'U72900KA2020PTC1', "
-                "  'operator', :admin, now(), now(), now(), now())"
+                "UPDATE kyc_records SET status = 'verified', entity_type = 'private_limited', "
+                "  document_kind = 'cin', document_ref = 'U72900KA2020PTC1', "
+                "  verification_source = 'operator', verified_by_admin_id = :admin, "
+                "  submitted_at = now(), verified_at = now() WHERE tenant_id = :tid"
             ),
-            {"id": uuid.uuid4(), "tid": tenant_id, "admin": await _an_admin_id()},
+            {"tid": tenant_id, "admin": await _an_admin_id()},
         )
 
     response = await _deliver({"provider_ref": ref, "verified": True, "verified_name": "R Kumar"})
@@ -630,7 +630,7 @@ async def test_an_outcome_for_a_run_past_its_window_verifies_nobody() -> None:
     assert response.json()["status"] == "expired"
 
     async with tenant_session(tenant_id) as session:
-        assert not (await read_kyc(session, tenant_id=tenant_id)).recorded
+        assert (await read_kyc(session, tenant_id=tenant_id)).status == "not_started"
         row = (
             await session.execute(
                 text("SELECT status FROM kyc_verification_requests WHERE provider_ref = :ref"),
@@ -688,7 +688,7 @@ async def test_a_second_late_delivery_expires_nothing_and_is_a_replay() -> None:
     assert second.json()["status"] == "replay", second.text
 
     async with tenant_session(tenant_id) as session:
-        assert not (await read_kyc(session, tenant_id=tenant_id)).recorded
+        assert (await read_kyc(session, tenant_id=tenant_id)).status == "not_started"
         stamped = (
             await session.execute(
                 text(

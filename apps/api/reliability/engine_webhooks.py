@@ -1,10 +1,11 @@
 """Per-agent engine webhook endpoints: registered at publish, kept switched on (D-678).
 
-ThinnestAI delivers `call.completed` / `call.analysed` to an endpoint registered per agent,
-returns its signing secret ONCE, sends each event ONCE, and switches the endpoint off after
-five failures in a row (`thinnest-findings/mirror/pages/api-reference/webhooks.md:36-40,
-:84-88`). So one function answers "make this agent's endpoint exist, be ours, and be on",
-and both callers use it: the publish path (`ensure_agent_webhook`) and the sweep
+ThinnestAI delivers `call.completed` / `call.analysed` / `contact.opted_out` to an endpoint
+registered per agent, returns its signing secret ONCE, retries a failed attempt on a fixed
+schedule, and switches the endpoint off after five events in a row that failed every attempt
+(`thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/webhooks.md:36-40,
+:110-117, :149-155`). So one function answers "make this agent's endpoint exist, be ours,
+and be on", and both callers use it: the publish path (`ensure_agent_webhook`) and the sweep
 (`apps/workers/engine_webhooks.py`).
 
 WHY A REPUBLISH CANNOT DUPLICATE. The endpoint id and its sealed secret live on the
@@ -28,6 +29,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings, is_public_callback_base
 from apps.api.engine.thinnest_webhooks import (
     AGENT_QUERY_PARAM,
+    SUBSCRIBED_EVENTS,
     ThinnestWebhooks,
     WebhookEndpoint,
     thinnest_webhooks,
@@ -42,7 +44,9 @@ THINNEST: Final = "thinnest"
 #: Engines whose deliveries are signed with a per-agent endpoint secret we must register.
 WEBHOOK_ENGINES: Final = frozenset({THINNEST})
 
-WebhookOutcome = Literal["not_applicable", "registered", "replaced", "healthy", "reenabled"]
+WebhookOutcome = Literal[
+    "not_applicable", "registered", "replaced", "healthy", "reenabled", "resubscribed"
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,12 +211,20 @@ async def ensure_agent_webhook(
             extra={"engine": engine, "webhook_id": webhook_id, "was": held},
         )
         return WebhookRegistration(outcome="replaced", webhook_id=webhook_id)
+    # An endpoint registered before a subscription was added (D-691 added
+    # `contact.opted_out`) is brought up to date in place: re-creating it would rotate a
+    # secret for no reason. `("*",)` is every event, which includes ours.
+    resubscribed = current.events not in (SUBSCRIBED_EVENTS, ("*",))
+    if resubscribed:
+        await webhooks.subscribe(held, SUBSCRIBED_EVENTS)
     if not current.enabled:
         await webhooks.enable(held)
         await _mark_checked(session, engine, engine_agent_ref)
         return WebhookRegistration(outcome="reenabled", webhook_id=held)
     await _mark_checked(session, engine, engine_agent_ref)
-    return WebhookRegistration(outcome="healthy", webhook_id=held)
+    return WebhookRegistration(
+        outcome="resubscribed" if resubscribed else "healthy", webhook_id=held
+    )
 
 
 __all__ = [

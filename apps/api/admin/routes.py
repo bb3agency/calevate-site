@@ -46,7 +46,9 @@ from apps.api.billing import service as billing
 from apps.api.billing import terms as billing_terms
 from apps.api.billing.cap_routes import MAX_CLIENT_CAP_MIN, MAX_CLIENT_CAP_SPEND_INR
 from apps.api.billing.plans import IST, ist_billing_month, parse_billing_month
+from apps.api.campaigns import engine_numbers
 from apps.api.campaigns import service as campaigns_service
+from apps.api.campaigns.engine_numbers import SyncOutcome
 from apps.api.campaigns.number_catalog import NumberDirection
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.kyc import record_kyc
@@ -2073,6 +2075,10 @@ class NumberAgentOut(BaseModel):
     released: int
     failed: int
     unsupported: int
+    #: On a voice platform whose numbers are attached through its own number API
+    #: (ThinnestAI, D-691): whether it now agrees with this attachment. `partial` and
+    #: `refused` have alarmed `engine_number_attachment_failed`.
+    platform_attachment: SyncOutcome = "not_applicable"
 
 
 class DltStatusIn(BaseModel):
@@ -2216,7 +2222,11 @@ class DltRegistrationOut(BaseModel):
         "Records a telephone number Calevate provides for this client on its own carrier "
         "account (Vobiz), so the campaign launch gate can match its series against a "
         "campaign's classification. The client opens no operator account and issues no "
-        "credentials. `dlt_status` starts `pending` and is a separate, deliberate step."
+        "credentials. `dlt_status` starts `pending` and is a separate, deliberate step. A "
+        "number held on the voice platform (`provider: thinnest`) must be on the platform's "
+        "own list (`engine_number_not_held`), may not be another client's line "
+        "(`engine_number_answered_by_other_client`), and a rented one is priced from the "
+        "attested monthly rate with its first month collected."
     ),
 )
 async def provision_number(
@@ -2264,17 +2274,34 @@ async def provision_number(
     async with tenant_session(tenant_id) as scoped:
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")
-        number_id = await agents_service.provision_number(
-            scoped,
-            tenant_id=tenant_id,
-            e164=payload.e164,
-            series=payload.series,
-            agent_id=payload.agent_id,
-            provider=payload.provider,
-            direction=payload.direction,
-            purpose=payload.purpose,
-            engine_number_ref=payload.engine_number_ref,
-        )
+        if payload.provider in engine_held:
+            # Checked against the voice platform's own list, priced and attached (D-691):
+            # a hand-typed number on that platform is recorded exactly as one picked from
+            # its list on the engine numbers screen.
+            number_id = (
+                await engine_numbers.record_engine_number(
+                    scoped,
+                    tenant_id=tenant_id,
+                    e164=payload.e164,
+                    series=payload.series,
+                    direction=payload.direction,
+                    agent_id=payload.agent_id,
+                    purpose=payload.purpose,
+                    engine_number_ref=payload.engine_number_ref,
+                )
+            ).number_id
+        else:
+            number_id = await agents_service.provision_number(
+                scoped,
+                tenant_id=tenant_id,
+                e164=payload.e164,
+                series=payload.series,
+                agent_id=payload.agent_id,
+                provider=payload.provider,
+                direction=payload.direction,
+                purpose=payload.purpose,
+                engine_number_ref=payload.engine_number_ref,
+            )
         await write_audit(
             scoped,
             action="number.provisioned",
@@ -2372,6 +2399,7 @@ async def set_number_agent(
         routing = await agents_service.attach_number_to_agent(
             scoped, number_id=number_id, agent_id=payload.agent_id
         )
+        attachment = await engine_numbers.sync_number_attachment(scoped, number_id=number_id)
         await write_audit(
             scoped,
             action="number.agent_set",
@@ -2385,6 +2413,7 @@ async def set_number_agent(
                 "bound": routing.bound,
                 "released": routing.released,
                 "failed": routing.failed,
+                "platform_attachment": attachment,
             },
         )
     return NumberAgentOut(
@@ -2394,6 +2423,7 @@ async def set_number_agent(
         released=routing.released,
         failed=routing.failed,
         unsupported=routing.unsupported,
+        platform_attachment=attachment,
     )
 
 

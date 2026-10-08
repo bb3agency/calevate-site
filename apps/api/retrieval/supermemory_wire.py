@@ -177,13 +177,18 @@ class TenantScope:
 
     @classmethod
     def for_request(cls, request: RetrievalRequest) -> TenantScope:
-        """The READ side's constructor. Takes the request so it cannot take less."""
-        return cls(tenant_id=request.tenant_id, agent_id=request.agent_id)
+        """The READ side's constructor. Takes the request so it cannot take less.
+
+        No agent narrowing: published knowledge is the TENANT's and every agent answers
+        from all of it (D-689), and a document written since carries no agent tag, so
+        narrowing by one would match nothing written after that decision.
+        """
+        return cls(tenant_id=request.tenant_id)
 
     @classmethod
-    def for_publish(cls, *, tenant_id: UUID, agent_id: UUID) -> TenantScope:
-        """The INGEST side's constructor: whose knowledge is being written, and for which
-        agent. Both required, both keyword, neither defaultable.
+    def for_publish(cls, *, tenant_id: UUID) -> TenantScope:
+        """The INGEST side's constructor: whose knowledge is being written. Required and
+        keyword, not defaultable. No agent: a source belongs to the tenant (D-689).
 
         **THIS IS NOT A LOOSENING OF `for_request`'s RULE, AND THE DISTINCTION IS WORTH
         STATING** because a second constructor on a scope type is exactly where such a rule
@@ -191,13 +196,10 @@ class TenantScope:
         BUILT without naming a tenant — §8.4 leaves the wall on our side, so an unscoped
         write is a document filed under nobody, retrievable by the next tenant who asks a
         similar question. A publish has no `RetrievalRequest` to take, so the choice was a
-        constructor whose two arguments are required UUIDs or a `str` tag threaded through
-        the publish path; the second is the forgettable one. `agent_id` is required here
-        and optional on a read for the same reason the tag list is additive: a query with
-        no agent legitimately means "everything this tenant published", and a DOCUMENT with
-        no agent means nothing at all — every `kb_chunks` row carries one.
+        constructor whose argument is a required UUID or a `str` tag threaded through the
+        publish path; the second is the forgettable one.
         """
-        return cls(tenant_id=tenant_id, agent_id=agent_id)
+        return cls(tenant_id=tenant_id)
 
     @classmethod
     def for_tenant(cls, tenant_id: UUID) -> TenantScope:
@@ -263,13 +265,10 @@ def ingest_payload(
 
     **THE METADATA IS THE READ SIDE'S, WRITTEN BY THE ONE FUNCTION THAT READS IT.** Every
     key is `_provenance`'s own (`metadata_source_label`, `metadata_source_id`,
-    `metadata_agent_id`, `metadata_document_version`), so "what a citation needs" is
-    decided once. `agent_id` is taken from the SCOPE rather than as a seventh argument —
-    the tag and the metadata must agree, and two arguments that must agree are one argument.
+    `metadata_document_version`), so "what a citation needs" is decided once. No agent id
+    is written: a published source belongs to the tenant (D-689). `metadata_agent_id` is
+    still READ, for documents ingested before that.
     """
-    agent_id = scope.agent_id
-    if agent_id is None:  # pragma: no cover - `for_publish` cannot produce this
-        raise SupermemoryWireMismatchError("an ingest body was built without its agent")
     payload: dict[str, Any] = {
         contract.document_id_key: str(document_id),
         contract.content_key: content,
@@ -277,7 +276,6 @@ def ingest_payload(
         contract.metadata_key: {
             contract.metadata_source_label: source_label[:200],
             contract.metadata_source_id: str(source_id),
-            contract.metadata_agent_id: str(agent_id),
             contract.metadata_document_version: document_version,
         },
     }

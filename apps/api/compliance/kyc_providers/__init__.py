@@ -9,6 +9,7 @@ that lets a second provider be a one-file change, and it is the same boundary
 from apps.api.compliance.kyc_providers.base import (
     KYC_PROVIDERS,
     EntityBranch,
+    IdDocument,
     IdentityVerificationProvider,
     ProviderContractUnverifiedError,
     VerificationOutcome,
@@ -16,6 +17,7 @@ from apps.api.compliance.kyc_providers.base import (
     entity_branch,
 )
 from apps.api.compliance.kyc_providers.registry import (
+    NO_API_CREDENTIALS,
     NO_PROVIDER_CONFIGURED,
     NO_WEBHOOK_SECRET,
     PROVIDER_CONTRACT_UNVERIFIED,
@@ -26,11 +28,13 @@ from apps.api.compliance.kyc_providers.registry import (
 
 __all__ = [
     "KYC_PROVIDERS",
+    "NO_API_CREDENTIALS",
     "NO_PROVIDER_CONFIGURED",
     "NO_WEBHOOK_SECRET",
     "PROVIDER_CONTRACT_UNVERIFIED",
     "PROVIDER_NOT_LICENSED",
     "EntityBranch",
+    "IdDocument",
     "IdentityVerificationProvider",
     "ProviderCapability",
     "ProviderContractUnverifiedError",

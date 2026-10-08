@@ -87,12 +87,17 @@ const OPERATOR_VIEWING: Me = {
   ],
 };
 
-const AGENT = { id: AGENT_ID, name: "Front desk", status: "live" };
+const AGENTS = [
+  { id: AGENT_ID, name: "Front desk", status: "live" },
+  { id: "0192f0aa-5555-7000-8000-000000000002", name: "Outbound reminders", status: "live" },
+];
 
-function source(over: Partial<KbSource> = {}): KbSource {
+/** A source as the API sends it since D-689: knowledge is the business's, so no agent. */
+type SourceWire = KbSource;
+
+function source(over: Partial<SourceWire> = {}): SourceWire {
   return {
     id: SOURCE_ID,
-    agent_id: AGENT_ID,
     name: "Opening hours",
     kind: "text",
     status: "pending_approval",
@@ -125,12 +130,14 @@ function source(over: Partial<KbSource> = {}): KbSource {
 const STAFF_CURATION = { staff_may_curate_knowledge: false };
 
 async function renderKnowledge(
-  sources: KbSource[] | ProblemResponse,
+  sources: SourceWire[] | ProblemResponse,
   over: Routes = {},
 ) {
   return await renderClientPage(<KnowledgePage />, {
     "/v1/me": ME,
-    "/v1/agents": [AGENT],
+    // Two agents, so a picker or a per-row agent name — both gone with D-689 — would
+    // have something to render if either came back.
+    "/v1/agents": AGENTS,
     "/v1/kb/sources": sources,
     "/v1/kb/staff-curation": STAFF_CURATION,
     // The document list (D-534). Empty by default: every assertion in this file is about
@@ -150,7 +157,7 @@ async function renderKnowledge(
 /** The one control on the screen, found the way a client finds it. */
 function submitButton(): HTMLButtonElement {
   return screen.getByRole("button", {
-    name: /add to agent/i,
+    name: /add to your knowledge/i,
   }) as HTMLButtonElement;
 }
 
@@ -273,19 +280,14 @@ describe("the gate when we cannot read it, or cannot write to it", () => {
     expect(container.textContent).not.toContain("Live");
   });
 
-  it("does not read a failed agent list as an account with no agents", async () => {
-    // The same defect one query over: `agents.data ?? []` cannot tell "this account has
-    // no agent" from "we could not ask". Only the first is a fact about the client, and
-    // only the server may state it. The form is dead either way — so it says why.
-    const { container } = await renderKnowledge([source()], {
-      "/v1/agents": problem(500, { title: "Upstream failure" }),
-    });
+  it("keeps the form open on an account with no agent yet", async () => {
+    // Knowledge added now reaches the first agent when it is published (D-689), so the
+    // absence of an agent is not a reason to refuse it.
+    const { container } = await renderKnowledge([], { "/v1/agents": [] });
 
-    expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(container.textContent).not.toContain(
-      "There is no agent on this account yet",
-    );
-    expect(submitButton().disabled).toBe(true);
+    await waitFor(() => expect(submitButton().disabled).toBe(false));
+    expect(container.textContent).toContain("No agents yet");
+    expect(container.textContent).toContain("You can still add knowledge now");
   });
 
   it("disables the submit control for a role the route refuses, and says which", async () => {
@@ -383,22 +385,47 @@ describe("the gate when we cannot read it, or cannot write to it", () => {
     );
   });
 
-  it("says which agent a source belongs to, and guesses at none", async () => {
-    // Knowledge is filed against ONE agent and `list_sources` returns every agent's
-    // sources together, so a two-agent account cannot otherwise tell whether the answer
-    // it is waiting on belongs to the receptionist or to the outbound agent.
-    const named = await renderKnowledge([source()]);
-    await screen.findByText("Opening hours");
-    expect(named.container.textContent).toContain("Front desk");
-    named.unmount();
+});
 
-    // With the agent list unreadable the row says nothing rather than something: a
-    // source attributed to the wrong agent is worse than one attributed to none.
-    const unnamed = await renderKnowledge([source()], {
-      "/v1/agents": problem(500, { title: "Upstream failure" }),
-    });
+describe("one body of knowledge for the whole business (D-689)", () => {
+  it("offers no agent picker, even to an account with several agents", async () => {
+    const { container } = await renderKnowledge([source()]);
     await screen.findByText("Opening hours");
-    expect(unnamed.container.textContent).not.toContain("Front desk");
+
+    expect(container.querySelector("select")).toBeNull();
+    expect(container.textContent).not.toContain("Which agent");
+    expect(container.textContent).not.toContain("Goes to");
+    // No row is attributed to one agent: every agent answers from every row.
+    expect(container.textContent).not.toContain("Front desk");
+    expect(container.textContent).not.toContain("Outbound reminders");
+    expect(container.textContent).toContain("every one of your agents answers from it");
+  });
+
+  it("submits a typed fact with no agent id", async () => {
+    const { calls } = await renderKnowledge([], {
+      "POST /v1/kb/sources": { id: SOURCE_ID, chunks: 1, version: 1, status: "approved" },
+    });
+    await waitFor(() => expect(submitButton().disabled).toBe(false));
+
+    fireEvent.change(screen.getByLabelText("What this knowledge is about"), {
+      target: { value: "Opening hours" },
+    });
+    fireEvent.change(screen.getByLabelText("What the agent should say"), {
+      target: { value: "We are open from nine to six, Monday to Saturday." },
+    });
+    fireEvent.click(submitButton());
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "POST" && c.path === "/v1/kb/sources")).toBe(true),
+    );
+    const posted = calls.find((c) => c.method === "POST" && c.path === "/v1/kb/sources");
+    const body = JSON.parse(posted?.body ?? "{}") as Record<string, unknown>;
+    expect(body).toEqual({
+      name: "Opening hours",
+      body: "We are open from nine to six, Monday to Saturday.",
+      kind: "text",
+    });
+    expect("agent_id" in body).toBe(false);
   });
 });
 

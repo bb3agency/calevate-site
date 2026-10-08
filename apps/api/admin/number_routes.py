@@ -26,6 +26,7 @@ its E.164 (hard rule 6).
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
@@ -37,7 +38,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service
 from apps.api.agents import service as agents_service
-from apps.api.campaigns import number_supply
+from apps.api.campaigns import engine_numbers, number_supply
+from apps.api.campaigns.engine_numbers import SyncOutcome
+from apps.api.campaigns.number_catalog import NumberDirection
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
@@ -45,9 +48,11 @@ from apps.api.core.deps import admin_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
+from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.engine.hosted_platform import engine_number_console
+from apps.api.engine.thinnest_numbers import digits
 
 router = APIRouter(prefix="/v1/admin/numbers", tags=["admin"])
 
@@ -484,6 +489,9 @@ class EngineNumberOut(BaseModel):
     agent_name: str | None
     #: Nobody answers it: it can be pointed at one of this client's agents.
     unassigned: bool
+    #: Our record of it for this client, once recorded (D-691). None offers "Record this
+    #: number"; a number recorded for another client is refused at the record step.
+    number_id: UUID | None = None
 
 
 class EngineAgentOut(BaseModel):
@@ -521,6 +529,11 @@ class EngineNumbersOut(BaseModel):
 _ENGINE_PUBLISHED_AGENTS = (
     "SELECT id, name, engine_agent_ref FROM agents WHERE deleted_at IS NULL "
     "AND engine = :engine AND engine_agent_ref IS NOT NULL ORDER BY name, id LIMIT :limit"
+)
+
+#: This client's live records, matched to the platform's list on the digits.
+_RECORDED_NUMBERS = (
+    "SELECT id, engine_number_ref, e164 FROM phone_numbers WHERE released_at IS NULL"
 )
 
 
@@ -563,11 +576,15 @@ async def tenant_engine_numbers(
                 text(_ENGINE_PUBLISHED_AGENTS), {"engine": engine.name, "limit": 200}
             )
         ).all()
+        recorded = {
+            digits(str(row[1] or row[2])): row[0]
+            for row in (await scoped.execute(text(_RECORDED_NUMBERS))).all()
+        }
     await record_admin_tenant_read(
         session, request=request, principal=principal, tenant_id=tenant_id
     )
     ours = {str(row[2]): (row[0], str(row[1])) for row in rows}
-    held = await engine.list_engine_numbers()
+    held = await engine_numbers.vendor_numbers(engine_numbers.number_workspace(tenant_id))
     numbers: list[EngineNumberOut] = []
     other = 0
     answering: set[str] = set()
@@ -587,6 +604,7 @@ async def tenant_engine_numbers(
                 agent_id=agent[0] if agent else None,
                 agent_name=agent[1] if agent else None,
                 unassigned=ref is None,
+                number_id=recorded.get(digits(number.engine_number_ref or number.e164)),
             )
         )
     return EngineNumbersOut(
@@ -605,6 +623,145 @@ async def tenant_engine_numbers(
             )
             for ref, (agent_id, name) in ours.items()
         ],
+    )
+
+
+class RecordEngineNumberIn(BaseModel):
+    """A number from the platform's own list, recorded for this client (D-691).
+
+    Only the number is taken from the screen: the vendor's handle, whether it is rented and
+    which series it is are read from the platform's list and its own digits, never typed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    e164: str = Field(min_length=8, max_length=20, pattern=r"^\+[1-9]\d{7,18}$")
+    direction: NumberDirection = "both"
+    #: The agent that answers it (or, for an outbound-only agent, calls out on it).
+    agent_id: UUID | None = None
+    purpose: str | None = Field(default=None, max_length=120)
+
+
+class RecordedEngineNumberOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    number_id: UUID
+    e164: str
+    series: str
+    #: What the client pays each month, from the attested rate; None for a brought number.
+    client_inr_per_month: Decimal | None
+    #: Whether the platform now agrees which agent answers it and which calls out on it.
+    platform_attachment: SyncOutcome
+
+
+@router.post(
+    "/tenants/{tenant_id}/engine/record",
+    response_model=RecordedEngineNumberOut,
+    status_code=201,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Record a number the voice platform holds for this client, price it, attach it",
+    description=(
+        "For a number rented in the voice platform's own console. Refused with "
+        "`engine_number_not_held` when the platform does not hold it, "
+        "`engine_number_answered_by_other_client` when another client's agent answers it, "
+        "`number_taken` when it is already recorded, and `number_price_not_attested` for a "
+        "rented number while no monthly price is attested. A rented number's first month is "
+        "collected now and it renews monthly from today."
+    ),
+)
+async def record_tenant_engine_number(
+    tenant_id: UUID,
+    payload: RecordEngineNumberIn,
+    request: Request,
+    principal: NumberOperator,
+) -> RecordedEngineNumberOut:
+    async with tenant_session(tenant_id) as scoped:
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
+        recorded = await engine_numbers.record_engine_number(
+            scoped,
+            tenant_id=tenant_id,
+            e164=payload.e164,
+            direction=payload.direction,
+            agent_id=payload.agent_id,
+            purpose=payload.purpose,
+        )
+        await write_audit(
+            scoped,
+            action="number.engine_recorded",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="phone_number",
+            object_id=str(recorded.number_id),
+            ip=client_request_ip(request),
+            # The series and the outcome, never the number itself (hard rule 6).
+            summary={
+                "series": recorded.series,
+                "priced": recorded.client_inr_per_month is not None,
+                "platform_attachment": recorded.attachment,
+            },
+        )
+    return RecordedEngineNumberOut(
+        number_id=recorded.number_id,
+        e164=recorded.e164,
+        series=recorded.series,
+        client_inr_per_month=recorded.client_inr_per_month,
+        platform_attachment=recorded.attachment,
+    )
+
+
+class BusinessDetailsOut(BaseModel):
+    """The voice platform's business-details application, which India requires before it
+    rents a number (D-691). `available` is False on a deployment whose numbers are not the
+    platform's; every other field is then empty."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    available: bool
+    platform: str | None
+    status: str | None
+    business_name: str | None
+    can_rent: bool
+    submitted_at: datetime | None
+    #: On a rejected application, the platform's note on what to correct.
+    review_note: str | None
+    #: Rejected, suspended or expired: the platform will not rent a new number.
+    lapsed: bool
+
+
+@router.get(
+    "/engine/business-details",
+    response_model=BusinessDetailsOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="The voice platform's business-details application status",
+    description=(
+        "Read live from the voice platform on every request. Read-only: the details are sent "
+        "in the platform's own console."
+    ),
+)
+async def engine_business_details(principal: NumberOperator) -> BusinessDetailsOut:
+    details = await engine_numbers.read_business_details()
+    console = engine_number_console(get_settings().engine)
+    if details is None:
+        return BusinessDetailsOut(
+            available=False,
+            platform=None,
+            status=None,
+            business_name=None,
+            can_rent=False,
+            submitted_at=None,
+            review_note=None,
+            lapsed=False,
+        )
+    return BusinessDetailsOut(
+        available=True,
+        platform=console.platform_label if console is not None else None,
+        status=details.status,
+        business_name=details.business_name,
+        can_rent=details.can_rent,
+        submitted_at=details.submitted_at,
+        review_note=details.review_note,
+        lapsed=details.status in engine_numbers.LAPSED_BUSINESS_STATUSES,
     )
 
 

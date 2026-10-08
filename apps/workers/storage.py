@@ -957,6 +957,38 @@ async def store_carrier_document(*, key: str, data: bytes, content_type: str) ->
     )
 
 
+KYC_DOCUMENT_PREFIX = "kyc-documents"
+
+
+def kyc_document_key(*, tenant_id: UUID, document_id: UUID, suffix: str) -> str:
+    """`kyc-documents/{tenant}/{document}.{suffix}` (D-692).
+
+    One object per upload, keyed by the `kyc_documents` row id, so a replacement never
+    overwrites the file an admin reviewed. Neither segment is caller-controlled: `suffix`
+    comes from `compliance.kyc_documents`' own type map and the client's filename lives in
+    a column.
+    """
+    return f"{KYC_DOCUMENT_PREFIX}/{tenant_id}/{document_id}.{suffix}"
+
+
+def kyc_tenant_prefix(*, tenant_id: UUID) -> str:
+    """Every KYC document of one account — what an account closure sweeps."""
+    return f"{KYC_DOCUMENT_PREFIX}/{tenant_id}/"
+
+
+async def store_kyc_document(*, key: str, data: bytes, content_type: str) -> str:
+    """Put one KYC document. RAISES when the store refuses, for `store_carrier_document`'s
+    reason: answering 201 without the bytes would tell the client their paperwork is with
+    us when it is not."""
+    return await _put_document(
+        key=key,
+        data=data,
+        content_type=content_type,
+        log_event="kyc_document_store_failed",
+        refusal="Object storage refused the verification document",
+    )
+
+
 async def store_knowledge_pack(*, key: str, data: bytes) -> str:
     """Put one in-call knowledge pack (`calevate_shared.knowledge_pack`). RAISES when the
     store refuses.

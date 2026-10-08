@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing import rates
 from apps.api.core.errors import ProblemError
+from apps.api.core.settings import get_settings
 
 EngineRateKey = Literal["platform", "standard", "premium", "studio", "byok_voice"]
 ENGINE_RATE_KEYS: Final[tuple[str, ...]] = get_args(EngineRateKey)
@@ -51,26 +52,36 @@ ATTESTED_MINUTE_ENGINES: Final = frozenset(PULSE_SECONDS)
 
 _SIXTY: Final = Decimal(60)
 
-#: Which of an engine's rate keys a client may be SOLD, and the client price rung each one
-#: bills on (D-687, founder, 8 Oct 2026, superseding D-681's Premium band). On ThinnestAI the
-#: Clear rung is their Studio voice band, catalogue voices and our clones alike; the Studio
-#: rung is a voice of our own Cartesia key. Standard and Premium are not sold. The rate key is
-#: the one publish stamped on the route row from the chosen voice
-#: (`engine_agent_routes.engine_rate_key`), so the rung and the cost come from one fact.
 BYOK_VOICE_RATE_KEY: Final[EngineRateKey] = "byok_voice"
-CLIENT_RUNG_OF_RATE_KEY: Final[Mapping[str, Mapping[str, rates.VoiceTier]]] = MappingProxyType(
-    {
-        "thinnest": MappingProxyType(
-            {"studio": rates.VALUE_VOICE_TIER, BYOK_VOICE_RATE_KEY: rates.PREMIUM_VOICE_TIER}
-        )
-    }
-)
+
+#: Engines whose own voices are sold by band (D-687), keyed by the client rung map below.
+BAND_SOLD_ENGINES: Final = frozenset({"thinnest"})
+
+
+def client_rungs(engine: str) -> Mapping[str, rates.VoiceTier] | None:
+    """Which of an engine's rate keys a client may be SOLD, and the client price rung each one
+    bills on; None for an engine with no such rule (the agent's own voice decides).
+
+    On ThinnestAI (D-688, founder, 8 Oct 2026) the Clear rung is the voice band
+    `Settings.thinnest_clear_voice_band` names (Premium for testing, Studio once on Pro); the
+    Studio rung is a voice of our own Cartesia key. No other band is sold. The rate key is the
+    one publish stamped on the route row from the chosen voice
+    (`engine_agent_routes.engine_rate_key`), so the rung and the cost come from one fact.
+    """
+    if engine not in BAND_SOLD_ENGINES:
+        return None
+    return MappingProxyType(
+        {
+            get_settings().thinnest_clear_voice_band: rates.VALUE_VOICE_TIER,
+            BYOK_VOICE_RATE_KEY: rates.PREMIUM_VOICE_TIER,
+        }
+    )
 
 
 def client_voice_tier(engine: str, rate_key: str) -> rates.VoiceTier | None:
     """The client price rung a minute on this engine and rate key bills on; None when the
     key is not sold (or the engine has no rule, so the agent's own voice decides)."""
-    rungs = CLIENT_RUNG_OF_RATE_KEY.get(engine)
+    rungs = client_rungs(engine)
     return None if rungs is None else rungs.get(rate_key)
 
 
@@ -316,9 +327,9 @@ async def engine_minute_cost(
 
 __all__ = [
     "ATTESTED_MINUTE_ENGINES",
+    "BAND_SOLD_ENGINES",
     "BASE_RATE_KEY",
     "BYOK_VOICE_RATE_KEY",
-    "CLIENT_RUNG_OF_RATE_KEY",
     "ENGINE_RATE_KEYS",
     "PULSE_SECONDS",
     "EngineMinutePrice",
@@ -328,6 +339,7 @@ __all__ = [
     "attested_minute_prices",
     "attested_rate_keys",
     "billed_minutes",
+    "client_rungs",
     "client_voice_tier",
     "engine_minute_cost",
     "engine_minute_is_billable",

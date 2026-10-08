@@ -46,14 +46,16 @@ produced, so a scoped query can silently return fewer rows than asked for.
 
 **It does not happen at our sizes, and that was MEASURED rather than reasoned**
 (`kb-retrieval-bakeoff.md` §2.3(b), 500 trials at each of three corpus sizes, zero short
-results). The `(tenant_id, agent_id, is_active)` btree is selective enough — one agent holds
+results). The `(tenant_id, agent_id, is_active)` btree is selective enough — one agent held
 ~1% of a 50-tenant table — that Postgres prefers it and then sorts EXACTLY, never entering
 the HNSW graph. The tenancy filter hard rule 1 requires and the recall hazard turn out to be
-the same mechanism pointed in opposite directions.
+the same mechanism pointed in opposite directions. Since D-689 the scope is the TENANT, the
+index's `tenant_id` prefix, and a tenant's share of the table is larger than one agent's by
+its agent count — not separately measured, so the condition below is the one to watch.
 
 ⚠ **THE CONDITION, because it is a property of a RATIO and not of pgvector.** It holds while
-one agent's corpus is small relative to the table. Index the resolved-call transcripts TRD
-§6 contemplates, or give one agent a very large knowledge base, and the planner switches to
+one tenant's corpus is small relative to the table. Index the resolved-call transcripts TRD
+§6 contemplates, or give one tenant a very large knowledge base, and the planner switches to
 HNSW and the hazard is live again. Re-run `scripts/spike/kb_pgvector_latency.py` — it
 reports the chosen plan and the row yield precisely so this is checkable — or upgrade past
 pgvector 0.8.0, which removes it by construction.
@@ -149,17 +151,14 @@ TS_CONFIG: Final = "english"
 #: The dense arm is skipped entirely when no question vector was bought (`:qvec IS NULL`),
 #: which is what makes the sparse-only degradation a data path rather than a second query.
 #:
-#: `CAST(:aid AS uuid)` and not `::aid` — SQLAlchemy's `text()` consumes the second colon
-#: itself and what reaches Postgres is a syntax error (`compiled_facts.py` records the same
-#: trap). The cast is required, not decoration: an untyped placeholder inside `IS NULL`
-#: gives the planner nothing to infer from and it refuses the statement outright.
+#: The scope is the TENANT and nothing narrower: knowledge is the client's and every agent
+#: answers from all of it (D-689), so `RetrievalRequest.agent_id` does not narrow this tier.
 _SEARCH_SQL: Final = f"""
 WITH scope AS (
-  SELECT c.id, c.document_id, c.source_id, c.agent_id, c.embedding, c.tsv
+  SELECT c.id, c.document_id, c.source_id, c.embedding, c.tsv
   FROM kb_chunks c
   WHERE c.tenant_id = :tid
     AND c.is_active
-    AND (CAST(:aid AS uuid) IS NULL OR c.agent_id = CAST(:aid AS uuid))
 ),
 dense AS (
   SELECT id, row_number() OVER (ORDER BY embedding <=> CAST(:qvec AS vector)) AS rnk
@@ -180,7 +179,7 @@ fused AS (
   FROM (SELECT id, rnk FROM dense UNION ALL SELECT id, rnk FROM sparse) arms
   GROUP BY id
 )
-SELECT d.content, s.name, c.agent_id, c.source_id, f.score
+SELECT d.content, s.name, c.source_id, f.score
 FROM fused f
 JOIN scope c ON c.id = f.id
 JOIN kb_documents d ON d.id = c.document_id
@@ -209,7 +208,6 @@ SELECT count(*), coalesce(max(c.version), 0),
        coalesce(extract(epoch FROM max(c.updated_at)) * 1000000, 0)
 FROM kb_chunks c
 WHERE c.tenant_id = :tid AND c.is_active
-  AND (CAST(:aid AS uuid) IS NULL OR c.agent_id = CAST(:aid AS uuid))
 """
 
 
@@ -293,7 +291,6 @@ class PgVectorRetriever:
                 text(_SEARCH_SQL),
                 {
                     "tid": request.tenant_id,
-                    "aid": request.agent_id,
                     "question": request.question,
                     # The bracketed text form the `vector` type accepts —
                     # `embedding.vector_literal`, spelled once for every adapter that
@@ -313,12 +310,13 @@ class PgVectorRetriever:
                     # to the `Provenance.label` ceiling rather than assumed to fit.
                     label=str(row[1])[:200],
                     tier="t3",
-                    agent_id=UUID(str(row[2])),
-                    source_id=UUID(str(row[3])),
+                    # No agent: the passage is the TENANT's published knowledge, which every
+                    # agent answers from (D-689).
+                    source_id=UUID(str(row[2])),
                 ),
                 # The FUSED score. Comparable only within one result — the port says so, and
                 # an RRF score is a sum of reciprocal ranks, not a similarity.
-                score=float(row[4]),
+                score=float(row[3]),
             )
             for row in rows
         )
@@ -350,11 +348,7 @@ class PgVectorRetriever:
         miss and a recompute, never a wrong answer, and the three content terms stay in
         front of it so the common cases still key on content.
         """
-        row = (
-            await self._session.execute(
-                text(_EPOCH_SQL), {"tid": request.tenant_id, "aid": request.agent_id}
-            )
-        ).first()
+        row = (await self._session.execute(text(_EPOCH_SQL), {"tid": request.tenant_id})).first()
         if row is None:  # pragma: no cover - an aggregate always returns one row
             return "0:0:0:0"
         return f"{int(row[0])}:{int(row[1])}:{int(row[2])}:{int(row[3])}"

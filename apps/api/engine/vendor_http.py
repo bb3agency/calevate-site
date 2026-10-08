@@ -164,6 +164,36 @@ def is_line_limit(limit_type: str | None) -> bool:
     return limit_type is not None and limit_type != CPS_LIMIT_TYPE
 
 
+# ThinnestAI's 429 is `{"error": "<sentence>", "code": "<code>", "limit": {name, perMinute |
+# max, windowSeconds}}` beside a `Retry-After` header (thinnest-findings/mirror/snapshots/
+# 2026-10-08/pages/api-reference/errors.md:39-54, :95-107). Its per-minute limits clear
+# inside this ladder like Vobiz's `cps`; `concurrent_calls` clears only when a call ends
+# (the line limit); `number_daily_limit` is one `from` number's 200 calls for the day
+# (:106, place-call.md:965-971) and clears tomorrow, so neither is retried here.
+THINNEST_CONCURRENT_CALLS: Final = "concurrent_calls"
+THINNEST_NUMBER_DAILY_LIMIT: Final = "number_daily_limit"
+_THINNEST_LINE_LIMIT_CODES: Final = frozenset(
+    {THINNEST_CONCURRENT_CALLS, THINNEST_NUMBER_DAILY_LIMIT}
+)
+
+#: The code a dial is refused under when the number it would ring from has placed its calls
+#: for today at the voice platform. Nothing rang; another number, or tomorrow, will work.
+NUMBER_DAILY_LIMIT_CODE: Final = "engine_number_daily_limit"
+
+
+def number_daily_limit_error() -> ProblemError:
+    """`engine_number_daily_limit`: the calling number's daily allowance is used up."""
+    return ProblemError(
+        kind="transient",
+        code=NUMBER_DAILY_LIMIT_CODE,
+        title="This number has placed its calls for today",
+        detail="The number this call would ring from has placed as many calls as the voice "
+        "platform allows it in a day, so the call was not placed.",
+        remediation="Try again tomorrow, or give the agent another number to call from.",
+        failure_stage="CORE_LOGIC",
+    )
+
+
 #: The code a dial is refused under when every line the account allows is in use. Raised
 #: here for the carrier's own 429 and by the dial gate's line count
 #: (`engine/carrier_pacing.py`); both mean no line was seized.
@@ -289,6 +319,8 @@ class EngineRejectedError(ProblemError):
         status: int,
         vendor_error: int | None = None,
         refused_statuses: frozenset[int] = REQUEST_REFUSED_STATUSES,
+        vendor_code: str | None = None,
+        vendor_reason: str | None = None,
     ) -> None:
         super().__init__(
             kind="dependency",
@@ -299,6 +331,12 @@ class EngineRejectedError(ProblemError):
         )
         self.vendor_status = status
         self.vendor_error = vendor_error
+        #: The vendor's machine-readable refusal code, for a vendor whose envelope names
+        #: one (`_vendor_error_name`). Two refusals sharing a status are told apart by it.
+        self.vendor_code = vendor_code
+        #: The vendor's own reason word on a refusal that carries one, from a closed set
+        #: (`_vendor_reason`), so it is never free text.
+        self.vendor_reason = vendor_reason
         self._refused_statuses = refused_statuses
 
     @property
@@ -309,8 +347,9 @@ class EngineRejectedError(ProblemError):
 
 #: A dial the VENDOR refused because the person opted out with it or is on its own
 #: do-not-call list. A fact about the person, not the account: a batch dialler settles the
-#: contact (`compliance.service.PERSON_LEVEL_REFUSALS`) rather than re-asking every thirty
-#: minutes for ever, and nothing rang (`agents.service.DIAL_NOT_PLACED_CODES`).
+#: contact rather than re-asking every thirty minutes for ever, and nothing rang
+#: (`agents.service.DIAL_NOT_PLACED_CODES`). Whether the entry is this client's or another
+#: client's in the shared workspace list is decided by `compliance/platform_dnc.py`.
 RECIPIENT_OPTED_OUT_CODE = "engine_recipient_opted_out"
 
 
@@ -392,6 +431,43 @@ def _vendor_error_code(envelope: dict[str, Any] | None) -> int | None:
     return value if -_INT32_MAX - 1 <= value <= _INT32_MAX else None
 
 
+#: A vendor refusal code is admitted only in this shape: lower-case words and underscores,
+#: which structurally cannot carry a phone number, a name or a sentence.
+_VENDOR_CODE_RE: Final = re.compile(r"[a-z][a-z0-9_]{0,63}")
+
+#: The `reason` words ThinnestAI documents on a `402 insufficient_balance` from `POST /calls`
+#: (thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/errors.md:56-59). Any
+#: other value is dropped rather than logged.
+INSUFFICIENT_BALANCE_REASONS: Final = frozenset(
+    {
+        "no balance",
+        "trial spent",
+        "overdrawn",
+        "too many calls",
+        "balance unknown",
+        "retry buffer",
+    }
+)
+
+
+def _vendor_error_name(envelope: dict[str, Any] | None) -> str | None:
+    """The string `code` of a `{error, code}` envelope (ThinnestAI, errors.md:9-37), or None.
+
+    Bolna's `error` is an integer and Vobiz's an object, so only an envelope whose `code` is a
+    short identifier is read: a vendor that never sends one is unchanged.
+    """
+    if envelope is None:
+        return None
+    code = envelope.get("code")
+    return code if isinstance(code, str) and _VENDOR_CODE_RE.fullmatch(code) else None
+
+
+def _vendor_reason(envelope: dict[str, Any] | None) -> str | None:
+    """The documented `reason` of a 402, or None."""
+    reason = envelope.get("reason") if envelope is not None else None
+    return reason if isinstance(reason, str) and reason in INSUFFICIENT_BALANCE_REASONS else None
+
+
 def _vendor_error_message(envelope: dict[str, Any] | None) -> str | None:
     """The human half of the envelope, bounded and redacted — never the raw string.
 
@@ -445,6 +521,9 @@ def _vendor_error_message(envelope: dict[str, Any] | None) -> str | None:
     """
     if envelope is None:
         return None
+    # Only `message`. ThinnestAI's sentence is `error` itself (errors.md:9-16), and its
+    # `code` already says which refusal it was; an `error` string is not read, because a body
+    # that is not the vendor's could carry anything there.
     raw = envelope.get("message")
     if not isinstance(raw, str):
         return None
@@ -478,6 +557,10 @@ def _throttle_details(response: httpx.Response) -> tuple[str | None, float | Non
     information, and the ladder falls back to the header and its own backoff.
     """
     envelope = _error_envelope(response)
+    name = _vendor_error_name(envelope)
+    if name is not None:
+        # ThinnestAI: the code names the limit, and the wait is the `Retry-After` header.
+        return (name if name in _THINNEST_LINE_LIMIT_CODES else CPS_LIMIT_TYPE), None
     error = envelope.get("error") if envelope is not None else None
     details = error.get("details") if isinstance(error, dict) else None
     if not isinstance(details, dict):
@@ -492,6 +575,28 @@ def _throttle_details(response: httpx.Response) -> tuple[str | None, float | Non
         else None
     )
     return (limit_type if isinstance(limit_type, str) else None), seconds
+
+
+def _limit_extra(response: httpx.Response) -> dict[str, Any]:
+    """ThinnestAI's `limit` object as log fields — which limit and its size — or nothing.
+    Integers and a short identifier only (errors.md:39-54)."""
+    envelope = _error_envelope(response)
+    limit = envelope.get("limit") if envelope is not None else None
+    if not isinstance(limit, dict):
+        return {}
+    name = limit.get("name")
+    out: dict[str, Any] = {}
+    if isinstance(name, str) and _VENDOR_CODE_RE.fullmatch(name):
+        out["limit"] = name
+    for key, field_name in (
+        ("perMinute", "limit_per_minute"),
+        ("max", "limit_max"),
+        ("windowSeconds", "limit_window_s"),
+    ):
+        value = limit.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            out[field_name] = value
+    return out
 
 
 def throttle_delay_s(
@@ -566,7 +671,11 @@ async def _vendor_response(
         await asyncio.sleep(throttle_delay_s(attempt, retry_after))
 
     if response.status_code == THROTTLE_STATUS:
-        if is_line_limit(_throttle_details(response)[0]):
+        limit_type = _throttle_details(response)[0]
+        if limit_type == THINNEST_NUMBER_DAILY_LIMIT:
+            log.warning("engine_number_daily_limit", extra={"engine": engine, "route": route})
+            raise number_daily_limit_error()
+        if is_line_limit(limit_type):
             log.warning("carrier_lines_busy", extra={"engine": engine, "route": route})
             raise lines_busy_error()
         # Distinct from `engine_rejected` on purpose. A throttle says nothing about
@@ -576,7 +685,10 @@ async def _vendor_response(
         # and `apps.workers.pipeline.TRANSIENT_ENGINE_CODES` reads exactly this code.
         # The remediation is what a person pressing a button can do: nothing retries a
         # button press for them.
-        log.warning("engine_throttle_exhausted", extra={"engine": engine, "route": route})
+        log.warning(
+            "engine_throttle_exhausted",
+            extra={"engine": engine, "route": route, **_limit_extra(response)},
+        )
         header_after = _retry_after_seconds(response)
         raise EngineRateLimitedError(
             retry_after_s=(
@@ -653,6 +765,8 @@ async def _vendor_response(
         # that only held after formatting would pass on a raw `log.warning` here.
         envelope = _error_envelope(response)
         vendor_error = _vendor_error_code(envelope)
+        vendor_code = _vendor_error_name(envelope)
+        vendor_reason = _vendor_reason(envelope)
         log.warning(
             "engine_error",
             extra={
@@ -660,6 +774,8 @@ async def _vendor_response(
                 "status": response.status_code,
                 "route": route,
                 "vendor_error": vendor_error,
+                "vendor_code": vendor_code,
+                "vendor_reason": vendor_reason,
                 "vendor_message": _vendor_error_message(envelope),
             },
         )
@@ -673,6 +789,8 @@ async def _vendor_response(
             status=response.status_code,
             vendor_error=vendor_error,
             refused_statuses=REQUEST_REFUSED_STATUSES | extra_refused_statuses,
+            vendor_code=vendor_code,
+            vendor_reason=vendor_reason,
         )
     return response
 
@@ -819,7 +937,9 @@ async def vendor_audio_request(
 __all__ = [
     "AUDIO_MAX_BYTES",
     "CPS_LIMIT_TYPE",
+    "INSUFFICIENT_BALANCE_REASONS",
     "LINES_BUSY_CODE",
+    "NUMBER_DAILY_LIMIT_CODE",
     "RECIPIENT_OPTED_OUT_CODE",
     "REQUEST_REFUSED_STATUSES",
     "REQUEST_TIMEOUT_S",
@@ -830,6 +950,7 @@ __all__ = [
     "EngineRateLimitedError",
     "EngineRejectedError",
     "lines_busy_error",
+    "number_daily_limit_error",
     "recipient_opted_out_error",
     "throttle_delay_s",
     "vendor_audio_request",

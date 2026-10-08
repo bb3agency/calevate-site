@@ -41,7 +41,7 @@ export function KnowledgeDeliveryPanel({ slug }: { slug: string }) {
 
   if (delivery.isLoading) {
     return (
-      <Card title="On the phone" density="compact">
+      <Card title="Agents using this knowledge" density="compact">
         <Skeleton rows={3} />
       </Card>
     );
@@ -49,7 +49,7 @@ export function KnowledgeDeliveryPanel({ slug }: { slug: string }) {
 
   if (delivery.error || !delivery.data) {
     return (
-      <Card title="On the phone" density="compact">
+      <Card title="Agents using this knowledge" density="compact">
         <ProblemNotice
           error={
             delivery.error ??
@@ -65,9 +65,9 @@ export function KnowledgeDeliveryPanel({ slug }: { slug: string }) {
 
   return (
     <Card
-      title="On the phone"
+      title="Agents using this knowledge"
       density="compact"
-      info="What each agent is answering callers out of, against what this client has published. Approving and publishing do not guarantee the frozen knowledge reached the agent — this is where that shows."
+      info="The client's knowledge is shared by all its agents. This is what each agent is answering callers out of, against what the client has published. Approving and publishing do not guarantee the frozen knowledge reached the agent — this is where that shows."
       action={
         not_delivered_count > 0 ? (
           <StatePill tone="stop">{not_delivered_count} stale</StatePill>

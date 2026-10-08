@@ -30,7 +30,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import carrier_pacing, reset_engine_cache, vendor_http
 from apps.api.engine.fake import FakeEngine
 from apps.api.engine.recording_source import RecordingFetchRules
-from apps.api.engine.thinnest import BASE_URL, CALL_SECONDS_MIN, ThinnestEngine
+from apps.api.engine.thinnest import BASE_URL, PAUSED_LINE_MESSAGE, ThinnestEngine
 from apps.api.engine.vendor_http import (
     RECIPIENT_OPTED_OUT_CODE,
     EngineRateLimitedError,
@@ -374,58 +374,63 @@ async def test_a_capped_engine_that_dials_holds_a_line_for_the_call(
 # --- what `POST /calls` refuses ------------------------------------------------------
 
 
-async def test_a_403_on_a_full_key_is_the_person_and_settles_the_contact() -> None:
-    handler, seen = _recorder(
-        {
-            ("GET", "/agents/ag_1"): _greeting(),
-            ("POST", "/calls"): httpx.Response(
-                403, json={"error": "That customer has asked not to be contacted."}
-            ),
-            ("DELETE", "/calls/cv-key-scope-probe"): httpx.Response(
-                404, json={"error": "No call with that id."}
-            ),
-        }
-    )
-    engine = _engine(handler)
-    for _ in range(2):
+async def test_a_403_naming_the_person_settles_the_contact() -> None:
+    """`opted_out` and `do_not_call` are the person; the code, never the sentence, decides
+    (snapshots/2026-10-08/pages/api-reference/errors.md:18-37, :113-114)."""
+    for code in ("opted_out", "do_not_call"):
+        handler, seen = _recorder(
+            {
+                ("GET", "/agents/ag_1"): _greeting(),
+                ("POST", "/calls"): httpx.Response(
+                    403, json={"error": "Reworded in any release.", "code": code}
+                ),
+            }
+        )
         with pytest.raises(ProblemError) as raised:
-            await engine.start_outbound_call("ag_1", "+919876543210", CallContext())
+            await _engine(handler).start_outbound_call("ag_1", "+919876543210", CallContext())
         assert raised.value.code == RECIPIENT_OPTED_OUT_CODE
-    # The key's level is asked once per process.
-    assert sum(1 for r in seen if r.method == "DELETE") == 1
-    assert dial_was_not_placed(raised.value) is True
+        assert dial_was_not_placed(raised.value) is True
+        # No probe of the key: one read of the greeting, one dial.
+        assert [r.method for r in seen] == ["GET", "POST"]
 
 
-async def test_a_403_on_a_key_that_cannot_dial_is_never_read_as_an_opt_out() -> None:
-    handler, _ = _recorder(
-        {
-            ("GET", "/agents/ag_1"): _greeting(),
-            ("POST", "/calls"): httpx.Response(403, json={"error": "This API key is a build key"}),
-            ("DELETE", "/calls/cv-key-scope-probe"): httpx.Response(
-                403, json={"error": "This API key is a build key"}
-            ),
-        }
-    )
-    with pytest.raises(EngineRejectedError) as raised:
-        await _engine(handler).start_outbound_call("ag_1", "+919876543210", CallContext())
-    assert raised.value.vendor_status == 403
-    # Refunded to the ladder rather than settled: about the account, not the person.
-    assert dial_was_not_placed(raised.value) is True
+async def test_a_403_on_a_key_that_cannot_dial_is_never_read_as_an_opt_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api.engine import thinnest
+
+    raised_alarms: list[str] = []
+    monkeypatch.setattr(thinnest, "alert", lambda _s, code, **_kw: raised_alarms.append(code))
+    for code in ("key_scope_build", "key_scope_read"):
+        handler, _ = _recorder(
+            {
+                ("GET", "/agents/ag_1"): _greeting(),
+                ("POST", "/calls"): httpx.Response(
+                    403, json={"error": "This API key is a build key.", "code": code}
+                ),
+            }
+        )
+        with pytest.raises(EngineRejectedError) as raised:
+            await _engine(handler).start_outbound_call("ag_1", "+919876543210", CallContext())
+        assert raised.value.vendor_status == 403 and raised.value.vendor_code == code
+        # Refunded to the ladder rather than settled: about the account, not the person.
+        assert dial_was_not_placed(raised.value) is True
+    assert raised_alarms == ["engine_key_cannot_place_calls"] * 2
 
 
-async def test_an_unproven_key_level_is_not_read_as_an_opt_out() -> None:
+async def test_a_403_with_no_code_keeps_its_generic_meaning() -> None:
     handler, _ = _recorder(
         {
             ("GET", "/agents/ag_1"): _greeting(),
             ("POST", "/calls"): httpx.Response(403, json={"error": "refused"}),
-            ("DELETE", "/calls/cv-key-scope-probe"): httpx.Response(500, json={"error": "x"}),
         }
     )
-    with pytest.raises(EngineRejectedError):
+    with pytest.raises(EngineRejectedError) as raised:
         await _engine(handler).start_outbound_call("ag_1", "+919876543210", CallContext())
+    assert raised.value.vendor_code is None and raised.value.request_refused
 
 
-# --- recall and the zero-credit script -----------------------------------------------
+# --- recall and the paused line -------------------------------------------------------
 
 
 async def test_a_ringing_call_is_still_pulled_back() -> None:
@@ -439,14 +444,19 @@ async def test_a_ringing_call_is_still_pulled_back() -> None:
     assert [r.method for r in seen] == ["GET", "DELETE"]
 
 
-async def test_the_stop_script_also_caps_the_call_at_the_vendors_minimum() -> None:
+async def test_a_pause_switches_the_line_off_and_leaves_the_script_alone() -> None:
+    """`answersCalls: false` with the reasonless sentence (snapshots/2026-10-08/pages/
+    api-reference/agents/update-agent.md:940-1016): no AI answers, so no 60-second call is
+    billed, and the opening (with its recording notice) is not read where nothing records."""
     handler, seen = _recorder({("PATCH", "/agents/ag_1"): httpx.Response(200, json={})})
     await _engine(handler).override_call_script(
-        "ag_1", opening_line="We cannot take your call.", system_prompt="Say goodbye."
+        "ag_1", opening_line="This call is recorded. We cannot take your call.", system_prompt="x"
     )
     body = json.loads(seen[0].content)
-    assert body["voice"] == {"maxCallSeconds": CALL_SECONDS_MIN}
-    assert body["greeting"] == "We cannot take your call."
+    assert body["voice"] == {"answersCalls": False, "unavailableMessage": PAUSED_LINE_MESSAGE}
+    # The words are replaced as the Protocol requires; nothing speaks them while it is off.
+    assert body["greeting"] == "This call is recorded. We cannot take your call."
+    assert len(PAUSED_LINE_MESSAGE) <= 300 and PAUSED_LINE_MESSAGE.isascii()
 
 
 # --- the recording source --------------------------------------------------------------
@@ -537,18 +547,8 @@ _INTAKE = signed_intake.SIGNED_INTAKES["thinnest"]
 _NOW = datetime(2026, 10, 7, 9, 0, tzinfo=UTC)
 
 
-def _delivery(sent_at: Any) -> dict[str, Any]:
-    body: dict[str, Any] = {
-        "event": "call.analysed",
-        "data": {"id": "out_1", "agent": {"id": "ag_1"}, "analysedAt": "2026-10-07T08:59:59Z"},
-    }
-    if sent_at is not None:
-        body["sentAt"] = sent_at
-    return body
-
-
 @pytest.mark.parametrize(
-    ("sent_at", "fresh"),
+    ("delivered_at", "fresh"),
     [
         ("2026-10-07T08:59:58.000Z", True),
         ("2026-10-07T09:04:00Z", True),
@@ -556,26 +556,40 @@ def _delivery(sent_at: Any) -> dict[str, Any]:
         ("2026-10-07T09:05:01Z", False),
         ("yesterday", False),
         ("2026-10-07T09:00:00", False),
-        (None, True),
+        (None, False),
     ],
 )
-def test_a_delivery_outside_five_minutes_is_a_replay(sent_at: Any, fresh: bool) -> None:
-    keyed = signed_intake.keyed_event(
-        _INTAKE, _delivery(sent_at), engine_agent_ref="ag_1", now=_NOW
-    )
-    if fresh:
-        assert isinstance(keyed, signed_intake.SignedEvent)
-    else:
-        assert keyed == signed_intake.STALE_DELIVERY
+def test_a_delivery_time_outside_five_minutes_is_a_replay(
+    delivered_at: str | None, fresh: bool
+) -> None:
+    """The window is on `x-thinnest-delivered-at`, never `sentAt` (`snapshots/2026-10-08/
+    pages/api-reference/webhooks.md:129-131`); an absent or unreadable time is not fresh."""
+    headers = {} if delivered_at is None else {"x-thinnest-delivered-at": delivered_at}
+    assert signed_intake.delivery_is_fresh(_INTAKE, headers, now=_NOW) is fresh
 
 
 # --- BYOK, read from the vendor --------------------------------------------------------
 
 
-@pytest.mark.parametrize(("using", "own"), [("own", True), ("developer", True), ("none", False)])
-async def test_whose_keys_run_the_calls_is_read_from_get_byok(using: str, own: bool) -> None:
+@pytest.mark.parametrize(
+    ("using", "scope", "own"),
+    [
+        ("own", "all", True),
+        ("developer", "all", True),
+        ("none", "all", False),
+        # Voice-only BYOK is how Studio is sold, per agent (D-688), not the whole workspace.
+        ("own", "voice", False),
+    ],
+)
+async def test_whose_keys_run_the_calls_is_read_from_get_byok(
+    using: str, scope: str, own: bool
+) -> None:
     handler, _ = _recorder(
-        {("GET", "/byok"): httpx.Response(200, json={"enabled": own, "using": using})}
+        {
+            ("GET", "/byok"): httpx.Response(
+                200, json={"enabled": using != "none", "using": using, "scope": scope}
+            )
+        }
     )
     assert await _engine(handler).own_keys_in_use() is own
 

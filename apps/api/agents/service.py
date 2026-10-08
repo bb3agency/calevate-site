@@ -104,7 +104,6 @@ from calevate_shared.engine import (
     openai_base_url,
     truthful_answer_directive,
 )
-from calevate_shared.engine_scope import scope_of
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -114,11 +113,7 @@ from apps.api.agents import handoff as handoff_module
 from apps.api.agents.engine_choice import byok_in_force, engine_rate_key_for
 from apps.api.agents.engine_facts import sync_business_facts
 from apps.api.agents.engine_limits import refuse_over_engine_limits, refuse_unpriced_engine
-from apps.api.agents.hosted_voices import (
-    parse_hosted_voice_id,
-    rung_of_source,
-    thinnest_workspace_for,
-)
+from apps.api.agents.hosted_voices import parse_hosted_voice_id
 from apps.api.agents.languages import published_extra_languages
 from apps.api.agents.llm_models import (
     ResolvedLlmModel,
@@ -147,6 +142,7 @@ from apps.api.billing.engine_minutes import (
 )
 from apps.api.compliance.caller_memory import recall
 from apps.api.compliance.carrier_application import assert_carrier_application_accepted
+from apps.api.compliance.platform_dnc import PLATFORM_DNC_BLOCK_CODE, platform_dnc_refusal
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -178,6 +174,7 @@ from apps.api.engine.carrier_pacing import (
 )
 from apps.api.engine.hosted_platform import hosted_agent_limits
 from apps.api.engine.vendor_http import (
+    NUMBER_DAILY_LIMIT_CODE,
     RECIPIENT_OPTED_OUT_CODE,
     EngineRateLimitedError,
     EngineRejectedError,
@@ -269,10 +266,16 @@ DIAL_NOT_PLACED_CODES = frozenset(
         # intent row is written, or by the carrier's own `429` naming its concurrency limit.
         PACING_RULE,
         LINES_BUSY_RULE,
+        # The calling number used its daily allowance at the voice platform (a 429 the
+        # vendor documents as nothing placed, `engine/vendor_http.number_daily_limit_error`).
+        NUMBER_DAILY_LIMIT_CODE,
         # The voice platform refused to call this person (opted out with it, or on its own
         # do-not-call list): refused before dialling, and person-level
         # (`compliance.service.PERSON_LEVEL_REFUSALS`), so the contact is settled.
         RECIPIENT_OPTED_OUT_CODE,
+        # The same refusal when only the voice platform's shared list blocks the person
+        # (D-691, `compliance/platform_dnc.py`).
+        PLATFORM_DNC_BLOCK_CODE,
     }
 )
 
@@ -1040,7 +1043,7 @@ def _to_config(
     handoff: HandoffSpec | None = None,
 ) -> AgentConfig:
     settings = get_settings()
-    hosted = _engine_voice_fields(tenant_id, agent, engine=engine)
+    hosted = _engine_voice_fields(agent, engine=engine)
     return AgentConfig(
         tenant_id=str(tenant_id),
         agent_id=str(agent["id"]),
@@ -1096,7 +1099,7 @@ def _to_config(
         ),
         engine_voice_id=hosted.voice_id,
         engine_byok_voice_id=hosted.byok_voice_id,
-        engine_workspace=hosted.workspace,
+        engine_own_voice_key=hosted.own_voice_key,
         engine_model_id=hosted.model_id,
         webhook_url=f"{settings.webhook_base_url}/hooks/v1/engine/{settings.engine}",
         # The cost-runaway guard. Resolved here rather than defaulted in the model, so
@@ -1263,7 +1266,13 @@ async def _ensure_results_webhook(
 
 
 async def _ensure_in_call_actions(
-    engine: VoiceEngine, session: AsyncSession, *, agent_id: UUID, ref: str, created: bool
+    engine: VoiceEngine,
+    session: AsyncSession,
+    *,
+    agent_id: UUID,
+    ref: str,
+    created: bool,
+    live_handover: bool,
 ) -> None:
     """Register (or converge) the vendor agent's in-call actions — opt-out, call-back,
     call-back cancel, handoff — on an engine that reaches our tools that way
@@ -1271,7 +1280,9 @@ async def _ensure_in_call_actions(
     reclaiming a vendor agent this publish created, for `_reclaim_orphan`'s reason: an agent
     live without its opt-out tool is one a caller cannot be removed from mid-call."""
     try:
-        await ensure_agent_actions(session, engine=engine.name, engine_agent_ref=ref)
+        await ensure_agent_actions(
+            session, engine=engine.name, engine_agent_ref=ref, live_handover=live_handover
+        )
     except Exception:
         if created:
             await _reclaim_orphan(engine, agent_id, ref, "in_call_actions_not_registered")
@@ -2429,14 +2440,6 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     )
 
     existing_ref = agent["engine_agent_ref"]
-    if (
-        isinstance(existing_ref, str)
-        and existing_ref
-        and scope_of(existing_ref) != config.engine_workspace
-    ):
-        # The voice moved the agent to another workspace (D-687): re-create it there.
-        await _move_to_workspace(session, engine, agent_id=agent_id, old_ref=existing_ref)
-        existing_ref = None
     created = not (isinstance(existing_ref, str) and existing_ref)
     if isinstance(existing_ref, str) and existing_ref:
         await engine.update_agent(existing_ref, config)
@@ -2546,7 +2549,14 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     await _publish_business_facts(
         engine, session, agent_id=agent_id, ref=ref, created=created, script=agent["prompt"]
     )
-    await _ensure_in_call_actions(engine, session, agent_id=agent_id, ref=ref, created=created)
+    await _ensure_in_call_actions(
+        engine,
+        session,
+        agent_id=agent_id,
+        ref=ref,
+        created=created,
+        live_handover=handoff is not None,
+    )
     # THE INBOUND HALF OF PUBLISHING (D-420). Publishing is "make the engine hold what our
     # database says", and until now that covered the agent and stopped short of the one
     # fact that decides whether a client's number rings anything at all. It runs AFTER the
@@ -2633,98 +2643,35 @@ def _engine_choice(agent: AgentRow, *, engine: VoiceEngine) -> tuple[str | None,
 class _EngineVoiceFields:
     voice_id: str | None = None
     byok_voice_id: str | None = None
-    workspace: str | None = None
+    own_voice_key: bool | None = None
     model_id: str | None = None
 
 
-def _engine_voice_fields(
-    tenant_id: UUID, agent: AgentRow, *, engine: VoiceEngine
-) -> _EngineVoiceFields:
+def _engine_voice_fields(agent: AgentRow, *, engine: VoiceEngine) -> _EngineVoiceFields:
     """The `AgentConfig` fields for the engine-hosted voice and model (D-687).
 
     The stored voice is OUR catalogue id (`agents/hosted_voices.py`); what the engine is
     sent is its own voice id, in the slot its source takes — an engine voice as the agent's
-    voice, a voice of our own key through the own-key voice route — and the workspace the
-    rung lives in. An id that is not a hosted one is sent as nothing; publish refuses it
-    first (`engine_choice.require_engine_choice`).
+    voice, a voice of our own key through the own-key voice route — and whether the agent
+    speaks on our own voice key at all (D-688). That switch is stated for EVERY agent on an
+    engine whose voice leg it dictates, not only for Studio ones: with the workspace on
+    voice-only BYOK, an agent that left it unsaid would speak Cartesia at the Studio rate.
+    Not sent while the whole workspace runs on its own keys (`byok_in_force`), where no
+    per-agent voice applies. An id that is not a hosted one is sent as nothing; publish
+    refuses it first (`engine_choice.require_engine_choice`).
     """
     voice, model = _engine_choice(agent, engine=engine)
     ref = parse_hosted_voice_id(voice)
+    states_key = not (byok_in_force(engine) or engine.capabilities.is_ours("tts"))
+    own_voice_key = (ref is not None and ref.source == "byok") if states_key else None
     if ref is None:
-        return _EngineVoiceFields(model_id=model)
+        return _EngineVoiceFields(own_voice_key=own_voice_key, model_id=model)
     return _EngineVoiceFields(
         voice_id=ref.vendor_id if ref.source == "engine" else None,
         byok_voice_id=ref.vendor_id if ref.source == "byok" else None,
-        workspace=thinnest_workspace_for(tenant_id, rung_of_source(engine.name, ref.source)),
+        own_voice_key=own_voice_key,
         model_id=model,
     )
-
-
-#: What keeps a vendor agent in its workspace: a number attached to it, knowledge published
-#: to it, or a running experiment whose arms live beside it. None of them can follow it.
-_HELD_IN_WORKSPACE_SQL: Final = (
-    "SELECT "
-    "(SELECT count(*) FROM phone_numbers WHERE agent_id = :aid AND released_at IS NULL), "
-    "(SELECT count(*) FROM engine_kb_routes r JOIN kb_sources s ON s.id = r.source_id "
-    " WHERE s.agent_id = :aid), "
-    "(SELECT count(*) FROM prompt_experiments WHERE agent_id = :aid AND status = 'running')"
-)
-
-
-async def _move_to_workspace(
-    session: AsyncSession, engine: VoiceEngine, *, agent_id: UUID, old_ref: str
-) -> None:
-    """Retire the vendor agent in its old workspace so publish can create it in the new one.
-
-    An agent cannot move between ThinnestAI workspaces (evaluation §10 item 2b,
-    VENDOR-STATED), so a rung switch is a delete there and a create here. What cannot
-    follow is refused by name BEFORE anything is deleted, rather than silently dropped: a
-    number (released and rented again, never moved), published knowledge, and the arms of
-    a running experiment.
-    """
-    numbers, knowledge, experiments = (
-        await session.execute(text(_HELD_IN_WORKSPACE_SQL), {"aid": agent_id})
-    ).one()
-    if numbers:
-        raise ProblemError(
-            kind="business_rule",
-            code="engine_rung_switch_number_held",
-            title="This agent's phone number cannot move to the new voice",
-            detail=(
-                "Clear and Studio voices run in different parts of the voice platform, and "
-                "a phone number cannot move between them. Switching this agent's voice "
-                "between Clear and Studio would leave its number behind."
-            ),
-            remediation=(
-                "Keep a voice of the same kind (Clear or Studio), or contact us to release "
-                "the number and rent a new one for the agent."
-            ),
-        )
-    if knowledge or experiments:
-        raise ProblemError(
-            kind="business_rule",
-            code="engine_rung_switch_agent_busy",
-            title="Finish this agent's other changes before switching voice",
-            detail=(
-                "Switching between a Clear and a Studio voice re-creates the agent on the "
-                "voice platform, and its published knowledge or a running experiment would "
-                "not come with it."
-            ),
-            remediation=(
-                "Withdraw the agent's knowledge and end any running experiment, switch the "
-                "voice, then publish the knowledge again."
-            ),
-        )
-    await retire_in_call_actions(agent_id=agent_id, ref=old_ref)
-    await engine.delete_agent(old_ref)
-    await session.execute(
-        text(
-            "UPDATE engine_agent_routes SET active = false, updated_at = now() "
-            "WHERE engine = :engine AND engine_agent_ref = :ref"
-        ),
-        {"engine": engine.name, "ref": old_ref},
-    )
-    log.info("engine_agent_moved_workspace", extra={"agent_id": str(agent_id)})
 
 
 def _variant_config(
@@ -2903,7 +2850,12 @@ async def publish_variant(
         engine, session, agent_id=agent_id, ref=ref, created=not existing_ref, script=body
     )
     await _ensure_in_call_actions(
-        engine, session, agent_id=agent_id, ref=ref, created=not existing_ref
+        engine,
+        session,
+        agent_id=agent_id,
+        ref=ref,
+        created=not existing_ref,
+        live_handover=handoff is not None,
     )
     log.info(
         "agent_variant_published",
@@ -3538,6 +3490,19 @@ async def dispatch_call(
         # `on_reserved` wrote are already committed, which is precisely what makes that
         # cancellation survivable — the contact stays `dialing` pointing at an
         # unconfirmed call, and `_reap_stuck_dialing` settles it without a second ring.
+        platform_block = await platform_dnc_refusal(
+            session, exc, tenant_id=tenant_id, phone_e164=phone_e164
+        )
+        if platform_block is not None:
+            # Only the voice platform's shared list blocks this person (D-691): nothing
+            # rang, and our own list is left as it is.
+            await _close_unplaced_dial(
+                tenant_id,
+                call_id=call_id,
+                code=platform_block.code,
+                vendor_status=exc.vendor_status if isinstance(exc, EngineRejectedError) else None,
+            )
+            raise platform_block from exc
         code = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
         if engine_capped and isinstance(exc, EngineRateLimitedError):
             await start_dial_backoff(exc.retry_after_s)

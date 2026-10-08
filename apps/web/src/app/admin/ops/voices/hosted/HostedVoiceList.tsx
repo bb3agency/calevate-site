@@ -19,6 +19,7 @@ import {
 import { adminSession } from "@/lib/api/admin";
 import { ApiProblem } from "@/lib/api/client";
 import {
+  BAND_LABEL,
   HOSTED_STATE_MEANING,
   MAX_SAMPLE_BYTES,
   RUNG_LABEL,
@@ -58,6 +59,7 @@ function VoiceCard({ voice }: { voice: HostedVoice }) {
   const [deleting, setDeleting] = useState(false);
   const withdrawn = voice.withdrawn_at !== null;
   const headingId = `voice-${voice.voice_id.replace(/[^A-Za-z0-9_-]/g, "-")}`;
+  const notSoldId = `${headingId}-not-sold`;
 
   return (
     <li
@@ -72,9 +74,16 @@ function VoiceCard({ voice }: { voice: HostedVoice }) {
           <MonoValue className="block break-all text-[11px] text-ink-faint">{voice.voice_id}</MonoValue>
         </div>
         <div className="flex flex-wrap gap-1">
-          <span className={`${BADGE} ${lookup(RUNG_TONE, voice.rung) ?? ""}`}>
-            {lookup(RUNG_LABEL, voice.rung) ?? voice.rung}
-          </span>
+          {voice.rung != null && (
+            <span className={`${BADGE} ${lookup(RUNG_TONE, voice.rung) ?? ""}`}>
+              {lookup(RUNG_LABEL, voice.rung) ?? voice.rung}
+            </span>
+          )}
+          {voice.band != null && (
+            <span className={`${BADGE} border border-line text-ink-muted`}>
+              {`${lookup(BAND_LABEL, voice.band) ?? voice.band} tier`}
+            </span>
+          )}
           {voice.is_custom && <span className={`${BADGE} bg-ink/[0.06] text-ink-muted`}>Our clone</span>}
           {voice.source === "byok" && (
             <span className={`${BADGE} bg-ink/[0.06] text-ink-muted`}>Cartesia, our key</span>
@@ -109,7 +118,8 @@ function VoiceCard({ voice }: { voice: HostedVoice }) {
           <button
             type="button"
             className={SECONDARY_BUTTON_SM}
-            disabled={add.isPending}
+            disabled={add.isPending || !voice.sold}
+            aria-describedby={voice.sold ? undefined : notSoldId}
             onClick={() => add.mutate(voice.voice_id)}
           >
             <Plus aria-hidden className="h-4 w-4" />
@@ -156,6 +166,11 @@ function VoiceCard({ voice }: { voice: HostedVoice }) {
         )}
       </div>
 
+      {!voice.sold && (
+        <p id={notSoldId} className="text-xs text-ink-muted">
+          {voice.not_sold_reason ?? "Only Studio-tier voices can be offered as Clear."}
+        </p>
+      )}
       {add.error != null && <ProblemNotice error={add.error} />}
       {add.data && <p className="text-xs text-ink-muted">{add.data.next_step}</p>}
       {!archiving && setState.error != null && <ProblemNotice error={setState.error} />}

@@ -1,29 +1,22 @@
 """Which provider this deployment may use, and the named reason when none may.
 
-THE ANSWER TODAY IS NONE, AND THAT IS THE GATE WORKING RATHER THAN A GAP. Two conditions
-have to hold, and they are separate facts about separate things:
+Two conditions, separate facts about separate things:
 
 1. **A provider is configured** — `Settings.kyc_verification_provider` names a member of
-   `KYC_PROVIDERS`. Unset is the state of every deployment.
-2. **Its webhook secret is installed** — `Settings.kyc_verification_webhook_secret`, from
-   the provider's own console, in the ops console's encrypted path. Without it the
-   receiver cannot verify a signature, and a receiver that cannot verify a signature must
-   not exist: this endpoint's entire job is to mark a client VERIFIED, so an unverifiable
-   feed grants identity on anyone's say-so. That is strictly worse than no feed, which is
-   the same argument `payment_capability` makes about crediting a wallet, one notch
-   sharper because a forged payment costs money and a forged verification costs a
-   defence.
+   `KYC_PROVIDERS`. Unset is the default, and the client's screen then offers only the
+   manual document review.
+2. **Its credentials are installed**, in the ops console's encrypted path:
+   * `cashfree` — `kyc_verification_client_id` and `kyc_verification_client_secret`. The
+     client secret also signs Cashfree's webhooks, so there is no separate webhook secret.
+   * `fake` — `kyc_verification_webhook_secret`, which signs the in-house adapter's
+     deliveries.
+   A receiver that cannot verify a signature must not exist: this feed marks a client
+   VERIFIED, so an unverifiable one grants identity on anyone's say-so.
 
-**ONE SELECTOR, ASKED BY EVERYONE.** The start route, the client's own screen and the
-webhook all call this, so a screen can never offer a button the route refuses and the
-webhook can never accept a delivery for a provider the product is not on. Same discipline
-`number_purchase_available` and `payment_capability` follow; the failure it prevents is
-the one where three surfaces each decide "configured enough" differently.
-
-**WHAT DOES NOT GATE IT**: nothing about `kyc_records`, and nothing about the tier. A
-deployment's ability to run a verification is a property of the deployment; whether a
-given tenant NEEDS one is `compliance.service`'s question and is deliberately not asked
-here.
+**ONE SELECTOR, ASKED BY EVERYONE.** The start route, the return route, the client's own
+screen and the webhook all call this, so a screen can never offer a button the route
+refuses. Whether a given tenant NEEDS a verification is `compliance.service`'s question and
+is deliberately not asked here.
 """
 
 from __future__ import annotations
@@ -36,14 +29,16 @@ from apps.api.compliance.kyc_providers.base import (
     IdentityVerificationProvider,
     ProviderContractUnverifiedError,
 )
+from apps.api.compliance.kyc_providers.cashfree import CashfreeDigiLocker
 from apps.api.compliance.kyc_providers.fake import FakeIdentityProvider
 from apps.api.compliance.kyc_providers.setu import SetuDigiLocker
 from apps.api.core.settings import get_settings
 
 #: The machine reasons a client's screen switches on. Client-facing sentences live in
-#: `kyc.py` beside the other two refusals, so one condition is never explained three ways.
+#: `kyc_verification.py`, so one condition is never explained three ways.
 NO_PROVIDER_CONFIGURED: Final = "no_provider_configured"
 NO_WEBHOOK_SECRET: Final = "no_webhook_secret"
+NO_API_CREDENTIALS: Final = "no_api_credentials"
 PROVIDER_CONTRACT_UNVERIFIED: Final = "provider_contract_unverified"
 #: The in-house adapter, named on a deployment that is not a developer's machine.
 PROVIDER_NOT_LICENSED: Final = "provider_not_licensed"
@@ -61,20 +56,28 @@ class ProviderCapability:
         return self.provider is not None
 
 
-def _build(name: str, *, secret: str) -> IdentityVerificationProvider:
+def _build(name: str) -> IdentityVerificationProvider | str:
+    """The adapter, or the reason its credentials are missing."""
+    settings = get_settings()
     if name == "fake":
-        return FakeIdentityProvider(secret=secret)
+        secret = settings.kyc_verification_webhook_secret
+        return FakeIdentityProvider(secret=secret) if secret else NO_WEBHOOK_SECRET
+    if name == "cashfree":
+        client_id = settings.kyc_verification_client_id
+        client_secret = settings.kyc_verification_client_secret
+        if not client_id or not client_secret:
+            return NO_API_CREDENTIALS
+        return CashfreeDigiLocker(
+            client_id=client_id,
+            client_secret=client_secret,
+            environment=settings.kyc_verification_environment,
+        )
     if name == "setu":
         return SetuDigiLocker()
-    # Digio, Cashfree and Sandbox are members of the vocabulary — a stored reference has
-    # to be able to name them — and have no adapter for the same reason Setu's is
-    # declared-and-unimplemented: their docs are egress-blocked from here and a wire
-    # contract recalled from memory is the one thing hard rule 11 forbids outright.
-    raise ProviderContractUnverifiedError(
-        f"No adapter has been written for {name!r}: its wire contract has not been read "
-        "from the vendor's own documentation. See `kyc_providers/setu.py` for the five "
-        "facts required and the prompt that fetches them."
-    )
+    # Digio and Sandbox are members of the vocabulary — a stored reference has to be able
+    # to name them — and have no adapter: their public docs did not show a wire contract
+    # (docs/evidence/digilocker-kyc-providers-2026-10-08.md).
+    raise ProviderContractUnverifiedError(f"No adapter has been written for {name!r}.")
 
 
 def available_provider() -> ProviderCapability:
@@ -84,34 +87,25 @@ def available_provider() -> ProviderCapability:
     if not name or name not in KYC_PROVIDERS:
         return ProviderCapability(None, NO_PROVIDER_CONFIGURED)
     if name == "fake" and settings.app_env != "local":
-        # THE ONE PROVIDER THIS LADDER WOULD OTHERWISE ADMIT ON TWO CONFIG VALUES.
-        # `fake` signs with a secret WE hold, so selecting it outside a developer's
-        # machine would let a deployment mark its own clients verified and write a
-        # `kyc_records` row asserting that a provider attested an identity — the forged
-        # verification the signature check exists to prevent, arriving through the
-        # config instead of the wire. Refused here rather than by deleting the adapter,
-        # because it is what proves this seam works at all.
+        # `fake` signs with a secret WE hold, so selecting it outside a developer's machine
+        # would let a deployment mark its own clients verified — the forged verification
+        # the signature check exists to prevent, arriving through the config instead.
         return ProviderCapability(None, PROVIDER_NOT_LICENSED)
-    secret = settings.kyc_verification_webhook_secret
-    if not secret:
-        return ProviderCapability(None, NO_WEBHOOK_SECRET)
     try:
-        provider = _build(name, secret=secret)
+        built = _build(name)
     except ProviderContractUnverifiedError:
-        # A configured provider with no adapter at all. Answered as unavailable rather
-        # than raised: the client's screen asks this selector too, and a 500 there tells
-        # a blocked client nothing they can act on. The operator's signal is the reason.
         return ProviderCapability(None, PROVIDER_CONTRACT_UNVERIFIED)
-    # THE SECOND HALF, AND IT IS NOT REDUNDANT. Constructing an adapter cannot fail for
-    # an unread contract — a class with unwritten methods instantiates perfectly well —
-    # so without this the registry hands back an object that raises on its first call,
-    # which is a 500 on the webhook instead of a refusal at the gate.
-    if not provider.contract_verified:
+    if isinstance(built, str):
+        return ProviderCapability(None, built)
+    # Constructing an adapter cannot fail for an unread contract, so without this the
+    # registry would hand back an object that raises on its first call.
+    if not built.contract_verified:
         return ProviderCapability(None, PROVIDER_CONTRACT_UNVERIFIED)
-    return ProviderCapability(provider, None)
+    return ProviderCapability(built, None)
 
 
 __all__ = [
+    "NO_API_CREDENTIALS",
     "NO_PROVIDER_CONFIGURED",
     "NO_WEBHOOK_SECRET",
     "PROVIDER_CONTRACT_UNVERIFIED",

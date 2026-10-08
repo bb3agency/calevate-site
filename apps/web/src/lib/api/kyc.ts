@@ -86,7 +86,7 @@ export const KYC_STATUS_COPY: Record<KycStatus, KycStatusCopy> = {
   not_started: {
     label: "Not started",
     headline: "Your business has not been verified yet.",
-    next: "Send us your business registration details and we will verify the account.",
+    next: "Open Verify your business to add your details and documents, or use DigiLocker.",
     tone: "neutral",
     operator: "not_started — opened, nothing checked yet",
   },
@@ -114,14 +114,14 @@ export const KYC_STATUS_COPY: Record<KycStatus, KycStatusCopy> = {
   rejected: {
     label: "Rejected",
     headline: "We could not verify your business from what we were sent.",
-    next: "Send corrected details and we will look again — the reason is below.",
+    next: "Correct what the reason below names on Verify your business and send it again.",
     tone: "stop",
     operator: "rejected — refused; must say why",
   },
   expired: {
     label: "Expired",
     headline: "Your verification has lapsed.",
-    next: "Send us current registration details and we will verify the account again.",
+    next: "Verify the business again on Verify your business.",
     tone: "warn",
     operator: "expired — the entity's paperwork lapsed",
   },

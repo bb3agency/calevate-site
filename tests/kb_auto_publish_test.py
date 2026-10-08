@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb import service, uploads
 from apps.api.main import app
@@ -94,7 +95,6 @@ async def _member_submission(
         return await service.submit_source(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Fees",
             body=body,
             submitted_by=user_id,
@@ -143,12 +143,12 @@ async def test_an_older_version_never_overwrites_a_newer_one_out_of_queue_order(
     assert (await _source(tenant_id, v1["id"])).is_active is False
 
 
-async def test_knowledge_added_before_the_agent_is_published_goes_live_on_the_next_sweep(
+async def test_knowledge_added_before_the_agent_is_published_reaches_it_on_the_sweep(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The ordinary case the sweep exists for: a client fills in their knowledge before
-    their agent's first publish. The job's refusal is recorded, not retried for ever, and
-    the sweep publishes it once there is an agent to publish it to."""
+    """A client fills in their knowledge before their agent's first publish. Knowledge is
+    the client's (D-689), so it goes live at once with no vendor copy anywhere, and the
+    agent receives it once it has a vendor agent — here from the sweep's catch-up arm."""
     tenant_id, agent_id = await _tenant_with_published_agent()
     tenant_id, agent_id = uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id))
     owner = await _member(tenant_id)
@@ -162,13 +162,46 @@ async def test_knowledge_added_before_the_agent_is_published_goes_live_on_the_ne
             text("UPDATE agents SET engine_agent_ref = NULL WHERE id = :a"), {"a": agent_id}
         )
     created = await _member_submission(tenant_id, agent_id, owner)
-    assert await _publish(tenant_id, created["id"]) == "failed:agent_not_published"
+    assert await _publish(tenant_id, created["id"]) == "published:v1"
+    assert (await _source(tenant_id, created["id"])).is_active is True
 
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE agents SET engine_agent_ref = :r WHERE id = :a"),
             {"r": ref, "a": agent_id},
         )
+
+    async def _only_this_tenant() -> list[uuid.UUID]:
+        return [tenant_id]
+
+    monkeypatch.setattr(kb_gloss, "tenants_holding_knowledge", _only_this_tenant)
+    _quiet_fleet_wide_arms(monkeypatch)
+    outcome = await kb_ingest.sweep_kb_uploads({})
+    assert "caught_up=1" in outcome
+    async with tenant_session(tenant_id) as session:
+        routes = await service._routes_of_source(session, uuid.UUID(str(created["id"])))
+    assert [agent for agent, _ in routes] == [agent_id]
+
+
+async def test_a_refused_automatic_publish_goes_live_on_the_next_sweep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The job's refusal is recorded, not retried for ever, and the sweep publishes the
+    source once the refusal no longer holds."""
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, agent_id = uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id))
+    owner = await _member(tenant_id)
+    created = await _member_submission(tenant_id, agent_id, owner)
+    real_publish = service.publish_source
+
+    async def _refuse(*_args: Any, **_kwargs: Any) -> int:
+        raise ProblemError.business_rule("kb_document_not_ready", "Not ready.")
+
+    monkeypatch.setattr(service, "publish_source", _refuse)
+    assert await _publish(tenant_id, created["id"]) == "failed:kb_document_not_ready"
+    monkeypatch.setattr(service, "publish_source", real_publish)
+
+    async with tenant_session(tenant_id) as session:
         # Past `RETRY_STALLED_AFTER`, so the sweep considers it.
         await session.execute(
             text("UPDATE kb_sources SET updated_at = now() - interval '2 hours' WHERE id = :s"),
@@ -232,7 +265,6 @@ async def test_one_item_that_raises_does_not_stop_the_rest_of_the_sweep(
         stalled = await uploads.create_link(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Price list",
             url="https://example.com/prices",
             submitted_by=owner,
@@ -276,9 +308,7 @@ async def test_the_sweep_leaves_an_admins_approve_then_publish_flow_alone(
     tenant_id, agent_id = await _tenant_with_published_agent()
     tenant_id, agent_id = uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id))
     async with tenant_session(tenant_id) as session:
-        seeded = await service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Seeded", body=BODY
-        )
+        seeded = await service.submit_source(session, tenant_id=tenant_id, name="Seeded", body=BODY)
         assert seeded["status"] == "pending_approval"
         assert await service.approve_source(
             session, source_id=seeded["id"], approved_by=uuid.uuid4()
@@ -321,7 +351,6 @@ async def test_an_account_members_photo_goes_live_without_a_confirmation(
         row = await uploads.create_upload(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Menu photo",
             filename="menu.jpg",
             content_type="image/jpeg",
@@ -351,7 +380,6 @@ async def _linked_page(
         row = await uploads.create_link(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Opening hours",
             url="https://example.com/hours",
             submitted_by=linker,
@@ -371,7 +399,9 @@ async def _versions(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> list[tuple[Any
                 await session.execute(
                     text(
                         "SELECT version, status, is_active, approved_by FROM kb_sources "
-                        "WHERE agent_id = :a AND name = 'Opening hours' ORDER BY version"
+                        "WHERE tenant_id = "
+                        "(SELECT tenant_id FROM agents WHERE id = :a) "
+                        "AND name = 'Opening hours' ORDER BY version"
                     ),
                     {"a": agent_id},
                 )
@@ -389,7 +419,6 @@ async def _recheck(
     assert await kb_ingest._recheck_link(
         upload_id=uuid.UUID(str(row["id"])),
         tenant_id=tenant_id,
-        agent_id=agent_id,
         url="https://example.com/hours",
         known_digest="a-digest-from-the-last-reading",
         name="Opening hours",
@@ -412,7 +441,8 @@ async def test_a_changed_page_a_member_linked_goes_live_in_the_linkers_name(
         new_source = (
             await session.execute(
                 text(
-                    "SELECT id FROM kb_sources WHERE agent_id = :a AND name = 'Opening hours' "
+                    "SELECT id FROM kb_sources WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :a) AND name = 'Opening hours' "
                     "AND version = 2"
                 ),
                 {"a": agent_id},
@@ -465,7 +495,6 @@ async def test_an_older_upload_finishing_late_is_archived_not_published_over_a_n
         old = await uploads.create_link(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Opening hours",
             url="https://example.com/hours",
             submitted_by=owner,
@@ -474,7 +503,6 @@ async def test_an_older_upload_finishing_late_is_archived_not_published_over_a_n
         new = await uploads.create_link(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Opening hours",
             url="https://example.com/hours-v2",
             submitted_by=owner,

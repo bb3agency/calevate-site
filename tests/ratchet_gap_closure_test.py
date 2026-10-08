@@ -108,6 +108,7 @@ def test_a_run_is_open_only_while_it_is_created() -> None:
         tenant_id=uuid.uuid4(),
         entity_type="sole_proprietorship",
         status=REQUEST_CREATED,
+        id_document="aadhaar",
         past_ttl=False,
     ).is_open
     assert not VerificationRequest(
@@ -115,6 +116,7 @@ def test_a_run_is_open_only_while_it_is_created() -> None:
         tenant_id=uuid.uuid4(),
         entity_type="sole_proprietorship",
         status=REQUEST_CREATED,
+        id_document="aadhaar",
         past_ttl=True,
     ).is_open
     for settled in ("completed", "failed", "expired"):
@@ -123,6 +125,7 @@ def test_a_run_is_open_only_while_it_is_created() -> None:
             tenant_id=uuid.uuid4(),
             entity_type="sole_proprietorship",
             status=settled,
+            id_document="aadhaar",
             past_ttl=False,
         ).is_open
 

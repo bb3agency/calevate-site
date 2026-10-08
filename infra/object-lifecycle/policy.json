@@ -61,6 +61,16 @@
       }
     },
     {
+      "ID": "kyc-documents-growth-ceiling-not-retention",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "kyc-documents/"
+      },
+      "Expiration": {
+        "Days": 2555
+      }
+    },
+    {
       "ID": "abort-incomplete-multipart-uploads",
       "Status": "Enabled",
       "Filter": {

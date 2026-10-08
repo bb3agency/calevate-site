@@ -1,12 +1,13 @@
 "use client";
 
+import Link from "next/link";
+
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
 import { PageHeader } from "@/components/console/pageHeader";
 import { Disclosure, ProblemNotice, Skeleton } from "@/components/ui";
 import { useKycRecord } from "@/lib/api/kyc";
 import { usePeRegistration } from "@/lib/api/dltRegistration";
 import { useClientSession } from "@/lib/api/session";
-import { Term } from "@/lib/glossary";
 
 import { useVerificationCopilot } from "./copilot";
 import { DltDetails, dltItem } from "./DltRegistration";
@@ -41,15 +42,12 @@ import { KycSections, PhoneNumbers, WhatWeKeep, kycItem } from "./SubscriberVeri
  *    the receptionist the headline product). A client reading "verification required"
  *    will otherwise assume their receptionist is down. It is not, and that distinction
  *    is the entire reason the gate is outbound-only.
- * 2. **The client cannot self-verify, and nothing here pretends otherwise.** There is no
- *    client-realm write: Indian telecom rules make the subscriber's identity something
- *    the provider verifies, never something the subscriber asserts (Telecom Act 2023
- *    s.3(7)). What they CAN do is send us what we need, so that is the call to action.
- * 3. **No upload control, ever.** The API stores a public business-registry identifier
- *    and a filing reference — never a document — and a CHECK refuses a bare twelve-digit
- *    value so an Aadhaar cannot be pasted into a business field. A file input here would
- *    invite exactly the thing the schema exists to refuse, so the screen says out loud
- *    that there is nothing to upload.
+ * 2. **The client cannot self-verify.** Our review or a DigiLocker result decides the
+ *    status (Telecom Act 2023 s.3(7)); the client's part — details, documents, the
+ *    pledge — is on the separate Verify your business page (D-692).
+ * 3. **This page takes no input.** It shows what we hold; every upload and acceptance is
+ *    on Verify your business, which keeps this screen usable in a read-only support
+ *    session (`tests/readiness_copy_actionability_test.py`).
  * 4. **The green state comes from `is_verified`, never from `status`.** Same doctrine as
  *    `messageable` on the consent screen: the server computes the predicate every gate
  *    asks, and a screen that re-derived it would disagree with the gate on the day it
@@ -83,17 +81,22 @@ export default function VerificationPage() {
   const kycRecord = kyc.data;
   const pe = dlt.data;
   // Only rows whose state the server returned: a failed read is a refusal, never an unticked box (§52).
-  const items: ChecklistItem[] = [...(kycRecord ? [kycItem(kycRecord)] : []), ...(pe ? [dltItem(pe)] : [])];
-  const blocked = (kycRecord && !kycRecord.is_verified) || (pe && !pe.is_active);
+  // D-692: the DLT registration no longer gates outbound, so only the KYC verdict is a
+  // "before outgoing calls" item; the registration stays visible below for the record.
+  const items: ChecklistItem[] = kycRecord ? [kycItem(kycRecord)] : [];
+  const blocked = kycRecord && !kycRecord.is_verified;
 
   return (
     <div className="space-y-8 pb-12">
       <PageHeader
         description={
           <>
-            Indian telecom rules ask two things of a business before it places outgoing
-            calls: that it is identified, and that it is registered with the{" "}
-            <Term id="dlt" /> registrar. Neither affects the calls coming in.
+            What we hold about your business. To verify it, or to accept the no-cold-calls
+            pledge, go to{" "}
+            <Link href={`/c/${session.orgSlug}/verify-business`} className="font-semibold underline">
+              Verify your business
+            </Link>
+            . Neither affects the calls coming in.
           </>
         }
       />
@@ -112,6 +115,7 @@ export default function VerificationPage() {
           />
         )}
         {items.length > 0 && <Checklist label="Before outgoing calls can start" headingLevel={2} items={items} />}
+        {pe && <Checklist label="DLT registration, on record" headingLevel={2} items={[dltItem(pe)]} />}
         {blocked && (
           <p className="text-sm font-semibold text-ink">
             Calls coming IN are unaffected — your agent keeps answering the phone.
@@ -128,7 +132,7 @@ export default function VerificationPage() {
             <PhoneNumbers record={kycRecord} />
           </Disclosure>
         )}
-        <Disclosure title="What we keep, and what we never ask for" subtitle="Registration numbers only, never Aadhaar or PAN.">
+        <Disclosure title="What we keep, and what we never ask for" subtitle="A business certificate and a masked owner ID — never a full Aadhaar.">
           <WhatWeKeep />
         </Disclosure>
       </div>

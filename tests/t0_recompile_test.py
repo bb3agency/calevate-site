@@ -45,7 +45,7 @@ async def _publish_knowledge(
 ) -> uuid.UUID:
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name=name, body=body
+            session, tenant_id=tenant_id, name=name, body=body
         )
         await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
         await kb_service.publish_source(

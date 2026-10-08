@@ -462,12 +462,13 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # prices the client's monthly number rental (D-681). Both write append-only figures that
     # reach `unit_cost_paid` or a client's bill.
     #
-    # THE FORTY-FIRST TO FORTY-THIRD are the hosted-voice writes that cannot be undone or
-    # carry an attestation (`ops/hosted_voice_routes.py`, D-687): cloning a voice records
-    # the operator's two legal promises about a person's voice and spends a plan slot,
-    # deleting a clone moves every agent on it to a standard voice and cannot be undone, and
-    # setting up the Studio workspace installs our Cartesia key there.
-    assert sites == 43, f"found {sites} step-up call sites, expected 43; the census went stale"
+    # THE FORTY-FIRST TO FORTY-FOURTH are the hosted-voice writes that cannot be undone or
+    # carry an attestation (`ops/hosted_voice_routes.py`, D-687, D-688): cloning a voice
+    # records the operator's two legal promises about a person's voice and spends a plan slot;
+    # deleting a clone moves every agent on it to a standard voice and cannot be undone;
+    # switching Studio voices on installs our Cartesia key and changes which voice every agent
+    # not kept off speaks; switching them off moves every Studio agent to the default voice.
+    assert sites == 44, f"found {sites} step-up call sites, expected 44; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

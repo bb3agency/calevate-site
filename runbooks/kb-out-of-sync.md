@@ -1,4 +1,4 @@
-# Runbook — publishing knowledge is refused: `kb_engine_out_of_sync` / `kb_engine_ref_unknown`
+# Runbook — publishing knowledge is refused: `kb_engine_out_of_sync`
 
 Symptom: an operator presses Publish on an approved knowledge source
 (`POST /v1/admin/tenants/{tenant_id}/kb/{source_id}/publish`, admin realm,
@@ -47,140 +47,21 @@ applies to anything you copy out of a KB document into a ticket.
 
 | code | Title | What we know |
 |---|---|---|
-| `kb_engine_ref_unknown` | "The live version cannot be withdrawn" | There is a live version of this named source in OUR tables and we have **no handle for it**. We cannot remove what we cannot address |
-| `kb_engine_out_of_sync` | "The voice platform holds knowledge we cannot account for" | The engine is serving this agent **at least one document no row of ours mentions** |
+| `kb_engine_out_of_sync` | "The voice platform holds knowledge we cannot account for" | The engine is serving one of the client's agents **at least one document no row of ours mentions** |
 
-`_require_addressable` runs first, deliberately: when both are true, the missing-handle
-diagnosis is the more specific one and is the one an operator should be handed. That
-ordering is asserted — with a case where both conditions really do hold at once, and with
-the two remediations checked for not having converged — by
-`tests/kb_flow_promises_test.py::test_when_both_diagnoses_hold_the_operator_is_handed_the_specific_one`.
-If you are reading this because the code sent you the OTHER refusal, that test is where to
-look first: the swap is a one-line edit and it is exactly the failure this section warns
-about.
+`kb_engine_ref_unknown` ("The live version cannot be withdrawn") is no longer raised (D-689).
+Knowledge belongs to the client and is one copy per agent, so a live version with no claim on
+one agent is a copy that agent has not been given yet — the catch-up gives it one — and a
+copy the engine holds without a claim is case B below.
 
-Both are logged with ids only — `kb_engine_ref_unknown` at WARNING with `source_id`,
-`kb_engine_out_of_sync` at ERROR with `agent_id` and a COUNT of unaccounted handles
-(never the handles themselves).
+It is logged with ids only — at ERROR with `agent_id` and a COUNT of unaccounted handles
+(never the handles themselves). It leaves everything unchanged: nothing was detached,
+nothing was attached on any agent, the previously approved version is still live and every
+agent still answers.
 
-Both leave everything unchanged. Nothing was detached, nothing was attached, the
-previously approved version is still live and the client's agent still answers. That is
-the one reassuring sentence in this runbook and it is true in both cases.
-
----
-
-## A. `kb_engine_ref_unknown` — we cannot address the live version
-
-### 1. Find the version and confirm the handle really is missing
-
-The handle lives in `kb_documents.meta ->> 'engine_kb_ref'` on the **`idx = 0` row** of a
-source, and nowhere else (`_remember_engine_kb_ref`).
-
-```sql
--- Tenant-scoped session. The named source's live version(s) and their handles.
-SELECT s.id, s.name, s.version, s.status, s.is_active, s.published_at,
-       d.meta ->> 'engine_kb_ref' AS engine_kb_ref
-FROM kb_sources s
-LEFT JOIN kb_documents d ON d.source_id = s.id AND d.idx = 0
-WHERE s.agent_id = :agent_id
-  AND s.name = (SELECT name FROM kb_sources WHERE id = :source_id)
-ORDER BY s.published_at DESC NULLS LAST;
-```
-
-The row you are looking for is `is_active = true`, `id <> :source_id`, and
-`engine_kb_ref IS NULL`. Normally there is exactly one live version per (agent, name);
-the code treats it as a list because "exactly one" is an invariant it enforces, not one
-it may assume while enforcing it.
-
-`engine_kb_ref IS NULL` means two different things depending on whose row it is, and this
-is the distinction to keep straight:
-
-- on a **different** version that is still live — the engine is serving something we
-  cannot name. That is this refusal;
-- on the version being **published** — we have attached nothing yet. That is every first
-  publish and proceeds silently.
-
-Only versions published before the handle was recorded can reach this state.
-
-### 2. Withdraw the stale copy on the engine side — by hand, once
-
-There is no code path for this, and deliberately so: a code path would have to guess
-which of the engine's documents is the stale one, and guessing wrong deletes a live
-knowledge base.
-
-1. **List what the engine holds for this agent.** You need the agent's engine handle
-   first:
-
-   ```sql
-   SELECT id, name, status, engine_agent_ref FROM agents WHERE id = :agent_id;
-   ```
-
-   Then read the engine's own listing for that agent, with `list_kb(engine_agent_ref)` —
-   the same adapter call the drift sweep makes (`apps/api/kb/reconciliation.py`). Every
-   engine a deployment can select declares `knowledge_base` today, so this step is
-   available; an engine that did not would make `list_kb` REFUSE by name through
-   `require_capability` rather than answer `[]`, so you can never mistake "cannot look" for
-   "holds nothing".
-
-   **What the handle in that listing IS depends on the engine, and this is the one thing to
-   get right before you delete anything.** On the owned runtime (`ENGINE=pipecat`) it is
-   our own linkage row: `attach_kb` pushes no text anywhere, because the text is already
-   in `kb_documents`/`kb_chunks`, and `list_kb` reads the agent's rows back
-   (`engine/pipecat.py`). The rest of this paragraph is the rented engine's case, kept
-   for the `cartesia` adapter's class of engine: on Bolna (deleted by D-639) it was the
-   `vector_id` referenced from
-   the AGENT's own config (`llm_agent.llm_config.vector_store.provider_config.vector_ids`)
-   — NOT the `rag_id` that `GET /knowledgebase/all` returns, which is a different
-   identifier in a different namespace. Reading the account-wide listing and filtering it
-   on an `agent_id` field is the procedure this runbook used to give and it cannot work: a
-   knowledge base object carries no agent field of any kind, so the filter matches nothing
-   and "no rows" reads identically to "this agent has no documents" (D-488 moved the read
-   to where the linkage actually lives). On an engine we host ourselves the handle names a
-   row our own attach path wrote, and there is no vendor console behind it.
-
-   Our single account holds every tenant's agents, so the adapter attributes strictly — a
-   row that does not name the agent is not counted.
-
-   **What a caller retrieves from is not this store.** In-call retrieval is T0 compiled
-   context plus, on an engine with a built-in knowledge base, that engine's own copy; the
-   `kb_chunks` pgvector store (D-502, in the Postgres this repo already runs, filled by
-   `apps/workers/kb_embeddings.py`) serves the dashboard copilot and the CRM paths and is
-   never on the audio path. So a stale engine-side copy IS what the caller hears, which is
-   why this step matters rather than being bookkeeping.
-
-2. **Match, and be sure.** The stale copy is the one whose title is this source's `name`
-   and whose content is the version our tables show as live. Read the document on the
-   vendor side and compare it against what we hold before deleting anything:
-
-   ```sql
-   SELECT idx, left(content, 200) FROM kb_documents
-   WHERE source_id = :live_source_id ORDER BY idx;
-   ```
-
-   If more than one candidate matches, **do not delete any of them.** You are now in case
-   B as well, and B's step 3 is the right order of operations.
-
-3. **Delete it on the engine** (`DELETE /knowledgebase/{rag_id}`). Whether that also
-   clears the AGENT's reference to it, or leaves the agent config carrying a dangling
-   `rag_id`, is the second half of pilot gate 8b and is **not verified**. Re-list
-   afterwards and confirm the agent no longer holds it. If the agent still references a
-   deleted id, the detach needs a second call (an agent update) and that is a finding for
-   the scorecard, not something to improvise around.
-
-4. **Re-run Publish.** Our tables were never touched, so there is nothing to repair on
-   our side; with the engine no longer holding an unaddressable copy,
-   `_require_addressable` finds only `NULL` on the source being published, which is the
-   silent case.
-
-### 3. If the copy cannot be found or cannot be deleted
-
-Do not publish. The client's agent is currently answering from an approved version — the
-state is stale but it is *coherent and human-approved*. Publishing over it produces two
-live copies and an agent free to answer from either, which is the exact divergence the
-approval gate exists to prevent.
-
-Tell the client the update is held, why, and that their agent is still answering from the
-version they approved. That is a better sentence than the one that follows a wrong price.
+Since D-689 a publish attaches the new copy to EVERY published agent of the client before it
+withdraws any old copy, and the check runs per agent: the refusal names the first agent
+whose vendor copy list we cannot account for, and the whole publish refuses.
 
 ---
 
@@ -309,7 +190,7 @@ a green publish, check the prompt version too, not only the KB.
 | code | Meaning |
 |---|---|
 | `kb_not_approved` | `approved_at IS NULL`, or `status` is not `approved`/`archived`. `archived` is allowed on purpose: FLOWS §7 rollback is republishing a version this same function archived |
-| `agent_not_published` | The agent has no `engine_agent_ref`. Publish the agent before adding knowledge |
+| `kb_fan_out_incomplete` (alarm, not a refusal) | The new version reached some agents and others would not withdraw the old one (D-689). The publish succeeded; the catch-up converges the rest. See `runbooks/alarm-index.md` |
 | `kb_detach_failed` | The engine did not confirm removal of the version being replaced. **Nothing changed — the previously approved version is still live.** Retrying costs nothing, because we have not attached anything yet. If it repeats, you are probably really in case A or B |
 | `engine_bad_response` | The engine returned no usable knowledge base id from an attach. A response we cannot read a handle out of is a failure, not a success — treating it as one would attach text nobody can retract |
 

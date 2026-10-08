@@ -123,7 +123,7 @@ async def _tenant() -> tuple[uuid.UUID, str]:
     # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
     # publish gate now refuses an organisation that has not accepted them, so a fixture
     # without this reports `agreements_not_accepted` in place of the answer under test.
-    await accept_agreements(uuid.UUID(str(created["id"])))
+    await accept_agreements(uuid.UUID(str(created["id"])), kyc_and_pledge=False)
     return uuid.UUID(str(created["id"])), str(created["slug"])
 
 

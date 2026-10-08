@@ -83,12 +83,12 @@ def hosted_agent_limits(engine: VoiceEngine) -> HostedAgentLimits:
 
 @dataclass(frozen=True, slots=True)
 class EngineNumberConsole:
-    """Where an engine's numbers are rented and attached, when that is a console step.
+    """Where an engine's numbers are rented, when that is a console step.
 
-    Exists for engines that rent numbers and route them to agents ONLY in their own
-    console (`provision_number` and `bind_inbound_number` refuse by name there): the
-    admin numbers screen lists what the engine holds and shows these steps instead of a
-    buy button that would refuse.
+    Exists for engines that rent numbers only in their own console (`provision_number`
+    refuses by name there): the admin numbers screen lists what the engine holds, offers
+    to record each for the client, and shows these steps instead of a buy button that
+    would refuse.
     """
 
     platform_label: str
@@ -96,8 +96,8 @@ class EngineNumberConsole:
     notes: tuple[str, ...]
 
 
-#: ThinnestAI: renting and attaching are console-only
-#: (`api-reference/voices-and-models.md:86-87`). Steps paraphrase
+#: ThinnestAI: renting is a console step; recording and attaching are ours (D-691,
+#: `campaigns/engine_numbers.py`). Steps paraphrase
 #: `channels/phone-numbers.md:29-56` (rent and point), `:77-84` (Indian KYC), `:488-512`
 #: (Inbound and Outbound pickers), `:431-434` (Dial-out ready), `:664-669` (140-series for
 #: promotional calls), `:457-463` and `:615-619` (owner/admin only; releasing is permanent).
@@ -109,10 +109,12 @@ THINNEST_NUMBER_CONSOLE: Final = EngineNumberConsole(
         "Pick India, and a city if you want a local code, then choose a number and confirm "
         "its monthly price. An Indian number is issued only after the business's KYC "
         "clears, on the KYC tab of the same page.",
-        "On the Phone Numbers page, set Inbound to the agent Calevate published for this "
-        "client (its ThinnestAI id is on the agent's row below). It answers immediately.",
-        "If the agent also calls out, set Outbound to the same agent and check that the "
-        "Dial-out ready column says yes.",
+        "Leave Inbound and Outbound empty in that console. Back here, the number appears "
+        "in the list above: choose Record this number. A rented number is priced at the "
+        "attested monthly rate from today.",
+        "Attach the recorded number to this client's agent on this page. Calevate points "
+        "the number at the agent on ThinnestAI and keeps it that way; a change made in "
+        "their console is put back by the daily number check.",
         "Ring the number. You should hear the agent's opening line, then the agent.",
     ),
     notes=(

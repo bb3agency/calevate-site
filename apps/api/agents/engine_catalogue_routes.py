@@ -31,7 +31,7 @@ from apps.api.agents.hosted_voices import (
     offered_hosted_voices,
     preview_object,
     rung_of_source,
-    studio_workspace_ready,
+    studio_voices_ready,
 )
 from apps.api.agents.llm_models import LlmReasonAudience
 from apps.api.agents.llm_tiers import engine_model_labels, engine_model_token
@@ -117,8 +117,8 @@ class EngineCatalogueOut(BaseModel):
     #: account's own keys (`Settings.thinnest_byok_enabled`), where `choice_note` says why.
     choosable: bool = True
     choice_note: str | None = None
-    #: Are Studio voices set up on this deployment? False: Studio voices are listed and
-    #: refused with their reason.
+    #: Are Studio voices switched on on this deployment (our voice key on in the workspace)?
+    #: False: no Studio voice is listed.
     studio_available: bool = False
     voices: list[EngineCatalogueVoiceOut]
     models: list[EngineCatalogueModelOut]
@@ -149,20 +149,19 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
         )
     audience: LlmReasonAudience = "operator" if principal.is_admin else "client"
     platform = engine_platform_label(engine)
-    studio_ready = studio_workspace_ready()
     voice_key_priced = tts_price_is_billable(STUDIO_VOICE_PROVIDER)
     # Platform-scoped rows with no RLS, read on their own short session, through the one
     # door that decides whether a minute may be sold (hard rule 7).
     async with untenanted_session() as session:
         attested = await attested_rate_keys(session, engine=engine.name, at=datetime.now(UTC))
         rows = await offered_hosted_voices(session)
+        studio_ready = await studio_voices_ready(session)
     catalogue = await engine.read_catalogue()
     models = offered_models(catalogue, attested=attested, platform=platform, audience=audience)
     reasons = [
         hosted_voice_unofferable_reason(
             row,
             attested=attested,
-            studio_ready=studio_ready,
             voice_key_priced=voice_key_priced,
             platform=platform,
             audience=audience,

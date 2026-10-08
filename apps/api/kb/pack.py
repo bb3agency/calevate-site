@@ -143,7 +143,7 @@ class PackTooLargeError(RuntimeError):
 
 
 #: **THE ONE SPELLING OF "LIVE", SHARED BY BOTH STATEMENTS BELOW.** `_ENTRIES_SQL` decides
-#: what goes INTO a pack; `_GLOSSED_AGENTS_SQL` decides whose pack is worth re-checking after
+#: what goes INTO a pack; `_KNOWLEDGE_AGENTS_SQL` decides whose pack is worth re-checking after
 #: a gloss lands. If the two ever disagreed about liveness the staleness scan would skip an
 #: agent whose pack had genuinely moved, and the symptom would be a pack that is simply never
 #: rebuilt — invisible from every screen, which is the exact shape of the defect the scan
@@ -168,7 +168,10 @@ JOIN kb_documents d ON d.id = c.document_id
 WHERE c.tenant_id = :tid AND c.is_active AND s.is_active
 """
 
-#: One agent's live, published knowledge, joined to the text and the gloss it projects.
+#: The tenant's live, published knowledge, joined to the text and the gloss it projects.
+#: Every agent of the tenant packs the same entries (D-689); the pack is still per agent,
+#: because the agent id is inside its digest and its object key and the pointer is the
+#: agent's.
 #:
 #: **`s.version`, NOT `c.version`, FOR `PackEntry.document_version`.** They are equal by
 #: construction — `_PROJECT_SQL` writes `s.version` into the projection — and when a
@@ -181,7 +184,6 @@ WHERE c.tenant_id = :tid AND c.is_active AND s.is_active
 _ENTRIES_SQL: Final = f"""
 SELECT c.id, c.document_id, s.version, d.content, d.gloss
 {_LIVE_CHUNKS_FROM}
-  AND c.agent_id = :aid
 """
 
 
@@ -225,10 +227,12 @@ def _screened(value: str, *, chunk_id: UUID, field: str) -> str:
     return strip_shadow_text(value)
 
 
-async def read_entries(
-    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
-) -> tuple[PackEntry, ...]:
-    """This agent's live published chunks, projected to `PackEntry` in canonical order.
+async def read_entries(session: AsyncSession, *, tenant_id: UUID) -> tuple[PackEntry, ...]:
+    """The tenant's live published chunks, projected to `PackEntry` in canonical order.
+
+    Every agent of the tenant answers from the same entries (D-689), so there is no agent
+    argument: an agent-scoped read here would be a second definition of whose knowledge an
+    agent has.
 
     Ordered by `str(chunk_id)` — the SAME key `KnowledgePack.digest` sorts by
     (`knowledge_pack.py:151`) — rather than by an `ORDER BY` that merely happens to agree.
@@ -249,7 +253,7 @@ async def read_entries(
     ever breaks — which is the right failure, because a silently shortened answer is a
     client's agent quoting half a price list.
     """
-    rows = (await session.execute(text(_ENTRIES_SQL), {"tid": tenant_id, "aid": agent_id})).all()
+    rows = (await session.execute(text(_ENTRIES_SQL), {"tid": tenant_id})).all()
     entries = [
         PackEntry(
             chunk_id=row[0],
@@ -302,7 +306,7 @@ async def build_pack(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) 
     the dense arm rather than the publish.
     """
     await assert_visible(session, "agent", agent_id)
-    entries = await read_entries(session, tenant_id=tenant_id, agent_id=agent_id)
+    entries = await read_entries(session, tenant_id=tenant_id)
     entries, embedding_model = await embed_entries(session, tenant_id=tenant_id, entries=entries)
     dimensions = declared_dimensions(embedding_model)
     return KnowledgePack(
@@ -493,7 +497,7 @@ async def refresh_published_pack(
                 "keeps answering from the pack it last loaded. The voice worker fetches the "
                 "whole pack while the phone rings under a fixed budget, so publishing this "
                 "one would cost the agent its knowledge on every call. Withdraw or prune "
-                "sources on this agent, or split the corpus across agents."
+                "sources this client has published."
             ),
             tenant_id=str(tenant_id),
             agent_id=str(agent_id),
@@ -522,23 +526,21 @@ async def refresh_published_pack(
     return pack_id
 
 
-#: The agents this tenant has whose pack COULD have been overtaken by a gloss, with the id
-#: their `agents` row currently points at. The cheap half of the difference; `d.gloss IS NOT
-#: NULL` is what makes it cheap and it is also what makes it exact FOR THIS CALLER: the only
-#: thing the gloss sweep changes about a pack's contents is `PackEntry.gloss`, so an agent
-#: with no glossed live chunk anywhere cannot have a pack this sweep made stale.
-#:
-#: **DISTINCT OVER THE PAIR IS ONE ROW PER AGENT**, because `knowledge_pack_sha256` is
-#: functionally dependent on `agent_id` — the join is to the agent row, not to a chunk.
+#: The agents of a tenant holding live knowledge, with the pack id their `agents` row points
+#: at. Every agent the tenant has not retired is a candidate (D-689): the knowledge is the
+#: tenant's, so an agent created after the last publish has a pack to catch up on, and a
+#: gloss that lands after a publish overtakes every agent's pack at once. A tenant with no
+#: live chunk selects nothing, so an empty tenant costs one probe.
 #:
 #: `LIMIT` after `ORDER BY 1` so the bound is deterministic rather than whatever the planner
 #: returned first: a tenant over the ceiling gets the same prefix every tick, which is a
 #: starvation the caller's constant is sized to make unreachable and which would otherwise be
 #: an intermittent one nobody could reproduce.
-_GLOSSED_AGENTS_SQL: Final = f"""
-SELECT DISTINCT g.agent_id, a.knowledge_pack_sha256
-FROM (SELECT c.agent_id {_LIVE_CHUNKS_FROM} AND d.gloss IS NOT NULL) g
-JOIN agents a ON a.id = g.agent_id AND a.tenant_id = :tid
+_KNOWLEDGE_AGENTS_SQL: Final = f"""
+SELECT a.id, a.knowledge_pack_sha256
+FROM agents a
+WHERE a.tenant_id = :tid AND a.deleted_at IS NULL AND a.status <> 'archived'
+  AND EXISTS (SELECT 1 {_LIVE_CHUNKS_FROM})
 ORDER BY 1
 LIMIT :limit
 """
@@ -585,7 +587,7 @@ async def agents_with_stale_packs(
     publishes BEFORE that sweep ever runs. A pack is frozen at publish by construction, so
     the English half of every entry landed after the artefact the agent answers out of had
     already been sealed, and nothing reopened it until the client happened to publish or
-    withdraw something else on that agent. Feed the result to `refresh_published_pack`.
+    withdraw something else. Feed the result to `refresh_published_pack`.
 
     **THE DIFFERENCE IS THE DIGEST, AND THAT IS THE LOAD-BEARING CHOICE.** The sweep could
     hand over the document ids it just glossed; `kb/service.refresh_projection_keys` argues
@@ -662,17 +664,23 @@ async def agents_with_stale_packs(
     serialization for that belongs to the caller's REFRESH transaction and cannot be bought
     here — an advisory lock is released at the end of the transaction that took it, and this
     scan's transaction is over before the first refresh begins. `workers/kb_gloss.py` takes
-    `kb/service.try_lock_agent_publishes` per agent, in the transaction that does the work.
+    `kb/service.try_lock_tenant_knowledge` per agent, in the transaction that does the work.
+
+    It also catches an agent up (D-689): an agent created after the tenant's last publish
+    holds no pack, or one built before the knowledge it now shares, and reads as stale here.
 
     `limit` is the caller's, because the budget belongs to the tick.
     """
     candidates = (
-        await session.execute(text(_GLOSSED_AGENTS_SQL), {"tid": tenant_id, "limit": limit})
+        await session.execute(text(_KNOWLEDGE_AGENTS_SQL), {"tid": tenant_id, "limit": limit})
     ).all()
+    if not candidates:
+        return []
+    # One read for the tenant: every agent packs the same entries.
+    entries = await read_entries(session, tenant_id=tenant_id)
     stale: list[UUID] = []
     for row in candidates:
         agent_id = UUID(str(row[0]))
-        entries = await read_entries(session, tenant_id=tenant_id, agent_id=agent_id)
         if implied_digest(tenant_id, agent_id, entries) != row[1]:
             stale.append(agent_id)
     return stale

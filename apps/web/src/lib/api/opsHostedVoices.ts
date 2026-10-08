@@ -12,8 +12,9 @@
  *   DELETE /v1/ops/voices/clones                   delete one of our clones (step-up)
  *   POST   /v1/ops/voices/hosted/preview           upload a preview clip
  *   POST   /v1/ops/voices/hosted/preview/fetch     store the platform's own preview
- *   GET    /v1/ops/voices/studio-workspace         the Studio workspace and its voice key
- *   POST   /v1/ops/voices/studio-workspace         set it up (step-up)
+ *   GET    /v1/ops/voices/studio-voices           whether our Cartesia key is on (D-688)
+ *   POST   /v1/ops/voices/studio-voices/enable    switch it on, Clear agents kept off first
+ *   POST   /v1/ops/voices/studio-voices/disable   switch it off (step-up)
  *
  * The Voices page reads the hosted list FIRST and branches on `available`: the Pipecat
  * catalogue (`opsVoices.ts`) is what an engine that does not host voices is curated with,
@@ -44,19 +45,22 @@ export type HostedState = HostedVoice["state"];
 export type HostedVoiceWrite = Schemas["HostedVoiceWriteOut"];
 export type CloneOut = Schemas["CloneOut"];
 export type DeleteCloneOut = Schemas["DeleteCloneOut"];
-export type StudioWorkspace = Schemas["StudioWorkspaceOut"];
-export type StudioSetupIn = Schemas["StudioSetupIn"];
+export type StudioVoices = Schemas["StudioVoicesOut"];
+export type StudioEnableIn = Schemas["StudioEnableIn"];
 export type FetchPreviewIn = Schemas["FetchPreviewIn"];
 
 export const OPS_HOSTED_PATH = "/v1/ops/voices/hosted";
 export const OPS_CLONES_PATH = "/v1/ops/voices/clones";
 export const OPS_PREVIEW_UPLOAD_PATH = "/v1/ops/voices/hosted/preview";
 export const OPS_PREVIEW_FETCH_PATH = "/v1/ops/voices/hosted/preview/fetch";
-export const OPS_STUDIO_WORKSPACE_PATH = "/v1/ops/voices/studio-workspace";
+export const OPS_STUDIO_VOICES_PATH = "/v1/ops/voices/studio-voices";
+export const OPS_STUDIO_ENABLE_PATH = "/v1/ops/voices/studio-voices/enable";
+export const OPS_STUDIO_DISABLE_PATH = "/v1/ops/voices/studio-voices/disable";
 
 /** The confirmations the API names for its step-up writes. */
 export const CLONE_CONFIRMATION = "clone_voice";
-export const STUDIO_SETUP_CONFIRMATION = "setup_studio_workspace";
+export const STUDIO_ENABLE_CONFIRMATION = "enable_studio_voices";
+export const STUDIO_DISABLE_CONFIRMATION = "disable_studio_voices";
 export const deleteCloneConfirmation = (voiceId: string) => `delete_voice_clone:${voiceId}`;
 
 /** The size the clone and preview routes accept (the API's own request limit). */
@@ -66,7 +70,7 @@ export const MAX_SAMPLE_BYTES = 2 * 1024 * 1024;
 export const hostedVoiceKeys = {
   all: ["admin", "ops", "voices", "hosted"] as const,
   scoped: (scope: HostedScope) => ["admin", "ops", "voices", "hosted", scope] as const,
-  studio: ["admin", "ops", "voices", "studio-workspace"] as const,
+  studio: ["admin", "ops", "voices", "studio-voices"] as const,
 };
 
 export function useHostedVoices(
@@ -80,10 +84,10 @@ export function useHostedVoices(
   });
 }
 
-export function useStudioWorkspace(enabled: boolean): UseQueryResult<StudioWorkspace> {
+export function useStudioVoices(enabled: boolean): UseQueryResult<StudioVoices> {
   return useQuery({
     queryKey: hostedVoiceKeys.studio,
-    queryFn: () => apiRequest<StudioWorkspace>(adminSession(), OPS_STUDIO_WORKSPACE_PATH),
+    queryFn: () => apiRequest<StudioVoices>(adminSession(), OPS_STUDIO_VOICES_PATH),
     enabled,
   });
 }
@@ -205,15 +209,41 @@ export function useFetchPreview(): UseMutationResult<HostedVoiceWrite, Error, Fe
   });
 }
 
-export function useSetupStudioWorkspace(): UseMutationResult<StudioWorkspace, Error, StudioSetupIn> {
+/**
+ * Switch Studio voices on. The server keeps every published Clear agent off our key FIRST and
+ * refuses (`studio_agents_not_kept_off`) if any cannot be confirmed; the Studio voices it then
+ * reads change every picker, so the lists are invalidated too.
+ */
+export function useEnableStudioVoices(): UseMutationResult<StudioVoices, Error, StudioEnableIn> {
   const client = useQueryClient();
   const invalidate = useInvalidateVoices();
   return useMutation({
     mutationFn: (body) =>
-      apiRequest<StudioWorkspace>(adminSession(), OPS_STUDIO_WORKSPACE_PATH, {
+      apiRequest<StudioVoices>(adminSession(), OPS_STUDIO_ENABLE_PATH, {
         method: "POST",
         body,
-        confirmAction: STUDIO_SETUP_CONFIRMATION,
+        confirmAction: STUDIO_ENABLE_CONFIRMATION,
+      }),
+    onSuccess: (data) => {
+      client.setQueryData(hostedVoiceKeys.studio, data);
+      return invalidate();
+    },
+  });
+}
+
+/** `confirm` is sent only after the server has named the Studio agents switching off moves. */
+export function useDisableStudioVoices(): UseMutationResult<
+  StudioVoices,
+  Error,
+  { confirm: boolean }
+> {
+  const client = useQueryClient();
+  const invalidate = useInvalidateVoices();
+  return useMutation({
+    mutationFn: ({ confirm }) =>
+      apiRequest<StudioVoices>(adminSession(), `${OPS_STUDIO_DISABLE_PATH}?confirm=${confirm}`, {
+        method: "POST",
+        confirmAction: STUDIO_DISABLE_CONFIRMATION,
       }),
     onSuccess: (data) => {
       client.setQueryData(hostedVoiceKeys.studio, data);
@@ -231,3 +261,13 @@ export const HOSTED_STATE_MEANING: Record<string, string> = {
 
 /** The rung's name as the console prints it. The wire value is the key. */
 export const RUNG_LABEL: Record<string, string> = { clear: "Clear", studio: "Studio" };
+
+/**
+ * The voice platform's own price band for one of its voices. Vendor words, on this admin
+ * screen only: only the band the server names as `clear_band` can be added and sold as Clear.
+ */
+export const BAND_LABEL: Record<string, string> = {
+  standard: "Standard",
+  premium: "Premium",
+  studio: "Studio",
+};

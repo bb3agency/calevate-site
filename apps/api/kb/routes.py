@@ -39,8 +39,16 @@ class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+#: Knowledge belongs to the CLIENT and every agent answers from it (D-689), so a submission
+#: names no agent. The field stays accepted — and is ignored — so a client built before
+#: D-689 is not refused by `extra="forbid"`; it goes when that client is gone.
+_AGENT_ID_DEPRECATED = (
+    "Deprecated and ignored: knowledge is shared by every agent of the account (D-689)."
+)
+
+
 class SubmitIn(Strict):
-    agent_id: UUID
+    agent_id: UUID | None = Field(default=None, deprecated=True, description=_AGENT_ID_DEPRECATED)
     name: str = Field(min_length=2, max_length=120)
     body: str = Field(min_length=10, max_length=200_000)
     # `url` and `file` are DECLARED here and REFUSED by the service
@@ -62,7 +70,6 @@ class SubmitIn(Strict):
 
 class SourceOut(Strict):
     id: UUID
-    agent_id: UUID
     name: str
     kind: str
     status: str
@@ -122,13 +129,13 @@ async def list_sources(
     response_model=SubmitOut,
     status_code=201,
     openapi_extra=permission_meta("kb:write"),
-    summary="Add knowledge — an account member's goes to the agent without review",
+    summary="Add knowledge — an account member's goes to every agent without review",
     description=(
         "An account member's submission (the owner, or staff the owner lets curate) is "
-        "approved on submission and published to the agent by a background job: `status` "
-        "is `approved`, and the source turns live once that job has run and the agent is "
-        "published. A view-as session's submission is `pending_approval` and waits for "
-        "an admin."
+        "approved on submission and published to every agent of the account by a "
+        "background job: `status` is `approved`, and the source turns live once that job "
+        "has run. A view-as session's submission is `pending_approval` and waits for an "
+        "admin."
     ),
 )
 async def submit(
@@ -145,7 +152,6 @@ async def submit(
     result = await service.submit_source(
         session,
         tenant_id=principal.tenant_id,
-        agent_id=payload.agent_id,
         name=payload.name,
         body=payload.body,
         kind=payload.kind,
@@ -192,7 +198,6 @@ class UploadOut(Strict):
 
     id: UUID
     source_id: UUID
-    agent_id: UUID
     name: str
     #: `pdf` · `url` · `docx` · `txt` · `csv` · `xlsx` · `image`.
     source_kind: str
@@ -223,7 +228,7 @@ class UploadOut(Strict):
 
 
 class LinkIn(Strict):
-    agent_id: UUID
+    agent_id: UUID | None = Field(default=None, deprecated=True, description=_AGENT_ID_DEPRECATED)
     #: Optional: the host and last path segment are used when it is absent.
     name: str | None = Field(default=None, min_length=2, max_length=120)
     #: BOUNDED because it is STORED (D-302), and 2048 is this repo's URL ceiling — the
@@ -254,17 +259,19 @@ class DownloadOut(Strict):
 )
 async def upload_document(
     session: Session,
-    agent_id: Annotated[UUID, Form()],
     file: Annotated[UploadFile, File()],
     name: Annotated[str | None, Form()] = None,
+    agent_id: Annotated[
+        UUID | None, Form(deprecated=True, description=_AGENT_ID_DEPRECATED)
+    ] = None,
     principal: Principal = Depends(requires_kb_curation()),
 ) -> UploadOut:
     assert principal.tenant_id is not None
+    del agent_id
     data = await _read_bounded(file)
     result = await uploads.create_upload(
         session,
         tenant_id=principal.tenant_id,
-        agent_id=agent_id,
         name=name,
         filename=file.filename or "document",
         content_type=file.content_type,
@@ -340,7 +347,6 @@ async def add_link(
     result = await uploads.create_link(
         session,
         tenant_id=principal.tenant_id,
-        agent_id=payload.agent_id,
         name=payload.name,
         url=payload.url,
         submitted_by=principal.user_id,
@@ -359,15 +365,15 @@ async def add_link(
 )
 async def list_uploads(
     session: Session,
-    agent_id: UUID | None = None,
+    agent_id: UUID | None = Query(None, deprecated=True, description=_AGENT_ID_DEPRECATED),
     # Bounded (D-302): a client mints one of these per document they upload and nothing
     # prunes them, so the length is caller-controlled — `list_sources`' ceiling and number.
     limit: int = Query(uploads.MAX_UPLOADS_PAGE, ge=1, le=uploads.MAX_UPLOADS_PAGE),
     _: Principal = Depends(requires("agents:read")),
 ) -> list[UploadOut]:
+    del agent_id
     return [
-        UploadOut.model_validate(row)
-        for row in await uploads.list_uploads(session, agent_id=agent_id, limit=limit)
+        UploadOut.model_validate(row) for row in await uploads.list_uploads(session, limit=limit)
     ]
 
 
@@ -445,7 +451,7 @@ async def confirm_upload(
     "/uploads/{upload_id}",
     status_code=204,
     openapi_extra=permission_meta("kb:write"),
-    summary="Remove a document or link from the agent, and delete it",
+    summary="Remove a document or link from every agent, and delete it",
     description=(
         "Withdraws the copy the voice platform holds before deleting anything of ours, so "
         "neither side is left holding knowledge the other cannot see."

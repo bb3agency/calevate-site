@@ -43,6 +43,17 @@ function record(over: Partial<KycRecord> = {}): KycRecord {
     verification_reference: null,
     verified_name: null,
     self_verification_available: false,
+    kyc_path: null,
+    legal_business_name: null,
+    gst_registered: null,
+    gstin: null,
+    owner_id_type: null,
+    owner_id_masked: null,
+    name_match: null,
+    digilocker_required: false,
+    digilocker_required_reason: null,
+    digilocker_outstanding: false,
+    documents: [],
     rejection_reason: null,
     document_kind: "gstin",
     document_ref: "29ABCDE1234F1Z5",
@@ -90,7 +101,7 @@ const PE_ACTIVE: PeRegistration = {
 
 // The page header, which is on screen whatever the records say. Anchored to the header
 // sentence: the number card says "Indian telecom rules require …" too.
-const SCREEN = /Indian telecom rules ask two things/;
+const SCREEN = /To verify it, or to accept the no-cold-calls pledge/;
 
 describe("the verification gate under failure", () => {
   it("refuses to answer at all when the record could not be read", async () => {
@@ -113,7 +124,7 @@ describe("the verification gate under failure", () => {
     expect(container.textContent).not.toContain(
       "We have not verified your business yet.",
     );
-    expect(screen.queryByText("What to send us")).toBeNull();
+    expect(screen.queryByText("What we need")).toBeNull();
     expect(
       screen.queryByText("What this affects while it is outstanding"),
     ).toBeNull();
@@ -158,7 +169,7 @@ describe("the verification gate under failure", () => {
     // the fourth one gets added without anyone noticing.
     expect(screen.queryAllByRole("button")).toHaveLength(0);
     expect(container.textContent).toContain(
-      "There is nothing to upload here, on purpose.",
+      "Only a masked owner ID.",
     );
   });
 
@@ -222,9 +233,8 @@ describe("the verification gate under failure", () => {
 /**
  * The refusals this screen states as facts about the product, pinned as words.
  *
- * Each one is load-bearing outside this file. "There is nothing to upload" and "never
- * send an Aadhaar" are the sentences that keep an identity document off a business
- * field the schema has a CHECK against. "Verification is ours to do" is why
+ * Each one is load-bearing outside this file. "Only a masked owner ID" and "never take a
+ * full Aadhaar number" are the storage promises D-692 makes and the schema CHECKs. "Verification is ours to do" is why
  * `readiness.ROW_COPY` tells a client to SEND us something rather than to type it here
  * (`tests/readiness_copy_actionability_test.py`). And "calls coming IN are unaffected" is
  * the one piece of good news on a page somebody opened because their calls stopped —
@@ -253,13 +263,13 @@ describe("verification — the refusals stated on the screen", () => {
   it("refuses identity documents in words, not only in the schema", async () => {
     const { container } = await unverified();
     expect(container.textContent).toContain(
-      "There is nothing to upload here, on purpose.",
+      "Only a masked owner ID.",
     );
     expect(container.textContent).toContain(
-      "Never send an Aadhaar or an individual's PAN.",
+      "We never take a full Aadhaar number.",
     );
     expect(container.textContent).toContain(
-      "No scan, no photograph and no copy of any document is stored",
+      "The document itself is never sent to us or stored.",
     );
   });
 
@@ -269,7 +279,7 @@ describe("verification — the refusals stated on the screen", () => {
       "Verification is ours to do, not yours to declare.",
     );
     expect(container.textContent).toContain(
-      "Send these to your account manager",
+      "Everything is done on the Verify your business page.",
     );
   });
 
@@ -278,7 +288,7 @@ describe("verification — the refusals stated on the screen", () => {
     // CAN do outranks the list of what they cannot. Position, not merely presence.
     const { container } = await unverified();
     const text = container.textContent ?? "";
-    const action = text.indexOf("What to send us");
+    const action = text.indexOf("What we need");
     const consequences = text.indexOf(
       "What this affects while it is outstanding",
     );

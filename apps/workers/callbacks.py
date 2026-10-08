@@ -19,6 +19,7 @@ from calevate_shared.calling_window import ist_wall_clock
 
 from apps.api.agents.service import DialUnconfirmedError, dispatch_call
 from apps.api.callbacks import service as callbacks
+from apps.api.compliance.platform_dnc import ENGINE_PERSON_REFUSALS
 from apps.api.compliance.service import (
     BIG_RED_SWITCH_REASON,
     BIG_RED_SWITCH_RULE,
@@ -32,7 +33,6 @@ from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
 from apps.api.engine.carrier_pacing import LINES_BUSY_RULE, PACING_RULE
-from apps.api.engine.vendor_http import RECIPIENT_OPTED_OUT_CODE
 
 log = get_logger(__name__)
 
@@ -191,7 +191,7 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                 # what stops that being for ever. A failure that may have rung somebody is
                 # `DialUnconfirmedError`, handled above, and is never retried.
                 code = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
-                if code == RECIPIENT_OPTED_OUT_CODE:
+                if code in ENGINE_PERSON_REFUSALS:
                     # The voice platform will not call this person: a fact about the
                     # person, settled like a gate's person-level refusal rather than
                     # re-asked until the grace window runs out.

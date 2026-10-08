@@ -72,12 +72,11 @@ async def test_a_lying_content_type_is_not_what_the_object_is_stored_under(
 
     monkeypatch.setattr(storage, "store_kb_object", _record)
 
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         row = await uploads.create_upload(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Price list",
             filename="price-list.pdf",
             # The hostile header. A browser would send `application/pdf`.

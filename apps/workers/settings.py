@@ -135,7 +135,9 @@ from apps.workers.dispatcher import (
 )
 from apps.workers.dnc_recall import recall_dials_for_dnc
 from apps.workers.engine_charges import CHARGE_SWEEP_MINUTES, reconcile_engine_charges
+from apps.workers.engine_customer_data import erase_engine_contact, push_engine_dnc
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
+from apps.workers.engine_signals import ingest_engine_notice, ingest_engine_opt_out
 from apps.workers.engine_webhooks import WEBHOOK_SWEEP_MINUTES, reconcile_engine_webhooks
 from apps.workers.fleet_walk import WalkShape, bounded, every_tick, fleet_wide
 from apps.workers.fx_pull import PULL_MINUTES, pull_fx_rate
@@ -153,6 +155,7 @@ from apps.workers.kb_ingest import SWEEP_MINUTES as KB_UPLOAD_SWEEP_MINUTES
 from apps.workers.kb_ingest import ingest_kb_source, publish_kb_source, sweep_kb_uploads
 from apps.workers.kb_orphans import ORPHAN_SWEEP_HOUR, ORPHAN_SWEEP_MINUTE, sweep_kb_orphans
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
+from apps.workers.kyc_owner_id_purge import PURGE_HOUR, PURGE_MINUTE, sweep_abandoned_owner_ids
 from apps.workers.maintenance import (
     TICK_SECONDS as MAINTENANCE_TICK_SECONDS,
 )
@@ -192,6 +195,7 @@ from apps.workers.retention import (
     execute_tenant_erasure,
     prune_reliability_tables,
 )
+from apps.workers.studio_voice_key import push_studio_voice_key
 from apps.workers.tls_expiry import check_tls_expiry
 from apps.workers.topup_settlement import SETTLEMENT_MINUTES, sweep_topup_settlement
 from apps.workers.trial_notices import (
@@ -220,6 +224,15 @@ FUNCTIONS: list[Any] = [
     traced_job(fn)
     for fn in (
         ingest_engine_event,
+        # A caller's opt-out heard by the voice platform's own agent (D-691), enqueued by
+        # voice-runtime under `signed_intake.ENGINE_OPT_OUT_JOB`.
+        ingest_engine_opt_out,
+        # A lead or a hand-over the voice platform's own agent reported (D-691).
+        ingest_engine_notice,
+        # Person-level writes in a client's OWN voice platform workspace, from the outbox
+        # (D-691): its do-not-call additions and a DPDP erasure of its contact.
+        push_engine_dnc,
+        erase_engine_contact,
         run_post_call_pipeline,
         # The carrier's status/hangup callbacks (enqueued by voice-runtime under
         # `calevate_shared.carrier.CARRIER_EVENT_JOB`) and the CDR read a hangup queues.
@@ -298,6 +311,10 @@ FUNCTIONS: list[Any] = [
         # client list; the child sends one notice.
         fan_out_rate_card_notice,
         notify_rate_card_change,
+        # D-688. A rotated Cartesia key, pushed to the voice platform workspace that holds our
+        # copy for Studio voices. Published by `ops/secret_routes.set_secret_route` through the
+        # outbox; unregistered, the rotation would never reach the platform.
+        push_studio_voice_key,
         # D-551. THE CREDIT CUTOVER ON THE INBOUND LEG. Published by
         # `billing.service.record_entry` on BOTH crossings of zero, in the same transaction
         # as the ledger row that earned them, and by the post-call meter as its backstop.
@@ -1041,6 +1058,19 @@ CRON_JOBS = [
         ),
         hour=set(PACK_GC_HOUR),
         minute=set(PACK_GC_MINUTE),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # OWNER-ID FILES PAST THEIR 30-DAY HOLD (D-692). A person's ID image held after its
+    # stated life is a broken promise, so `max_tries` is explicit for its neighbours'
+    # reason and the job alerts on give-up.
+    _cron(
+        traced_job(sweep_abandoned_owner_ids),
+        walk=bounded(
+            "one untenanted read of at most BATCH held owner-ID rows, then one "
+            "tenant_session per file"
+        ),
+        hour=set(PURGE_HOUR),
+        minute=set(PURGE_MINUTE),
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE ENGLISH GLOSS SWEEP. Not a drift sweep — it is INGESTION, finishing a chunk that

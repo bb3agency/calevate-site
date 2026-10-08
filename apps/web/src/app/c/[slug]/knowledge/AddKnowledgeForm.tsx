@@ -3,22 +3,17 @@
 import { Send } from "lucide-react";
 
 import { useFormValidation } from "@/components/formValidation";
-import type { Agent } from "@/lib/api/agents";
 import { useSubmitKnowledge } from "@/lib/api/kb";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 /**
  * TEACH IT SOMETHING, IN TYPING — the fastest way to add one fact.
  *
- * Knowledge belongs to ONE agent. Silently posting it against `agents[0]` means a client
- * with two agents teaches the wrong one and waits for an answer the right one will never
- * give — so the choice is shown whenever there is one.
+ * There is no agent to choose: the fact joins the business's knowledge, which every agent
+ * answers from (D-689). Nor is the form closed while the account has no agent — what is
+ * added now reaches the first agent when it is published.
  */
 export function AddKnowledgeForm({
-  agentOptions,
-  selectedAgentId,
-  onAgentId,
-  hasNoAgents,
   name,
   onName,
   body,
@@ -27,10 +22,6 @@ export function AddKnowledgeForm({
   canWrite,
   reason,
 }: {
-  agentOptions: Agent[];
-  selectedAgentId: string;
-  onAgentId: (id: string) => void;
-  hasNoAgents: boolean;
   name: string;
   onName: (value: string) => void;
   body: string;
@@ -50,9 +41,8 @@ export function AddKnowledgeForm({
         className="mt-2 space-y-3"
         noValidate
         onSubmit={valid.onSubmit(() => {
-          if (!selectedAgentId) return;
           submit.mutate(
-            { agentId: selectedAgentId, name, body },
+            { name, body },
             {
               onSuccess: () => {
                 onName("");
@@ -62,40 +52,7 @@ export function AddKnowledgeForm({
           );
         })}
       >
-        {hasNoAgents && (
-          <p className="rounded-lg border border-line bg-app px-3 py-2 text-xs text-ink-muted">
-            There is no agent on this account yet, so there is nothing to teach.
-            Your account manager sets the first one up with you.
-          </p>
-        )}
-
-        {agentOptions.length > 1 ? (
-          <label className="block">
-            <span className="text-xs font-medium text-ink-muted">
-              Which agent should know this
-            </span>
-            <select
-              value={selectedAgentId}
-              onChange={(e) => onAgentId(e.target.value)}
-              className="mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink"
-            >
-              {agentOptions.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          /* One agent is still a choice the client should be able to check —
-             the submission is filed against it either way. */
-          agentOptions.length === 1 && (
-            <p className="text-xs text-ink-muted">
-              Goes to{" "}
-              <span className="font-semibold text-ink">{agentOptions[0]?.name}</span>.
-            </p>
-          )
-        )}
+        <p className="text-xs text-ink-muted">Every one of your agents will know this.</p>
 
         <input
           {...valid.field("title", "Say what this is about.")}
@@ -132,15 +89,13 @@ export function AddKnowledgeForm({
             so better input is the only lever there is. */}
         <p className="text-xs text-ink-muted">
           Adding a topic that already exists creates a new version; the previous one
-          stays in use until the new one has reached your agent.
+          stays in use until the new one has reached your agents.
         </p>
         <button
           type="submit"
           /* The length rule is not repeated here — pressing now answers in words
-             instead of the button going quietly dead at nine characters. Having no
-             agent to teach IS still a dead button, because that one is not about
-             an answer the person can correct on this form. */
-          disabled={!canWrite || submit.isPending || !selectedAgentId}
+             instead of the button going quietly dead at nine characters. */
+          disabled={!canWrite || submit.isPending}
           /* The reason travels WITH the control as well as sitting at the top of
              the screen: `RestrictionNote` is above the fold on a phone only by
              luck, and a dead button with the explanation off-screen is the 403 we
@@ -149,7 +104,7 @@ export function AddKnowledgeForm({
           className="press flex w-full items-center justify-center gap-1.5 rounded-md bg-brand-strong sm:w-auto px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
         >
           <Send className="h-3.5 w-3.5" />
-          {submit.isPending ? "Adding…" : "Add to agent"}
+          {submit.isPending ? "Adding…" : "Add to your knowledge"}
         </button>
       </form>
     </div>

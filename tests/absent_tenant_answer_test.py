@@ -215,6 +215,16 @@ BODIES: dict[str, dict[str, Any] | None] = {
     },
     "POST /v1/admin/tenants/{tenant_id}/kb/{source_id}/reject": {"reason": "out of scope"},
     "POST /v1/admin/tenants/{tenant_id}/kyc": {"status": "in_review"},
+    "GET /v1/admin/tenants/{tenant_id}/kyc": None,
+    "GET /v1/admin/tenants/{tenant_id}/kyc/documents/{document_id}": None,
+    "POST /v1/admin/tenants/{tenant_id}/kyc/digilocker-requirement": {
+        "required": True,
+        "reason": "census — registry name does not match the owner",
+    },
+    "POST /v1/admin/tenants/{tenant_id}/kyc/review": {
+        "decision": "reject",
+        "reason": "census — the certificate is unreadable",
+    },
     "POST /v1/admin/tenants/{tenant_id}/refunds": {
         "payment_id": "pay_CENSUS0000001",
         "reason": "census — duplicate top-up",

@@ -159,6 +159,9 @@ class PublishVerification:
     handoff_applied: bool | None
     #: One operator-readable sentence. Never carries a prompt body (hard rule 6).
     detail: str
+    #: Does the engine hold the agent on (or off) our own voice key as published (D-688)? A
+    #: Clear agent left on it speaks Cartesia at the Studio rate. True where nothing was asked.
+    own_voice_key_applied: bool | None = None
 
     @property
     def proven(self) -> bool:
@@ -248,6 +251,16 @@ def _voice_verdict(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapsho
         if sent != got:
             return False
     return True
+
+
+def _own_voice_key_verdict(cfg: AgentConfig, snapshot: AgentSnapshot) -> bool | None:
+    """Does the engine hold the agent on our own voice key exactly when we asked (D-688)?
+    True when we asked nothing; None when the engine did not report it."""
+    if cfg.engine_own_voice_key is None:
+        return True
+    if snapshot.engine_own_voice_key is None:
+        return None
+    return snapshot.engine_own_voice_key == cfg.engine_own_voice_key
 
 
 def _greeting_verdict(cfg: AgentConfig, snapshot: AgentSnapshot) -> bool | None:
@@ -353,6 +366,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     confidential = snapshot.every_prompt_carries(CONFIDENTIALITY_MARKER)
     handoff = _handoff_verdict(engine, cfg, snapshot)
     voice = _voice_verdict(engine, cfg, snapshot)
+    own_key = _own_voice_key_verdict(cfg, snapshot)
 
     # THE PROMPT COPY IS NOT IN `checked`, and that is a decision. The greeting is the
     # utterance; the prompt copy is a second belt on the same trousers, and an engine
@@ -366,6 +380,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
         ("confidentiality rule", confidential),
         ("script", prompt),
         ("voice", voice),
+        ("voice key setting", own_key),
         ("handover destination", handoff),
     )
     mismatched = [name for name, verdict in checked if verdict is False]
@@ -379,6 +394,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
             confidentiality_applied=confidential,
             voice_applied=voice,
             handoff_applied=handoff,
+            own_voice_key_applied=own_key,
             detail=(
                 "The voice platform accepted the change and is not running it: "
                 + ", ".join(mismatched)
@@ -396,6 +412,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
             confidentiality_applied=confidential,
             voice_applied=voice,
             handoff_applied=handoff,
+            own_voice_key_applied=own_key,
             detail=(
                 "The voice platform accepted the change; we could not confirm it is "
                 "running it (" + ", ".join(unread) + " could not be read back)."
@@ -413,6 +430,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
         confidentiality_applied=True,
         voice_applied=True,
         handoff_applied=True,
+        own_voice_key_applied=True,
         detail=(
             "The voice platform was read back and is holding the published script, "
             "the truthful-answer rule, the confidentiality rule and the voice."
@@ -517,6 +535,10 @@ class EngineDrift:
     #: instead of never.
     handoff_applied: bool | None
     detail: str
+    #: Same meaning as on `PublishVerification`; and what the agent's rung requires, so the
+    #: sweep can put it back (`engine_reconciliation`). None where the engine has no switch.
+    own_voice_key_applied: bool | None = None
+    own_voice_key_expected: bool | None = None
 
     @property
     def in_sync(self) -> bool:

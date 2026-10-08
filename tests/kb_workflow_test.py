@@ -209,12 +209,12 @@ async def test_the_preview_a_reviewer_approves_is_the_whole_submission() -> None
     the `preview` a reviewer reads — because the promise the client is given is about
     the workflow, not about a function they cannot see.
     """
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     body = "Our refund policy " + ("is explained to every caller in full " * 60)
 
     async with tenant_session(tenant_id) as session:
         submitted = await service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Refunds", body=body
+            session, tenant_id=tenant_id, name="Refunds", body=body
         )
         chunks = await service.preview(session, uuid.UUID(str(submitted["id"])))
 
@@ -224,12 +224,11 @@ async def test_the_preview_a_reviewer_approves_is_the_whole_submission() -> None
 
 
 async def test_submitted_knowledge_is_not_live_until_approved_and_published() -> None:
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         result = await service.submit_source(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Clinic hours",
             body="We are open 9am to 8pm.\n\nSunday is closed.",
         )
@@ -263,11 +262,11 @@ async def test_approving_twice_succeeds_once_and_keeps_the_first_approver() -> N
     CAS, not the return value: the second call updates no row, so `approved_by` and
     `approved_at` still name the reviewer who actually signed off.
     """
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     reviewer = uuid.uuid4()
     async with tenant_session(tenant_id) as session:
         result = await service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="FAQ", body="Parking is free."
+            session, tenant_id=tenant_id, name="FAQ", body="Parking is free."
         )
         assert await service.approve_source(session, source_id=result["id"], approved_by=reviewer)
         first_approved_at = (
@@ -311,10 +310,10 @@ async def test_rejecting_twice_keeps_the_first_reason_and_approving_after_is_a_4
     the reviewer who first said no wrote — and approving afterwards is refused with the
     state NAMED, because "rejected" is the fact the operator needs and "conflict" is not.
     """
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         result = await service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Fees", body="Fees are 500."
+            session, tenant_id=tenant_id, name="Fees", body="Fees are 500."
         )
         assert await service.reject_source(
             session, source_id=result["id"], reason="Out of date since April."
@@ -343,10 +342,10 @@ async def test_two_concurrent_approvals_produce_exactly_one_approval() -> None:
     audit log would then carry two `kb.approved` rows for one approval with the second
     reviewer's name on the row.
     """
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         result = await service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Hours", body="Open 9 to 8."
+            session, tenant_id=tenant_id, name="Hours", body="Open 9 to 8."
         )
     source_id = result["id"]
 
@@ -376,17 +375,17 @@ async def test_two_concurrent_approvals_produce_exactly_one_approval() -> None:
 async def test_publishing_a_new_version_archives_the_previous_one() -> None:
     """Rollback (FLOWS §7) is republishing an archived version, so exactly one version
     of a named source may be active at a time."""
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
 
     async with tenant_session(tenant_id) as session:
         v1 = await service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Hours", body="Open 9 to 8."
+            session, tenant_id=tenant_id, name="Hours", body="Open 9 to 8."
         )
         await service.approve_source(session, source_id=v1["id"], approved_by=None)
         await service.publish_source(session, tenant_id=tenant_id, source_id=v1["id"])
 
         v2 = await service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Hours", body="Open 10 to 9."
+            session, tenant_id=tenant_id, name="Hours", body="Open 10 to 9."
         )
         assert v2["version"] == 2
         await service.approve_source(session, source_id=v2["id"], approved_by=None)
@@ -405,8 +404,10 @@ async def test_publishing_a_new_version_archives_the_previous_one() -> None:
     assert rows[0][2] == "archived", "the previous version is archived, not deleted"
 
 
-async def test_an_unpublished_agent_cannot_receive_knowledge() -> None:
-    """Pushing a KB to an agent the engine has never seen would silently no-op."""
+async def test_an_unpublished_agent_is_given_no_vendor_copy() -> None:
+    """Pushing a KB to an agent the engine has never seen would silently no-op, so nothing
+    is pushed; the client's knowledge still goes live (D-689) and reaches the agent when it
+    is published."""
     created = await admin_service.create_organization(
         name="Draft Clinic",
         slug=f"draft-{uuid.uuid4().hex[:8]}",
@@ -424,16 +425,12 @@ async def test_an_unpublished_agent_cannot_receive_knowledge() -> None:
         submitted = await service.submit_source(
             session,
             tenant_id=created["id"],
-            agent_id=created["agent_id"],
             name="Anything",
             body="Some knowledge that should not reach a draft agent.",
         )
         await service.approve_source(session, source_id=submitted["id"], approved_by=None)
-        with pytest.raises(ProblemError) as exc:
-            await service.publish_source(
-                session, tenant_id=created["id"], source_id=submitted["id"]
-            )
-    assert exc.value.code == "agent_not_published"
+        await service.publish_source(session, tenant_id=created["id"], source_id=submitted["id"])
+        assert await service._routes_of_source(session, submitted["id"]) == []
 
 
 async def test_approval_lives_on_the_admin_surface_not_behind_impersonation() -> None:
@@ -496,7 +493,6 @@ async def test_the_approval_queue_is_readable_through_impersonation() -> None:
         await service.submit_source(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Hours",
             body="The clinic is open 9am to 8pm, Monday to Saturday.",
             kind="text",
@@ -557,7 +553,7 @@ async def test_two_people_submitting_one_source_name_at_once_get_two_versions() 
 
     `submit_source` numbers versions `MAX(version) + 1`, and that read-then-write let
     both callers compute the same number. The second INSERT then died on
-    `uq_kb_sources_agent_id_name_version` — a raw `IntegrityError`, which reaches the
+    `uq_kb_sources_tenant_id_name_version` — a raw `IntegrityError`, which reaches the
     generic handler as a 500 plus a crash alert, for two clients doing something
     ordinary and permitted. Nothing was corrupted; a submission was simply lost with an
     internal error where the honest answer is "you were second".
@@ -572,9 +568,7 @@ async def test_two_people_submitting_one_source_name_at_once_get_two_versions() 
     async def submit(body: str) -> dict[str, object]:
         async with tenant_session(tenant_id) as session:
             await both_ready.wait()
-            return await service.submit_source(
-                session, tenant_id=tenant_id, agent_id=agent_id, name="Fees", body=body
-            )
+            return await service.submit_source(session, tenant_id=tenant_id, name="Fees", body=body)
 
     results = await asyncio.gather(
         submit("A consultation costs 500 rupees, payable at reception."),
@@ -588,7 +582,10 @@ async def test_two_people_submitting_one_source_name_at_once_get_two_versions() 
     async with tenant_session(tenant_id) as session:
         stored = (
             await session.execute(
-                text("SELECT count(*) FROM kb_sources WHERE agent_id = :a AND name = 'Fees'"),
+                text(
+                    "SELECT count(*) FROM kb_sources WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :a) AND name = 'Fees'"
+                ),
                 {"a": agent_id},
             )
         ).scalar()

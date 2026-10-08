@@ -290,7 +290,7 @@ requirement for a sub-64-bit authenticator looks like when it is taken seriously
   **exporter** (`_RedactingSpanExporter`) because the OTel SDK writes exception events that
   never reached the attribute allowlist (D-61).
 - **Object storage**: `PRESIGN_TTL_S = 300` (`apps/workers/storage.py:48`); account-level
-  public-access block; SSE + per-tenant envelope keys.
+  public-access block; SSE at rest (not sealed in the application).
 - **Secrets**: envelope encryption in Postgres with the KEK env-only
   (`PLATFORM_KEK`, `scripts/check_bootstrap_keys.py`); rotation with an overlap
   (`PLATFORM_KEK_RETIRED`).

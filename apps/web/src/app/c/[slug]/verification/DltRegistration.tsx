@@ -49,14 +49,14 @@ export function dltItem(registration: PeRegistration): ChecklistItem {
   return {
     id: "dlt",
     label: registration.is_active
-      ? "Your business is registered to run campaigns."
+      ? "Your business is registered on DLT."
       : registration.recorded
         ? "Your DLT registration is not active yet."
         : "We have not filed a DLT registration for your business.",
     state: registration.is_active ? "done" : registration.recorded ? "waiting" : "todo",
     detail: registration.is_active
-      ? "Nothing on the DLT side is holding up a campaign launch."
-      : "Outbound campaigns cannot launch until both lines below are active.",
+      ? "Kept on record. Outgoing calls do not depend on it."
+      : "Not needed for outgoing calls, which depend on your verified business and the no-cold-calls pledge. Kept here for the record.",
   };
 }
 
@@ -117,10 +117,9 @@ function CalevateTelemarketerId({ registration }: { registration: PeRegistration
   if (id === "") {
     return (
       <dd className="mt-1 text-ink-muted">
-        Our own <Term id="tm" term="telemarketer" /> registration is not through yet, so
-        there is nothing for you to authorise against on the registrar&apos;s portal. That
-        holds up outbound campaigns for every Calevate account at once and there is nothing
-        at your end that clears it. Calls coming IN are unaffected.
+        We do not hold a <Term id="tm" term="telemarketer" /> registration, so there is
+        nothing for you to authorise against on the registrar&apos;s portal. Outgoing calls do
+        not depend on it: they need your verified business and the no-cold-calls pledge.
       </dd>
     );
   }

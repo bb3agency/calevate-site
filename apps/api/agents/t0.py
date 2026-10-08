@@ -66,17 +66,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.prompts import insert_prompt_version
 from apps.api.agents.service import publish_agent
-from apps.api.agents.t0_block import T0_HEADER, block_of
+from apps.api.agents.t0_block import T0_HEADER, T0_KNOWLEDGE_MARKER, block_of, intake_lines
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 
 log = get_logger(__name__)
-
-# Where the knowledge half starts, INSIDE the block. Deliberately not a `[SECTION]`:
-# a line starting with `[` at column 0 ends the T0 block for both splicers, so a
-# bracketed marker would leave every knowledge line stranded in the prompt body the
-# next time the intake step regenerated the block.
-T0_KNOWLEDGE_MARKER = "Published knowledge:"
 
 # ~1,500 characters of knowledge on top of the intake half, inside PROMPT-GUIDE §2's
 # ~2,500-token budget for the WHOLE prompt (identity, style, task flow, tools,
@@ -167,20 +161,10 @@ def knowledge_lines(facts: Sequence[KnowledgeFact]) -> tuple[list[str], int]:
 
 def intake_half(block: str | None) -> list[str]:
     """The lines of a block that are NOT this module's — everything the intake step
-    compiled, header excluded.
-
-    Split on the LAST marker, not the first. Ours is always the final one because the
-    knowledge half is appended, so the last occurrence is the true boundary even if a
-    client's own booking rules happen to contain the marker's text; splitting on the
-    first would let that line silently truncate their facts on every recompile.
+    compiled, header excluded. One spelling with `t0_block.intake_lines`, which the
+    business-facts document is cut with too.
     """
-    if not block:
-        return []
-    lines = block.splitlines()
-    if lines and lines[0].startswith(T0_HEADER):
-        lines = lines[1:]
-    boundary = max((i for i, line in enumerate(lines) if line == T0_KNOWLEDGE_MARKER), default=None)
-    return lines[:boundary] if boundary is not None else lines
+    return intake_lines(block)
 
 
 def compile_block(*, previous: str | None, knowledge: Sequence[KnowledgeFact]) -> CompiledT0:

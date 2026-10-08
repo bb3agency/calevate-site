@@ -259,6 +259,17 @@ export const KYC_NOT_STARTED = {
   verification_source: null,
   verified_at: null,
   verified_name: null,
+  kyc_path: null,
+  legal_business_name: null,
+  gst_registered: null,
+  gstin: null,
+  owner_id_type: null,
+  owner_id_masked: null,
+  name_match: null,
+  digilocker_required: false,
+  digilocker_required_reason: null,
+  digilocker_outstanding: false,
+  documents: [],
 } satisfies KycRecord;
 
 /** A prepaid wallet with money on it — the state most accounts are in. */
@@ -470,6 +481,9 @@ export const NOT_HOSTED = {
   voices: [],
   cached: 0,
   offered: 0,
-  studio_workspace_id: null,
+  studio_ready: false,
+  clear_band: null,
   note: "Voices on this platform come from Calevate's own catalogue.",
+  bands: {},
+  plan_note: null,
 } satisfies HostedVoices;

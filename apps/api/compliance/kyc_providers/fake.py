@@ -40,7 +40,11 @@ import json
 from typing import Any
 from uuid import uuid4
 
-from apps.api.compliance.kyc_providers.base import VerificationOutcome, VerificationStart
+from apps.api.compliance.kyc_providers.base import (
+    IdDocument,
+    VerificationOutcome,
+    VerificationStart,
+)
 
 #: The header this adapter signs into. Ours, so it is spelled once and here.
 SIGNATURE_HEADER = "x-calevate-kyc-signature"
@@ -51,6 +55,16 @@ _REF = "provider_ref"
 _VERIFIED = "verified"
 _NAME = "verified_name"
 _REASON = "failure_reason"
+_MASKED = "masked_id"
+
+
+#: Outcomes a test or a local developer has decided a run ends with, for the pull path.
+_STAGED: dict[str, VerificationOutcome] = {}
+
+
+def stage_outcome(outcome: VerificationOutcome) -> None:
+    """Decide how a run ends, as a person completing the provider's page would."""
+    _STAGED[outcome.provider_ref] = outcome
 
 
 def sign(*, secret: str, body: bytes) -> str:
@@ -75,7 +89,20 @@ class FakeIdentityProvider:
         # below — so there is no vendor page to read and nothing to be wrong about.
         return True
 
-    async def start(self, *, entity_type: str, redirect_back_url: str) -> VerificationStart:
+    @property
+    def webhook_is_authoritative(self) -> bool:
+        return True
+
+    async def fetch_outcome(
+        self, *, provider_ref: str, id_document: IdDocument
+    ) -> VerificationOutcome | None:
+        """What `stage_outcome` left for this run, or None — the "client has not finished
+        yet" answer a real provider gives while its page is still open."""
+        return _STAGED.get(provider_ref)
+
+    async def start(
+        self, *, entity_type: str, redirect_back_url: str, id_document: IdDocument
+    ) -> VerificationStart:
         ref = f"fake-{uuid4()}"
         # A real provider hosts this page; ours points back at the caller's own return
         # URL so a local run completes without a second service. The query parameter
@@ -111,7 +138,11 @@ class FakeIdentityProvider:
             failure_reason=None
             if verified
             else (str(reason) if isinstance(reason, str) and reason.strip() else "not_completed"),
+            # Already masked by the sender, and refused by `VerificationOutcome` if not.
+            masked_id=str(body[_MASKED])
+            if verified and isinstance(body.get(_MASKED), str)
+            else None,
         )
 
 
-__all__ = ["SIGNATURE_HEADER", "FakeIdentityProvider", "sign"]
+__all__ = ["SIGNATURE_HEADER", "FakeIdentityProvider", "sign", "stage_outcome"]

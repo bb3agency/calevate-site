@@ -1067,6 +1067,10 @@ def test_the_acks_with_nothing_to_say_answer_204_rather_than_a_constant() -> Non
 #: `"METHOD /path"`. The bar is that there is nothing to whitelist — a byte stream, a
 #: plain-text echo, or an ops contract that is deliberately open-ended AND gated.
 _UNMODELLED_SUCCESS: dict[str, str] = {
+    "GET /v1/admin/tenants/{tenant_id}/kyc/documents/{document_id}": (
+        "the decrypted bytes of one KYC file (PDF, JPEG or PNG) as an attachment, not JSON — "
+        "there is no model to declare (D-692). Admin realm, audited per view."
+    ),
     "GET /healthz": (
         "the probe contract (BACKEND-PATTERNS §6): a status word to everybody and a "
         "`checks`/`fields[]` detail that only an `ops:manage` holder sees. Its shape is "

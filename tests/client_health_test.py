@@ -113,7 +113,7 @@ async def _account(*, aged: bool = True, plan_tier: str = "managed") -> Account:
     # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
     # publish gate now refuses an organisation that has not accepted them, so a fixture
     # without this reports `agreements_not_accepted` in place of the answer under test.
-    await accept_agreements(uuid.UUID(str(created["id"])))
+    await accept_agreements(uuid.UUID(str(created["id"])), kyc_and_pledge=False)
     tenant_id = uuid.UUID(str(created["id"]))
     created_at = datetime.now(UTC)
     async with tenant_session(tenant_id) as session:

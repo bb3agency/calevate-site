@@ -65,15 +65,9 @@ from apps.api.campaigns.models import (
     REFUSED_CONSENT_SOURCES,
     TEMPLATE_STATUSES,
 )
-from apps.api.campaigns.sender_attestation import (
-    ATTESTABLE_CLASSIFICATIONS,
-    attestation_reason,
-    latest_attestation,
-)
 from apps.api.compliance.autodialer import autodialer_notice_blocker
 from apps.api.compliance.models import PE_REGISTRATION_STATUSES, TM_LINK_STATUSES
 from apps.api.compliance.preference_scrub import national_dnd_blocker, read_current_scrub
-from apps.api.compliance.registration import outbound_entity_blockers
 from apps.api.compliance.service import (
     DEFAULT_WINDOW,
     INDIA_E164_PREFIX,
@@ -84,6 +78,7 @@ from apps.api.compliance.service import (
     credits_exhausted,
     first_campaign_hold_blocker,
     kyc_blocker,
+    outbound_pledge_blocker,
     spend_capped,
     truthful_answer_drift_blocker,
 )
@@ -136,8 +131,10 @@ SERIES_FOR_CLASSIFICATION: dict[str, tuple[str, ...]] = {
 # escape that `service` does not equally offer. Every gate in this module treats the two
 # identically — same 160 series above, same absence from
 # `preference_scrub.PREFERENCE_SCRUBBED_CLASSIFICATIONS`, same `ATTESTABLE_CLASSIFICATIONS`.
-# What stops a promotional list being filed under either is `dlt_template_mismatch`: the
-# attached template must be registrar-approved AND of the campaign's own class.
+# Since D-692 nothing in the gate stops a promotional list being filed as `service`: the
+# DLT template that used to (`dlt_template_mismatch`) cannot exist without a client DLT
+# registration. The client's no-cold-calls pledge (`compliance/outbound_pledge.py`) is
+# the undertaking that covers it.
 #
 # The genuinely time-boxed call is not lost with it. `ingest/service.py` dials within seconds
 # of a customer's own form submission and `callbacks/service.py` dials a callback that caller
@@ -184,10 +181,6 @@ OTHER_AGENT_NUMBER_REASON = (
     "This number is assigned to a different agent, so calls from this campaign would not "
     "come from it. Assign it to this campaign's agent, or pick this agent's own number."
 )
-# The two DLT-entity reasons moved to `compliance/registration.py`, next to the read of
-# `dlt_registrations` and the predicate that emits them — this module held a second
-# `SELECT status, tm_link_status` of its own, and one condition with two spellings is the
-# drift `_entity_blockers` below now avoids by asking `outbound_entity_blockers`.
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,24 +275,14 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
     )
 
 
-async def _entity_blockers(
-    session: AsyncSession, *, tenant_id: UUID, facts: _CampaignFacts
-) -> list[LaunchBlocker]:
-    """WHO may place these calls, and on what consent — SEC-COMP §3's first and fourth
-    bullets. Calevate's telemarketer registration, the client's Principal Entity
-    registration and its TM link, and the provenance of the contact list."""
-    blockers: list[LaunchBlocker] = []
+def _consent_blockers(facts: _CampaignFacts) -> list[LaunchBlocker]:
+    """On what consent this list may be dialled — SEC-COMP §3's fourth bullet.
 
-    # SEC-COMP §3, first bullet: Calevate's TM registration live AND this client's DLT PE
-    # registration + TM link active. Both halves come from `outbound_entity_blockers`,
-    # the ONE implementation the per-dial single-lead/callback gate
-    # (`compliance.service.check_dispatch`) reads too — so the campaign launch gate, the
-    # dispatch tick and the instant-callback path can never explain the same condition
-    # two different ways. The helper returns both (TM first, then PE) rather than
-    # short-circuiting, so a launch preview shows the whole list.
-    blockers.extend(
-        LaunchBlocker(*b) for b in await outbound_entity_blockers(session, tenant_id=tenant_id)
-    )
+    Who may dial (KYC and the no-cold-calls pledge, D-692) is asked by `launch_blockers`
+    and per dial by `check_dispatch`; the DLT entity chain this helper used to ask is
+    inactive under D-692.
+    """
+    blockers: list[LaunchBlocker] = []
 
     # SEC-COMP §3, fourth bullet: consent provenance for the list. NULL is "nobody has
     # said", which is what every campaign predating the columns honestly reports —
@@ -358,78 +341,6 @@ def _consent_age_blocker(collected_at: datetime | None) -> LaunchBlocker | None:
     )
 
 
-def _template_not_approved_reason(status: str | None) -> str:
-    """Why this template cannot be dialled under YET, with the next action per state.
-
-    The old sentence — "The DLT template is submitted." — named the status and stopped,
-    which is the error-ladder failure this module's other reasons avoid: a status is a
-    fact, not an instruction, and the three non-approved states end three different ways.
-    Who files is settled by SEC-COMP §3's preamble ("draft the template content for them
-    to file") and LEGAL-OPS-PLAYBOOK §10/C2: the CLIENT registers templates from their
-    own DLT login, and Calevate records the registrar's verdict (`set_template_status`).
-    The fallback arm keeps the gate fail-closed in words as well as in verdict if the
-    enum ever grows a state this map has not met.
-    """
-    per_status = {
-        "draft": (
-            "The DLT voice template is still a draft — it has not been filed with the "
-            "DLT registrar. File it from your registrar login (we draft the wording "
-            "with you), and we record the verdict here."
-        ),
-        "submitted": (
-            "The DLT voice template is with the registrar and not yet approved. The "
-            "launch opens the moment the approval is recorded — nothing to file again."
-        ),
-        "rejected": (
-            "The DLT registrar rejected this voice template. Revise the wording, file "
-            "it again from your registrar login, and attach the approved template."
-        ),
-    }
-    return per_status.get(
-        str(status),
-        f"The DLT template is {status}; only a registrar-approved template may be "
-        "dialled under. Attach an approved one.",
-    )
-
-
-def _number_not_registered_reason(dlt_status: str | None) -> str:
-    """Why this header cannot carry campaign calls yet — the number-side twin of
-    `_template_not_approved_reason`, for the same error-ladder reason. The statuses are
-    `phone_numbers.dlt_status`'s enum (pending/registered/blocked); `registered` never
-    reaches here."""
-    per_status = {
-        "pending": (
-            "This number's DLT header registration is still pending with the "
-            "registrar. It can carry campaign calls once the registrar approves it "
-            "and we record the verdict — nothing to do at your end."
-        ),
-        "blocked": (
-            "This number's DLT header registration has been blocked by the registrar "
-            "or the operator, so it cannot carry campaign calls. Pick a different "
-            "registered number for this campaign."
-        ),
-    }
-    return per_status.get(
-        str(dlt_status),
-        f"This number's DLT registration is {dlt_status}; only a registered number "
-        "may place campaign calls. Pick a registered number for this campaign.",
-    )
-
-
-async def _sender_attested(session: AsyncSession, *, facts: _CampaignFacts) -> bool:
-    """Whether this campaign's number carries a current ordinary-DID attestation.
-
-    Asked only where it could change an answer: every other series is allowed or refused on
-    the row alone, and a lookup for them would be a round trip per launch preview that can
-    only return False.
-    """
-    if facts.series != "standard" or facts.classification not in ATTESTABLE_CLASSIFICATIONS:
-        return False
-    if facts.number_id is None:
-        return False
-    return (await latest_attestation(session, phone_number_id=facts.number_id)).current
-
-
 def _classification_blocker(classification: str) -> LaunchBlocker | None:
     """Can this classification be TRUE of a campaign at all?
 
@@ -452,15 +363,18 @@ def _classification_blocker(classification: str) -> LaunchBlocker | None:
     )
 
 
-def _channel_blockers(
-    facts: _CampaignFacts, *, sender_attested: bool = False
-) -> list[LaunchBlocker]:
-    """WHAT this campaign may say, and from WHERE — SEC-COMP §3's second bullet. The
-    registered voice template and the registered header of the right series.
+def _channel_blockers(facts: _CampaignFacts) -> list[LaunchBlocker]:
+    """WHAT this campaign may say, and from WHERE.
 
-    `sender_attested` is read by the caller and passed in so this stays synchronous: every
-    other fact it judges came off one row, and a lookup in here would spread one gate's
-    decisions across two round trips.
+    UNDER D-692 THE DLT HALF OF THIS IS INACTIVE. A campaign used to need an approved DLT
+    voice template of its own class and a DLT-registered 140/160-series number bound to its
+    agent. Clients no longer register on DLT, so neither can exist; the template and
+    number-registration columns stay (hard rule 8) and are no longer asked. What remains:
+
+    * the classification must be one a campaign can carry (`transactional` cannot be);
+    * if the campaign names a number, the calls must actually come from it: bound to this
+      campaign's agent (D-420/D-424) and, on a carrier we dial through, held on it for
+      outgoing calls. A campaign with no number dials from its agent's own line.
     """
     blockers: list[LaunchBlocker] = []
 
@@ -468,118 +382,25 @@ def _channel_blockers(
     if misclassified is not None:
         blockers.append(misclassified)
 
-    if facts.template_id is None:
+    if facts.number_id is None:
+        return blockers
+    # The `is None` chooses the WORDING, never the verdict: any state in which the
+    # campaign's number is not this campaign's agent's number refuses.
+    if facts.number_agent_id != facts.agent_id:
         blockers.append(
-            LaunchBlocker("dlt_template_missing", "Attach an approved DLT voice template.")
+            LaunchBlocker(
+                "number_not_bound_to_agent",
+                UNBOUND_NUMBER_REASON
+                if facts.number_agent_id is None
+                else OTHER_AGENT_NUMBER_REASON,
+            )
         )
-    else:
-        # BOTH template facts, not `elif` (SEC-COMP §3: "the client fixes them as a
-        # list"). Approval and classification are independent properties of the attached
-        # template — the registrar decides one, the client's own choice of template
-        # decides the other — and the old `elif` hid the mismatch behind the approval, so
-        # a client who chased an approval on a wrongly-classified template learnt about
-        # the second blocker only after clearing the first. Same verdict either way; one
-        # round trip fewer to a launchable campaign.
-        if facts.template_status != "approved":
-            blockers.append(
-                LaunchBlocker(
-                    "dlt_template_not_approved",
-                    _template_not_approved_reason(facts.template_status),
-                )
-            )
-        if misclassified is None and facts.template_cls != facts.classification:
-            blockers.append(
-                LaunchBlocker(
-                    "dlt_template_mismatch",
-                    f"A {facts.classification} campaign cannot use a {facts.template_cls} "
-                    f"template. Attach an approved {facts.classification} template instead.",
-                )
-            )
-
-    if facts.series is None:
-        blockers.append(LaunchBlocker("number_missing", "Attach a calling number."))
-    else:
-        allowed_series = SERIES_FOR_CLASSIFICATION.get(facts.classification, ())
-        # `misclassified is None` guards only the SERIES advice, never the binding and
-        # registration rules below it: those hold whatever the campaign calls itself.
-        if misclassified is None and facts.series not in allowed_series:
-            # The ordinary-DID case is the client's to decide, and only for service and
-            # transactional — never promotional. `sender_attestation` holds the reasoning;
-            # the short version is that TRAI binds the SENDER, the client is the sender, and
-            # the refusal stays the default so the exception is on their record and not ours.
-            attestable = (
-                facts.series == "standard" and facts.classification in ATTESTABLE_CLASSIFICATIONS
-            )
-            if not (attestable and sender_attested):
-                allowed = "/".join(allowed_series)
-                reason = (
-                    f"A {facts.classification} campaign must dial from a {allowed} "
-                    f"number, not {facts.series}."
-                )
-                if attestable:
-                    reason = attestation_reason(facts.series, facts.classification)
-                blockers.append(LaunchBlocker("number_series_mismatch", reason))
-        # **THE RULE THAT MAKES EVERY OTHER CHECK IN THIS BLOCK MEAN SOMETHING** (D-420).
-        #
-        # Until this landed, the series check and the registration check below gated a
-        # number THAT NEVER RANG ON THE CALLEE'S HANDSET. The outbound caller ID is
-        # `phone_numbers.e164`, and the only thing that carries it onto a dial is
-        # `agents.service.resolve_caller_id`, which resolves the header from the number
-        # BOUND TO THE AGENT (`phone_numbers.agent_id`) — the campaign's `number_id` is not
-        # visible on the dial path and cannot be, because `dispatch_call` is also the
-        # single-lead and callback entry point and has no campaign. So a campaign whose
-        # approved number is bound to a different agent is a campaign whose 140/160-series
-        # check, DLT header registration and whole PE/TM model describe one number while
-        # another one dials. The gate was reading a real column and reporting green.
-        #
-        # THE RULE IS ONE EQUALITY, DELIBERATELY, AND THAT IS THE POINT (D-424). It first
-        # shipped as `number_agent_id is not None and number_agent_id != agent_id`, which
-        # refused the CONTRADICTION (an approved number bound to somebody else's agent)
-        # and let the ABSENCE through — a number bound to NO agent resolves to no header
-        # at all and dials on the engine's own pool, which is the same compliance failure
-        # with a worse blast radius: every campaign on the platform presents the vendor's
-        # number rather than one client's registered header. The `is not None` guard was
-        # the whole of the hole, so the fix is to delete it rather than to add a second
-        # branch beside it. What remains is a single `!=` that cannot be loosened by
-        # deleting a clause, because there is no clause left to delete: any state in which
-        # the campaign's number is not this campaign's agent's number refuses, and `None`
-        # is one of those states rather than a case that has to be remembered.
-        #
-        # The `is None` below chooses the WORDING, never the verdict. A client who has not
-        # assigned the number and a client who assigned it elsewhere need different next
-        # actions, and both need the verdict to be identical.
-        if facts.number_agent_id != facts.agent_id:
-            blockers.append(
-                LaunchBlocker(
-                    "number_not_bound_to_agent",
-                    UNBOUND_NUMBER_REASON
-                    if facts.number_agent_id is None
-                    else OTHER_AGENT_NUMBER_REASON,
-                )
-            )
-        # The number-side twin of the template check. `dlt_status` moves to `registered`
-        # through an audited admin step for the same reason `set_template_status` does:
-        # dialling from an unregistered header is the misclassification that gets the
-        # traffic dropped as spam and the complaints filed against the client's PE.
-        if facts.number_dlt_status != "registered":
-            blockers.append(
-                LaunchBlocker(
-                    "number_not_registered",
-                    _number_not_registered_reason(facts.number_dlt_status),
-                )
-            )
-        # The dial presents only a number the dialling carrier holds for outgoing calls
-        # (`agents.service._AGENT_CALLER_ID_SQL`), so a campaign number that is not one
-        # would resolve to no header at dial time. Refused here by the dial gate's own
-        # rules, so the launch preview names it instead of every contact being refused.
-        carrier = outbound_number_provider()
-        if carrier is not None:
-            if facts.number_provider != carrier:
-                blockers.append(
-                    LaunchBlocker(NUMBER_NOT_ON_CARRIER_RULE, NUMBER_NOT_ON_CARRIER_REASON)
-                )
-            elif facts.number_direction not in ("outbound", "both"):
-                blockers.append(LaunchBlocker(NUMBER_INBOUND_ONLY_RULE, NUMBER_INBOUND_ONLY_REASON))
+    carrier = outbound_number_provider()
+    if carrier is not None:
+        if facts.number_provider != carrier:
+            blockers.append(LaunchBlocker(NUMBER_NOT_ON_CARRIER_RULE, NUMBER_NOT_ON_CARRIER_REASON))
+        elif facts.number_direction not in ("outbound", "both"):
+            blockers.append(LaunchBlocker(NUMBER_INBOUND_ONLY_RULE, NUMBER_INBOUND_ONLY_REASON))
 
     return blockers
 
@@ -640,8 +461,8 @@ async def dispatch_blockers(
     return [
         *([LaunchBlocker(*held)] if held is not None else []),
         *([LaunchBlocker(*unaccepted)] if unaccepted is not None else []),
-        *(await _entity_blockers(session, tenant_id=tenant_id, facts=facts)),
-        *_channel_blockers(facts, sender_attested=await _sender_attested(session, facts=facts)),
+        *_consent_blockers(facts),
+        *_channel_blockers(facts),
         *([LaunchBlocker(*unscrubbed)] if unscrubbed is not None else []),
     ]
 
@@ -1270,8 +1091,9 @@ async def launch_blockers(
     if carrier_blocked is not None:
         blockers.append(LaunchBlocker(*carrier_blocked))
 
-    # WHO may dial, and on what consent (SEC-COMP §3, bullets one and four).
-    blockers.extend(await _entity_blockers(session, tenant_id=tenant_id, facts=facts))
+    # On what consent (SEC-COMP §3, fourth bullet). WHO may dial is KYC and the pledge,
+    # below (D-692).
+    blockers.extend(_consent_blockers(facts))
 
     # Tenant-level refusals, asked with the same functions the dial-time gate uses.
     # The ACCOUNT's own lifecycle state first, because it outranks every other tenant
@@ -1282,12 +1104,15 @@ async def launch_blockers(
         blockers.append(LaunchBlocker(*stopped))
     # KYC next, for the reason `check_dispatch` orders it before the money: telling an unverified
     # account to top up when topping up will not let them dial is a worse answer than
-    # no answer. Not in `_entity_blockers` despite being an entity question, because
-    # that helper is shared with `dispatch_blockers` and `check_dispatch` already asks
-    # this per dial — asking twice is how two gates start disagreeing.
+    # no answer. Not in `dispatch_blockers`: `check_dispatch` already asks it per dial,
+    # and asking twice is how two gates start disagreeing. The pledge beside it for the
+    # same reasons (D-692).
     blocked_on_kyc = await kyc_blocker(session, tenant_id=tenant_id)
     if blocked_on_kyc is not None:
         blockers.append(LaunchBlocker(*blocked_on_kyc))
+    unpledged = await outbound_pledge_blocker(session, tenant_id=tenant_id)
+    if unpledged is not None:
+        blockers.append(LaunchBlocker(*unpledged))
     # THE PAPERWORK THE CLIENT SIGNS, beside the paperwork the registrar holds. A client
     # who has not accepted the Terms, the Privacy Policy, the DPA and the Acceptable Use
     # Policy is a client dialling their customers under no instrument at all — the DPA is
@@ -1311,9 +1136,7 @@ async def launch_blockers(
         blockers.append(LaunchBlocker("no_credits", NO_CREDITS_REASON))
 
     # WHAT it may say and from WHERE (SEC-COMP §3, bullet two).
-    blockers.extend(
-        _channel_blockers(facts, sender_attested=await _sender_attested(session, facts=facts))
-    )
+    blockers.extend(_channel_blockers(facts))
 
     # AND WHETHER THE SENDER TOLD ITS ACCESS PROVIDER THAT IT AUTODIALS, FROM THESE NUMBERS
     # (TCCCPR Regulation 4 and the Third Amendment; `compliance/autodialer.py` carries the

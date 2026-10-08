@@ -36,25 +36,31 @@ KB_STATUSES = ("uploaded", "parsed", "pending_approval", "approved", "rejected",
 
 
 class KbSource(PKMixin, TimestampMixin, Base):
-    """One thing a client wants their agent to know, at one version.
+    """One thing a client wants their agents to know, at one version.
 
     Versioning is why `status` and `version` live together: publishing a new version
     archives the previous one rather than editing it, so rollback is reactivating a row
     (FLOWS §7) instead of restoring a backup.
+
+    A source belongs to the TENANT and every agent of the tenant answers from it (D-689).
+    The version sequence is per `(tenant_id, name)`.
     """
 
     __tablename__ = "kb_sources"
     __table_args__ = (
         CheckConstraint(f"kind IN {KB_KINDS!r}", name="kind_enum"),
         CheckConstraint(f"status IN {KB_STATUSES!r}", name="status_enum"),
-        UniqueConstraint("agent_id", "name", "version"),
+        UniqueConstraint("tenant_id", "name", "version"),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
     )
-    agent_id: Mapped[UUID] = mapped_column(
-        ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False, index=True
+    #: DEPRECATED (D-689), not written since; dropped in a later release (hard rule 8). On
+    #: a pre-D-689 row it records which agent's screen the source was added on, and nothing
+    #: reads it.
+    agent_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     kind: Mapped[str] = mapped_column(String, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -164,8 +170,10 @@ class KbChunk(PKMixin, TimestampMixin, Base):
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
     )
-    agent_id: Mapped[UUID] = mapped_column(
-        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    #: DEPRECATED (D-689): knowledge is the tenant's, so the projection is scoped by tenant
+    #: alone. Cleared by migration `e6b2d9f4a1c3`, not written since, dropped later.
+    agent_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=True
     )
     source_id: Mapped[UUID] = mapped_column(
         ForeignKey("kb_sources.id", ondelete="CASCADE"), nullable=False
@@ -218,7 +226,8 @@ class KbIndexDocument(PKMixin, TimestampMixin, Base):
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
     )
-    agent_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    #: DEPRECATED (D-689): NULL for every document written since; dropped later.
+    agent_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True), nullable=True)
     source_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
     #: The chunk this document is, and the id sent as the vendor's client-supplied document
     #: id (`supermemory_wire.WireContract.document_id_key`, ASSUMED) so a withdrawal can
@@ -303,8 +312,9 @@ class KbUpload(PKMixin, TimestampMixin, Base):
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
     )
-    agent_id: Mapped[UUID] = mapped_column(
-        ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False, index=True
+    #: DEPRECATED (D-689), as `kb_sources.agent_id`: provenance on old rows, not written.
+    agent_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     source_id: Mapped[UUID] = mapped_column(
         ForeignKey("kb_sources.id", ondelete="CASCADE"), nullable=False

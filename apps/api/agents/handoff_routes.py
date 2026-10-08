@@ -53,7 +53,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import handoff as handoff_service
 from apps.api.agents.business_hours import DAYS
-from apps.api.agents.transfer_providers import transfer_blocked_reason
+from apps.api.agents.transfer_providers import transfer_blocked_reason, transfer_platform_note
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -218,6 +218,9 @@ class HandoffOut(Strict):
     #: screen that already pays for one. A boolean invented here would be our intent
     #: wearing the clothes of a measurement.
     published: bool
+    #: Where this voice platform can put a caller through live, when that depends on the
+    #: number (D-690); null where it does not.
+    platform_note: str | None = None
 
 
 _AGENT_SQL = (
@@ -280,6 +283,7 @@ async def _render(session: AsyncSession, agent_id: UUID) -> HandoffOut:
         unavailable_reason=duty.reason,
         remediation=duty.remediation,
         published=bool(row[5]),
+        platform_note=transfer_platform_note(get_engine()),
     )
 
 

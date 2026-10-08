@@ -66,7 +66,7 @@ async def _tenant_with_published_knowledge(
     async with tenant_session(tenant_id) as session:
         for n, fact in enumerate(facts):
             submitted = await kb_service.submit_source(
-                session, tenant_id=tenant_id, agent_id=agent_id, name=f"Fees {n}", body=fact
+                session, tenant_id=tenant_id, name=f"Fees {n}", body=fact
             )
             await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
             await kb_service.publish_source(
@@ -283,7 +283,7 @@ async def test_every_real_path_leaves_the_two_is_active_flags_agreeing() -> None
     client can actually reach — two versions of one named source, a second independent
     source, and a withdrawal — and asserts no row is left disagreeing.
     """
-    tenant_id, agent_id = await _tenant_with_published_knowledge(
+    tenant_id, _agent_id = await _tenant_with_published_knowledge(
         "Trouser alteration is eighty rupees.", "Stitched clothes are ready in four days."
     )
     async with tenant_session(tenant_id) as session:
@@ -291,7 +291,6 @@ async def test_every_real_path_leaves_the_two_is_active_flags_agreeing() -> None
         republished = await kb_service.submit_source(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Fees 0",
             body="Trouser alteration is ninety rupees.",
         )
@@ -481,7 +480,6 @@ async def test_adding_knowledge_mints_a_new_key_and_leaves_the_old_one_readable(
         submitted = await kb_service.submit_source(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Sundays",
             body="We are shut on Sunday.",
         )
@@ -559,7 +557,11 @@ async def test_withdrawing_the_last_source_points_at_an_empty_pack_rather_than_a
         before = await _pointer(session, agent_id)
         source_id = (
             await session.execute(
-                text("SELECT id FROM kb_sources WHERE agent_id = :aid"), {"aid": agent_id}
+                text(
+                    "SELECT id FROM kb_sources WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :aid)"
+                ),
+                {"aid": agent_id},
             )
         ).scalar_one()
         await kb_service.withdraw_source(session, tenant_id=tenant_id, source_id=source_id)
@@ -596,7 +598,6 @@ async def test_a_store_that_refuses_does_not_fail_the_publish_and_does_not_go_qu
         submitted = await kb_service.submit_source(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Sundays",
             body="We are shut on Sunday.",
         )

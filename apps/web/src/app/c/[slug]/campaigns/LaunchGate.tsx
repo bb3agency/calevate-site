@@ -81,10 +81,8 @@ export function LaunchGate({
     if (rule === "no_credits") return { href: at("/billing?tab=credits"), label: "Add calling credit" };
     if (rule === "spend_cap")
       return { href: at("/billing?tab=usage"), label: "See your monthly spending limit" };
-    if (rule === "number_series_mismatch")
-      return { href: at("/phone-number"), label: "Go to Your phone number" };
     if (KYC_BLOCKERS.includes(rule))
-      return { href: at("/verification"), label: "See what we need to verify your business" };
+      return { href: at("/verify-business"), label: "Go to Verify your business" };
     if (AUTODIALER_NOTICE_BLOCKERS.includes(rule))
       return { href: at("/agreements"), label: "Record your autodialler notice" };
     if (FIRST_CAMPAIGN_BLOCKERS.includes(rule))

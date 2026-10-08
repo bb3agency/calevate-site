@@ -116,7 +116,7 @@ async def _slug(tenant_id: uuid.UUID) -> str:
 async def _submit(tenant_id: uuid.UUID, agent_id: uuid.UUID, name: str = "Fees") -> uuid.UUID:
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name=name, body=BODY
+            session, tenant_id=tenant_id, name=name, body=BODY
         )
     return uuid.UUID(str(submitted["id"]))
 

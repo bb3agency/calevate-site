@@ -2,10 +2,10 @@
 
 The voices are the operator's curated list, never the vendor's live catalogue: only a voice
 an operator ADDED and ENABLED, that the engine still lists, is returned, and it is offerable
-only while its minute is attested and — for a Studio voice — the Studio workspace is set
-up. The models are the engine's live list, refused by name where the engine says they are
-too slow or not on the plan. On any engine that does not host voices the route answers "no
-such catalogue", so the Pipecat path reads nothing new.
+only while its minute is attested; a Studio voice is listed only while our Cartesia key is on
+in the workspace (D-688). The models are the engine's live list, refused by name where the
+engine says they are too slow or not on the plan. On any engine that does not host voices the
+route answers "no such catalogue", so the Pipecat path reads nothing new.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from tests.hosted_voice_fakes import MP3, PRANA, SLOW, CatalogueRows, HostingEng
 
 LOCKED = CatalogueModel(model_id="gpt-x", label="X", call_capable=True, plan_allows=False)
 NOTHING: frozenset[str] = frozenset()
-EVERY_KEY = frozenset({"platform", "studio", "byok_voice"})
+EVERY_KEY = frozenset({"platform", "premium", "studio", "byok_voice"})
 
 
 def _client() -> Principal:
@@ -64,6 +64,7 @@ def _row(source: str, **update: Any) -> HostedVoiceRow:
         preview_available=False,
         preview_source=None,
         clone_id=None,
+        band="premium" if source == "engine" else None,
     )
     from dataclasses import replace
 
@@ -112,35 +113,18 @@ def test_a_client_never_reads_the_vendor_name_on_a_model() -> None:
 # --- the voice grounds -------------------------------------------------------------
 
 
-@pytest.mark.parametrize("audience", ["client", "operator"])
-def test_a_studio_voice_waits_on_the_studio_workspace(audience: str) -> None:
-    reason = hosted_voice_unofferable_reason(
-        _row("byok"),
-        attested=EVERY_KEY,
-        studio_ready=False,
-        voice_key_priced=True,
-        platform="ThinnestAI",
-        audience=audience,  # type: ignore[arg-type]
-    )
-    assert reason is not None and "Studio" in reason
-    if audience == "client":
-        assert "ThinnestAI" not in reason and "Cartesia" not in reason
-
-
 def test_an_unpriced_minute_is_refused_by_its_rate_key() -> None:
     operator = hosted_voice_unofferable_reason(
         _row("engine"),
         attested=frozenset({"byok_voice"}),
-        studio_ready=True,
         voice_key_priced=True,
         platform="ThinnestAI",
         audience="operator",
     )
-    assert operator is not None and "'studio'" in operator
+    assert operator is not None and "'premium'" in operator
     client = hosted_voice_unofferable_reason(
         _row("byok"),
-        attested=frozenset({"studio"}),
-        studio_ready=True,
+        attested=frozenset({"premium"}),
         voice_key_priced=True,
         platform="ThinnestAI",
         audience="client",
@@ -154,7 +138,6 @@ def test_a_priced_voice_is_offerable_on_either_rung() -> None:
             hosted_voice_unofferable_reason(
                 _row(source),
                 attested=EVERY_KEY,
-                studio_ready=True,
                 voice_key_priced=True,
                 platform="T",
                 audience="client",
@@ -207,6 +190,8 @@ async def test_the_route_lists_only_added_and_enabled_voices(
         await hosted_rows.add("engine", label="Disabled", state="disabled"),
         await hosted_rows.add("engine", label="Not added", origin="synced"),
         await hosted_rows.add("engine", label="Gone", withdrawn=True),
+        await hosted_rows.add("engine", label="Other band", band="standard"),
+        await hosted_rows.add("byok", label="Key off", withdrawn=True),
     ]
     with selected(HostingEngine(complete=False)):
         out = await engine_catalogue(_client())
@@ -216,26 +201,31 @@ async def test_the_route_lists_only_added_and_enabled_voices(
     assert by_id[offered].rung == "clear" and by_id[offered].offerable
     assert by_id[offered].preview_available
     assert by_id[offered].language_note == "Speaks the agent's language, with an accent: Hindi."
-    # No Studio workspace on this deployment: listed, refused, and said plainly.
-    assert by_id[studio].rung == "studio" and not by_id[studio].offerable
-    assert out.studio_available is False and out.complete is False
+    # Our key is on (a Studio voice is listed): offered at the Studio rung.
+    assert by_id[studio].rung == "studio" and by_id[studio].offerable
+    assert out.studio_available is True and out.complete is False
     assert [m.usable_with_studio_voice for m in out.models][:2] == [True, False]
 
 
-async def test_a_studio_voice_is_offered_once_the_workspace_is_set_up(
-    priced: set[str], hosted_rows: CatalogueRows, studio_workspace: str
+async def test_with_our_key_off_no_studio_voice_is_listed(
+    priced: set[str], hosted_rows: CatalogueRows
 ) -> None:
+    from apps.api.agents.hosted_voices import withdraw_own_key_voices
+    from apps.api.db.session import admin_session
+
     studio = await hosted_rows.add("byok", label="Studio voice")
+    async with admin_session() as session:
+        await withdraw_own_key_voices(session)
     with selected(HostingEngine()):
         out = await engine_catalogue(_client())
-    assert out.studio_available is True
-    assert {v.voice_id: v.offerable for v in out.voices}[studio] is True
+    assert out.studio_available is False
+    assert studio not in {v.voice_id for v in out.voices}
 
 
 async def test_an_unpriced_rung_is_listed_and_refused(
     priced: set[str], hosted_rows: CatalogueRows
 ) -> None:
-    priced.discard("studio")
+    priced.discard("premium")
     voice = await hosted_rows.add("engine")
     with selected(HostingEngine()):
         out = await engine_catalogue(_client())
@@ -339,7 +329,6 @@ def test_a_studio_voice_needs_our_voice_keys_synthesis_priced(audience: str) -> 
     reason = hosted_voice_unofferable_reason(
         _row("byok"),
         attested=EVERY_KEY,
-        studio_ready=True,
         voice_key_priced=False,
         platform="ThinnestAI",
         audience=audience,  # type: ignore[arg-type]
@@ -352,7 +341,6 @@ def test_a_studio_voice_needs_our_voice_keys_synthesis_priced(audience: str) -> 
     clear = hosted_voice_unofferable_reason(
         _row("engine"),
         attested=EVERY_KEY,
-        studio_ready=True,
         voice_key_priced=False,
         platform="ThinnestAI",
         audience=audience,  # type: ignore[arg-type]

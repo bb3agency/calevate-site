@@ -124,7 +124,7 @@ describe("whether published knowledge has reached the agent", () => {
     expect(container.textContent).toContain("still answering callers from the version before it");
     // Both halves of the instruction: the retry they can do themselves, and the escape
     // hatch for when it does not work. One without the other is a dead end.
-    expect(container.textContent).toContain("Publish any document on this agent again");
+    expect(container.textContent).toContain("Publish any document again");
     expect(container.textContent).toContain("send us the reference");
     // Something exact for support to look up — and only the readable prefix on screen.
     expect(container.textContent).toContain(PACK_ID.slice(0, 12));
@@ -159,12 +159,12 @@ describe("whether published knowledge has reached the agent", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("says nothing about the phone while it is still asking", async () => {
+  it("says nothing about the agents while it is still asking", async () => {
     const { container } = await renderDelivery(stillLoading());
 
     // A skeleton, not a verdict. Rendering "Nothing taught yet" under a request that has
     // not landed is the empty-state-over-a-pending-read lie in its first form.
-    await waitFor(() => expect(container.textContent).toContain("On the phone"));
+    await waitFor(() => expect(container.textContent).toContain("Agents using your knowledge"));
     expect(container.textContent).not.toContain("Nothing taught yet");
     expect(container.textContent).not.toContain("Everything you have published");
     expect(container.textContent).not.toContain("Not live");

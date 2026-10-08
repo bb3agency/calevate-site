@@ -1,61 +1,115 @@
-"""Signed engine deliveries: verify per-agent HMAC, key the unit, seal the body (D-678).
+"""Signed engine deliveries: verify per-agent HMAC, check freshness, key the unit, seal the body.
 
 `engine_intake.verify_source` decides admission before a byte of body is read, which is
 right for an engine authenticated by where it calls from and impossible for one that signs
-the body. ThinnestAI signs each delivery with the secret of the agent's own endpoint:
-`x-thinnest-signature: sha256=<HMAC-SHA256 of the raw body>` (`thinnest-findings/mirror/
-pages/api-reference/webhooks.md:36-40`, `mcp/own-database.md:74-86`). So for an engine in
-`SIGNED_INTAKES` the receiver reads the bounded body first and admits nothing until the
-signature over those exact bytes verifies.
+the body. ThinnestAI signs every delivery attempt with the secret of the agent's own
+endpoint, and its receiver contract is three steps (VERIFIED-VENDOR-DOCS,
+`thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/webhooks.md:100-147`):
+
+1. verify `x-thinnest-signature-v2` = `sha256=` + hex HMAC-SHA256 of
+   `<x-thinnest-delivered-at>.<raw body>`, constant-time;
+2. reject a `x-thinnest-delivered-at` more than five minutes from our clock — NOT `sentAt`,
+   which every retry repeats unchanged ("a retry's `sentAt` is hours old by design", :130);
+3. dedupe on `x-thinnest-event-id`, the body's `id`, "the same on every retry and re-send".
+
+The v1 header (`x-thinnest-signature`, HMAC of the body alone) is NOT accepted. The page
+lets a receiver verify either (:127), and both headers ride every attempt (:100-108), so
+requiring v2 refuses no genuine delivery; accepting v1 would let a captured body be
+replayed at any time, since nothing it signs says when it was sent.
 
 The secret is selected by the `agent` query parameter our registered url carries
 (`reliability/engine_webhooks.agent_webhook_url`), never by a body field, and is opened
 with the engine intake key (`reliability/engine_intake_keys.py`) — voice-runtime holds no
 `PLATFORM_KEK`.
 
-The signed body carries its send time, `{event, sentAt, data}` (snapshots/2026-10-07/pages/
-api-reference/webhooks/create-webhook.md:159-165), so a delivery outside `REPLAY_TOLERANCE`
-is ignored; inside it, the inbox dedupe on `(id, event, attempt, analysedAt|endedAt)` makes
-a replay a no-op (THINNEST-INTEGRATION §3.2).
-
 Light imports only (hard rule 3): stdlib, the shared signature helper, and a session.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any, Final
 
 from apps.api.core.envelope import Envelope, KekRing
 from apps.api.db.session import untenanted_session
 from apps.api.reliability.engine_intake_keys import open_webhook_secret
-from calevate_shared.engine_scope import SCOPE_SEPARATOR, scoped_handle, split_handle
-from calevate_shared.webhook_signature import sha256_signature_matches
+from calevate_shared.webhook_signature import (
+    signed_time_is_fresh,
+    timestamped_sha256_signature_matches,
+)
 from engine_intake import keyable, scalar_hint
 from sqlalchemy import text
+
+#: The post-call ingest job (`apps/workers/pipeline.INGEST_JOB`).
+INGEST_JOB: Final = "ingest_engine_event"
+#: A person's "do not call me again" heard by the engine's own agent
+#: (`apps/workers/engine_signals.ENGINE_OPT_OUT_JOB`).
+ENGINE_OPT_OUT_JOB: Final = "ingest_engine_opt_out"
+#: A lead taken or a conversation handed to a person by the engine's own agent
+#: (`apps/workers/engine_signals.ENGINE_NOTICE_JOB`).
+ENGINE_NOTICE_JOB: Final = "ingest_engine_notice"
+
+
+@dataclass(frozen=True, slots=True)
+class SignedEventRoute:
+    #: The `data` field naming the call this event is about: the inbox and the job are
+    #: keyed on it, so the unit an operator searches for is the call. None for an event
+    #: that need not be about a call (a chat escalation), keyed on its event id instead.
+    call_field: str | None
+    #: The worker job that consumes the event.
+    job: str
 
 
 @dataclass(frozen=True, slots=True)
 class SignedIntake:
-    #: The header carrying `sha256=<hex>`.
     signature_header: str
-    #: Event name -> the body field that stamps this delivery of it. One event per try
-    #: (get-call.md:71-76), so the stamp is what separates two deliveries of one event.
-    events: dict[str, str]
+    #: The attempt's send time; the signature covers it.
+    delivered_at_header: str
+    #: Equal to the body's signed `id`; read only to refuse a disagreement.
+    event_id_header: str
+    #: 1, 2, 3 … per attempt. Unsigned, so it is recorded and never trusted for a decision.
+    attempt_header: str
+    events: dict[str, SignedEventRoute]
 
 
 SIGNED_INTAKES: Final[dict[str, SignedIntake]] = {
     "thinnest": SignedIntake(
-        signature_header="x-thinnest-signature",
-        # `call.completed` "the moment it ends"; `call.analysed` once summary and fields
-        # are written (webhooks.md:73-74, get-call.md:54-58).
-        events={"call.completed": "endedAt", "call.analysed": "analysedAt"},
+        signature_header="x-thinnest-signature-v2",
+        delivered_at_header="x-thinnest-delivered-at",
+        event_id_header="x-thinnest-event-id",
+        attempt_header="x-thinnest-attempt",
+        events={
+            # `call.completed` the moment a call ends; `call.analysed` once its results are
+            # ready, "the same shape as Get Call" (webhooks.md:82-83).
+            "call.completed": SignedEventRoute(call_field="id", job=INGEST_JOB),
+            "call.analysed": SignedEventRoute(call_field="id", job=INGEST_JOB),
+            # `data.phone`, `data.callId`, `data.source` ("call"), `data.optedOutAt`
+            # (webhooks.md:85).
+            "contact.opted_out": SignedEventRoute(call_field="callId", job=ENGINE_OPT_OUT_JOB),
+            # Notices the engine's agent raises (webhooks.md:79-80); their `data` is printed only
+            # as `{ … }`, so nothing in it keys the unit.
+            "lead.captured": SignedEventRoute(call_field=None, job=ENGINE_NOTICE_JOB),
+            "conversation.escalated": SignedEventRoute(call_field=None, job=ENGINE_NOTICE_JOB),
+        },
     ),
 }
 
 AGENT_QUERY_PARAM: Final = "agent"
-_NO_STAMP: Final = "-"
+
+#: How far a signed delivery time may be from our clock, either way: the vendor's own
+#: figure (webhooks.md:129-131, :144), and Stripe's default replay tolerance.
+REPLAY_TOLERANCE: Final = timedelta(minutes=5)
+
+#: Our reasons for refusing a delivery after its signature checked out.
+STALE_DELIVERY: Final = "stale delivery"
+
+#: The attempt number recorded when the header is absent or unreadable.
+_FIRST_ATTEMPT: Final = 1
+#: Six attempts per event plus re-sends (webhooks.md:112-117, :184-185); anything past
+#: this is not a count we would store.
+_MAX_ATTEMPT: Final = 1000
 
 
 async def signing_secret(engine: str, engine_agent_ref: str, *, ring: KekRing) -> str | None:
@@ -92,41 +146,42 @@ async def signing_secret(engine: str, engine_agent_ref: str, *, ring: KekRing) -
     )
 
 
-def delivery_signature_matches(body: bytes, header: str | None, secret: str) -> bool:
-    return sha256_signature_matches(body, header, secret)
+def delivery_signature_matches(
+    intake: SignedIntake, body: bytes, headers: Mapping[str, str], secret: str
+) -> bool:
+    return timestamped_sha256_signature_matches(
+        body,
+        headers.get(intake.signature_header),
+        secret,
+        signed_at=headers.get(intake.delivered_at_header),
+    )
+
+
+def delivery_is_fresh(intake: SignedIntake, headers: Mapping[str, str], *, now: datetime) -> bool:
+    """Was this attempt sent within `REPLAY_TOLERANCE` of our clock? Ask only after the
+    signature verified: the time is part of what it signed."""
+    return signed_time_is_fresh(
+        headers.get(intake.delivered_at_header), now=now, tolerance=REPLAY_TOLERANCE
+    )
+
+
+def delivery_attempt(intake: SignedIntake, headers: Mapping[str, str]) -> int:
+    """The vendor's attempt counter for the forensic row, or 1 when it is unreadable."""
+    raw = headers.get(intake.attempt_header) or ""
+    if not raw.isascii() or not raw.isdigit() or len(raw) > len(str(_MAX_ATTEMPT)):
+        return _FIRST_ATTEMPT
+    value = int(raw)
+    return value if 1 <= value <= _MAX_ATTEMPT else _FIRST_ATTEMPT
 
 
 @dataclass(frozen=True, slots=True)
 class SignedEvent:
+    #: The call the event is about.
     execution_id: str
-    #: The inbox unit: `<event>:<attempt>:<stamp>`.
+    #: The inbox unit: `<event>:<event id>`, identical on every retry and re-send.
     event_name: str
     event: str
-
-
-#: How far a signed send time may be from our clock, either way. Five minutes is Stripe's
-#: default webhook tolerance (stripe.com/docs/webhooks, "Prevent replay attacks"): wide
-#: enough for clock skew and a slow hop, narrow enough that a captured body is useless soon.
-REPLAY_TOLERANCE: Final = timedelta(minutes=5)
-
-#: Our reason for ignoring a delivery outside `REPLAY_TOLERANCE`.
-STALE_DELIVERY: Final = "stale delivery"
-
-
-def _sent_recently(sent_at: Any, now: datetime) -> bool:
-    """Is a delivery's `sentAt` within the tolerance? Absent counts as yes (see
-    `keyed_event`); present but unreadable as no, since the vendor signed what it sent."""
-    if sent_at is None:
-        return True
-    if not isinstance(sent_at, str):
-        return False
-    try:
-        sent = datetime.fromisoformat(sent_at.replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    if sent.tzinfo is None:
-        return False
-    return abs(now - sent) <= REPLAY_TOLERANCE
+    job: str
 
 
 def keyed_event(
@@ -134,63 +189,59 @@ def keyed_event(
     payload: dict[str, Any],
     *,
     engine_agent_ref: str,
-    now: datetime | None = None,
+    event_id_header: str | None = None,
 ) -> SignedEvent | str:
-    """The keyed unit of a VERIFIED delivery, or OUR reason for ignoring it.
+    """The keyed unit of a VERIFIED, FRESH delivery, or OUR reason for ignoring it.
 
-    A delivery whose signed `sentAt` is more than `REPLAY_TOLERANCE` from our clock, either
-    way, is ignored as `stale delivery`: ThinnestAI makes ONE attempt per event and never
-    redelivers (snapshots/2026-10-07/pages/api-reference/webhooks/create-webhook.md:
-    159-165), so a genuine delivery is seconds old and an old one is a replay. A body with
-    no `sentAt` is still keyed, and the inbox dedupe stays the replay guard for it.
-
-    `attempt` and the stamp may be absent — the `call.completed` body is documented only as
-    "outcome and duration" (webhooks.md:74), UNVERIFIED beyond that — and then read as a
-    fixed placeholder, so an id-bearing delivery is still keyed rather than dropped.
+    The key is the event id the vendor signed into the body, so a retry after a timeout and
+    a re-send from the console both collapse onto the first delivery's inbox row
+    (webhooks.md:107, :133-134). A header that names a different id than the body is a
+    delivery we cannot key honestly and is ignored.
     """
+    if payload.get("test") is True:
+        # `POST /webhooks/{id}/test` sends a sample "marked `"test": true`, with obviously
+        # fake details" (webhooks.md:199-200): nothing in it is a real event.
+        return "test delivery"
     event = scalar_hint(payload.get("event"))
     if event is None or event not in intake.events:
         return "event not consumed"
-    if not _sent_recently(payload.get("sentAt"), now or datetime.now(UTC)):
-        return STALE_DELIVERY
+    route = intake.events[event]
+    event_id = keyable(scalar_hint(payload.get("id")) or "")
+    if event_id is None:
+        return "unusable event id"
+    if event_id_header is not None and event_id_header != event_id:
+        return "event id mismatch"
     data = payload.get("data")
     if not isinstance(data, dict):
         return "unusable execution key"
-    # An agent in an engine sub-account is held as `<id>@<workspace>` (D-687); the body names
-    # the bare vendor ids, so the call is scoped to the agent's workspace and the agent is
-    # compared without it.
-    agent_id, workspace = split_handle(engine_agent_ref)
-    raw_call = keyable(scalar_hint(data.get("id")) or "")
-    execution_id = (
-        keyable(scoped_handle(raw_call, workspace))
-        if raw_call is not None and SCOPE_SEPARATOR not in raw_call
-        else None
-    )
+    unit = event_id if route.call_field is None else scalar_hint(data.get(route.call_field))
+    execution_id = keyable(unit or "")
     if execution_id is None:
         return "unusable execution key"
     agent = data.get("agent")
     named = scalar_hint(agent.get("id")) if isinstance(agent, dict) else None
-    if named is not None and named != agent_id:
+    if named is not None and named != engine_agent_ref:
         # Signed by this agent's secret yet naming another agent: a misregistered endpoint.
         return "agent mismatch"
-    attempt = data.get("attempt")
-    attempt_part = (
-        str(attempt) if isinstance(attempt, int) and not isinstance(attempt, bool) else _NO_STAMP
-    )
-    stamp = keyable(scalar_hint(data.get(intake.events[event])) or _NO_STAMP) or _NO_STAMP
-    event_name = keyable(f"{event}:{attempt_part}:{stamp}")
+    event_name = keyable(f"{event}:{event_id}")
     if event_name is None:
         return "unusable execution key"
-    return SignedEvent(execution_id=execution_id, event_name=event_name, event=event)
+    return SignedEvent(execution_id=execution_id, event_name=event_name, event=event, job=route.job)
 
 
 __all__ = [
     "AGENT_QUERY_PARAM",
+    "ENGINE_NOTICE_JOB",
+    "ENGINE_OPT_OUT_JOB",
+    "INGEST_JOB",
     "REPLAY_TOLERANCE",
     "SIGNED_INTAKES",
     "STALE_DELIVERY",
     "SignedEvent",
+    "SignedEventRoute",
     "SignedIntake",
+    "delivery_attempt",
+    "delivery_is_fresh",
     "delivery_signature_matches",
     "keyed_event",
     "signing_secret",

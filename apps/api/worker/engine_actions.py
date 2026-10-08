@@ -12,25 +12,20 @@ vendor agent (`?agent=`), which selects the secret; the header is compared in co
 time. Unknown agent, inactive route, no secret held and a wrong header all answer the same
 401 (agent/custom-api.md:127-134).
 
-WHICH CALL, AND WHY IT IS DONE THIS WAY (UNVERIFIED VENDOR BEHAVIOUR). No page of either
-mirror documents a placeholder or header that tells an action which call or conversation
-it came from: placeholders are parameters the MODEL fills (snapshots/2026-10-07/pages/
-api-reference/actions/create-action.md:442; agent/custom-api.md:63-83). A model-filled call
-id would be a value a caller can talk the model into, and the same agent also answers web
-chat (`voice.surfaces`, agents.md:56), so "the agent's only live call" is not proof either.
-So a call is identified only when BOTH hold:
+WHICH CALL. The platform names it twice, and neither is the model's: the `X-Call-Id` header
+it sends with every action call, and the `{{call.id}}` placeholder our body template
+carries as `call_id`. Dotted placeholders are filled by the platform "so a caller cannot
+talk the agent into sending a different one" (snapshots/2026-10-08/pages/agent/
+custom-api.md:84-119). So a call is identified when:
 
-1. the per-agent secret proves the request comes from this vendor agent's action; and
-2. the number the caller gives (`caller_number`) equals, after normalisation, the customer
-   number the vendor itself reports on exactly ONE of this agent's connected calls
-   (`GET /calls?agent=&status=connected`, snapshots/…/calls/list-calls.md:262-277, :504).
+1. the per-agent secret proves the request comes from this vendor agent's action;
+2. the header names a call, and the body's `call_id`, when filled, names the same one; and
+3. `GET /calls/{id}` shows that call is on THIS vendor agent and still ringing or
+   connected — so one agent's secret cannot act on another agent's call, and a replayed
+   request cannot act on a call that has ended.
 
-The number written to the DNC list or rung back is therefore the VENDOR's record of who is
-on the line, never the model's string; the model's string only selects among this agent's
-live calls. What stays unproven: that a stranger holding a live caller's number cannot act
-for them while they are on a call with the same agent (they would need the number and the
-timing), and whether the vendor lists an inbound call as `connected` while it is in
-progress — both are questions for ThinnestAI, listed in the phase-2 report.
+The number written to the DNC list or rung back is the VENDOR's record of who is on the
+line (`phone` on the call), never anything the model or the caller said.
 
 The call row: an outbound call is ours already (matched by `engine_call_id`, or by the
 `reference` we sent, which is our `calls.id`); an inbound one has no row until its results
@@ -73,6 +68,8 @@ from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import untenanted_session
 from apps.api.engine.thinnest_actions import (
+    CALL_ID_FIELD,
+    CALL_ID_HEADER,
     SECRET_HEADER,
     LiveCall,
     ThinnestActions,
@@ -84,7 +81,6 @@ from apps.api.reliability.engine_actions import (
     ACTIONS_PATH,
     CALLBACK,
     CALLBACK_CANCEL,
-    CALLER_NUMBER,
     HANDOFF,
     OPT_OUT,
     envelope_of,
@@ -115,10 +111,8 @@ _DECOY: Final = secrets.token_urlsafe(32)
 _UNAUTHORISED: Final = {"error": "unauthorised"}
 
 NOT_MATCHED_SAY: Final = (
-    "Nothing was done: the number given does not match this call. Do NOT tell the caller "
-    "it is done. Ask them to say the phone number you are speaking to them on, then try "
-    "once more. If it still does not match, apologise and tell them it could not be done "
-    "on this call."
+    "Nothing was done: this call could not be found. Do NOT tell the caller it is done. "
+    "Apologise and tell them it could not be done on this call."
 )
 UNAVAILABLE_SAY: Final = (
     "Nothing was done: the system could not be reached just now. Do NOT tell the caller "
@@ -200,19 +194,29 @@ def _yes(value: str | None) -> bool:
     return (value or "").strip().lower() in {"yes", "true"}
 
 
-async def resolve_live_call(
-    client: ThinnestActions, engine_agent_ref: str, caller_number: str | None
-) -> LiveCall | None:
-    """This agent's ONE connected call whose customer number is `caller_number`, or None."""
-    wanted = normalize_phone(caller_number) if caller_number else None
-    if wanted is None:
+def named_call_id(header: str | None, body_call_id: str | None) -> str | None:
+    """The call the platform says this action came from, or None when it names none or
+    names two. The header is sent with every action call; the body's `call_id` is our
+    template's `{{call.id}}`, empty outside a call and absent from an older template."""
+    header_id = (header or "").strip()[:_REF_MAX] or None
+    body_id = (body_call_id or "").strip()[:_REF_MAX] or None
+    if header_id is None:
         return None
-    matches = [
-        call
-        for call in await client.live_calls(engine_agent_ref)
-        if call.phone is not None and normalize_phone(call.phone) == wanted
-    ]
-    return matches[0] if len(matches) == 1 else None
+    if body_id is not None and body_id != header_id:
+        return None
+    return header_id
+
+
+async def resolve_live_call(
+    client: ThinnestActions, engine_agent_ref: str, call_id: str | None
+) -> LiveCall | None:
+    """The call `call_id` names, when it is live on THIS vendor agent; else None."""
+    if call_id is None:
+        return None
+    call = await client.call(engine_agent_ref, call_id)
+    if call is None or call.agent_ref != engine_agent_ref or not call.live:
+        return None
+    return call
 
 
 _CALL_COLUMNS: Final = "id, agent_id, direction, from_e164, to_e164"
@@ -332,8 +336,9 @@ async def engine_action(
         return _answer(out.status, out.say)
 
     client = thinnest_actions()
+    call_id = named_call_id(request.headers.get(CALL_ID_HEADER), args.get(CALL_ID_FIELD))
     try:
-        live = await resolve_live_call(client, agent, args.get(CALLER_NUMBER))
+        live = await resolve_live_call(client, agent, call_id)
     except ProblemError as exc:
         log.warning("engine_action_live_calls_unreadable", extra={**ids, "reason": exc.code})
         return _answer("unavailable", UNAVAILABLE_SAY)
@@ -396,6 +401,7 @@ __all__ = [
     "UNAVAILABLE_SAY",
     "ActionRoute",
     "call_locator",
+    "named_call_id",
     "resolve_live_call",
     "router",
     "verify_agent_secret",

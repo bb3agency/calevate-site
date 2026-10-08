@@ -949,6 +949,13 @@ it remains in git history. Its adapter was never built.
 
 ## 6. RAG Subsystem (per-client knowledge) — REVISED per D-28, **SETTLED BY D-502**
 
+**Knowledge belongs to the CLIENT, not to an agent (D-689, 8 Oct 2026).** A knowledge source
+(`kb_sources`, its chunks, uploads and links) is the tenant's, and every agent of the tenant
+answers from all of it: each agent's T0 block and in-call pack are compiled from the
+tenant's live sources, retrieval is scoped by tenant, and on an engine whose knowledge base
+is per vendor agent (ThinnestAI) each source is pushed to every one of the client's agents
+and kept in step on every version, withdrawal, new agent and archived agent.
+
 **THE BAKE-OFF HAS RUN AND THE STORE IS DECIDED, AND THE FINDING THAT MATTERS IS THAT THE
 TWO PATHS GET DIFFERENT ANSWERS** (`docs/evidence/kb-retrieval-bakeoff.md`, 31 Aug 2026;
 adopted as D-502 on 1 Sep 2026):
@@ -1121,8 +1128,8 @@ Tier model (unchanged in intent; T1–T3 now provider-backed):
 Ingestion (workers, offline — OURS regardless of provider): parse (LlamaParse for
 messy PDFs) → chunk → **approved on submission for the account's own people (D-658);
 admin approve for anything else** → **English gloss (D-487)** →
-push to BOTH targets (engine KB API for in-call; managed service for CRM/memory) →
-version bump → T0 recompilation.
+push to BOTH targets (engine KB API for in-call, to every agent of the client; managed
+service for CRM/memory) → version bump → T0 recompilation for every agent of the client.
 
 **The English gloss (D-487), because the query form production produces is the one
 retrieval is worst at.** Sarvam's Saaras STT returns **Tenglish** — Telugu grammar in

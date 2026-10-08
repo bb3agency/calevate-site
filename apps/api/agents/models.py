@@ -1135,6 +1135,11 @@ class PlatformVoiceCatalogEntry(Base):
     preview_object_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     preview_content_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     preview_source: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The engine's own price band for one of its voices (`engine/catalogue.HostedVoiceBand`:
+    #: `standard`, `premium`, `studio`), NULL on Pipecat rows and own-key (`byok:`) rows. Every
+    #: band is cached so an operator sees what the platform lists; only
+    #: `catalogue.SOLD_HOSTED_BAND` can be added and offered (`hosted_voices.band_is_sold`).
+    vendor_band: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class PipecatAgent(PKMixin, TimestampMixin, Base):

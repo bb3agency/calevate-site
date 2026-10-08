@@ -12,7 +12,7 @@ Two kinds of voice an engine may host (D-687):
 
 * `engine` — the engine's own voices, including the ones our account cloned on it;
 * `byok` — the voices of the voice provider whose key we installed on the engine
-  (bring-your-own-key, voice only), which speak inside a sub-account (`workspace`).
+  (bring-your-own-key, voice only). Each agent says whether it speaks on that key (D-688).
 """
 
 from __future__ import annotations
@@ -23,6 +23,12 @@ from calevate_shared.engine import LlmTier
 from pydantic import BaseModel, ConfigDict, Field
 
 HostedVoiceSource = Literal["engine", "byok"]
+
+#: The price band an engine files each of its own voices under, cheapest first. On
+#: ThinnestAI it is `GET /voices` `tier` (snapshots/2026-10-07b/pages/api-reference/voices/
+#: list-voices.md:436-442). Every band is stored so an operator sees the whole platform; only
+#: the band sold as Clear can be added and offered (`agents/hosted_voices.sold_hosted_band`).
+HostedVoiceBand = Literal["standard", "premium", "studio"]
 
 
 class CatalogueModel(BaseModel):
@@ -67,6 +73,9 @@ class HostedVoice(BaseModel):
     description: str | None = None
     #: A sample clip the listing links to, when it has one. Fetched server-side only.
     sample_url: str | None = None
+    #: The engine's price band for one of its own voices; None for a `byok` voice, which is
+    #: priced by its own source.
+    band: HostedVoiceBand | None = None
 
 
 class HostedVoiceListing(BaseModel):
@@ -149,20 +158,17 @@ class ReportsOwnKeys(Protocol):
 
 @runtime_checkable
 class HostsVoices(Protocol):
-    """An adapter whose engine speaks voices it hosts, which an operator curates (D-687).
-
-    `workspace` is an engine sub-account (`calevate_shared.engine_scope`); None is the
-    account itself.
-    """
+    """An adapter whose engine speaks voices it hosts, which an operator curates (D-687), and
+    whose agents each say whether they speak on the account's own voice key (D-688)."""
 
     name: str
 
     async def list_hosted_voices(self) -> HostedVoiceListing: ...
 
-    async def list_own_key_voices(self, *, workspace: str) -> HostedVoiceListing: ...
+    async def list_own_key_voices(self) -> HostedVoiceListing: ...
 
     async def preview_own_key_voice(
-        self, *, workspace: str, voice_id: str, text: str | None, language: str | None
+        self, *, voice_id: str, text: str | None, language: str | None
     ) -> PreviewAudio: ...
 
     async def create_voice_clone(self, sample: VoiceCloneSample) -> VoiceClone: ...
@@ -171,15 +177,19 @@ class HostsVoices(Protocol):
 
     async def delete_voice_clone(self, clone_id: str) -> int: ...
 
-    async def own_key_state(self, *, workspace: str) -> OwnVoiceKeyState: ...
+    async def own_key_state(self) -> OwnVoiceKeyState: ...
 
     async def install_own_voice_key(
-        self, *, workspace: str, provider: str, api_key: str, model: str | None
+        self, *, provider: str, api_key: str, model: str | None
     ) -> None: ...
 
-    async def enable_own_voice_key(self, *, workspace: str) -> OwnVoiceKeyState: ...
+    async def enable_own_voice_key(self) -> OwnVoiceKeyState: ...
 
-    async def create_workspace(self, *, name: str, external_id: str) -> str: ...
+    async def disable_own_voice_key(self) -> OwnVoiceKeyState: ...
+
+    async def agent_own_voice_key(self, ref: str) -> bool | None: ...
+
+    async def set_agent_own_voice_key(self, ref: str, *, on: bool) -> None: ...
 
 
 __all__ = [
@@ -187,6 +197,7 @@ __all__ = [
     "EngineCatalogue",
     "HoldsCatalogue",
     "HostedVoice",
+    "HostedVoiceBand",
     "HostedVoiceListing",
     "HostedVoiceSource",
     "HostsVoices",

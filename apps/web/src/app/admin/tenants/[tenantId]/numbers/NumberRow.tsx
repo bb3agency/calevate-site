@@ -155,15 +155,7 @@ export function NumberRow({
               the platform and it refused" and "the platform now answers" are different
               outcomes and an operator has to be able to tell them apart. */}
           {attach.data && (
-            <p className="text-xs text-ink-muted">
-              {attach.data.failed > 0
-                ? "Saved, but the voice platform refused the routing — this number is not answering yet."
-                : attach.data.bound > 0
-                  ? "Saved, and the voice platform now answers this number with that agent."
-                  : attach.data.released > 0
-                    ? "Saved, and the voice platform no longer answers this number."
-                    : "Saved. It will start answering when that agent is published."}
-            </p>
+            <p className="text-xs text-ink-muted">{attachedSentence(attach.data)}</p>
           )}
         </div>
       )}
@@ -207,4 +199,28 @@ export function NumberRow({
       )}
     </li>
   );
+}
+
+type Attached = components["schemas"]["NumberAgentOut"];
+
+/** What the platform was told, in the server's own outcome words (D-576, D-691). A
+ *  platform that attaches numbers through its own API reports `platform_attachment`; the
+ *  others report the binding counts. */
+function attachedSentence(data: Attached): string {
+  switch (data.platform_attachment) {
+    case "partial":
+    case "refused":
+      return "Saved, but the voice platform did not take it — this number may be answered by another agent or none. The daily number check tries again.";
+    case "applied":
+    case "unchanged":
+      return "Saved, and the voice platform now agrees which agent answers this number.";
+    default:
+      break;
+  }
+  if (data.failed > 0) {
+    return "Saved, but the voice platform refused the routing — this number is not answering yet.";
+  }
+  if (data.bound > 0) return "Saved, and the voice platform now answers this number with that agent.";
+  if (data.released > 0) return "Saved, and the voice platform no longer answers this number.";
+  return "Saved. It will start answering when that agent is published.";
 }

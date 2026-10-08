@@ -421,13 +421,19 @@ def seal(plaintext: str, *, context: str, ring: KekRing | None = None) -> Envelo
     second encryption. That is also what puts the random-nonce reuse question out of
     reach — see the module docstring's bound.
     """
+    return seal_bytes(plaintext.encode(), context=context, ring=ring)
+
+
+def seal_bytes(data: bytes, *, context: str, ring: KekRing | None = None) -> Envelope:
+    """`seal` for bytes that are not text — an uploaded document (D-692). Same DEK, nonce
+    and AAD rules; `seal` is this with the string encoded."""
     active = (ring or kek_ring()).active
     dek = os.urandom(DEK_BYTES)
     nonce = os.urandom(NONCE_BYTES)
     dek_nonce = os.urandom(NONCE_BYTES)
     aad = context.encode()
     return Envelope(
-        ciphertext=AESGCM(dek).encrypt(nonce, plaintext.encode(), aad),
+        ciphertext=AESGCM(dek).encrypt(nonce, data, aad),
         nonce=nonce,
         dek_wrapped=AESGCM(active.material).encrypt(dek_nonce, dek, aad),
         dek_nonce=dek_nonce,
@@ -450,6 +456,11 @@ def unseal(envelope: Envelope, *, context: str, ring: KekRing | None = None) -> 
     logged, never traced, never in a response body. This function does not enforce that
     — nothing can, at this level — but every caller is bound by it.
     """
+    return unseal_bytes(envelope, context=context, ring=ring).decode()
+
+
+def unseal_bytes(envelope: Envelope, *, context: str, ring: KekRing | None = None) -> bytes:
+    """`unseal` returning raw bytes, with the same refusals under the same names."""
     keys = (ring or kek_ring()).all_keys
     aad = context.encode()
     dek: bytes | None = None
@@ -474,7 +485,7 @@ def unseal(envelope: Envelope, *, context: str, ring: KekRing | None = None) -> 
             ),
         )
     try:
-        return AESGCM(dek).decrypt(envelope.nonce, envelope.ciphertext, aad).decode()
+        return AESGCM(dek).decrypt(envelope.nonce, envelope.ciphertext, aad)
     except _UNOPENABLE:
         # The DEK opened, so the KEK is right and the wrapping is intact — but the
         # payload's tag did not verify. Either the row was edited, or this envelope came
@@ -574,5 +585,7 @@ __all__ = [
     "last_four",
     "rewrap",
     "seal",
+    "seal_bytes",
     "unseal",
+    "unseal_bytes",
 ]

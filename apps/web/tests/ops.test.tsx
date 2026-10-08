@@ -40,6 +40,7 @@ import {
 } from "@/lib/api/opsDashboardDataUse";
 import { OPS_FX_RATE_PATH, type FxRate } from "@/lib/api/opsFxRate";
 import { NUMBER_PRICING_PATH, type NumberPrice } from "@/lib/api/numberPricing";
+import { ENGINE_BUSINESS_DETAILS_PATH } from "@/lib/api/numbers";
 
 import { formatISTInput, istInputToInstant } from "@/components/ui";
 
@@ -127,6 +128,18 @@ beforeEach(() => {
  */
 
 const PLATFORM = "/v1/ops/platform";
+
+/** A deployment whose numbers are not the voice platform's: the panel renders nothing. */
+const NO_BUSINESS_DETAILS = {
+  available: false,
+  platform: null,
+  status: null,
+  business_name: null,
+  can_rent: false,
+  submitted_at: null,
+  review_note: null,
+  lapsed: false,
+};
 const REPLAY = "/v1/ops/outbox/replay";
 const VERIFY = "/v1/ops/audit/verify";
 
@@ -168,6 +181,9 @@ function routes(
   return {
     [PLATFORM]: platformAnswer,
     [ADMIN_ME_PATH]: identity,
+    // The voice platform's business-details panel (D-691) renders nothing on a deployment
+    // whose numbers are not the platform's, which is these cases' premise.
+    [ENGINE_BUSINESS_DETAILS_PATH]: NO_BUSINESS_DETAILS,
     ...extra,
   };
 }
@@ -2124,7 +2140,7 @@ describe("our own telemarketer registration", () => {
   it("reports the server's is_live even when the status looks reassuring", async () => {
     // The exact disagreement the panel exists to prevent: a status a reader would call
     // good, and a gate that is refusing every tenant. The server owns `is_live`.
-    const { container } = renderAdminPage(
+    renderAdminPage(
       <OpsPage />,
       routes(
         platform({
@@ -2139,11 +2155,10 @@ describe("our own telemarketer registration", () => {
       ),
     );
 
-    await screen.findByText("NOT LIVE — no client can launch");
-    expect(container.textContent).toContain(
-      "NO client can launch an outbound campaign",
-    );
-    expect(screen.queryByText("LIVE — we may lawfully dial")).toBeNull();
+    // D-692: the server's is_live wins over a reassuring status, and not live is no
+    // longer a launch blocker.
+    await screen.findByText("NOT REQUIRED (D-692)");
+    expect(screen.queryByText("LIVE — on record")).toBeNull();
   });
 
   it("keeps the registration form dead while the session lacks the permission", async () => {

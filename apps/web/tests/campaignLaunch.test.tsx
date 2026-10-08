@@ -183,7 +183,7 @@ describe("the launch panel with blockers outstanding", () => {
       check(
         { rule: "no_contacts", reason: "The campaign has no contacts." },
         { rule: "agent_not_live", reason: "The agent is not published." },
-        { rule: "dlt_template_missing", reason: "No DLT template attached." },
+        { rule: "outbound_pledge_missing", reason: "Accept the no-cold-calls pledge first." },
       ),
     );
 
@@ -193,7 +193,7 @@ describe("the launch panel with blockers outstanding", () => {
     expect(container.querySelectorAll("li")).toHaveLength(3);
     expect(container.textContent).toContain("Upload the contact list.");
     expect(container.textContent).toContain("Your agent has to be published");
-    expect(container.textContent).toContain("Attach the DLT voice template");
+    expect(container.textContent).toContain("Accept the no-cold-calls pledge first.");
 
     // Disabled WITH the reasons, never absent. There is exactly one launch control and
     // it cannot be pressed.

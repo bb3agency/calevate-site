@@ -707,6 +707,311 @@
         "title": "AdminInvoiceOut",
         "type": "object"
       },
+      "AdminKycOut": {
+        "additionalProperties": false,
+        "properties": {
+          "digilocker_outstanding": {
+            "title": "Digilocker Outstanding",
+            "type": "boolean"
+          },
+          "digilocker_required": {
+            "title": "Digilocker Required",
+            "type": "boolean"
+          },
+          "digilocker_required_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Digilocker Required At"
+          },
+          "digilocker_required_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Digilocker Required Reason"
+          },
+          "digilocker_verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Digilocker Verified At"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/KycDocumentOut"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "entity_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Type"
+          },
+          "gst_registered": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gst Registered"
+          },
+          "gstin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gstin"
+          },
+          "is_verified": {
+            "title": "Is Verified",
+            "type": "boolean"
+          },
+          "kyc_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kyc Path"
+          },
+          "legal_business_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legal Business Name"
+          },
+          "name_match": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name Match"
+          },
+          "owner_id_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id Masked"
+          },
+          "owner_id_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id Type"
+          },
+          "owner_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Name"
+          },
+          "pledge_accepted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pledge Accepted At"
+          },
+          "pledge_accepted_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pledge Accepted Version"
+          },
+          "pledge_current_version": {
+            "title": "Pledge Current Version",
+            "type": "integer"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "verification_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Provider"
+          },
+          "verification_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Reference"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          },
+          "verified_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified Name"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "recorded",
+          "status",
+          "kyc_path",
+          "entity_type",
+          "legal_business_name",
+          "gst_registered",
+          "gstin",
+          "owner_name",
+          "owner_id_type",
+          "owner_id_masked",
+          "verified_name",
+          "name_match",
+          "verification_provider",
+          "verification_reference",
+          "rejection_reason",
+          "submitted_at",
+          "verified_at",
+          "is_verified",
+          "digilocker_required",
+          "digilocker_required_reason",
+          "digilocker_required_at",
+          "digilocker_verified_at",
+          "digilocker_outstanding",
+          "documents",
+          "pledge_accepted_version",
+          "pledge_accepted_at",
+          "pledge_current_version"
+        ],
+        "title": "AdminKycOut",
+        "type": "object"
+      },
       "AdminMeOut": {
         "additionalProperties": false,
         "description": "The admin realm's own identity document.\n\n`MeOut` (tenancy/routes.py) minus everything that is a property of a TENANT. There\nis no `organization`, because an admin principal resolved without\n`X-Impersonate-Org` has no tenant at all; and no `impersonating`, because a console\nscreen that had to enter a client to ask who it was is precisely the shape this\nroute removes. What is left \u2014 the role and the permission set \u2014 is the whole of what\nthe console legitimately needs to preview its own gates.",
@@ -2520,12 +2825,45 @@
         "title": "Body_submit_v1_compliance_carrier_application_post",
         "type": "object"
       },
+      "Body_upload_document_v1_compliance_kyc_documents_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "slot": {
+            "title": "Slot",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slot",
+          "kind",
+          "file"
+        ],
+        "title": "Body_upload_document_v1_compliance_kyc_documents_post",
+        "type": "object"
+      },
       "Body_upload_document_v1_kb_uploads_post": {
         "properties": {
           "agent_id": {
-            "format": "uuid",
-            "title": "Agent Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "deprecated": true,
+            "description": "Deprecated and ignored: knowledge is shared by every agent of the account (D-689).",
+            "title": "Agent Id"
           },
           "file": {
             "contentMediaType": "application/octet-stream",
@@ -2545,7 +2883,6 @@
           }
         },
         "required": [
-          "agent_id",
           "file"
         ],
         "title": "Body_upload_document_v1_kb_uploads_post",
@@ -2717,6 +3054,138 @@
           "address"
         ],
         "title": "Branch",
+        "type": "object"
+      },
+      "BusinessDetailsIn": {
+        "additionalProperties": false,
+        "description": "The legal facts a numbering application in the client's own name needs.",
+        "properties": {
+          "entity_type": {
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "gst_registered": {
+            "title": "Gst Registered",
+            "type": "boolean"
+          },
+          "gstin": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gstin"
+          },
+          "legal_business_name": {
+            "maxLength": 200,
+            "minLength": 2,
+            "title": "Legal Business Name",
+            "type": "string"
+          },
+          "owner_name": {
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Owner Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_type",
+          "legal_business_name",
+          "gst_registered",
+          "owner_name"
+        ],
+        "title": "BusinessDetailsIn",
+        "type": "object"
+      },
+      "BusinessDetailsOut": {
+        "additionalProperties": false,
+        "description": "The voice platform's business-details application, which India requires before it\nrents a number (D-691). `available` is False on a deployment whose numbers are not the\nplatform's; every other field is then empty.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "business_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Name"
+          },
+          "can_rent": {
+            "title": "Can Rent",
+            "type": "boolean"
+          },
+          "lapsed": {
+            "title": "Lapsed",
+            "type": "boolean"
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform"
+          },
+          "review_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Note"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          }
+        },
+        "required": [
+          "available",
+          "platform",
+          "status",
+          "business_name",
+          "can_rent",
+          "submitted_at",
+          "review_note",
+          "lapsed"
+        ],
+        "title": "BusinessDetailsOut",
         "type": "object"
       },
       "BuyNumberIn": {
@@ -5482,6 +5951,40 @@
           "loosening_confirmation"
         ],
         "title": "CommercialTermsOut",
+        "type": "object"
+      },
+      "CompleteVerificationIn": {
+        "additionalProperties": false,
+        "properties": {
+          "provider_ref": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Provider Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider_ref"
+        ],
+        "title": "CompleteVerificationIn",
+        "type": "object"
+      },
+      "CompleteVerificationOut": {
+        "additionalProperties": false,
+        "properties": {
+          "record": {
+            "$ref": "#/components/schemas/apps__api__compliance__kyc_routes__KycRecordOut"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "record"
+        ],
+        "title": "CompleteVerificationOut",
         "type": "object"
       },
       "ConcludeExperimentIn": {
@@ -8284,6 +8787,32 @@
         "title": "DeliveryPayloadOut",
         "type": "object"
       },
+      "DigiLockerRequirementIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "required"
+        ],
+        "title": "DigiLockerRequirementIn",
+        "type": "object"
+      },
       "DisclosureIn": {
         "additionalProperties": false,
         "description": "Which notices this agent volunteers. `null` on a field leaves it alone.\n\nTwo nullable booleans rather than two endpoints: the pair is one posture, a screen\nwith two switches sends whichever one moved, and a PATCH that could only send both\nwould make flipping one switch a read-modify-write race against the other.",
@@ -9452,6 +9981,18 @@
               }
             ],
             "title": "Engine Owned"
+          },
+          "number_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number Id"
           },
           "provider": {
             "anyOf": [
@@ -11783,6 +12324,17 @@
             ],
             "title": "On Duty Member Id"
           },
+          "platform_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform Note"
+          },
           "published": {
             "title": "Published",
             "type": "boolean"
@@ -12039,6 +12591,22 @@
             "title": "Added",
             "type": "boolean"
           },
+          "band": {
+            "anyOf": [
+              {
+                "enum": [
+                  "standard",
+                  "premium",
+                  "studio"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Band"
+          },
           "curated_at": {
             "anyOf": [
               {
@@ -12082,6 +12650,17 @@
             "title": "Live Agents",
             "type": "integer"
           },
+          "not_sold_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Sold Reason"
+          },
           "offered": {
             "title": "Offered",
             "type": "boolean"
@@ -12106,12 +12685,23 @@
             "title": "Preview Source"
           },
           "rung": {
-            "enum": [
-              "clear",
-              "studio"
+            "anyOf": [
+              {
+                "enum": [
+                  "clear",
+                  "studio"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Rung",
-            "type": "string"
+            "title": "Rung"
+          },
+          "sold": {
+            "title": "Sold",
+            "type": "boolean"
           },
           "source": {
             "enum": [
@@ -12157,6 +12747,9 @@
           "label",
           "source",
           "rung",
+          "band",
+          "sold",
+          "not_sold_reason",
           "is_custom",
           "accent",
           "description",
@@ -12200,9 +12793,32 @@
             "title": "Available",
             "type": "boolean"
           },
+          "bands": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Bands",
+            "type": "object"
+          },
           "cached": {
             "title": "Cached",
             "type": "integer"
+          },
+          "clear_band": {
+            "anyOf": [
+              {
+                "enum": [
+                  "standard",
+                  "premium",
+                  "studio"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clear Band"
           },
           "note": {
             "title": "Note",
@@ -12212,15 +12828,7 @@
             "title": "Offered",
             "type": "integer"
           },
-          "scope": {
-            "enum": [
-              "added",
-              "all"
-            ],
-            "title": "Scope",
-            "type": "string"
-          },
-          "studio_workspace_id": {
+          "plan_note": {
             "anyOf": [
               {
                 "type": "string"
@@ -12229,7 +12837,19 @@
                 "type": "null"
               }
             ],
-            "title": "Studio Workspace Id"
+            "title": "Plan Note"
+          },
+          "scope": {
+            "enum": [
+              "added",
+              "all"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "studio_ready": {
+            "title": "Studio Ready",
+            "type": "boolean"
           },
           "voices": {
             "items": {
@@ -12245,8 +12865,11 @@
           "voices",
           "cached",
           "offered",
-          "studio_workspace_id",
-          "note"
+          "studio_ready",
+          "clear_band",
+          "note",
+          "bands",
+          "plan_note"
         ],
         "title": "HostedVoicesOut",
         "type": "object"
@@ -13851,6 +14474,58 @@
         "title": "KnowledgeGapOut",
         "type": "object"
       },
+      "KycDocumentOut": {
+        "additionalProperties": false,
+        "description": "One file on record. Metadata only; the bytes are never returned to the client.",
+        "properties": {
+          "content_type": {
+            "title": "Content Type",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "held": {
+            "title": "Held",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "slot": {
+            "title": "Slot",
+            "type": "string"
+          },
+          "uploaded_at": {
+            "format": "date-time",
+            "title": "Uploaded At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slot",
+          "kind",
+          "filename",
+          "content_type",
+          "size_bytes",
+          "uploaded_at",
+          "held"
+        ],
+        "title": "KycDocumentOut",
+        "type": "object"
+      },
       "KycRecordIn": {
         "additionalProperties": false,
         "description": "What an operator recorded after verifying a business's identity (R-11).\n\nDeliberately NOT a document upload. Indian business-connection KYC is satisfied\nagainst the entity's registry documents (DoT's Aug-2023/May-2024 business-connection\ninstructions \u2014 see `apps/api/compliance/kyc.py` for the sources), and the documents\nthemselves belong with the licensee's Customer Acquisition Form, not in our\ndatabase. What we keep is the REFERENCE: which registry, which identifier, who\nsigned, and where the pack is filed. There is no field here that could carry an\nAadhaar or a personal PAN, and a DB CHECK stands behind that.\n\n`verified_at` is absent on purpose and is stamped by the database. An operator who\ncould supply the date a verification happened could supply any date, and the whole\nvalue of that column to an auditor is that it records when the system observed the\nfact \u2014 `dlt_registrations.verified_at` means the same thing for the same reason.",
@@ -13959,6 +14634,120 @@
           "status"
         ],
         "title": "KycRecordIn",
+        "type": "object"
+      },
+      "KycReviewIn": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "document_ref": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Ref"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "KycReviewIn",
+        "type": "object"
+      },
+      "KycReviewItem": {
+        "additionalProperties": false,
+        "properties": {
+          "digilocker_required": {
+            "title": "Digilocker Required",
+            "type": "boolean"
+          },
+          "kyc_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kyc Path"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_id_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id Type"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "name",
+          "slug",
+          "status",
+          "kyc_path",
+          "owner_id_type",
+          "digilocker_required",
+          "submitted_at"
+        ],
+        "title": "KycReviewItem",
         "type": "object"
       },
       "LaneOut": {
@@ -15687,9 +16476,18 @@
         "additionalProperties": false,
         "properties": {
           "agent_id": {
-            "format": "uuid",
-            "title": "Agent Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "deprecated": true,
+            "description": "Deprecated and ignored: knowledge is shared by every agent of the account (D-689).",
+            "title": "Agent Id"
           },
           "name": {
             "anyOf": [
@@ -15712,7 +16510,6 @@
           }
         },
         "required": [
-          "agent_id",
           "url"
         ],
         "title": "LinkIn",
@@ -16294,6 +17091,32 @@
           "announced"
         ],
         "title": "MaintenanceWindowOut",
+        "type": "object"
+      },
+      "ManualSubmitIn": {
+        "additionalProperties": false,
+        "description": "The owner ID the uploaded file shows. For Aadhaar, ONLY the last four digits.",
+        "properties": {
+          "owner_id_number": {
+            "maxLength": 10,
+            "minLength": 4,
+            "title": "Owner Id Number",
+            "type": "string"
+          },
+          "owner_id_type": {
+            "enum": [
+              "aadhaar",
+              "pan"
+            ],
+            "title": "Owner Id Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner_id_type",
+          "owner_id_number"
+        ],
+        "title": "ManualSubmitIn",
         "type": "object"
       },
       "MarginOut": {
@@ -17150,6 +17973,18 @@
             "title": "Number Id",
             "type": "string"
           },
+          "platform_attachment": {
+            "default": "not_applicable",
+            "enum": [
+              "not_applicable",
+              "unchanged",
+              "applied",
+              "partial",
+              "refused"
+            ],
+            "title": "Platform Attachment",
+            "type": "string"
+          },
           "released": {
             "title": "Released",
             "type": "integer"
@@ -17804,6 +18639,82 @@
           "outbound_requires_consent"
         ],
         "title": "OutboundConsentPolicyOut",
+        "type": "object"
+      },
+      "OutboundPledgeIn": {
+        "additionalProperties": false,
+        "description": "Echoes what the screen showed, so a page rendered before a new version cannot\naccept words the client never saw.",
+        "properties": {
+          "text_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Text Sha256",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "text_sha256"
+        ],
+        "title": "OutboundPledgeIn",
+        "type": "object"
+      },
+      "OutboundPledgeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted At"
+          },
+          "accepted_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Version"
+          },
+          "is_current": {
+            "title": "Is Current",
+            "type": "boolean"
+          },
+          "pledge_text": {
+            "title": "Pledge Text",
+            "type": "string"
+          },
+          "text_sha256": {
+            "title": "Text Sha256",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "pledge_text",
+          "text_sha256",
+          "accepted_version",
+          "accepted_at",
+          "is_current"
+        ],
+        "title": "OutboundPledgeOut",
         "type": "object"
       },
       "OverridePackOut": {
@@ -20307,6 +21218,58 @@
         "title": "RecordConsentIn",
         "type": "object"
       },
+      "RecordEngineNumberIn": {
+        "additionalProperties": false,
+        "description": "A number from the platform's own list, recorded for this client (D-691).\n\nOnly the number is taken from the screen: the vendor's handle, whether it is rented and\nwhich series it is are read from the platform's list and its own digits, never typed.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "direction": {
+            "default": "both",
+            "enum": [
+              "inbound",
+              "outbound",
+              "both"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "e164": {
+            "maxLength": 20,
+            "minLength": 8,
+            "pattern": "^\\+[1-9]\\d{7,18}$",
+            "title": "E164",
+            "type": "string"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          }
+        },
+        "required": [
+          "e164"
+        ],
+        "title": "RecordEngineNumberIn",
+        "type": "object"
+      },
       "RecordOperatorOptInIn": {
         "additionalProperties": false,
         "description": "An operator recording that the owner already agreed. Carries the document.",
@@ -20381,6 +21344,56 @@
           "margin"
         ],
         "title": "RecordTermsOut",
+        "type": "object"
+      },
+      "RecordedEngineNumberOut": {
+        "additionalProperties": false,
+        "properties": {
+          "client_inr_per_month": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Inr Per Month"
+          },
+          "e164": {
+            "title": "E164",
+            "type": "string"
+          },
+          "number_id": {
+            "format": "uuid",
+            "title": "Number Id",
+            "type": "string"
+          },
+          "platform_attachment": {
+            "enum": [
+              "not_applicable",
+              "unchanged",
+              "applied",
+              "partial",
+              "refused"
+            ],
+            "title": "Platform Attachment",
+            "type": "string"
+          },
+          "series": {
+            "title": "Series",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number_id",
+          "e164",
+          "series",
+          "client_inr_per_month",
+          "platform_attachment"
+        ],
+        "title": "RecordedEngineNumberOut",
         "type": "object"
       },
       "RecordingLinkOut": {
@@ -22517,11 +23530,6 @@
       "SourceOut": {
         "additionalProperties": false,
         "properties": {
-          "agent_id": {
-            "format": "uuid",
-            "title": "Agent Id",
-            "type": "string"
-          },
           "chunks": {
             "title": "Chunks",
             "type": "integer"
@@ -22566,7 +23574,6 @@
         },
         "required": [
           "id",
-          "agent_id",
           "name",
           "kind",
           "status",
@@ -23150,6 +24157,15 @@
           "entity_type": {
             "title": "Entity Type",
             "type": "string"
+          },
+          "id_document": {
+            "default": "aadhaar",
+            "enum": [
+              "aadhaar",
+              "pan"
+            ],
+            "title": "Id Document",
+            "type": "string"
           }
         },
         "required": [
@@ -23267,7 +24283,7 @@
         "title": "StatementSummaryOut",
         "type": "object"
       },
-      "StudioSetupIn": {
+      "StudioEnableIn": {
         "additionalProperties": false,
         "properties": {
           "model": {
@@ -23281,36 +24297,28 @@
               }
             ],
             "title": "Model"
-          },
-          "workspace_id": {
-            "anyOf": [
-              {
-                "maxLength": 128,
-                "pattern": "^org_[A-Za-z0-9_-]+$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Workspace Id"
           }
         },
-        "title": "StudioSetupIn",
+        "title": "StudioEnableIn",
         "type": "object"
       },
-      "StudioWorkspaceOut": {
+      "StudioVoicesOut": {
         "additionalProperties": false,
         "properties": {
+          "cartesia_key_configured": {
+            "title": "Cartesia Key Configured",
+            "type": "boolean"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
           "key": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/OwnVoiceKeyOut"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/components/schemas/OwnVoiceKeyOut"
+          },
+          "live_studio_agents": {
+            "title": "Live Studio Agents",
+            "type": "integer"
           },
           "note": {
             "title": "Note",
@@ -23319,26 +24327,17 @@
           "ready": {
             "title": "Ready",
             "type": "boolean"
-          },
-          "workspace_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Workspace Id"
           }
         },
         "required": [
-          "workspace_id",
           "key",
           "ready",
+          "cartesia_key_configured",
+          "live_studio_agents",
+          "explanation",
           "note"
         ],
-        "title": "StudioWorkspaceOut",
+        "title": "StudioVoicesOut",
         "type": "object"
       },
       "SubjectExportCallOut": {
@@ -23980,9 +24979,18 @@
         "additionalProperties": false,
         "properties": {
           "agent_id": {
-            "format": "uuid",
-            "title": "Agent Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "deprecated": true,
+            "description": "Deprecated and ignored: knowledge is shared by every agent of the account (D-689).",
+            "title": "Agent Id"
           },
           "body": {
             "maxLength": 200000,
@@ -24020,7 +25028,6 @@
           }
         },
         "required": [
-          "agent_id",
           "name",
           "body"
         ],
@@ -27094,11 +28101,6 @@
         "additionalProperties": false,
         "description": "One uploaded document or link, as a client's screen shows it.\n\nTHE TWO STATES ARE SEPARATE FIELDS BECAUSE THEY ARE SEPARATE FACTS, and collapsing\nthem into one \"status\" is the mistake this model exists to avoid. `ingest_status` is\nhow far the machinery got (are the bytes read, has the voice platform indexed them);\n`review_state` is whether it is approved \u2014 on submission for the account's own people\n(D-658), by an admin for anything else. A document can be `processed` and still\n`pending_approval` \u2014 read, ready, and deliberately not live.",
         "properties": {
-          "agent_id": {
-            "format": "uuid",
-            "title": "Agent Id",
-            "type": "string"
-          },
           "byte_size": {
             "anyOf": [
               {
@@ -27228,7 +28230,6 @@
         "required": [
           "id",
           "source_id",
-          "agent_id",
           "name",
           "source_kind",
           "ingest_status",
@@ -27812,6 +28813,20 @@
         "additionalProperties": false,
         "description": "What one operator-triggered voice sync did.\n\n`pruned is None` is not zero: the engine's listing was INCOMPLETE and pruning was\ndeliberately skipped, so a voice the platform has withdrawn is still in the cache. That\nis a different fact from \"nothing needed removing\" and the console must be able to say\nwhich \u2014 see `agents/voice_sync.VoiceSyncResult`.",
         "properties": {
+          "bands": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bands"
+          },
           "complete": {
             "title": "Complete",
             "type": "boolean"
@@ -28610,6 +29625,25 @@
         "additionalProperties": false,
         "description": "This account's identity verification, as ops last recorded it.\n\nEvery field except `recorded`, `is_verified` and `number_purchase_available` is\nnullable, because all of them are genuinely absent before anything is filed.\n`is_verified` is computed server-side for the same reason `PeRegistrationOut`'s\n`is_active` is: \"is `in_review` good enough\" is a question the console must not\nanswer for itself, and this response and the dispatch gate must never disagree.",
         "properties": {
+          "digilocker_outstanding": {
+            "title": "Digilocker Outstanding",
+            "type": "boolean"
+          },
+          "digilocker_required": {
+            "title": "Digilocker Required",
+            "type": "boolean"
+          },
+          "digilocker_required_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Digilocker Required Reason"
+          },
           "document_kind": {
             "anyOf": [
               {
@@ -28631,6 +29665,13 @@
               }
             ],
             "title": "Document Ref"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/KycDocumentOut"
+            },
+            "title": "Documents",
+            "type": "array"
           },
           "entity_type": {
             "anyOf": [
@@ -28654,13 +29695,90 @@
             ],
             "title": "Evidence Ref"
           },
+          "gst_registered": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gst Registered"
+          },
+          "gstin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gstin"
+          },
           "is_verified": {
             "title": "Is Verified",
             "type": "boolean"
           },
+          "kyc_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kyc Path"
+          },
+          "legal_business_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legal Business Name"
+          },
+          "name_match": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name Match"
+          },
           "number_purchase_available": {
             "title": "Number Purchase Available",
             "type": "boolean"
+          },
+          "owner_id_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id Masked"
+          },
+          "owner_id_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id Type"
           },
           "recorded": {
             "title": "Recorded",
@@ -28789,7 +29907,18 @@
           "verified_name",
           "is_verified",
           "self_verification_available",
-          "number_purchase_available"
+          "number_purchase_available",
+          "kyc_path",
+          "legal_business_name",
+          "gst_registered",
+          "gstin",
+          "owner_id_type",
+          "owner_id_masked",
+          "name_match",
+          "digilocker_required",
+          "digilocker_required_reason",
+          "digilocker_outstanding",
+          "documents"
         ],
         "title": "KycRecordOut",
         "type": "object"
@@ -29454,6 +30583,53 @@
         "x-calevate-permission": "admin:impersonate"
       }
     },
+    "/v1/admin/kyc/reviews": {
+      "get": {
+        "description": "Built the way `admin/holds.held_tenants` is: the admin GUC lists organizations, and\neach tenant's record is read under its OWN RLS session, so no policy is widened to\nlet an admin session read `kyc_records`. Oldest submission first.",
+        "operationId": "kyc_review_queue_v1_admin_kyc_reviews_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/KycReviewItem"
+                  },
+                  "title": "Response Kyc Review Queue V1 Admin Kyc Reviews Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Clients whose identity verification is waiting for a reviewer",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/me": {
       "get": {
         "description": "The admin console's answer to 'who am I and what may I do'. Authenticates an admin token with NO impersonation header and reads no tenant: the role comes from `admin_users` and the permission set from the role table, so nothing here depends on which client happens to be open.",
@@ -29662,6 +30838,35 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/numbers/engine/business-details": {
+      "get": {
+        "description": "Read live from the voice platform on every request. Read-only: the details are sent in the platform's own console.",
+        "operationId": "engine_business_details_v1_admin_numbers_engine_business_details_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BusinessDetailsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The voice platform's business-details application status",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/numbers/tenants/{tenant_id}": {
       "get": {
         "description": "Read under the tenant's own RLS, so one client's numbers is exactly what comes back.\n\nTHE LIMIT IS IN THE QUERY, not applied to a full result in Python: a client with a\nthousand numbers is not a realistic account, but \"not realistic\" is not a bound, and a\ntrim after the fact still pays for the read (`check_list_bounds`'s whole subject).\nReleased numbers are INCLUDED \u2014 a closed month's cost still refers to them, and an\noperator asking \"what have we paid for this client\" needs the ones we gave back.\n\n**AND IT RECORDS THE READ** (SEC-COMP \u00a75, D-482 L-1). This is an admin-realm GET of one\nclient's tenant-scoped rows OUTSIDE impersonation, which is exactly the shape that has\nto leave a trail: a client's telephone numbers are their business data, and \"who looked\nat this account and when\" is not answerable afterwards unless the read says so itself.\nWritten LATE, in the same transaction, so the row and the read commit together.",
@@ -29805,6 +31010,57 @@
           }
         },
         "summary": "Numbers held at the voice platform's own console, and how to attach one",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/numbers/tenants/{tenant_id}/engine/record": {
+      "post": {
+        "description": "For a number rented in the voice platform's own console. Refused with `engine_number_not_held` when the platform does not hold it, `engine_number_answered_by_other_client` when another client's agent answers it, `number_taken` when it is already recorded, and `number_price_not_attested` for a rented number while no monthly price is attested. A rented number's first month is collected now and it renews monthly from today.",
+        "operationId": "record_tenant_engine_number_v1_admin_numbers_tenants__tenant_id__engine_record_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordEngineNumberIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordedEngineNumberOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record a number the voice platform holds for this client, price it, attach it",
         "tags": [
           "admin"
         ],
@@ -33483,6 +34739,44 @@
       }
     },
     "/v1/admin/tenants/{tenant_id}/kyc": {
+      "get": {
+        "operationId": "read_tenant_kyc_v1_admin_tenants__tenant_id__kyc_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminKycOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One client's identity verification, documents on file and pledge",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      },
       "post": {
         "description": "Records what Calevate verified about a client's business, against which registry document, and who verified it. Upserts: re-recording is what happens on every re-verification. Only a `verified` record clears the identity gate (every plan tier) and opens outbound dialling for a self-serve account. There is deliberately no client-facing twin \u2014 a business that could mark its own identity verified would be marking the telecom gate green on a check nobody performed.",
         "operationId": "record_kyc_verification_v1_admin_tenants__tenant_id__kyc_post",
@@ -33527,6 +34821,155 @@
           }
         },
         "summary": "Record the outcome of verifying this business's identity (R-11's last gate)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/kyc/digilocker-requirement": {
+      "post": {
+        "description": "Requiring blocks this client's OUTBOUND calls until a DigiLocker verification completes after this moment; inbound calls are unaffected. Clearing lifts it.",
+        "operationId": "set_tenant_digilocker_requirement_v1_admin_tenants__tenant_id__kyc_digilocker_requirement_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DigiLockerRequirementIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminKycOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Require (or stop requiring) a DigiLocker verification for this client",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/kyc/documents/{document_id}": {
+      "get": {
+        "description": "Decrypted in memory and returned as an attachment; never via a presigned URL,\nbecause the stored object is ciphertext and the key is ours.",
+        "operationId": "download_kyc_document_v1_admin_tenants__tenant_id__kyc_documents__document_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {}
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Download one KYC file, decrypted, for review",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/kyc/review": {
+      "post": {
+        "description": "Approving records the business as verified against its certificate and registry number; rejecting needs a reason the client is shown. Either way the owner's ID file is deleted and only its type and masked number are kept.",
+        "operationId": "review_kyc_v1_admin_tenants__tenant_id__kyc_review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KycReviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminKycOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Approve or reject a client's identity verification",
         "tags": [
           "admin"
         ],
@@ -33775,7 +35218,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/numbers": {
       "post": {
-        "description": "Records a telephone number Calevate provides for this client on its own carrier account (Vobiz), so the campaign launch gate can match its series against a campaign's classification. The client opens no operator account and issues no credentials. `dlt_status` starts `pending` and is a separate, deliberate step.",
+        "description": "Records a telephone number Calevate provides for this client on its own carrier account (Vobiz), so the campaign launch gate can match its series against a campaign's classification. The client opens no operator account and issues no credentials. `dlt_status` starts `pending` and is a separate, deliberate step. A number held on the voice platform (`provider: thinnest`) must be on the platform's own list (`engine_number_not_held`), may not be another client's line (`engine_number_answered_by_other_client`), and a rented one is priced from the attested monthly rate with its first month collected.",
         "operationId": "provision_number_v1_admin_tenants__tenant_id__numbers_post",
         "parameters": [
           {
@@ -39434,6 +40877,123 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/compliance/kyc/details": {
+      "put": {
+        "description": "Needed on both verification paths. Locked once a reviewer has the record or it is verified. A GSTIN is required when the business is GST-registered.",
+        "operationId": "save_details_v1_compliance_kyc_details_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BusinessDetailsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/apps__api__compliance__kyc_routes__KycRecordOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Save this business's legal name, GST status and owner name",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/compliance/kyc/documents": {
+      "post": {
+        "description": "`slot` is `business` (kind `gst`, `incorporation` or `udyam`) or `owner_id` (kind `aadhaar` \u2014 the masked copy only \u2014 or `pan_card`). PDF, JPEG or PNG, at most 5 MB, a filename of at most 99 characters. Files are encrypted before storage. The owner's ID is deleted once a reviewer decides, or after 30 days if nobody does.",
+        "operationId": "upload_document_v1_compliance_kyc_documents_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_document_v1_compliance_kyc_documents_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KycDocumentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Upload the business certificate or the owner's ID",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/compliance/kyc/submit": {
+      "post": {
+        "description": "The manual path: needs the business details, the business certificate and the owner's ID on file. For a PAN send the full PAN (only a masked form is kept); for an Aadhaar send ONLY its last four digits.",
+        "operationId": "submit_for_review_v1_compliance_kyc_submit_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualSubmitIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/apps__api__compliance__kyc_routes__KycRecordOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Send the uploaded documents for review",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/compliance/kyc/verification": {
       "post": {
         "description": "Opens a verification run and returns the provider URL to send the signed-in user to. Calevate receives only whether it succeeded, the provider's reference and the verified name \u2014 never an Aadhaar number, a PAN or a document. A sole proprietorship is verified outright; for any other entity type this verifies the authorised signatory and Calevate operations still checks the business against its public registry entry.",
@@ -39467,6 +41027,45 @@
           }
         },
         "summary": "Begin verifying this business's identity with a licensed aggregator",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/compliance/kyc/verification/complete": {
+      "post": {
+        "description": "Asks the provider, with Calevate's own credentials, how this run ended and records the result. The run must be one this account opened. Calevate keeps the result, the ID type, the verified name, a masked ID number and the provider's reference \u2014 never the document.",
+        "operationId": "complete_verification_v1_compliance_kyc_verification_complete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteVerificationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompleteVerificationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Finish a DigiLocker verification when the client returns from the provider",
         "tags": [
           "compliance"
         ],
@@ -39548,6 +41147,71 @@
           "compliance"
         ],
         "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/compliance/outbound-pledge": {
+      "get": {
+        "operationId": "read_outbound_pledge_v1_compliance_outbound_pledge_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboundPledgeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The no-cold-calls pledge and whether this account has accepted it",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "post": {
+        "description": "Records who accepted which version, when and from which address. Outbound calling needs a current acceptance; a new version needs accepting again.",
+        "operationId": "accept_outbound_pledge_v1_compliance_outbound_pledge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OutboundPledgeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboundPledgeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Accept the current no-cold-calls pledge",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/compliance/subject-export": {
@@ -40692,7 +42356,7 @@
         "x-calevate-permission": "agents:read"
       },
       "post": {
-        "description": "An account member's submission (the owner, or staff the owner lets curate) is approved on submission and published to the agent by a background job: `status` is `approved`, and the source turns live once that job has run and the agent is published. A view-as session's submission is `pending_approval` and waits for an admin.",
+        "description": "An account member's submission (the owner, or staff the owner lets curate) is approved on submission and published to every agent of the account by a background job: `status` is `approved`, and the source turns live once that job has run. A view-as session's submission is `pending_approval` and waits for an admin.",
         "operationId": "submit_v1_kb_sources_post",
         "requestBody": {
           "content": {
@@ -40722,7 +42386,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Add knowledge \u2014 an account member's goes to the agent without review",
+        "summary": "Add knowledge \u2014 an account member's goes to every agent without review",
         "tags": [
           "knowledge-base"
         ],
@@ -40843,6 +42507,8 @@
         "operationId": "list_uploads_v1_kb_uploads_get",
         "parameters": [
           {
+            "deprecated": true,
+            "description": "Deprecated and ignored: knowledge is shared by every agent of the account (D-689).",
             "in": "query",
             "name": "agent_id",
             "required": false,
@@ -40856,6 +42522,8 @@
                   "type": "null"
                 }
               ],
+              "deprecated": true,
+              "description": "Deprecated and ignored: knowledge is shared by every agent of the account (D-689).",
               "title": "Agent Id"
             }
           },
@@ -40965,7 +42633,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Remove a document or link from the agent, and delete it",
+        "summary": "Remove a document or link from every agent, and delete it",
         "tags": [
           "knowledge-base"
         ],
@@ -45511,7 +47179,7 @@
     },
     "/v1/ops/voices/hosted": {
       "get": {
-        "description": "On a voice platform that hosts its own voices: by default the voices an operator added; `?scope=all` adds every voice the last sync read. Only ADDED and ENABLED voices are offered to clients. `available` is false on a platform whose voices come from Calevate's own catalogue.",
+        "description": "On a voice platform that hosts its own voices: by default the voices an operator added; `?scope=all` adds every voice the last sync read, in every band the platform lists, with `band` and `sold`. Only ADDED and ENABLED voices in a sold band are offered to clients; `plan_note` says why when the platform lists none in the band we sell. `available` is false on a platform whose voices come from Calevate's own catalogue.",
         "operationId": "list_hosted_v1_ops_voices_hosted_get",
         "parameters": [
           {
@@ -45591,7 +47259,7 @@
         "x-calevate-permission": "ops:manage"
       },
       "post": {
-        "description": "Marks a voice the last sync read as ADDED. It arrives disabled, so a client cannot choose it until it is enabled; give it a preview first. Idempotent.",
+        "description": "Marks a voice the last sync read as ADDED. It arrives disabled, so a client cannot choose it until it is enabled; give it a preview first. Only a voice in a band we sell (the platform's band sold as Clear, or a Studio voice of our own key) can be added: any other is refused with `voice_band_not_sold`. Idempotent.",
         "operationId": "add_hosted_v1_ops_voices_hosted_post",
         "requestBody": {
           "content": {
@@ -45755,7 +47423,7 @@
     },
     "/v1/ops/voices/refresh": {
       "post": {
-        "description": "Reads the voice platform account's own TTS voice list into the cache the admin console's Voices page is built from. Use it after importing or cloning a voice with your TTS vendor, or after adding one with Add Voice \u2014 the hourly job would otherwise take up to an hour to notice. Where the voice platform keeps no catalogue of its own there is nothing to re-read, and the returned note says so. A NEWLY SEEN VOICE ARRIVES DISABLED and has to be enabled on that page before anybody can be put on it (D-588), so this alone changes what nobody may choose. It changes no agent and no call either: an agent already speaking a voice keeps speaking it whatever this returns. A sync that reads nothing is refused rather than applied, so a bad credential cannot empty the catalogue.",
+        "description": "Reads the voice platform account's own TTS voice list into the cache the admin console's Voices page is built from. Use it after importing or cloning a voice with your TTS vendor, or after adding one with Add Voice \u2014 the hourly job would otherwise take up to an hour to notice. Where the voice platform keeps no catalogue of its own there is nothing to re-read, and the returned note says so. A NEWLY SEEN VOICE ARRIVES DISABLED and has to be enabled on that page before anybody can be put on it (D-588), so this alone changes what nobody may choose. It changes no agent and no call either: an agent already speaking a voice keeps speaking it whatever this returns. A sync that reads nothing is refused rather than applied, so a bad credential cannot empty the catalogue. On a platform that hosts its own voices every band it lists is cached, `bands` counts them, and the note says so plainly when none is in the band sold as Clear.",
         "operationId": "refresh_voice_catalogue_route_v1_ops_voices_refresh_post",
         "responses": {
           "200": {
@@ -45782,15 +47450,15 @@
         "x-calevate-permission": "ops:manage"
       }
     },
-    "/v1/ops/voices/studio-workspace": {
+    "/v1/ops/voices/studio-voices": {
       "get": {
-        "operationId": "studio_workspace_v1_ops_voices_studio_workspace_get",
+        "operationId": "studio_voices_v1_ops_voices_studio_voices_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StudioWorkspaceOut"
+                  "$ref": "#/components/schemas/StudioVoicesOut"
                 }
               }
             },
@@ -45803,15 +47471,74 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The workspace Studio agents run in, and its voice key",
+        "summary": "Whether Studio voices (our Cartesia key) are switched on in the workspace",
         "tags": [
           "ops"
         ],
         "x-calevate-permission": "ops:manage"
-      },
+      }
+    },
+    "/v1/ops/voices/studio-voices/disable": {
       "post": {
-        "description": "Creates the customer workspace (or uses `workspace_id`), installs our Cartesia key there as its voice key, switches on own keys for the voice only, and records the workspace as `thinnest_studio_workspace_id`. Our developer workspace keeps its own keys off. Idempotent. Requires `X-Confirm-Action: setup_studio_workspace`.",
-        "operationId": "setup_studio_workspace_v1_ops_voices_studio_workspace_post",
+        "description": "Switches the workspace's own keys off and takes every Studio voice off offer. Agents on a Studio voice speak the platform's default voice from their next call, so this is refused with `studio_voices_in_use` while any is published, unless `confirm=true`. Requires `X-Confirm-Action: disable_studio_voices`.",
+        "operationId": "disable_studio_v1_ops_voices_studio_voices_disable_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "confirm",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Confirm",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioVoicesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Switch Studio voices off (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/voices/studio-voices/enable": {
+      "post": {
+        "description": "In order: sets every published agent that is not on a Studio voice to stay on the platform's own voices and reads each back, refusing with `studio_agents_not_kept_off` if any is not; installs our Cartesia key as the workspace's voice key unless one is already there; switches own keys on for the voice only; reads the state back and re-reads the Studio voices. Idempotent. Requires `X-Confirm-Action: enable_studio_voices`.",
+        "operationId": "enable_studio_v1_ops_voices_studio_voices_enable_post",
         "parameters": [
           {
             "in": "header",
@@ -45834,7 +47561,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/StudioSetupIn"
+                "$ref": "#/components/schemas/StudioEnableIn"
               }
             }
           },
@@ -45845,7 +47572,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StudioWorkspaceOut"
+                  "$ref": "#/components/schemas/StudioVoicesOut"
                 }
               }
             },
@@ -45858,7 +47585,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Set up the Studio workspace on our Cartesia key (step-up confirmed, audited)",
+        "summary": "Switch Studio voices on: Clear agents kept off first (step-up confirmed, audited)",
         "tags": [
           "ops"
         ],

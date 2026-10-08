@@ -254,6 +254,33 @@ describe("a number nobody answers says so, and the fix is on the row", () => {
       await screen.findByText(/the voice platform refused the routing/),
     ).toBeTruthy();
   });
+
+  it.each([
+    ["partial", /did not take it — this number may be answered by another agent or none/],
+    ["applied", /the voice platform now agrees which agent answers this number/],
+  ])(
+    "reports the voice platform's own attachment outcome (%s) where it attaches numbers itself",
+    async (outcome, sentence) => {
+      await render({
+        ...healthy([number({ provider: "thinnest" })]),
+        [ATTACH_PATH]: {
+          number_id: NUMBER,
+          agent_id: AGENT,
+          bound: 0,
+          released: 0,
+          failed: 0,
+          unsupported: 1,
+          platform_attachment: outcome,
+        },
+      });
+
+      fireEvent.change(await screen.findByLabelText("Answered by"), {
+        target: { value: AGENT },
+      });
+
+      expect(await screen.findByText(sentence)).toBeTruthy();
+    },
+  );
 });
 
 describe("recording a number is on the numbers screen, not on a campaign screen", () => {

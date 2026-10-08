@@ -520,7 +520,7 @@ async def test_a_campaign_whose_every_contact_opted_out_cannot_launch() -> None:
     assert status == "draft", "a campaign with nothing lawful to dial never starts"
 
 
-async def test_a_number_whose_dlt_registration_is_not_done_cannot_launch() -> None:
+async def test_a_number_whose_dlt_registration_is_not_done_no_longer_blocks_launch() -> None:
     """`phone_numbers.dlt_status` is the number-side twin of the template check, and
     `set_number_dlt_status` exists as a deliberate, audited admin step for exactly the
     reason `set_template_status` does. Dialling from a `pending` or `blocked` number is
@@ -539,15 +539,8 @@ async def test_a_number_whose_dlt_registration_is_not_done_cannot_launch() -> No
             blockers = await campaigns.launch_blockers(
                 session, tenant_id=tenant_id, campaign_id=campaign_id
             )
-            with pytest.raises(ProblemError) as excinfo:
-                await campaigns.launch_campaign(
-                    session, tenant_id=tenant_id, campaign_id=campaign_id
-                )
-        assert [b.rule for b in blockers] == ["number_not_registered"], (
-            dlt_status,
-            [b.rule for b in blockers],
-        )
-        assert excinfo.value.code == "campaign_launch_blocked"
+        # D-692 retired the number's DLT registration from the launch gate.
+        assert "number_not_registered" not in [b.rule for b in blockers], (dlt_status, blockers)
 
 
 async def test_a_partly_scrubbed_list_still_launches() -> None:

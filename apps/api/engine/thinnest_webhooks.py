@@ -5,37 +5,42 @@ DOCS): `POST /webhooks` takes `{agent, url, events}` and returns the endpoint wi
 `signingSecret` "in the create response and nowhere else" (:9-40); `GET /webhooks?agent=`
 lists newest first (:46); `GET /webhooks/{id}` carries `enabled` and `delivery` (:48);
 `PATCH /webhooks/{id}` takes `enabled` and "switching an endpoint back on forgives its past
-failures" (:49, :78-80); `DELETE /webhooks/{id}` removes it (:50). An endpoint failing five
-deliveries in a row is switched off rather than retried (:84-88).
+failures" (:49, :78-80); `DELETE /webhooks/{id}` removes it (:50). The current page
+(`snapshots/2026-10-08/pages/api-reference/webhooks.md`) adds what the sweep relies on: a
+failed attempt is retried after 1m, 5m, 30m, 2h and 6h (:110-117), an endpoint is switched
+off after five events in a row that failed every attempt (:149-155), and
+`POST /webhooks/{id}/redeliver` re-sends what failed in the last 7 days (:157-187).
 
 What crosses out of this module is OURS: `WebhookEndpoint` holds an id, the url we
 registered, `enabled` and the failure count — never `delivery.lastError`, which is the
 vendor's sentence about our endpoint.
-
-An agent in a customer workspace (D-687) has its handle as `<id>@<workspace>`; its endpoint is
-registered inside that workspace and its id is held the same way, so every call below finds
-the right workspace from the handle it is given.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Final
 
 import httpx
-from calevate_shared.engine_scope import scoped_handle, split_handle
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import NO_CREDENTIALS_REASON, engine_not_configured
-from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL, WORKSPACE_HEADER
+from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL, NOTICE_EVENTS
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, vendor_request
 
 ENGINE: Final = "thinnest"
 
-#: The two events the post-call path reads (THINNEST-INTEGRATION §3.1). `lead.captured`
-#: and the conversation events are chat-channel concerns this product does not consume.
-CALL_EVENTS: Final = ("call.completed", "call.analysed")
+#: What each agent's endpoint subscribes to (`snapshots/2026-10-08/pages/api-reference/
+#: webhooks.md:77-85`): the two the post-call path reads (THINNEST-INTEGRATION §3.1), and
+#: `contact.opted_out`, which files the person on the do-not-call list of the client whose
+#: agent heard them (D-691), and the engine's notices (`NOTICE_EVENTS`: `lead.captured`,
+#: `conversation.escalated`, read by `ThinnestEngine.parse_notice`). Sorted, so the order sent
+#: and the order compared are one order.
+SUBSCRIBED_EVENTS: Final = tuple(
+    sorted({"call.analysed", "call.completed", "contact.opted_out", *NOTICE_EVENTS})
+)
 
 #: The query parameter our registered url carries, naming the vendor agent the endpoint
 #: belongs to. The receiver selects the signing secret by it rather than by a body field,
@@ -50,6 +55,8 @@ class WebhookEndpoint:
     url: str | None
     enabled: bool
     failures_in_a_row: int
+    #: What the endpoint is subscribed to, sorted; `("*",)` for every event.
+    events: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,11 +70,10 @@ def _str(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _endpoint(row: dict[str, Any], workspace: str | None) -> WebhookEndpoint:
-    raw = _str(row.get("id"))
-    if raw is None:
+def _endpoint(row: dict[str, Any]) -> WebhookEndpoint:
+    webhook_id = _str(row.get("id"))
+    if webhook_id is None:
         raise _bad("a webhook endpoint without an id")
-    webhook_id = scoped_handle(raw, workspace)
     delivery = row.get("delivery")
     failures = delivery.get("failuresInARow") if isinstance(delivery, dict) else None
     return WebhookEndpoint(
@@ -77,7 +83,14 @@ def _endpoint(row: dict[str, Any], workspace: str | None) -> WebhookEndpoint:
         # on an endpoint that was on, while reading absent as on would leave a dead one.
         enabled=row.get("enabled") is True,
         failures_in_a_row=failures if isinstance(failures, int) else 0,
+        events=_events(row.get("events")),
     )
+
+
+def _events(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(sorted({item for item in value if isinstance(item, str) and item}))
 
 
 def _bad(detail: str) -> ProblemError:
@@ -117,69 +130,76 @@ class ThinnestWebhooks:
         return self._client
 
     async def _request(
-        self, method: str, path: str, *, route: str, workspace: str | None, **kwargs: Any
+        self, method: str, path: str, *, route: str, **kwargs: Any
     ) -> dict[str, Any]:
-        headers = {WORKSPACE_HEADER: workspace} if workspace else {}
         return await vendor_request(
-            self._http(), method, path, engine=ENGINE, route=route, headers=headers, **kwargs
+            self._http(), method, path, engine=ENGINE, route=route, **kwargs
         )
 
     async def create(self, *, engine_agent_ref: str, url: str) -> CreatedEndpoint:
-        agent, workspace = split_handle(engine_agent_ref)
         row = await self._request(
             "POST",
             "/webhooks",
             route="/webhooks",
-            workspace=workspace,
-            json={"agent": agent, "url": url, "events": list(CALL_EVENTS)},
+            json={"agent": engine_agent_ref, "url": url, "events": list(SUBSCRIBED_EVENTS)},
         )
         secret = _str(row.get("signingSecret"))
         if secret is None:
             raise _bad("a created endpoint without its signingSecret")
-        return CreatedEndpoint(endpoint=_endpoint(row, workspace), signing_secret=secret)
+        return CreatedEndpoint(endpoint=_endpoint(row), signing_secret=secret)
 
     async def list_for_agent(self, engine_agent_ref: str) -> list[WebhookEndpoint]:
         """UNVERIFIED: the page documents no cursor for this list (webhooks.md:46), so it is
         read as a single response."""
-        agent, workspace = split_handle(engine_agent_ref)
         payload = await self._request(
-            "GET", "/webhooks", route="/webhooks", workspace=workspace, params={"agent": agent}
+            "GET", "/webhooks", route="/webhooks", params={"agent": engine_agent_ref}
         )
         rows = payload.get("items")
         if not isinstance(rows, list):
             raise _bad("a webhook list without `items`")
-        return [_endpoint(row, workspace) for row in rows if isinstance(row, dict)]
+        return [_endpoint(row) for row in rows if isinstance(row, dict)]
 
     async def get(self, webhook_id: str) -> WebhookEndpoint:
-        raw, workspace = split_handle(webhook_id)
         return _endpoint(
-            await self._request(
-                "GET", f"/webhooks/{raw}", route="/webhooks/{id}", workspace=workspace
-            ),
-            workspace,
+            await self._request("GET", f"/webhooks/{webhook_id}", route="/webhooks/{id}")
         )
 
     async def enable(self, webhook_id: str) -> WebhookEndpoint:
-        raw, workspace = split_handle(webhook_id)
+        return _endpoint(
+            await self._request(
+                "PATCH", f"/webhooks/{webhook_id}", route="/webhooks/{id}", json={"enabled": True}
+            )
+        )
+
+    async def subscribe(self, webhook_id: str, events: tuple[str, ...]) -> WebhookEndpoint:
+        """`PATCH /webhooks/{id}` with `events` (webhooks.md:50): an endpoint registered before
+        a subscription was added is brought up to date in place, keeping its secret."""
         return _endpoint(
             await self._request(
                 "PATCH",
-                f"/webhooks/{raw}",
+                f"/webhooks/{webhook_id}",
                 route="/webhooks/{id}",
-                workspace=workspace,
-                json={"enabled": True},
-            ),
-            workspace,
+                json={"events": list(events)},
+            )
         )
 
+    async def redeliver_since(self, webhook_id: str, since: datetime) -> int:
+        """`POST /webhooks/{id}/redeliver {since}`: every delivery that has not succeeded since
+        `since`, at most 7 days back, queued and sent within a minute with the same event id
+        (`snapshots/2026-10-08/pages/api-reference/webhooks/redeliver-webhook-events.md:7`).
+        Returns the vendor's `queued` count. The endpoint must already be switched on."""
+        payload = await self._request(
+            "POST",
+            f"/webhooks/{webhook_id}/redeliver",
+            route="/webhooks/{id}/redeliver",
+            json={"since": since.astimezone(UTC).isoformat().replace("+00:00", "Z")},
+        )
+        queued = payload.get("queued")
+        return queued if isinstance(queued, int) and not isinstance(queued, bool) else 0
+
     async def delete(self, webhook_id: str) -> None:
-        raw, workspace = split_handle(webhook_id)
         await self._request(
-            "DELETE",
-            f"/webhooks/{raw}",
-            route="/webhooks/{id}",
-            workspace=workspace,
-            absent_is_success=True,
+            "DELETE", f"/webhooks/{webhook_id}", route="/webhooks/{id}", absent_is_success=True
         )
 
 
@@ -206,7 +226,7 @@ def set_thinnest_webhooks(client: ThinnestWebhooks | None) -> None:
 
 __all__ = [
     "AGENT_QUERY_PARAM",
-    "CALL_EVENTS",
+    "SUBSCRIBED_EVENTS",
     "CreatedEndpoint",
     "ThinnestWebhooks",
     "WebhookEndpoint",

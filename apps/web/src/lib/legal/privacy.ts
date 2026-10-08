@@ -366,41 +366,37 @@ export const PRIVACY_POLICY: LegalDocument = {
                 {
                   term: "Identity verification (KYC)",
                   detail:
-                    "For self-serve and trial accounts, and for any account buying a " +
-                    "phone number: your entity type, the kind of public-registry " +
-                    "document you produced (CIN, LLPIN, GSTIN, Udyam, shop-and- " +
-                    "establishment or trade licence), its reference number, the " +
-                    "signatory's name, and a reference to where the verification pack is " +
-                    "filed. There is a second way to do this, and you may be offered it: " +
-                    "verifying yourself through DigiLocker using a licensed " +
-                    "intermediary. If you take that route, the intermediary is who " +
-                    "handles your Aadhaar — you authenticate on their page, not on " +
-                    "ours — and what comes back to us is only the confirmation that it " +
-                    "succeeded, the intermediary's reference number for it, the name " +
-                    "they confirmed, and the date. We do not receive, see or store your " +
-                    "Aadhaar number, and we store no identity document or image by " +
-                    "either route. If your business is a sole proprietorship, that " +
-                    "completes your verification. For a company it confirms you as the " +
-                    "authorised signatory, and we still check the business itself " +
-                    "against its public registry entry. The schema deliberately refuses " +
-                    "a " +
-                    "twelve-digit bare number in every one of these fields, so an " +
-                    "Aadhaar number cannot be stored even by mistake. That is on purpose " +
-                    "and section 29 of the Aadhaar (Targeted Delivery of Financial and " +
-                    "Other Subsidies, Benefits and Services) Act 2016 is why: it " +
-                    "restricts what may be done with Aadhaar information once you hold " +
-                    "it — including a bar on publishing, displaying or posting an " +
-                    "Aadhaar number publicly, and limits on using or passing on identity " +
-                    "information collected for authentication. Not holding one is the " +
-                    "simplest way to stay outside all of that, which is why we ask for a " +
-                    "public-registry document and, where you verify yourself, take back " +
-                    "only the result and a reference.",
+                    "Before an account places outbound calls or rents a phone number: your " +
+                    "business's legal name, whether it is GST-registered and its GSTIN, and " +
+                    "one business registration document (a GST, incorporation or Udyam " +
+                    "certificate). We keep that document, encrypted in our application with " +
+                    "a key of its own, for as long as the account is open, and we destroy it " +
+                    "when the account is erased. To have a phone number rented in your " +
+                    "business's name we send your legal name, GST status and that " +
+                    "document to the hosted voice platform that provides the number. You " +
+                    "also verify the owner, by one of two routes. If you upload an " +
+                    "identity document (a PAN card, or an Aadhaar card with all but the " +
+                    "last four digits masked), our team reviews it and we delete the file " +
+                    "as soon as they decide, or after 30 days if nobody has. If you verify " +
+                    "through DigiLocker, you authenticate on a licensed intermediary's " +
+                    "page, not ours; we read back only the name, whether it matches your " +
+                    "business, and the masked number, and store no document or image. By " +
+                    "either route we keep only the type of document, the masked number " +
+                    "(the last four digits of an Aadhaar, or a PAN with its first five and " +
+                    "last characters hidden), the name check, the intermediary's " +
+                    "reference, your consent and the date. We never store a full Aadhaar " +
+                    "number: section 29 of the Aadhaar (Targeted Delivery of Financial and " +
+                    "Other Subsidies, Benefits and Services) Act 2016 restricts what may be " +
+                    "done with Aadhaar information once it is held, and not holding it is " +
+                    "the simplest way to stay outside that.",
                 },
                 {
-                  term: "Regulatory registrations",
+                  term: "The outbound pledge",
                   detail:
-                    "Your DLT Principal Entity identifier, its status, and the status of " +
-                    "the link between your registration and ours as your Telemarketer.",
+                    "When the account owner accepts the no-cold-calls pledge: who " +
+                    "accepted it, when, which version, a fingerprint of its text and the " +
+                    "IP address it was accepted from. Kept as a record that cannot be " +
+                    "edited.",
                 },
                 {
                   term: "What you did in the product",
@@ -689,8 +685,8 @@ export const PRIVACY_POLICY: LegalDocument = {
           kind: "para",
           text:
             "The legal duty to disclose, where one applies, is the client's. They are the " +
-            "Data Fiduciary for the conversation and the registered Principal Entity " +
-            "under the telecom regulations; the obligation to give notice, to have a " +
+            "Data Fiduciary for the conversation and the sender of the call under the " +
+            "telecom regulations; the obligation to give notice, to have a " +
             "lawful basis, and to comply with any rule requiring an automated call to " +
             "identify itself attaches to them, not to us. Our Acceptable Use Policy says " +
             "so in terms, and our terms require the client to comply with it. We provide " +

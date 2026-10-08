@@ -98,7 +98,7 @@ async def _tenant(plan_tier: str = "managed") -> dict[str, Any]:
     # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
     # publish gate now refuses an organisation that has not accepted them, so a fixture
     # without this reports `agreements_not_accepted` in place of the answer under test.
-    await accept_agreements(uuid.UUID(str(created["id"])))
+    await accept_agreements(uuid.UUID(str(created["id"])), kyc_and_pledge=False)
     if plan_tier != "managed":
         # Inside the tenant's own session: `organizations` is RLS'd on `app.tenant_id`,
         # so an untenanted UPDATE here silently matches zero rows and the test would
@@ -280,15 +280,10 @@ async def test_an_inbound_agent_is_never_refused_for_kyc() -> None:
 # --------------------------------------------------------------- managed vs self-serve
 
 
-async def test_a_managed_tenant_with_no_kyc_still_dials() -> None:
-    """The dial gate is tier-conditional, exactly like `credits_exhausted`.
-
-    A managed tenant's identity was verified out of band before we bought their number,
-    and is already gated at dial time by `pe_registration_*`. Widening this gate would
-    not close a risk; it would halt every existing client on a data-entry backlog. The
-    reasoning is in `apps/api/compliance/kyc.py`; this test is what fails if someone
-    "tidies" the tier test away.
-    """
+async def test_a_managed_tenant_with_no_kyc_cannot_dial_either() -> None:
+    """D-692 made the dial gate tier-blind: with the client DLT requirement gone, a managed
+    tenant's identity is no longer proven by a Principal Entity registration, so a verified
+    KYC record is the outbound precondition on every tier."""
     from apps.api.compliance.service import check_dispatch
 
     org = await _tenant("managed")
@@ -300,7 +295,7 @@ async def test_a_managed_tenant_with_no_kyc_still_dials() -> None:
             session, tenant_id=tenant_id, agent_id=agent_id, phone_e164="+919000000005"
         )
 
-    assert decision.rule not in ("kyc_missing", "kyc_not_verified")
+    assert decision.rule == "kyc_missing"
 
 
 async def test_buying_a_number_is_gated_for_a_managed_tenant_too() -> None:

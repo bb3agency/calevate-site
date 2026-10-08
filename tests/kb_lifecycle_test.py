@@ -37,7 +37,7 @@ async def _submit_and_approve(
 ) -> uuid.UUID:
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name=name, body=body
+            session, tenant_id=tenant_id, name=name, body=body
         )
         await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
     return uuid.UUID(str(submitted["id"]))
@@ -83,7 +83,8 @@ async def _live_versions(tenant_id: uuid.UUID, agent_id: uuid.UUID, name: str) -
         rows = (
             await session.execute(
                 text(
-                    "SELECT version FROM kb_sources WHERE agent_id = :a AND name = :n "
+                    "SELECT version FROM kb_sources WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :a) AND name = :n "
                     "AND is_active = true ORDER BY version"
                 ),
                 {"a": agent_id, "n": name},
@@ -379,12 +380,11 @@ async def test_an_attach_that_cannot_be_undone_leaves_a_loud_trail(
 
 
 async def test_a_live_version_we_cannot_address_blocks_the_publish() -> None:
-    """A version published before the engine handle was recorded.
+    """A version whose claim is gone while the engine still holds its copy.
 
     We cannot delete what we cannot name, and publishing over it would attach a second
-    copy — so this refuses for exactly the same reason a failed detach does, and leaves
-    the client with the same thing: their approved knowledge, still live. The remediation
-    is one manual withdrawal on the engine side, not a code path that guesses.
+    copy — so the copy reads as unaccounted and the publish refuses, leaving the client
+    with their approved knowledge, still live.
     """
     tenant_id, agent_id = await _tenant_with_published_agent()
     await _publish_new_version(tenant_id, agent_id, "Fees", "A consultation costs 500 rupees.")
@@ -394,7 +394,8 @@ async def test_a_live_version_we_cannot_address_blocks_the_publish() -> None:
         await session.execute(
             text(
                 "DELETE FROM engine_kb_routes "
-                "WHERE source_id IN (SELECT id FROM kb_sources WHERE agent_id = :a "
+                "WHERE source_id IN (SELECT id FROM kb_sources WHERE tenant_id = "
+                "(SELECT tenant_id FROM agents WHERE id = :a) "
                 "AND name = 'Fees' AND is_active = true)"
             ),
             {"a": agent_id},
@@ -404,7 +405,7 @@ async def test_a_live_version_we_cannot_address_blocks_the_publish() -> None:
         async with tenant_session(tenant_id) as session:
             await kb_service.publish_source(session, tenant_id=tenant_id, source_id=v2)
 
-    assert raised.value.code == "kb_engine_ref_unknown"
+    assert raised.value.code == "kb_engine_out_of_sync"
     assert raised.value.remediation, "a refusal an operator cannot act on is a dead end"
     ref = await _engine_ref(tenant_id, agent_id)
     assert "500 rupees" in _attached(ref)[0].text

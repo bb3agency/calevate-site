@@ -68,8 +68,8 @@ def test_a_configured_provider_with_no_secret_still_has_no_feed(monkeypatch) -> 
 
 
 def test_a_provider_whose_contract_was_never_read_is_unavailable(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """Setu is a member of the vocabulary and has no implemented adapter, because its
-    docs are egress-blocked from this environment. Selecting it must be answered as
+    """Setu is a member of the vocabulary and has no implemented adapter, because Cashfree
+    was chosen (D-692). Selecting it must be answered as
     unavailable-with-a-reason rather than raised: the client's own screen asks this
     selector, and a 500 there tells a blocked client nothing they can act on."""
     settings = get_settings()
@@ -97,7 +97,7 @@ def test_the_unimplemented_adapter_raises_rather_than_returning_false() -> None:
     """`verify_webhook` returning False would read as "this delivery was not signed
     correctly" and let a caller treat the endpoint as working-and-strict. It is neither,
     and the difference is the whole of hard rule 11 on this seam."""
-    with pytest.raises(Exception, match="egress-blocked"):
+    with pytest.raises(Exception, match="not implemented"):
         SetuDigiLocker().verify_webhook(raw=BODY, headers={})
 
 

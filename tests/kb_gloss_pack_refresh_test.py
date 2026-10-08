@@ -73,7 +73,6 @@ async def _published_telugu_agent(*bodies: str) -> tuple[uuid.UUID, uuid.UUID]:
             submitted = await kb_service.submit_source(
                 session,
                 tenant_id=tenant_id,
-                agent_id=agent_id,
                 name=f"Shop {n}",
                 body=_unique(body),
             )
@@ -300,7 +299,7 @@ async def _try_take_publish_lock(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> b
             (
                 await probe.execute(
                     text("SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 0))"),
-                    {"key": kb_service.publish_lock_key(agent_id)},
+                    {"key": kb_service.publish_lock_key(tenant_id)},
                 )
             ).scalar()
         )
@@ -376,7 +375,7 @@ async def test_a_publish_in_flight_makes_the_sweep_skip_that_agent(
     async with tenant_session(tenant_id) as publisher:
         await publisher.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-            {"key": kb_service.publish_lock_key(agent_id)},
+            {"key": kb_service.publish_lock_key(tenant_id)},
         )
         assert (
             await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
@@ -407,7 +406,7 @@ async def test_an_agent_skipped_for_the_lock_is_repacked_on_the_next_tick(
     async with tenant_session(tenant_id) as publisher:
         await publisher.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-            {"key": kb_service.publish_lock_key(agent_id)},
+            {"key": kb_service.publish_lock_key(tenant_id)},
         )
         await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
     assert await _pointer(tenant_id, agent_id) == before
@@ -459,7 +458,7 @@ async def _second_agent_with_published_source(tenant_id: uuid.UUID, body: str) -
     await give_agent_a_script(tenant_id, agent_id)
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Shop B", body=_unique(body)
+            session, tenant_id=tenant_id, name="Shop B", body=_unique(body)
         )
         await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
         await kb_service.publish_source(
@@ -468,40 +467,40 @@ async def _second_agent_with_published_source(tenant_id: uuid.UUID, body: str) -
     return agent_id
 
 
-async def test_one_agents_publish_does_not_hold_up_its_neighbour(
+async def test_a_tenant_mid_publish_is_skipped_whole_and_caught_on_the_next_tick(
     monkeypatch: pytest.MonkeyPatch, s3: FakeS3
 ) -> None:
-    """THE KEY IS THE AGENT, so a skip is one agent wide and not one tenant wide.
+    """THE KEY IS THE TENANT (D-689): knowledge is the client's, so one publish changes every
+    agent's pack and the sweep must not repack any of them while it is in flight. Skipping
+    costs one tick — the selection is a difference, so the next tick repacks both agents,
+    each with the whole tenant's knowledge."""
+    tenant_id, first_agent = await _published_telugu_agent(TAILOR_TELUGU)
+    second_agent = await _second_agent_with_published_source(tenant_id, BLOUSE_TELUGU)
 
-    The `continue` sits inside the per-agent loop rather than around it, and this is the
-    assertion that can tell those apart: one tenant, two agents, one of them mid-publish. A
-    lock taken per TENANT — or a skip that broke out of the loop — would strand the other
-    agent's pack for thirty minutes because a neighbour was being edited, which is the shape
-    `MAX_PACK_AGENTS_PER_TENANT`'s own comment refuses on starvation grounds.
-    """
-    tenant_id, busy_agent = await _published_telugu_agent(TAILOR_TELUGU)
-    quiet_agent = await _second_agent_with_published_source(tenant_id, BLOUSE_TELUGU)
-
-    busy_before = await _pointer(tenant_id, busy_agent)
-    quiet_before = await _pointer(tenant_id, quiet_agent)
+    first_before = await _pointer(tenant_id, first_agent)
+    second_before = await _pointer(tenant_id, second_agent)
 
     both = f"{TAILOR_ENGLISH} {BLOUSE_ENGLISH}"
     async with tenant_session(tenant_id) as publisher:
         await publisher.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-            {"key": kb_service.publish_lock_key(busy_agent)},
+            {"key": kb_service.publish_lock_key(tenant_id)},
         )
         assert (
             await _run_sweep(monkeypatch, _RecordingProvider(both), only=tenant_id)
-            == "translated=2 not_needed=0 rekeyed=2 repacked=1"
+            == "translated=2 not_needed=0 rekeyed=2 repacked=0"
         )
 
-    assert await _pointer(tenant_id, busy_agent) == busy_before, "the publishing agent was repacked"
-    quiet_after = await _pointer(tenant_id, quiet_agent)
-    assert quiet_after is not None and quiet_after != quiet_before, (
-        "a neighbour's publish stranded this agent's pack"
+    assert await _pointer(tenant_id, first_agent) == first_before
+    assert await _pointer(tenant_id, second_agent) == second_before
+
+    assert (await _run_sweep(monkeypatch, _RecordingProvider(both), only=tenant_id)).endswith(
+        "repacked=2"
     )
-    assert _glosses_in_pack(s3, tenant_id, quiet_agent, quiet_after) == [both]
+    for agent_id in (first_agent, second_agent):
+        after = await _pointer(tenant_id, agent_id)
+        assert after is not None
+        assert sorted(_glosses_in_pack(s3, tenant_id, agent_id, after)) == sorted([both, both])
 
 
 # --- 6. The encoder ------------------------------------------------------------------

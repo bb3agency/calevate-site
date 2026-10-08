@@ -427,6 +427,20 @@ def _thinnest_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
                 agents.pop(ref)
                 documents.pop(ref, None)
                 return httpx.Response(204)
+        if len(parts) == 3 and parts[0] == "agents" and parts[2] == "tools":
+            # `GET`/`PATCH /agents/{id}/tools` (snapshots/2026-10-08/pages/api-reference/
+            # tools/update-built-in-tools.md:553-790): the switches as saved, and the hand-over.
+            ref = parts[1]
+            if ref not in agents:
+                return httpx.Response(404, json={"error": "No such agent in your workspace."})
+            held = agents[ref].setdefault(
+                "_tools", {"switches": {}, "handOver": {"mode": "chat", "phone": None}}
+            )
+            if method == "PATCH":
+                held["switches"].update(body.get("tools", {}))
+                held["handOver"].update(body.get("handOver", {}))
+            rows = [{"id": tool, "enabled": on} for tool, on in held["switches"].items()]
+            return httpx.Response(200, json={"tools": rows, "handOver": held["handOver"]})
         if len(parts) >= 3 and parts[0] == "agents" and parts[2] == "knowledge":
             ref = parts[1]
             if ref not in agents:

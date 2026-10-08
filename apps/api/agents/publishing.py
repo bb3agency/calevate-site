@@ -1126,6 +1126,8 @@ async def _drift_of(
         voice_applied=verdict.voice_applied,
         handoff_applied=verdict.handoff_applied,
         detail=_drift_detail(verdict),
+        own_voice_key_applied=verdict.own_voice_key_applied,
+        own_voice_key_expected=config.engine_own_voice_key,
     )
 
 

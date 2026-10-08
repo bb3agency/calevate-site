@@ -73,6 +73,34 @@ IST_OFFSET = timedelta(hours=5, minutes=30)
 IST_TZ = timezone(IST_OFFSET)
 
 
+async def _require_digilocker(session: Any, tenant_id: Any) -> None:
+    """Turn a green launch condition red after the fact (D-692): an operator requires a
+    fresh DigiLocker verification. Replaces the DLT template withdrawal this file used,
+    which D-692 retired from every gate."""
+    from apps.api.compliance.kyc import set_digilocker_requirement
+    from apps.api.db.base import uuid7
+
+    admin_id = uuid7()
+    await session.execute(
+        text(
+            "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+            "VALUES (:id, 'Ops', 'operator', now(), now())"
+        ),
+        {"id": admin_id},
+    )
+    await set_digilocker_requirement(
+        session, tenant_id=tenant_id, required=True, reason="Deeper check", admin_id=admin_id
+    )
+
+
+async def _clear_digilocker(session: Any, tenant_id: Any) -> None:
+    from apps.api.compliance.kyc import set_digilocker_requirement
+
+    await set_digilocker_requirement(
+        session, tenant_id=tenant_id, required=False, reason=None, admin_id=None
+    )
+
+
 @pytest.fixture(autouse=True)
 def _daytime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: NOON_IST + IST_OFFSET)
@@ -579,12 +607,7 @@ async def test_the_gate_refuses_at_fire_time_for_a_condition_that_was_green_at_s
             campaign_id=campaign_id,
             start_at=datetime.now(UTC) + timedelta(minutes=5),
         )
-        template_id = (
-            await session.execute(
-                text("SELECT dlt_template_id FROM campaigns WHERE id = :c"), {"c": campaign_id}
-            )
-        ).scalar()
-        await service.set_template_status(session, template_id=template_id, status="rejected")
+        await _require_digilocker(session, tenant_id)
 
     # The start time arrives.
     fired_at = datetime.now(UTC) + timedelta(minutes=6)
@@ -597,13 +620,13 @@ async def test_the_gate_refuses_at_fire_time_for_a_condition_that_was_green_at_s
     assert outcome == "blocked"
     status, stored = await _status(tenant_id, campaign_id)
     assert status == "scheduled", "a refused start does not become a running campaign"
-    assert stored["last_blocked"]["rules"] == ["dlt_template_not_approved"]
+    assert stored["last_blocked"]["rules"] == ["kyc_digilocker_required"]
     assert await _launch_audit_count(tenant_id, campaign_id) == 0
 
     # ...and it starts the moment the registrar approves it again, without the client
     # having to re-pick a date.
     async with tenant_session(tenant_id) as session:
-        await service.set_template_status(session, template_id=template_id, status="approved")
+        await _clear_digilocker(session, tenant_id)
     async with tenant_session(tenant_id) as session:
         assert (
             await fire_schedule(session, tenant_id=tenant_id, due=due[0], now=fired_at) == "fired"
@@ -625,12 +648,7 @@ async def test_a_start_blocked_past_its_grace_window_gives_up_and_returns_to_dra
             campaign_id=campaign_id,
             start_at=datetime.now(UTC) + timedelta(minutes=5),
         )
-        template_id = (
-            await session.execute(
-                text("SELECT dlt_template_id FROM campaigns WHERE id = :c"), {"c": campaign_id}
-            )
-        ).scalar()
-        await service.set_template_status(session, template_id=template_id, status="rejected")
+        await _require_digilocker(session, tenant_id)
 
     start_at = datetime.now(UTC) + timedelta(minutes=5)
     due = DueSchedule(campaign_id=campaign_id, start_at=start_at)
@@ -984,12 +1002,7 @@ async def test_progress_says_when_a_scheduled_campaign_starts_and_why_it_has_not
     assert progress["schedule_blocked_rules"] == []
 
     async with tenant_session(tenant_id) as session:
-        template_id = (
-            await session.execute(
-                text("SELECT dlt_template_id FROM campaigns WHERE id = :c"), {"c": campaign_id}
-            )
-        ).scalar()
-        await service.set_template_status(session, template_id=template_id, status="rejected")
+        await _require_digilocker(session, tenant_id)
     async with tenant_session(tenant_id) as session:
         await fire_schedule(
             session,
@@ -998,7 +1011,7 @@ async def test_progress_says_when_a_scheduled_campaign_starts_and_why_it_has_not
             now=start + timedelta(minutes=1),
         )
         progress = await service.campaign_progress(session, campaign_id)
-    assert progress["schedule_blocked_rules"] == ["dlt_template_not_approved"]
+    assert progress["schedule_blocked_rules"] == ["kyc_digilocker_required"]
 
 
 async def test_a_running_campaign_does_not_advertise_a_start_that_already_happened() -> None:
@@ -1200,12 +1213,7 @@ async def test_a_blocked_start_counts_as_zero_starts_not_as_a_start() -> None:
                 "c": campaign_id,
             },
         )
-        template_id = (
-            await session.execute(
-                text("SELECT dlt_template_id FROM campaigns WHERE id = :c"), {"c": campaign_id}
-            )
-        ).scalar()
-        await service.set_template_status(session, template_id=template_id, status="rejected")
+        await _require_digilocker(session, tenant_id)
 
     assert await campaign_dispatch._fire_due_schedules(tenant_id) == 0
     assert (await _status(tenant_id, campaign_id))[0] == "scheduled"
@@ -1233,18 +1241,13 @@ async def test_a_tick_reads_no_budget_for_a_tenant_whose_only_start_was_refused(
                 "c": campaign_id,
             },
         )
-        template_id = (
-            await session.execute(
-                text("SELECT dlt_template_id FROM campaigns WHERE id = :c"), {"c": campaign_id}
-            )
-        ).scalar()
-        await service.set_template_status(session, template_id=template_id, status="rejected")
+        await _require_digilocker(session, tenant_id)
 
     await dispatch_campaign_tick({})
 
     status, stored = await _status(tenant_id, campaign_id)
     assert status == "scheduled"
-    assert stored["last_blocked"]["rules"] == ["dlt_template_not_approved"]
+    assert stored["last_blocked"]["rules"] == ["kyc_digilocker_required"]
     async with tenant_session(tenant_id) as session:
         dialing = (
             await session.execute(

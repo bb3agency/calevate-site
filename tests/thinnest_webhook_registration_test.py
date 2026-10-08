@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -33,6 +34,8 @@ class FakeThinnest:
     def __init__(self) -> None:
         self.endpoints: dict[str, dict[str, Any]] = {}
         self.calls: list[tuple[str, str]] = []
+        self.redelivered: list[tuple[str, dict[str, Any]]] = []
+        self.redeliver_status = 202
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         assert request.headers["Authorization"] == "Bearer ta_live_test"
@@ -56,6 +59,12 @@ class FakeThinnest:
             agent = request.url.params.get("agent")
             items = [r for r in self.endpoints.values() if r["agent"] == agent]
             return httpx.Response(200, json={"items": items})
+        if path.endswith("/redeliver") and request.method == "POST":
+            # redeliver-webhook-events.md:7: `{since}` queues what failed, `202 {queued}`.
+            self.redelivered.append((path.split("/")[2], json.loads(request.content)))
+            if self.redeliver_status != 202:
+                return httpx.Response(self.redeliver_status, json={"error": "switched off"})
+            return httpx.Response(202, json={"queued": 3})
         webhook_id = path.removeprefix("/webhooks/")
         row = self.endpoints.get(webhook_id)
         if row is None:
@@ -149,7 +158,13 @@ async def test_publish_registers_once_and_stores_the_secret_sealed(vendor: FakeT
     row = vendor.endpoints[webhook_id]
     assert row["url"] == agent_webhook_url(ENGINE, ref)
     assert row["url"].startswith("https://hooks.calevate.example/hooks/v1/engine/thinnest?agent=")
-    assert row["events"] == ["call.completed", "call.analysed"]
+    assert row["events"] == [
+        "call.analysed",
+        "call.completed",
+        "contact.opted_out",
+        "conversation.escalated",
+        "lead.captured",
+    ]
 
     again = await _ensure(tenant_id, ref)
     assert again.outcome == "healthy"
@@ -247,3 +262,100 @@ async def test_the_sweep_reenables_and_alarms(
 async def test_the_sweep_is_a_no_op_on_other_engines(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(get_settings(), "engine", "pipecat")
     assert await sweep.reconcile_engine_webhooks({}) == "engine_without_webhooks"
+
+
+async def _aged(tenant_id: uuid.UUID, ref: str, checked_at: str) -> None:
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE engine_agent_routes SET webhook_checked_at = CAST(:at AS timestamptz) "
+                "WHERE engine = 'thinnest' AND engine_agent_ref = :ref"
+            ),
+            {"ref": ref, "at": checked_at},
+        )
+
+
+async def test_the_sweep_asks_for_what_failed_to_be_sent_again_after_reenabling(
+    vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-691: re-enable, then `POST /webhooks/{id}/redeliver {since}` once, never further back
+    than the vendor keeps payloads (`webhooks/redeliver-webhook-events.md:7`)."""
+    tenant_id, ref = await _route()
+    webhook_id = (await _ensure(tenant_id, ref)).webhook_id
+    vendor.endpoints[webhook_id]["enabled"] = False
+    await _aged(tenant_id, ref, "2000-01-01")
+    monkeypatch.setattr(sweep, "alert", lambda *_a, **_k: None)
+    monkeypatch.setattr(get_settings(), "engine", ENGINE)
+
+    summary = await sweep.reconcile_engine_webhooks({})
+
+    ours = [body for wid, body in vendor.redelivered if wid == webhook_id]
+    assert len(ours) == 1
+    since = datetime.fromisoformat(ours[0]["since"].replace("Z", "+00:00"))
+    assert datetime.now(UTC) - since < timedelta(days=7)
+    assert "redelivered=" in summary
+
+    # Healthy on the next pass: nothing is re-sent again.
+    await _aged(tenant_id, ref, "2000-01-01")
+    await sweep.reconcile_engine_webhooks({})
+    assert len([wid for wid, _ in vendor.redelivered if wid == webhook_id]) == 1
+
+
+async def test_a_refused_redelivery_alarms_and_the_endpoint_stays_on(
+    vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tenant_id, ref = await _route()
+    webhook_id = (await _ensure(tenant_id, ref)).webhook_id
+    vendor.endpoints[webhook_id]["enabled"] = False
+    vendor.redeliver_status = 409
+    await _aged(tenant_id, ref, "2000-01-01")
+    alerts: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(sweep, "alert", lambda _s, code, **kw: alerts.append((code, kw)))
+    monkeypatch.setattr(get_settings(), "engine", ENGINE)
+
+    await sweep.reconcile_engine_webhooks({})
+
+    assert vendor.endpoints[webhook_id]["enabled"] is True
+    assert any(
+        code == "engine_webhook_redelivery_failed" and kw.get("engine_agent_ref") == ref
+        for code, kw in alerts
+    )
+
+
+async def test_an_endpoint_registered_before_the_opt_out_event_is_resubscribed_in_place(
+    vendor: FakeThinnest,
+) -> None:
+    tenant_id, ref = await _route()
+    webhook_id = (await _ensure(tenant_id, ref)).webhook_id
+    vendor.endpoints[webhook_id]["events"] = ["call.completed", "call.analysed"]
+    _, secret_before = await _held(tenant_id, ref)
+
+    result = await _ensure(tenant_id, ref)
+
+    assert (result.outcome, result.webhook_id) == ("resubscribed", webhook_id)
+    assert sorted(vendor.endpoints[webhook_id]["events"]) == [
+        "call.analysed",
+        "call.completed",
+        "contact.opted_out",
+        "conversation.escalated",
+        "lead.captured",
+    ]
+    assert (await _held(tenant_id, ref)) == (webhook_id, secret_before)
+    vendor.endpoints[webhook_id]["events"] = ["*"]
+    assert (await _ensure(tenant_id, ref)).outcome == "healthy"
+
+
+@pytest.mark.parametrize(
+    ("last_checked_ago", "expected_ago"),
+    [
+        (None, sweep.REDELIVERY_FLOOR),
+        (timedelta(minutes=20), timedelta(minutes=20) + sweep.REDELIVERY_TAIL),
+        (timedelta(days=30), sweep.REDELIVERY_FLOOR),
+    ],
+)
+def test_the_redelivery_window_reaches_past_the_retry_tail_but_never_past_seven_days(
+    last_checked_ago: timedelta | None, expected_ago: timedelta
+) -> None:
+    now = datetime(2026, 10, 8, 12, 0, tzinfo=UTC)
+    last = None if last_checked_ago is None else now - last_checked_ago
+    assert sweep.redelivery_since(last, now=now) == now - expected_ago

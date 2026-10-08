@@ -34,6 +34,7 @@ import asyncio
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, time, timedelta, timezone
+from typing import Any
 
 import pytest
 from apps.api.admin import service as admin_service
@@ -66,6 +67,34 @@ IST_TZ = timezone(IST_OFFSET)
 MONDAY, TUESDAY, WEDNESDAY = 1, 2, 3
 EVERY_DAY = [1, 2, 3, 4, 5, 6, 7]
 TEN_AM = time(10, 0)
+
+
+async def _require_digilocker(session: Any, tenant_id: Any) -> None:
+    """Turn a green launch condition red after the fact (D-692): an operator requires a
+    fresh DigiLocker verification. Replaces the DLT template withdrawal this file used,
+    which D-692 retired from every gate."""
+    from apps.api.compliance.kyc import set_digilocker_requirement
+    from apps.api.db.base import uuid7
+
+    admin_id = uuid7()
+    await session.execute(
+        text(
+            "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+            "VALUES (:id, 'Ops', 'operator', now(), now())"
+        ),
+        {"id": admin_id},
+    )
+    await set_digilocker_requirement(
+        session, tenant_id=tenant_id, required=True, reason="Deeper check", admin_id=admin_id
+    )
+
+
+async def _clear_digilocker(session: Any, tenant_id: Any) -> None:
+    from apps.api.compliance.kyc import set_digilocker_requirement
+
+    await set_digilocker_requirement(
+        session, tenant_id=tenant_id, required=False, reason=None, admin_id=None
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -455,12 +484,7 @@ async def test_the_gate_refuses_an_occurrence_for_a_condition_that_was_green_at_
     await _schedule(tenant_id, campaign_id, days=EVERY_DAY)
 
     async with tenant_session(tenant_id) as session:
-        template_id = (
-            await session.execute(
-                text("SELECT dlt_template_id FROM campaigns WHERE id = :c"), {"c": campaign_id}
-            )
-        ).scalar()
-        await service.set_template_status(session, template_id=template_id, status="rejected")
+        await _require_digilocker(session, tenant_id)
 
     now = datetime.now(UTC)
     await _make_due(tenant_id, campaign_id, now - timedelta(minutes=1))
@@ -473,13 +497,13 @@ async def test_the_gate_refuses_an_occurrence_for_a_condition_that_was_green_at_
     status, stored = await _stored(tenant_id, campaign_id)
     assert status == "scheduled", "a refused occurrence does not become a running campaign"
     assert stored is not None
-    assert stored["last_blocked"]["rules"] == ["dlt_template_not_approved"]
+    assert stored["last_blocked"]["rules"] == ["kyc_digilocker_required"]
     assert await _audit_count(tenant_id, campaign_id, "campaign.launched") == 0
     # And the occurrence was NOT consumed by the refusal: it is still the next one.
     assert stored["start_at"] == (now - timedelta(minutes=1)).isoformat()
 
     async with tenant_session(tenant_id) as session:
-        await service.set_template_status(session, template_id=template_id, status="approved")
+        await _clear_digilocker(session, tenant_id)
     async with tenant_session(tenant_id) as session:
         assert await fire_schedule(session, tenant_id=tenant_id, due=due[0], now=now) == "fired"
     status, stored = await _stored(tenant_id, campaign_id)

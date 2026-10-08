@@ -7,14 +7,15 @@ Both are checked here before anything is written to the vendor, and the answer i
 key the agent's minutes are metered at:
 
 * nothing chosen — `platform`, with no read, which is every agent's path on other engines;
-* a voice — its source's rate key: the engine's Studio band (sold as Clear) or a voice of our
-  own Cartesia key (`byok_voice`, sold as Studio), D-687. A voice the operator has not added
-  and enabled, that the engine no longer lists, or whose minute is unattested is refused
+* a voice — its rate key: the engine's band sold as Clear (`Settings.thinnest_clear_voice_band`)
+  or a voice of our own Cartesia key (`byok_voice`, sold as Studio), D-687, D-688. A voice
+  the operator has not added and enabled, that the engine no longer lists, or whose minute is
+  unattested is refused
   (hard rule 7, through `billing/engine_minutes.attested_rate_keys`).
 
-A PUBLISH also refuses an agent with no voice (`engine_voice_required`), the developer
-workspace on its own keys (`engine_own_keys_not_on_sale`), and a Studio voice while the
-Studio workspace is not on our own voice key.
+A PUBLISH also refuses an agent with no voice (`engine_voice_required`), the workspace on all
+three of its own keys (`engine_own_keys_not_on_sale`), and a Studio voice while the workspace
+is not on our own voice key.
 
 The refusals are in the CLIENT's audience: a publish refusal can reach a client's screen.
 """
@@ -33,9 +34,8 @@ from apps.api.agents.hosted_voices import (
     STUDIO_VOICE_PROVIDER,
     HostedVoiceRow,
     hosted_voice_unofferable_reason,
+    own_voice_key_ready,
     read_hosted_voice,
-    studio_workspace_missing,
-    studio_workspace_ready,
 )
 from apps.api.agents.voice_offer import tts_price_is_billable
 from apps.api.billing.engine_minutes import BASE_RATE_KEY, EngineRateKey, attested_rate_keys
@@ -64,7 +64,7 @@ VOICE_REQUIRED: Final = "engine_voice_required"
 KEYS_NOT_ON_SALE: Final = "engine_own_keys_not_on_sale"
 #: The operator's `THINNEST_BYOK_ENABLED` and the vendor's `GET /byok` disagree.
 KEYS_MODE_MISMATCH: Final = "engine_byok_mismatch"
-#: The Studio workspace is set but the engine says it is not speaking on our voice key.
+#: The engine says the workspace is not speaking on our Cartesia voice key.
 STUDIO_KEY_NOT_READY: Final = "engine_studio_voice_key_not_ready"
 
 #: The sentence the pickers lock on, and the refusal's detail. No vendor name: a client reads it.
@@ -78,8 +78,8 @@ BYOK_CHOICE_NOTE: Final = (
 def byok_in_force(engine: VoiceEngine) -> bool:
     """Does `engine`'s own (developer) workspace run on all three of its own keys
     (`Settings.thinnest_byok_enabled`)? Then a per-agent choice does not apply and every
-    minute is the `platform` rate. Not the Studio workspace, whose voice-only key is how the
-    Studio rung is sold (D-687)."""
+    minute is the `platform` rate. Not voice-only BYOK, which is how the Studio rung is sold,
+    per agent (D-688)."""
     return engine.name == "thinnest" and get_settings().thinnest_byok_enabled
 
 
@@ -185,14 +185,11 @@ async def _check_voice(
     reason = hosted_voice_unofferable_reason(
         row,
         attested=attested,
-        studio_ready=studio_workspace_ready(),
         voice_key_priced=tts_price_is_billable(STUDIO_VOICE_PROVIDER),
         platform=platform,
         audience="client",
     )
     if reason is not None:
-        if row.source == "byok" and not studio_workspace_ready():
-            raise studio_workspace_missing()
         raise _refusal(
             VOICE_TIER_UNPRICED,
             title="This voice has not been priced yet",
@@ -244,13 +241,10 @@ def _check_model(
 
 
 async def _require_studio_key_live(engine: HostsVoices) -> None:
-    """At publish, the engine's own word that the Studio workspace speaks on our Cartesia
-    key, because the workspace setting is only what an operator typed."""
-    workspace = get_settings().thinnest_studio_workspace_id
-    if not workspace:
-        raise studio_workspace_missing()
-    state = await engine.own_key_state(workspace=workspace)
-    if not state.speaks_on_own_voice or state.voice_provider != STUDIO_VOICE_PROVIDER:
+    """At publish, the engine's own word that the workspace speaks on our Cartesia key for the
+    voice, because the catalogue only says what the last sync saw."""
+    state = await engine.own_key_state()
+    if not own_voice_key_ready(state):
         log.warning(
             "studio_voice_key_not_ready",
             extra={
@@ -263,8 +257,8 @@ async def _require_studio_key_live(engine: HostsVoices) -> None:
         raise _refusal(
             STUDIO_KEY_NOT_READY,
             title="Studio voices are not ready yet",
-            detail="The part of the voice platform Studio voices run in is not speaking on "
-            "our voice account yet, so this agent cannot be published on a Studio voice.",
+            detail="Studio voices are not switched on on the voice platform yet, so this agent "
+            "cannot be published on a Studio voice.",
             remediation="Choose a Clear voice, or contact us.",
         )
 
@@ -281,8 +275,8 @@ async def require_engine_choice(
 
     `for_publish` adds what only a publish needs: on an engine that hosts its voices an
     agent must name one (the platform default speaks a voice nobody priced), the developer
-    workspace must not be on its own keys, and a Studio voice needs the Studio workspace
-    live on our voice key. A draft save may leave the voice empty.
+    workspace must not be on all three of its own keys, and a Studio voice needs our voice key
+    live in the workspace. A draft save may leave the voice empty.
     """
     caps = engine.capabilities
     refuse_choice_under_byok(engine, voice_id=voice_id, model_id=model_id)

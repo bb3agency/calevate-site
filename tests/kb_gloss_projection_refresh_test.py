@@ -69,7 +69,7 @@ async def _published_telugu_source(
     stored = _unique(body)
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name=name, body=stored
+            session, tenant_id=tenant_id, name=name, body=stored
         )
         await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
         await kb_service.publish_source(
@@ -142,11 +142,11 @@ async def test_a_gloss_written_before_publish_is_not_re_keyed_twice(
     tick without being a write amplifier. Asserted as the tick's own count rather than as
     rows, because a refresh that rewrote identical keys would pass a row-count assertion.
     """
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     stored = _unique(TAILOR_TELUGU)
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Hours", body=stored
+            session, tenant_id=tenant_id, name="Hours", body=stored
         )
 
     assert (
@@ -179,12 +179,12 @@ async def test_many_glossed_documents_on_one_agent_are_re_keyed_by_one_statement
     write the same rows, which is why the count asserted here is CALLS and not rows: the
     wrong shape produces identical data and a multiple of the work.
     """
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     bodies = {"Hours": _unique(TAILOR_TELUGU), "Stitching": _unique(BLOUSE_TELUGU)}
     async with tenant_session(tenant_id) as session:
         for name, body in bodies.items():
             submitted = await kb_service.submit_source(
-                session, tenant_id=tenant_id, agent_id=agent_id, name=name, body=body
+                session, tenant_id=tenant_id, name=name, body=body
             )
             await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
             await kb_service.publish_source(

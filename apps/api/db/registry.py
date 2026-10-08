@@ -177,6 +177,13 @@ TENANT_TABLES = [
     # it has no tenant yet, that is what it is looking up — and everything downstream of
     # that lookup runs under `tenant_session`.
     "kyc_verification_requests",
+    # The metadata of a client's uploaded KYC files (D-692, migration a7c3e91d5f20): the
+    # business certificate and, on the manual path, the owner's ID. Tenant data; the bytes
+    # are under `kyc-documents/{tenant}/` in object storage.
+    "kyc_documents",
+    # A client's acceptance of the no-cold-calls pledge (D-692). Tenant data, read by every
+    # outbound gate. Append-only — see APPEND_ONLY_TABLES below.
+    "outbound_pledge_acceptances",
     # This tenant's own compliance application with the telephony carrier (the RESELLER
     # stage, migration c7a4f9e15b03). Tenant data — the business's own registration
     # paperwork and the carrier's decision on it — read by the number-acquisition gate
@@ -930,6 +937,9 @@ APPEND_ONLY_TABLES = [
     # un-withdraws a price change nobody approved, retroactively and silently.
     "platform_list_rate_cancellations",
     "legal_acceptances",
+    # The no-cold-calls pledge (D-692): who accepted which version, when, over which text.
+    # A consent record for `legal_acceptances`' reason — an edited acceptance proves nothing.
+    "outbound_pledge_acceptances",
     # The engine-facing config snapshot and the worker's report of what it loaded (D-592,
     # migration d4e1c7a09b35). Append-only for `platform_model_prices`' reason, pointed at
     # EVIDENCE instead of money: a version somebody could edit would let today's

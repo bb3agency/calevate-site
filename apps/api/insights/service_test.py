@@ -212,7 +212,8 @@ async def test_teach_records_the_answer_and_seeds_a_kb_draft() -> None:
         drafts = (
             await session.execute(
                 text(
-                    "SELECT status, name FROM kb_sources WHERE agent_id = :a "
+                    "SELECT status, name FROM kb_sources WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :a) "
                     "AND status = 'approved'"
                 ),
                 {"a": agent_id},
@@ -242,7 +243,11 @@ async def test_teach_from_a_view_as_session_waits_for_an_admin() -> None:
         statuses = (
             (
                 await session.execute(
-                    text("SELECT status FROM kb_sources WHERE agent_id = :a"), {"a": agent_id}
+                    text(
+                        "SELECT status FROM kb_sources WHERE tenant_id = "
+                        "(SELECT tenant_id FROM agents WHERE id = :a)"
+                    ),
+                    {"a": agent_id},
                 )
             )
             .scalars()
@@ -269,7 +274,11 @@ async def test_teach_without_a_draft_still_records_the_answer() -> None:
         assert taught.status == "taught"
         drafts = (
             await session.execute(
-                text("SELECT count(*) FROM kb_sources WHERE agent_id = :a"), {"a": agent_id}
+                text(
+                    "SELECT count(*) FROM kb_sources WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :a)"
+                ),
+                {"a": agent_id},
             )
         ).scalar()
     assert drafts == 0

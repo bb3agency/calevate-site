@@ -3398,9 +3398,10 @@ class AgentConfig(BaseModel):
     #: A voice of the engine account's OWN voice provider (bring-your-own-key), set instead
     #: of `engine_voice_id` when the agent speaks on that provider. The two are exclusive.
     engine_byok_voice_id: str | None = None
-    #: The engine sub-account the agent lives in, or None for the account itself. An agent
-    #: cannot move between sub-accounts, so a change here means a new vendor agent (D-687).
-    engine_workspace: str | None = None
+    #: Does the agent speak on the engine account's OWN voice key (bring-your-own-key, voice
+    #: only)? True for a voice of that key, False for the engine's own voices; None on an
+    #: engine with no per-agent switch, which sends nothing (D-688).
+    engine_own_voice_key: bool | None = None
     #: The business facts are in the engine's knowledge base, not in `system_prompt`, so the
     #: prompt tells the model to look them up (`FACTS_IN_KNOWLEDGE_GUIDANCE`). False on every
     #: engine that holds the facts in the prompt, which leaves its composition unchanged.
@@ -3777,6 +3778,9 @@ class AgentSnapshot(BaseModel):
     #: True only when the adapter positively located the agent's KB reference field.
     #: False means "we do not know what this agent references", not "it references none".
     knowledge_base_refs_readable: bool = False
+    #: Whether the engine holds the agent on its account's own voice key (D-688), as read
+    #: back; None when the engine has no such switch or did not report it.
+    engine_own_voice_key: bool | None = None
     #: The speech/model selections THE ENGINE HOLDS, in our own `ModelConfig` vocabulary —
     #: the read half of the BYOK claim in `EngineCapabilities`. Same type going in and
     #: coming out on purpose: a separate "snapshot of models" shape would be a second way
@@ -4835,6 +4839,11 @@ class ExecutionSnapshot(BaseModel):
     #: transcript TEXT is hard rule 6, and a count is not text.
     transcript_lines_unparsed: int = 0
     cost: CostBreakdown | None = None
+    #: What the ENGINE says it charged us for this call, in rupees, on an engine priced by
+    #: an attested minute (ThinnestAI's `costMicro`). A RECONCILIATION input only: it never
+    #: reaches `unit_cost_paid` (hard rule 7, `billing/engine_minutes.py`) and it excludes
+    #: the wallet top-up fee. None when the engine has not settled the call or reports none.
+    engine_charged_inr: Decimal | None = None
     #: When the engine says the execution reached its billable-ready state. Bolna
     #: populates cost, recording and extracted data only at `completed`, ~2-3 min after
     #: disconnect, and NOTHING recorded that instant — so gate 7's time-to-`completed`

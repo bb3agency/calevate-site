@@ -12,26 +12,31 @@ mirrors this manual for other coding agents.
 
 **Production runs `ENGINE=thinnest` (deployed 7 Oct 2026).** ThinnestAI hosts the whole call:
 its own numbers, telephony, STT, LLM, TTS and recording (D-678..D-682). Vobiz, Pipecat Cloud
-and our voice worker carry nothing on this engine. The rungs keep their names; D-687
-(8 Oct 2026, superseding D-681's "Clear = Premium band" and its "Studio on hold") changes
-what is behind them:
+and our voice worker carry nothing on this engine. D-687 and D-688 (8 Oct 2026, superseding
+D-681's "Clear = Premium band" and its "Studio on hold", and D-687's Studio workspace):
 
-- **Clear** = ThinnestAI's stack end to end, speaking ThinnestAI **studio-band** voices:
-  catalogue voices with `tier: studio` plus voices our **admin** clones on ThinnestAI
-  (clones are studio band, `thinnest-findings/mirror/snapshots/2026-10-07b/pages/channels/
-  voice-clone.md:9-12,81-89`). Needs ThinnestAI Pro; Pro allows 10 clones, Scale 20
-  (`:93-94`). Vendor rate ₹3.00/min, VENDOR-STATED, operator-attested, never a constant.
-  Clear agents live in our **developer** workspace, where the clones are.
-- **Studio** = Cartesia on OUR key through ThinnestAI BYOK `scope: "voice"`, with
-  ThinnestAI's STT, LLM and telephony (`api-reference/bring-your-own-keys.md:13-24`), ₹1.50/min
-  to ThinnestAI plus Cartesia's charge to our key. BYOK is per workspace
-  (`bring-your-own-keys/turn-byok-on-or-off.md:7`), so Studio agents live in ONE shared
-  ThinnestAI customer workspace with voice-scope BYOK on (`thinnest_studio_workspace_id`).
-  On voice-only BYOK ThinnestAI runs only its low-cost models on calls
-  (`bring-your-own-keys.md:44-63`).
-- **Clients never clone.** They pick from voices the admin added and enabled, and preview them.
-- **Gnani is not used on ThinnestAI.** No ThinnestAI surface, label or price names it.
-- **Client-facing text names no telephony or voice provider** (D-679).
+- **Clear** = ThinnestAI's stack end to end, speaking the ThinnestAI voice band the console
+  setting `thinnest_clear_voice_band` names: **Premium** (default; pay-as-you-go, ₹2.50/min)
+  or **Studio** (catalogue voices with `tier: studio` plus voices our **admin** clones; needs
+  ThinnestAI Pro, ₹3.00/min). VENDOR-STATED rates, operator-attested, never a constant.
+  Agent `byok: "off"`.
+- **Studio** = Cartesia on OUR key through ThinnestAI BYOK `scope: "voice"`, with ThinnestAI's
+  STT, LLM and telephony (`api-reference/bring-your-own-keys.md:13-24`), ₹1.50/min plus
+  Cartesia's charge. Agent `byok: "workspace"`. Each agent's `byok` says whether it follows
+  the workspace's voice-only BYOK; Voices, "Enable Studio voices" switches it on once per
+  deployment after keeping every Clear agent `off`.
+- **Knowledge belongs to the client** and every agent of that client carries it (D-689).
+- **The adapter follows ThinnestAI's 8 Oct docs** (D-690, D-691): built-in tools pinned at
+  publish, `voice.language`, `answersCalls` pause, caller memory `recap`/`fresh`, signed
+  (v2) webhooks deduped on the event id, numbers recorded and attached in our console, DNC
+  and contact erasure pushed only into a client's OWN workspace, never the developer one.
+- **Outbound needs no DLT** (D-692): a verified KYC record (manual review or DigiLocker,
+  Aadhaar or PAN) and an accepted no-cold-calls pledge. Inbound is never gated.
+- **One ThinnestAI customer workspace per client** is the founder's decision (8 Oct 2026), so
+  numbers are rented in the client's name; it replaces D-688's single developer workspace
+  for tenant resources and is being built (`docs/THINNEST-INTEGRATION.md`).
+- **Clients never clone**; they pick and preview voices the admin added and enabled.
+- **Gnani is not used on ThinnestAI**, and client-facing text names no provider (D-679).
 
 `docs/THINNEST-INTEGRATION.md` is the engine's plan and build state. **Everything below about
 Pipecat, Sarvam STT, Gnani Clear, `TtsModel`, `voice_offer` and Vobiz describes

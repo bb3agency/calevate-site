@@ -86,13 +86,7 @@ def build_engine(cfg: Settings) -> VoiceEngine:
 
         # No signing-secret resolver here: the request path never verifies a delivery
         # (voice-runtime does), and the worker path that does passes its own.
-        # The Studio workspace is read per use, not copied from `cfg`: an operator sets it in
-        # the console while the process runs (D-687).
-        return ThinnestEngine(
-            api_key=cfg.thinnest_api_key,
-            base_url=cfg.thinnest_api_base_url,
-            studio_workspace=lambda: get_settings().thinnest_studio_workspace_id,
-        )
+        return ThinnestEngine(api_key=cfg.thinnest_api_key, base_url=cfg.thinnest_api_base_url)
     from apps.api.engine.fake import FakeEngine
 
     return FakeEngine()

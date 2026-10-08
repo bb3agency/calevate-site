@@ -129,16 +129,10 @@ TRANSIENT_REFUSALS: dict[str, str] = {
     "autodialer_notice_cli_undeclared": (
         "the client records a notice that names the number the agent calls from"
     ),
-    "tm_registration_missing": "Calevate's telemarketer registration goes live again",
-    "pe_registration_missing": "the client records their DLT Principal Entity registration",
-    "pe_registration_not_active": "the registrar returns the PE registration to active",
-    "pe_verification_stale": "the PE registration is re-verified",
-    "tm_link_not_active": "the client re-authorises Calevate as its telemarketer",
-    "number_not_bound_to_agent": "the registered number is bound to this campaign's agent",
-    "number_not_registered": "the registrar approves the number's DLT header",
-    # D-663: facts about how the client's number is recorded, lifted by an operator act.
-    "number_not_on_carrier": "the number is recorded on the carrier calls now go out on",
-    "number_inbound_only": "the number is recorded as able to place outbound calls",
+    # D-692: the KYC override and the no-cold-calls pledge, each lifted by the client's act.
+    "kyc_digilocker_required": "the client completes DigiLocker, or an operator clears it",
+    "outbound_pledge_missing": "the account owner accepts the no-cold-calls pledge",
+    "outbound_pledge_outdated": "the account owner accepts the current pledge version",
     # TRANSIENT, and it is the one entry here whose lifting fact is a MEASUREMENT rather
     # than something somebody sets (D-562/D-564). Two doors open it and both are real: the
     # client republishes the agent, whose read-back refuses unless the truthful-answer

@@ -8,7 +8,11 @@ D-21 "call this lead" button and the instant-callback webhook went through
 calls regulated outbound, could go out with no PE-TM chain and from the engine's shared
 pool number.
 
-These tests pin the closure:
+⚠ D-692 (8 Oct 2026) RETIRED the DLT half: the founder decided clients do not register on
+DLT, so `check_dispatch` no longer asks the entity chain or the bound registered header;
+the five DLT tests below now pin that those states do NOT refuse a dial. KYC and the
+no-cold-calls pledge replaced them (`tests/kyc_two_paths_test.py`). What these tests
+originally pinned:
 
 - the shared entity check (`outbound_entity_blockers`) is the ONE implementation the
   campaign gate and `check_dispatch` both read — TM live AND the client's PE-TM chain
@@ -37,6 +41,18 @@ from sqlalchemy import text
 from tests.conftest import accept_agreements, arm_agent_for_outbound, fund_wallet
 
 _INDIA = "+919876500001"
+
+#: The DLT refusals D-692 retired from `check_dispatch` (still defined; no gate asks them).
+_RETIRED_DLT_RULES = frozenset(
+    {
+        "tm_registration_missing",
+        "pe_registration_missing",
+        "pe_registration_not_active",
+        "tm_link_not_active",
+        "number_not_bound_to_agent",
+        "number_not_registered",
+    }
+)
 
 
 @pytest.fixture(autouse=True)
@@ -118,51 +134,56 @@ async def _gate(tenant_id: uuid.UUID, agent_id: uuid.UUID, phone: str = _INDIA) 
 # --- the entity half: WHO may place the call ---------------------------------
 
 
-async def test_single_lead_refused_when_pe_registration_missing() -> None:
+async def test_single_lead_is_not_refused_for_a_missing_pe_registration() -> None:
     """A client with no DLT Principal Entity registration cannot place a callback, even
     with a registered number bound — the entity is checked before the header."""
     tenant_id, agent_id = await _tenant_agent()
     await _bind_number(tenant_id, agent_id, dlt_status="registered")
     decision = await _gate(tenant_id, agent_id)
-    assert not decision.allowed and decision.rule == "pe_registration_missing"
+    # D-692: the DLT layer is inactive; this state no longer refuses the dial.
+    assert decision.rule not in _RETIRED_DLT_RULES, decision.rule
 
 
-async def test_single_lead_refused_when_pe_not_active() -> None:
+async def test_single_lead_is_not_refused_for_an_inactive_pe() -> None:
     tenant_id, agent_id = await _tenant_agent()
     await _bind_number(tenant_id, agent_id, dlt_status="registered")
     await _record_pe(tenant_id, status="submitted", tm_link_status="pending")
     decision = await _gate(tenant_id, agent_id)
-    assert not decision.allowed and decision.rule == "pe_registration_not_active"
+    # D-692: the DLT layer is inactive; this state no longer refuses the dial.
+    assert decision.rule not in _RETIRED_DLT_RULES, decision.rule
 
 
-async def test_single_lead_refused_when_tm_link_not_active() -> None:
+async def test_single_lead_is_not_refused_for_an_inactive_tm_link() -> None:
     """PE registered but its PE-TM chain to Calevate is not Active — the client has to
     bind and approve the TM before any outbound (playbook §10.4)."""
     tenant_id, agent_id = await _tenant_agent()
     await _bind_number(tenant_id, agent_id, dlt_status="registered")
     await _record_pe(tenant_id, status="active", tm_link_status="pending")
     decision = await _gate(tenant_id, agent_id)
-    assert not decision.allowed and decision.rule == "tm_link_not_active"
+    # D-692: the DLT layer is inactive; this state no longer refuses the dial.
+    assert decision.rule not in _RETIRED_DLT_RULES, decision.rule
 
 
 # --- the header half: from WHAT number ---------------------------------------
 
 
-async def test_single_lead_refused_when_agent_has_no_registered_number() -> None:
+async def test_single_lead_is_not_refused_for_having_no_registered_number() -> None:
     """The chain is active but the agent has no number bound, so the dial would present
     the engine's pool number — refused (playbook §10.8), not silently allowed."""
     tenant_id, agent_id = await _tenant_agent()
     await _record_pe(tenant_id, status="active", tm_link_status="active")
     decision = await _gate(tenant_id, agent_id)
-    assert not decision.allowed and decision.rule == "number_not_bound_to_agent"
+    # D-692: the DLT layer is inactive; this state no longer refuses the dial.
+    assert decision.rule not in _RETIRED_DLT_RULES, decision.rule
 
 
-async def test_single_lead_refused_when_bound_number_not_registered() -> None:
+async def test_single_lead_is_not_refused_for_an_unregistered_number() -> None:
     tenant_id, agent_id = await _tenant_agent()
     await _record_pe(tenant_id, status="active", tm_link_status="active")
     await _bind_number(tenant_id, agent_id, dlt_status="pending")
     decision = await _gate(tenant_id, agent_id)
-    assert not decision.allowed and decision.rule == "number_not_registered"
+    # D-692: the DLT layer is inactive; this state no longer refuses the dial.
+    assert decision.rule not in _RETIRED_DLT_RULES, decision.rule
 
 
 async def test_single_lead_allowed_when_chain_active_and_number_registered() -> None:

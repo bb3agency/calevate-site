@@ -25,8 +25,13 @@ from botocore.exceptions import ClientError
 from sqlalchemy import text
 
 
-async def record_autodialer_notice_for_tests(tenant_id: uuid.UUID) -> None:
-    """Give a tenant the advance autodialer notice every OUTBOUND dial now requires.
+async def record_autodialer_notice_for_tests(
+    tenant_id: uuid.UUID, *, kyc_and_pledge: bool = True
+) -> None:
+    """Give a tenant the advance autodialer notice every OUTBOUND dial now requires —
+    and, unless `kyc_and_pledge=False`, the verified KYC and current pledge D-692 added to
+    the same "paperwork every outbound dial requires" (the tests whose subject is those
+    refusals pass False).
 
     TCCCPR Regulation 4: the Sender tells its Originating Access Provider, in writing and
     in advance, that it uses an auto dialler and what for, so `check_dispatch` and
@@ -39,6 +44,8 @@ async def record_autodialer_notice_for_tests(tenant_id: uuid.UUID) -> None:
 
     async with tenant_session(tenant_id) as session:
         await declare_tenant_numbers_for_tests(session, tenant_id)
+    if kyc_and_pledge:
+        await verify_kyc_and_pledge_for_tests(tenant_id)
 
 
 async def declare_tenant_numbers_for_tests(session: Any, tenant_id: uuid.UUID | str) -> None:
@@ -194,6 +201,116 @@ async def arm_agent_for_outbound(
     # is that refusal.
     if autodialer_notice:
         await record_autodialer_notice_for_tests(tenant_id)
+    # D-692: every outbound dial needs a verified KYC record and a current no-cold-calls
+    # pledge, on every tier.
+    await verify_kyc_and_pledge_for_tests(tenant_id)
+
+
+PDF_BYTES = b"%PDF-1.7\n% calevate test certificate\n%%EOF\n"
+
+
+async def put_business_on_file_for_tests(
+    tenant_id: uuid.UUID, *, entity_type: str = "sole_proprietorship"
+) -> uuid.UUID:
+    """The business details and certificate D-692 requires before either KYC path.
+
+    Through the production writers, sealed the production way; the object itself is not
+    stored, because these tests are about the record and the gate, not the bucket. Returns
+    the `kyc_documents.id` of the certificate.
+    """
+    from apps.api.compliance.kyc import read_kyc, save_business_details
+    from apps.api.compliance.kyc_documents import (
+        accept_upload,
+        current_documents,
+        new_document_id,
+        record_document,
+        seal_document,
+    )
+    from apps.api.db.session import tenant_session
+
+    async with tenant_session(tenant_id) as session:
+        on_file = (await current_documents(session, tenant_id=tenant_id)).get("business")
+        named = (await read_kyc(session, tenant_id=tenant_id)).legal_business_name
+    if on_file is not None and named:
+        return on_file.id
+    owner = await _owner_of(tenant_id)
+    document_id = new_document_id()
+    accepted = accept_upload(filename="certificate.pdf", data=PDF_BYTES)
+    async with tenant_session(tenant_id) as session:
+        await save_business_details(
+            session,
+            tenant_id=tenant_id,
+            entity_type=entity_type,
+            legal_business_name="Fixture Traders",
+            gst_registered=False,
+            gstin=None,
+            owner_name="Ravi Kumar",
+        )
+        await record_document(
+            session,
+            tenant_id=tenant_id,
+            document_id=document_id,
+            slot="business",
+            kind="udyam",
+            object_key=f"kyc-documents/{tenant_id}/{document_id}.pdf",
+            accepted=accepted,
+            sealed=seal_document(tenant_id=tenant_id, document_id=document_id, data=PDF_BYTES),
+            uploaded_by_user_id=owner,
+        )
+    return document_id
+
+
+async def verify_kyc_and_pledge_for_tests(tenant_id: uuid.UUID) -> None:
+    """Give a tenant the two facts D-692 made the outbound precondition.
+
+    Through the production writers (`record_kyc` with the operator the CHECK demands, and
+    `accept_pledge` with the current text's hash), so it softens no gate:
+    `tests/kyc_two_paths_test.py` proves both refusals by leaving them out. Idempotent.
+    """
+    from apps.api.compliance.kyc import read_kyc, record_kyc
+    from apps.api.compliance.outbound_pledge import (
+        PLEDGE_TEXT_SHA256,
+        PLEDGE_VERSION,
+        accept_pledge,
+        read_pledge,
+    )
+    from apps.api.db.base import uuid7
+    from apps.api.db.session import tenant_session, untenanted_session
+
+    async with tenant_session(tenant_id) as session:
+        verified = (await read_kyc(session, tenant_id=tenant_id)).is_verified
+        pledged = (await read_pledge(session, tenant_id=tenant_id)).is_current
+    if not verified:
+        admin_id = uuid7()
+        async with untenanted_session() as session:
+            await session.execute(
+                text(
+                    "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                    "VALUES (:id, 'KYC Reviewer', 'operator', now(), now())"
+                ),
+                {"id": admin_id},
+            )
+        async with tenant_session(tenant_id) as session:
+            await record_kyc(
+                session,
+                tenant_id=tenant_id,
+                status="verified",
+                entity_type="private_limited",
+                document_kind="cin",
+                document_ref=f"U74999TG2020PTC{uuid.uuid4().int % 10**6:06d}",
+                verified_by_admin_id=admin_id,
+            )
+    if not pledged:
+        user_id = await _owner_of(tenant_id)
+        async with tenant_session(tenant_id) as session:
+            await accept_pledge(
+                session,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                version=PLEDGE_VERSION,
+                text_sha256=PLEDGE_TEXT_SHA256,
+                ip=None,
+            )
 
 
 async def accept_carrier_application(tenant_id: uuid.UUID) -> None:
@@ -258,8 +375,13 @@ async def accept_carrier_application(tenant_id: uuid.UUID) -> None:
         )
 
 
-async def accept_agreements(tenant_id: uuid.UUID, user_id: uuid.UUID | None = None) -> None:
-    """Record the four blocking legal acceptances an operating tenant now has to have.
+async def accept_agreements(
+    tenant_id: uuid.UUID, user_id: uuid.UUID | None = None, *, kyc_and_pledge: bool = True
+) -> None:
+    """Record the four blocking legal acceptances an operating tenant now has to have —
+    and, unless `kyc_and_pledge=False`, the verified KYC and current no-cold-calls pledge
+    D-692 made part of the same "may this tenant operate outbound" set. The tests whose
+    subject is a KYC or pledge refusal pass False.
 
     Since migration a9d4e70c31b8, `legal.service.agreements_blocker` refuses the dial
     gate, both campaign gates and the agent publish path for an organisation that has not
@@ -302,6 +424,8 @@ async def accept_agreements(tenant_id: uuid.UUID, user_id: uuid.UUID | None = No
                 statement_version=statements.statement_version(),
                 user_id=user_id,
             )
+    if kyc_and_pledge:
+        await verify_kyc_and_pledge_for_tests(tenant_id)
 
 
 async def fund_wallet(tenant_id: uuid.UUID, amount_inr: str = "10000.00") -> None:
@@ -941,15 +1065,3 @@ async def hosted_rows() -> Any:
         yield store
     finally:
         await store.cleanup()
-
-
-@pytest.fixture
-def studio_workspace(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
-    """A deployment with a Studio workspace set up (`thinnest_studio_workspace_id`)."""
-    monkeypatch.setenv("THINNEST_STUDIO_WORKSPACE_ID", "org_studio")
-    get_settings.cache_clear()
-    try:
-        yield "org_studio"
-    finally:
-        monkeypatch.delenv("THINNEST_STUDIO_WORKSPACE_ID", raising=False)
-        get_settings.cache_clear()

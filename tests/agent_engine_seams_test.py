@@ -59,6 +59,7 @@ async def _actions(agent_id: UUID, created: bool) -> None:
         agent_id=agent_id,
         ref=REF,
         created=created,
+        live_handover=False,
     )
 
 

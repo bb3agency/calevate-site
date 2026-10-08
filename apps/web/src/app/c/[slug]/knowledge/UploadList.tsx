@@ -34,7 +34,7 @@ const KIND_ICONS = {
 } as const;
 
 /** One file, photo or web page the account sent, watching itself while it moves. */
-export function UploadRow({ upload, agentName }: { upload: KbUpload; agentName: string | null }) {
+export function UploadRow({ upload }: { upload: KbUpload }) {
   const session = useClientSession();
   // The row's OWN poll while it is moving, and silence once it is not. `watch.data ?? upload`
   // rather than a manufactured empty: the list's own answer is a real fact about this row,
@@ -73,11 +73,6 @@ export function UploadRow({ upload, agentName }: { upload: KbUpload; agentName: 
           <p className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-ink-faint">
             <span>{kind}</span>
             {size && <span className="tabular-nums">{size}</span>}
-            {agentName && (
-              <span title={agentName} className="truncate">
-                {agentName}
-              </span>
-            )}
             {shown.change_detected_at && (
               <span className="whitespace-nowrap">
                 Page changed {formatIST(shown.change_detected_at)}
@@ -163,8 +158,8 @@ export function UploadRow({ upload, agentName }: { upload: KbUpload; agentName: 
           onConfirm={() => remove.mutate(shown.id, { onSuccess: () => setConfirmingRemoval(false) })}
         >
           <p>
-            Your agent stops using this straight away, and we delete our copy of it. Callers
-            who ask about it will get whatever else you have taught the agent.
+            Your agents stop using this straight away, and we delete our copy of it. Callers
+            who ask about it will get whatever else you have taught your agents.
           </p>
           <p>You can send it again later.</p>
         </ConfirmDialog>
@@ -287,8 +282,8 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
           }
         >
           <p>
-            We delete this and the file it came from, and your agent never sees it. Nothing
-            you have already taught your agent changes.
+            We delete this and the file it came from, and your agents never see it. Nothing
+            you have already taught your agents changes.
           </p>
         </ConfirmDialog>
       )}

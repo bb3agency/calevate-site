@@ -6,7 +6,6 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { ProblemNotice, RestrictionNote } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
-import { useAgents } from "@/lib/api/agents";
 import { useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
 
 import { AddDocument } from "./AddDocument";
@@ -18,6 +17,11 @@ import { useKnowledgeCopilot } from "./copilot";
 
 /**
  * Client-side knowledge (FLOWS §7).
+ *
+ * The knowledge belongs to the BUSINESS, not to one agent (D-689): every agent on the
+ * account answers from the same facts, documents and pages. So nothing here asks which
+ * agent to teach, and nothing waits for an agent to exist — what is added before the
+ * first agent is published reaches it when it is.
  *
  * The screen is deliberately honest about the approval gate rather than hiding it: a
  * submission shows as "in review" and the copy says why. A client who does not know
@@ -49,7 +53,6 @@ import { useKnowledgeCopilot } from "./copilot";
 export function KnowledgeScreen() {
   const session = useClientSession();
   const sources = useKbSources(session);
-  const agents = useAgents(session);
   const submit = useSubmitKnowledge(session);
 
   /**
@@ -94,41 +97,8 @@ export function KnowledgeScreen() {
 
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
-  const [agentId, setAgentId] = useState("");
 
-  // Knowledge belongs to ONE agent. Silently posting it against `agents[0]` means a
-  // client with two agents teaches the wrong one and waits for an answer the right
-  // one will never give — so the choice is shown whenever there is one.
-  const agentOptions = agents.data ?? [];
-  const selectedAgentId = agentId || agentOptions[0]?.id || "";
-
-  /**
-   * Agent id → name, for the rows. Built from the SAME query the picker uses, so the
-   * two halves of the screen cannot disagree about what an agent is called; read through
-   * `lookup` because `agent_id` is a server string and `Object.fromEntries` produces an
-   * object that inherits `Object.prototype` (src/lib/lookup.ts).
-   */
-  const agentNames: Record<string, string> = Object.fromEntries(
-    agentOptions.map((agent) => [agent.id, agent.name]),
-  );
-
-  useKnowledgeCopilot({
-    name,
-    setName,
-    body,
-    setBody,
-    selectedAgentId,
-    setAgentId,
-    agentOptions,
-  });
-
-  /**
-   * There is nothing to teach — as a FACT from the server, not as "the list is empty
-   * right now". While `/v1/agents` is in flight or has failed, `agentOptions` is also
-   * empty, and telling a client they have no agents on the strength of a request that
-   * never landed is the same lie as an empty state over a failed fetch.
-   */
-  const hasNoAgents = Boolean(agents.data) && agentOptions.length === 0;
+  useKnowledgeCopilot({ name, setName, body, setBody });
 
   return (
     <div className="space-y-6 pb-12">
@@ -136,7 +106,7 @@ export function KnowledgeScreen() {
           prompt at publish time, so the copy says "part of what it already knows" rather
           than anything retrieval-shaped (`tests/knowledgeApproval.test.tsx` pins it). */}
       <PageHeader
-        description="What your agent knows. What you add goes to your agent once it has been read, without anyone approving it, and becomes part of what the agent already knows when it picks up — hours, address, prices, the questions you get asked every day."
+        description="Your business knowledge — every one of your agents answers from it. What you add goes to all your agents once it has been read, without anyone approving it, and becomes part of what the agent already knows when it picks up — hours, address, prices, the questions you get asked every day."
       />
 
       <RestrictionNote reason={write.reason} />
@@ -144,33 +114,19 @@ export function KnowledgeScreen() {
       {sources.error && (
         <ProblemNotice error={sources.error} onRetry={() => sources.refetch()} />
       )}
-      {/* No agent list means no agent to teach; without this the form refused to submit
-          and never said why. */}
-      {agents.error && (
-        <ProblemNotice error={agents.error} onRetry={() => agents.refetch()} />
-      )}
       {submit.error && <ProblemNotice error={submit.error} />}
 
       {/* THE DROP ZONE: everything a client can teach, in one place at the top — a file or
           a photo, a web page, or a fact typed in. */}
       <section
-        aria-label="Add to your agent"
+        aria-label="Add to your business knowledge"
         className="space-y-4 rounded-card border border-line bg-surface p-4 sm:p-5"
       >
         <SubmissionConsequence />
         <div className="grid gap-6 lg:grid-cols-2 lg:gap-8">
-          <AddDocument
-            agentId={selectedAgentId}
-            agentName={agentOptions.length === 1 ? (agentOptions[0]?.name ?? null) : null}
-            allowed={write.allowed}
-            reason={write.reason}
-          />
+          <AddDocument allowed={write.allowed} reason={write.reason} />
           <div className="lg:border-l lg:border-line lg:pl-8">
             <AddKnowledgeForm
-              agentOptions={agentOptions}
-              selectedAgentId={selectedAgentId}
-              onAgentId={setAgentId}
-              hasNoAgents={hasNoAgents}
               name={name}
               onName={setName}
               body={body}
@@ -187,7 +143,7 @@ export function KnowledgeScreen() {
           with when the agent has not caught up (`apps/api/kb/delivery.py`). */}
       <KnowledgeDelivery />
 
-      <SourcesList agentNames={agentNames} sources={sources} />
+      <SourcesList sources={sources} />
 
       <StaffCurationSwitch write={curationWrite} />
     </div>

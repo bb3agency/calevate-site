@@ -642,7 +642,6 @@ async def test_a_kb_publish_completes_while_the_caller_holds_the_agent_row_locke
             source = await kb_service.submit_source(
                 session,
                 tenant_id=tenant_id,
-                agent_id=agent_id,
                 name="Clinic hours",
                 body="We are open 9am to 8pm.\n\nSunday is closed.",
             )

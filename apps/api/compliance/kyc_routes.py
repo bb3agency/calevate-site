@@ -58,18 +58,37 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.campaigns.provisioning import number_purchase_available
 from apps.api.compliance.audit import write_audit
-from apps.api.compliance.kyc import KycRecord, read_kyc
-from apps.api.compliance.kyc_providers import available_provider
+from apps.api.compliance.kyc import (
+    KycRecord,
+    mark_digilocker_path,
+    read_kyc,
+    save_business_details,
+    submit_for_manual_review,
+)
+from apps.api.compliance.kyc_documents import (
+    KYC_MAX_DOCUMENT_BYTES,
+    OWNER_ID_KINDS,
+    KycDocumentRow,
+    accept_upload,
+    assert_kind_fits_slot,
+    current_documents,
+    delete_quietly,
+    masked_owner_id,
+    new_document_id,
+    record_document,
+    seal_document,
+)
+from apps.api.compliance.kyc_providers import IdDocument, available_provider
 from apps.api.compliance.kyc_verification import (
     VERIFICATION_UNAVAILABLE_REASON,
     apply_outcome,
@@ -149,12 +168,76 @@ class KycRecordOut(BaseModel):
     # not by omission — Model B, `campaigns/provisioning.py` — so this is false for
     # every account in every deployment.
     number_purchase_available: bool
+    # D-692: the path chosen, the business facts, the owner ID used (masked), the admin's
+    # DigiLocker requirement, and the documents on file (metadata only).
+    kyc_path: str | None
+    legal_business_name: str | None
+    gst_registered: bool | None
+    gstin: str | None
+    owner_id_type: str | None
+    owner_id_masked: str | None
+    name_match: bool | None
+    digilocker_required: bool
+    digilocker_required_reason: str | None
+    # The requirement is set and no run has completed since — outbound is blocked on it.
+    digilocker_outstanding: bool
+    documents: list[KycDocumentOut]
+
+
+class KycDocumentOut(BaseModel):
+    """One file on record. Metadata only; the bytes are never returned to the client."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    slot: str
+    kind: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    uploaded_at: datetime
+    # False once the file has been deleted (an owner ID after its review is decided).
+    held: bool
+
+
+KycRecordOut.model_rebuild()
+
+
+def documents_out(documents: dict[str, KycDocumentRow]) -> list[KycDocumentOut]:
+    return [
+        KycDocumentOut(
+            id=row.id,
+            slot=row.slot,
+            kind=row.kind,
+            filename=row.filename,
+            content_type=row.content_type,
+            size_bytes=row.size_bytes,
+            uploaded_at=row.created_at,
+            held=row.purged_at is None,
+        )
+        for row in documents.values()
+    ]
 
 
 def _out(
-    record: KycRecord, *, purchase_available: bool, self_verification_available: bool
+    record: KycRecord,
+    *,
+    purchase_available: bool,
+    self_verification_available: bool,
+    documents: dict[str, KycDocumentRow] | None = None,
 ) -> KycRecordOut:
     return KycRecordOut(
+        kyc_path=record.kyc_path,
+        legal_business_name=record.legal_business_name,
+        gst_registered=record.gst_registered,
+        gstin=record.gstin,
+        owner_id_type=record.owner_id_type,
+        owner_id_masked=record.owner_id_masked,
+        name_match=record.name_match,
+        digilocker_required=record.digilocker_required,
+        digilocker_required_reason=record.digilocker_required_reason,
+        digilocker_outstanding=record.digilocker_outstanding,
+        documents=documents_out(documents or {}),
         recorded=record.recorded,
         status=record.status,
         entity_type=record.entity_type,
@@ -200,6 +283,7 @@ async def read_kyc_record(
         record,
         purchase_available=record.is_verified and number_purchase_available(),
         self_verification_available=available_provider().available,
+        documents=await current_documents(session, tenant_id=principal.tenant_id),
     )
 
 
@@ -227,6 +311,8 @@ class StartVerificationIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     entity_type: str
+    # Which DigiLocker record to share: the Aadhaar or the PAN (D-692).
+    id_document: Literal["aadhaar", "pan"] = "aadhaar"
 
 
 class StartVerificationOut(BaseModel):
@@ -280,7 +366,7 @@ async def start_verification(
             remediation="Our operations team will verify this business directly.",
         )
     record = await read_kyc(session, tenant_id=principal.tenant_id)
-    if record.is_verified:
+    if record.is_verified and not record.digilocker_outstanding:
         raise ProblemError.business_rule(
             "kyc_already_verified",
             "This business's identity is already verified.",
@@ -299,12 +385,17 @@ async def start_verification(
             "selected, so we cannot start a verification against it.",
             remediation="Contact support to correct the registered entity type before verifying.",
         )
+    # The business certificate and details are needed on this path too (D-692): DigiLocker
+    # proves the owner, never the business.
+    await _assert_business_on_file(session, tenant_id=principal.tenant_id, record=record)
 
     provider = capability.provider
     start = await provider.start(
         entity_type=body.entity_type,
         redirect_back_url=await _return_url(session, tenant_id=principal.tenant_id),
+        id_document=body.id_document,
     )
+    await mark_digilocker_path(session, tenant_id=principal.tenant_id)
     # This tenant's abandoned runs, closed on the way past. One of the two writers of
     # `expired` — the other is the webhook — which is why there is no sweep to schedule.
     await expire_stale_runs(session, tenant_id=principal.tenant_id)
@@ -317,6 +408,7 @@ async def start_verification(
         provider=provider.name,
         provider_ref=start.provider_ref,
         entity_type=body.entity_type,
+        id_document=body.id_document,
     )
     await write_audit(
         session,
@@ -326,7 +418,11 @@ async def start_verification(
         object_type="kyc_verification_request",
         object_id=start.provider_ref,
         ip=client_request_ip(request),
-        summary={"provider": provider.name, "entity_type": body.entity_type},
+        summary={
+            "provider": provider.name,
+            "entity_type": body.entity_type,
+            "id_document": body.id_document,
+        },
     )
     return StartVerificationOut(
         provider=provider.name, provider_ref=start.provider_ref, redirect_url=start.redirect_url
@@ -348,7 +444,377 @@ async def _return_url(session: AsyncSession, *, tenant_id: UUID) -> str:
         )
     ).first()
     slug = str(row[0]) if row is not None else ""
-    return f"{console_base('client')}/c/{slug}/verification"
+    return f"{console_base('client')}/c/{slug}/verify-business"
+
+
+def _id_document(value: str) -> IdDocument:
+    return "pan" if value == "pan" else "aadhaar"
+
+
+class CompleteVerificationIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_ref: str = Field(min_length=1, max_length=128)
+
+
+class CompleteVerificationOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # `applied`, `replay`, `expired`, or `pending` while the client has not finished.
+    status: str
+    record: KycRecordOut
+
+
+@router.post(
+    "/verification/complete",
+    response_model=CompleteVerificationOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Finish a DigiLocker verification when the client returns from the provider",
+    description=(
+        "Asks the provider, with Calevate's own credentials, how this run ended and records "
+        "the result. The run must be one this account opened. Calevate keeps the result, "
+        "the ID type, the verified name, a masked ID number and the provider's reference — "
+        "never the document."
+    ),
+)
+async def complete_verification(
+    body: CompleteVerificationIn,
+    request: Request,
+    session: Session,
+    principal: KycWriter,
+) -> CompleteVerificationOut:
+    """The client's return leg. Under the client's RLS session, so a reference from
+    another account resolves to nothing — the run is found only if it is this tenant's."""
+    assert principal.tenant_id is not None
+    capability = available_provider()
+    if capability.provider is None:
+        raise ProblemError.business_rule(
+            "self_verification_unavailable",
+            VERIFICATION_UNAVAILABLE_REASON,
+            remediation="Use document upload instead.",
+        )
+    run = await resolve_request(
+        session, provider=capability.provider.name, provider_ref=body.provider_ref
+    )
+    if run is None or run.tenant_id != principal.tenant_id:
+        raise ProblemError.not_found("verification run")
+    outcome = await capability.provider.fetch_outcome(
+        provider_ref=body.provider_ref, id_document=_id_document(run.id_document)
+    )
+    status = "pending"
+    if outcome is not None:
+        status = await apply_outcome(
+            session, request=run, provider=capability.provider.name, outcome=outcome
+        )
+    record = await read_kyc(session, tenant_id=principal.tenant_id)
+    return CompleteVerificationOut(
+        status=status,
+        record=_out(
+            record,
+            purchase_available=record.is_verified and number_purchase_available(),
+            self_verification_available=True,
+            documents=await current_documents(session, tenant_id=principal.tenant_id),
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# D-692 — what the client declares and uploads, on either path.
+# ---------------------------------------------------------------------------
+
+_GSTIN = r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$"
+
+
+class BusinessDetailsIn(BaseModel):
+    """The legal facts a numbering application in the client's own name needs."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    entity_type: str
+    legal_business_name: str = Field(min_length=2, max_length=200)
+    gst_registered: bool
+    gstin: str | None = Field(default=None, pattern=_GSTIN)
+    # The owner or authorised signatory, as on their ID.
+    owner_name: str = Field(min_length=2, max_length=120)
+
+
+@router.put(
+    "/details",
+    response_model=KycRecordOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Save this business's legal name, GST status and owner name",
+    description=(
+        "Needed on both verification paths. Locked once a reviewer has the record or it is "
+        "verified. A GSTIN is required when the business is GST-registered."
+    ),
+)
+async def save_details(
+    body: BusinessDetailsIn,
+    request: Request,
+    session: Session,
+    principal: KycWriter,
+) -> KycRecordOut:
+    assert principal.tenant_id is not None
+    if body.entity_type not in KYC_ENTITY_TYPES:
+        raise ProblemError.business_rule(
+            "unknown_entity_type",
+            "That is not an entity type we can verify.",
+            remediation="Choose how the business is registered and try again.",
+        )
+    if body.gst_registered and not body.gstin:
+        raise ProblemError(
+            kind="validation",
+            code="kyc_gstin_required",
+            title="Enter the GSTIN",
+            detail="A GST-registered business needs its 15-character GSTIN on record.",
+            remediation="Type the GSTIN exactly as it appears on the GST certificate.",
+        )
+    if any(char.isdigit() for char in body.owner_name):
+        raise ProblemError(
+            kind="validation",
+            code="kyc_owner_name_invalid",
+            title="Enter the owner's name, not a number",
+            detail="The owner name is the person's name as it appears on their ID.",
+            remediation="Type the name and leave out any ID number.",
+        )
+    await save_business_details(
+        session,
+        tenant_id=principal.tenant_id,
+        entity_type=body.entity_type,
+        legal_business_name=body.legal_business_name,
+        gst_registered=body.gst_registered,
+        gstin=body.gstin,
+        owner_name=body.owner_name,
+    )
+    await write_audit(
+        session,
+        action="kyc.details_saved",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="kyc_record",
+        object_id=str(principal.tenant_id),
+        ip=client_request_ip(request),
+        # The business's own public facts; the owner's name is not copied here.
+        summary={"entity_type": body.entity_type, "gst_registered": body.gst_registered},
+    )
+    return await _current_out(session, tenant_id=principal.tenant_id)
+
+
+@router.post(
+    "/documents",
+    response_model=KycDocumentOut,
+    status_code=201,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Upload the business certificate or the owner's ID",
+    description=(
+        "`slot` is `business` (kind `gst`, `incorporation` or `udyam`) or `owner_id` (kind "
+        "`aadhaar` — the masked copy only — or `pan_card`). PDF, JPEG or PNG, at most 5 MB, "
+        "a filename of at most 99 characters. Files are encrypted before storage. The "
+        "owner's ID is deleted once a reviewer decides, or after 30 days if nobody does."
+    ),
+)
+async def upload_document(
+    request: Request,
+    session: Session,
+    principal: KycWriter,
+    tasks: BackgroundTasks,
+    slot: Annotated[str, Form()],
+    kind: Annotated[str, Form()],
+    file: Annotated[UploadFile, File()],
+) -> KycDocumentOut:
+    assert principal.tenant_id is not None
+    # A `users.id` (D-587); an operator in a view-as session cannot upload a client's
+    # identity documents for them.
+    uploader = principal.client_user_id
+    if uploader is None:
+        raise ProblemError.business_rule(
+            "kyc_documents_are_the_clients_own",
+            "Verification documents have to be uploaded by somebody at your own business.",
+            remediation="Sign in to your own account and upload them there.",
+        )
+    checked_slot = assert_kind_fits_slot(slot=slot, kind=kind)
+    record = await read_kyc(session, tenant_id=principal.tenant_id)
+    if record.status in ("submitted", "in_review", "verified"):
+        raise ProblemError.business_rule(
+            "kyc_documents_locked",
+            "These documents are with our review team or already verified, so they cannot "
+            "be replaced here.",
+            remediation="Contact support if a document needs replacing.",
+        )
+    data = await _read_bounded(file)
+    accepted = accept_upload(filename=file.filename or "", data=data)
+
+    from apps.workers.storage import kyc_document_key, store_kyc_document
+
+    document_id = new_document_id()
+    sealed = seal_document(tenant_id=principal.tenant_id, document_id=document_id, data=data)
+    key = kyc_document_key(
+        tenant_id=principal.tenant_id, document_id=document_id, suffix=accepted.suffix
+    )
+    # Ciphertext only; the store's SSE applies on top (`_put_document`).
+    await store_kyc_document(key=key, data=sealed.ciphertext, content_type=_CIPHERTEXT_TYPE)
+    replaced = await record_document(
+        session,
+        tenant_id=principal.tenant_id,
+        document_id=document_id,
+        slot=checked_slot,
+        kind=kind,
+        object_key=key,
+        accepted=accepted,
+        sealed=sealed,
+        uploaded_by_user_id=uploader,
+    )
+    await write_audit(
+        session,
+        action="kyc.document_uploaded",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="kyc_document",
+        object_id=str(document_id),
+        ip=client_request_ip(request),
+        # Slot, kind and size; never the filename, which the client chose and may name a
+        # person (hard rule 6).
+        summary={"slot": checked_slot, "kind": kind, "size_bytes": accepted.size_bytes},
+    )
+    if replaced:
+        # A background task runs after the response, i.e. after this request's transaction
+        # committed, so a rollback never leaves a current row pointing at a deleted file.
+        tasks.add_task(delete_quietly, replaced)
+    rows = await current_documents(session, tenant_id=principal.tenant_id)
+    return documents_out({checked_slot: rows[checked_slot]})[0]
+
+
+class ManualSubmitIn(BaseModel):
+    """The owner ID the uploaded file shows. For Aadhaar, ONLY the last four digits."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    owner_id_type: Literal["aadhaar", "pan"]
+    # A PAN (validated, then masked) or the Aadhaar's last four digits. Never stored whole.
+    owner_id_number: str = Field(min_length=4, max_length=10)
+
+
+@router.post(
+    "/submit",
+    response_model=KycRecordOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Send the uploaded documents for review",
+    description=(
+        "The manual path: needs the business details, the business certificate and the "
+        "owner's ID on file. For a PAN send the full PAN (only a masked form is kept); for "
+        "an Aadhaar send ONLY its last four digits."
+    ),
+)
+async def submit_for_review(
+    body: ManualSubmitIn,
+    request: Request,
+    session: Session,
+    principal: KycWriter,
+) -> KycRecordOut:
+    assert principal.tenant_id is not None
+    record = await read_kyc(session, tenant_id=principal.tenant_id)
+    if record.is_verified:
+        raise ProblemError.business_rule(
+            "kyc_already_verified",
+            "This business's identity is already verified.",
+            remediation="Nothing further is needed.",
+        )
+    if record.status in ("submitted", "in_review"):
+        raise ProblemError.business_rule(
+            "kyc_already_submitted",
+            "Your documents are already with our review team.",
+            remediation="We will tell you when the review is done.",
+        )
+    documents = await _assert_business_on_file(
+        session, tenant_id=principal.tenant_id, record=record
+    )
+    owner = documents.get("owner_id")
+    if owner is None or owner.purged_at is not None:
+        raise ProblemError.business_rule(
+            "kyc_owner_id_missing",
+            "Upload the owner's Aadhaar (masked copy) or PAN card first.",
+            remediation="Add the owner's ID, then send for review.",
+        )
+    if OWNER_ID_KINDS[owner.kind] != body.owner_id_type:
+        raise ProblemError.business_rule(
+            "kyc_owner_id_type_mismatch",
+            "The ID type you entered does not match the document you uploaded.",
+            remediation="Choose the same ID type as the uploaded document.",
+        )
+    masked = masked_owner_id(id_type=body.owner_id_type, value=body.owner_id_number)
+    await submit_for_manual_review(
+        session,
+        tenant_id=principal.tenant_id,
+        owner_id_type=body.owner_id_type,
+        owner_id_masked=masked,
+    )
+    await write_audit(
+        session,
+        action="kyc.submitted_for_review",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="kyc_record",
+        object_id=str(principal.tenant_id),
+        ip=client_request_ip(request),
+        summary={"owner_id_type": body.owner_id_type},
+    )
+    return await _current_out(session, tenant_id=principal.tenant_id)
+
+
+async def _assert_business_on_file(
+    session: AsyncSession, *, tenant_id: UUID, record: KycRecord
+) -> dict[str, KycDocumentRow]:
+    """Both paths need the business details and the business certificate (D-692)."""
+    if not record.legal_business_name or record.gst_registered is None or not record.entity_type:
+        raise ProblemError.business_rule(
+            "kyc_details_missing",
+            "Add your business's legal name, how it is registered and its GST status first.",
+            remediation="Fill in the business details, then continue.",
+        )
+    documents = await current_documents(session, tenant_id=tenant_id)
+    business = documents.get("business")
+    if business is None:
+        raise ProblemError.business_rule(
+            "kyc_business_document_missing",
+            "Upload your business certificate first: the GST certificate if you are "
+            "GST-registered, otherwise the Certificate of Incorporation or Udyam certificate.",
+            remediation="Add the certificate, then continue.",
+        )
+    expected = "gst" if record.gst_registered else None
+    if expected is not None and business.kind != expected:
+        raise ProblemError.business_rule(
+            "kyc_business_document_kind_mismatch",
+            "A GST-registered business must upload its GST certificate.",
+            remediation="Upload the GST certificate in place of the current document.",
+        )
+    if record.gst_registered is False and business.kind == "gst":
+        raise ProblemError.business_rule(
+            "kyc_business_document_kind_mismatch",
+            "You said the business is not GST-registered, but uploaded a GST certificate.",
+            remediation="Correct the GST status, or upload the incorporation or Udyam certificate.",
+        )
+    return documents
+
+
+async def _current_out(session: AsyncSession, *, tenant_id: UUID) -> KycRecordOut:
+    record = await read_kyc(session, tenant_id=tenant_id)
+    return _out(
+        record,
+        purchase_available=record.is_verified and number_purchase_available(),
+        self_verification_available=available_provider().available,
+        documents=await current_documents(session, tenant_id=tenant_id),
+    )
+
+
+#: What the object store is told the bytes are: they are ciphertext, not the document.
+_CIPHERTEXT_TYPE = "application/octet-stream"
+
+
+async def _read_bounded(file: UploadFile) -> bytes:
+    """Read at most one byte past the limit, so an oversized upload is refused without
+    being held whole in memory."""
+    data = await file.read(KYC_MAX_DOCUMENT_BYTES + 1)
+    return data
 
 
 # --- The receiver -----------------------------------------------------------
@@ -431,6 +897,16 @@ async def receive_verification_outcome(provider: str, request: Request) -> Verif
         # inventing one is the only truly unrecoverable mistake available here.
         alert("ROUTE_HANDLER", "kyc_webhook_unknown_reference", provider=provider)
         raise ProblemError.not_found("verification run")
+
+    if not capability.provider.webhook_is_authoritative:
+        # A doorbell: the delivery named the run, and the facts come from our own
+        # authenticated read of it (D-692).
+        pulled = await capability.provider.fetch_outcome(
+            provider_ref=outcome.provider_ref, id_document=_id_document(run.id_document)
+        )
+        if pulled is None:
+            return VerificationAck(status="pending")
+        outcome = pulled
 
     async with tenant_session(run.tenant_id) as session:
         result = await apply_outcome(session, request=run, provider=provider, outcome=outcome)

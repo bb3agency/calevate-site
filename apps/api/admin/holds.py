@@ -126,10 +126,11 @@ class HeldTenant:
     rules: tuple[str, ...]
 
 
-# Only these tiers can be held: both blockers return None for every other motion. This
-# is the same constant the gates draw their line with, imported rather than repeated, so
-# it is a pre-FILTER on the candidate set and never a second copy of the RULE — the
-# blocker below still decides, and a tenant this filter let through is dropped by it.
+# The self-serve tiers only. Since D-692 `kyc_blocker` applies to every tier, but a
+# managed or prepaid client waiting on a KYC review is listed by the review queue
+# (`GET /v1/admin/kyc/reviews`), which reads the waiting records directly; this queue stays
+# the stranger-signup work list the self-serve tier line defines. A pre-FILTER on the
+# candidate set, never a second copy of a rule — the blockers below still decide.
 _DIRECTORY = (
     "SELECT id, name, slug, plan_tier, created_at FROM organizations "
     "WHERE deleted_at IS NULL AND plan_tier = ANY(:tiers) "

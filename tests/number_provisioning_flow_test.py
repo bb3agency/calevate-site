@@ -83,7 +83,9 @@ async def _tenant() -> dict[str, Any]:
         created_by=None,
     )
     tenant_id = uuid.UUID(str(created["id"]))
-    await accept_agreements(tenant_id)
+    # KYC is the subject here (it gates activation), so each test writes its own verified
+    # record with `_verify_kyc` or leaves the tenant unverified on purpose.
+    await accept_agreements(tenant_id, kyc_and_pledge=False)
     # The carrier approves each client business before a number may be rented for it.
     # Supplied, never assumed away — without it a purchase reports
     # `carrier_application_not_accepted` in place of the answer under test.

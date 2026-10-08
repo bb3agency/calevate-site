@@ -105,16 +105,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.processor_erasure import (
     OWN_RUNTIME_ENGINES,
+    VOICE_PLATFORM_ERASURE_REQUESTED,
+    VOICE_PLATFORM_ERASURE_SENTENCE,
+    VOICE_PLATFORM_RETAINED,
+    VOICE_PLATFORM_RETAINED_ENGINES,
+    VOICE_PLATFORM_RETAINED_SENTENCE,
     engine_held_call_refs,
     open_tasks_for_request,
 )
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine.carrier import carrier_of_record
 from apps.api.insights.service import scrub_quotes_for_calls
+from apps.api.reliability.service import enqueue_outbox
 from apps.api.retrieval.caller_erasure import (
     EXPIRE_CHUNKS_SQL,
     EXPIRE_MEMORIES_SQL,
@@ -125,8 +132,10 @@ from apps.api.retrieval.caller_erasure import (
     unreachable_generations,
 )
 from apps.api.retrieval.supermemory_index import purge_tenant_index
+from apps.api.tenancy.engine_workspace import own_workspace
 from apps.workers import storage
 from apps.workers.carrier_recordings import enqueue_carrier_deletion
+from apps.workers.engine_customer_data import seal_subject
 from apps.workers.fleet_walk import WalkBudget
 
 log = get_logger(__name__)
@@ -2737,7 +2746,7 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         # them and what remains is exactly the set no request can locate.
         unidentified = await _count_unidentified_calls(session)
 
-        proof = {
+        proof: dict[str, Any] = {
             "subject_hash": _hash(phone),
             "executed_at": datetime.now(UTC).isoformat(),
             "scope": {
@@ -2937,6 +2946,38 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         engine_call_ids = engine_held_call_refs(
             str(row[0]) for row in vendor_call_ids if row[0] is not None
         )
+        # THINNESTAI (D-691): ERASED THERE ONLY IN THE CLIENT'S OWN WORKSPACE. Its one erasure,
+        # `DELETE /contacts/{id}`, acts on a whole workspace; in our developer workspace it
+        # would take every other client's history of this person with it. So: where the
+        # tenant has its own workspace, the contact is erased there after this commits (the
+        # outbox job, the `voice_engine` task below records the outcome); where it does not,
+        # nothing is asked and the proof says the copy expires with the plan's retention.
+        if engine_call_ids and get_settings().engine in VOICE_PLATFORM_RETAINED_ENGINES:
+            workspace = await own_workspace(tenant_id)
+            if workspace is None:
+                proof["actions"]["voice_platform"] = (
+                    f"{len(engine_call_ids)} call record(s) also held by the voice platform: "
+                    f"{VOICE_PLATFORM_RETAINED_SENTENCE}"
+                )
+                proof["engine_deletion"] = VOICE_PLATFORM_RETAINED
+                engine_call_ids = []
+            else:
+                proof["actions"]["voice_platform"] = (
+                    f"{len(engine_call_ids)} call record(s) also held by the voice platform: "
+                    f"{VOICE_PLATFORM_ERASURE_SENTENCE}"
+                )
+                proof["engine_deletion"] = VOICE_PLATFORM_ERASURE_REQUESTED
+                await enqueue_outbox(
+                    session,
+                    # `engine_customer_data.ENGINE_CONTACT_ERASURE_JOB`, spelled as a literal so
+                    # `scripts/check_job_wiring` reads the name at its enqueue site.
+                    job="erase_engine_contact",
+                    payload={
+                        "tenant_id": str(tenant_id),
+                        "request_id": str(request_id),
+                        "subject": seal_subject(phone, request_id=request_id),
+                    },
+                )
         carrier_call_ids = sorted(
             {str(row[1]) for row in vendor_call_ids if row[1] is not None}
             | {rid for ids in carrier_recordings_by_carrier.values() for rid in ids}
@@ -3311,6 +3352,9 @@ _HAS_KB_UPLOAD_SQL: Final = "SELECT 1 FROM kb_uploads LIMIT 1"
 #: The same question for the carrier compliance paperwork.
 _HAS_CARRIER_DOCUMENT_SQL: Final = "SELECT 1 FROM carrier_compliance_applications LIMIT 1"
 
+#: And for the KYC documents a client uploaded (D-692).
+_HAS_KYC_DOCUMENT_SQL: Final = "SELECT 1 FROM kyc_documents LIMIT 1"
+
 
 async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """Erase every caller record this tenant holds, then mark the organisation deleted.
@@ -3448,6 +3492,11 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
             if filed:
                 await storage.delete_objects(filed)
                 counts["uploaded_files_destroyed"] += len(filed)
+        if (await session.execute(text(_HAS_KYC_DOCUMENT_SQL))).first() is not None:
+            kyc_files = await storage.keys_under(storage.kyc_tenant_prefix(tenant_id=tenant_id))
+            if kyc_files:
+                await storage.delete_objects(kyc_files)
+                counts["uploaded_files_destroyed"] += len(kyc_files)
         # A §12 REQUEST STILL QUEUED WHEN THE ACCOUNT CLOSES. `assert_erasable` refuses an
         # account that is not already `churned`, which is a PRECONDITION and not a proof
         # that no request is open — so that row's `phone_e164` outlived the account whose
@@ -3607,6 +3656,24 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
             },
             "engine_deletion": "unconfirmed_pending_vendor_api",
         }
+        # The calls ThinnestAI holds for this client are not deleted there (D-691,
+        # `processor_erasure.VOICE_PLATFORM_RETAINED_ENGINES`); the proof says so. The
+        # agent and knowledge-base task below is a different object and still opens.
+        if get_settings().engine in VOICE_PLATFORM_RETAINED_ENGINES:
+            held = engine_held_call_refs(
+                str(ref)
+                for ref in (
+                    await session.execute(
+                        text("SELECT engine_call_id FROM calls WHERE tenant_id = :tid"),
+                        {"tid": tenant_id},
+                    )
+                ).scalars()
+            )
+            if held:
+                proof["actions"]["voice_platform"] = (
+                    f"{len(held)} call record(s) also held by the voice platform: "
+                    f"{VOICE_PLATFORM_RETAINED_SENTENCE}"
+                )
 
         # THE OBLIGATIONS, RECORDED (D-433). No vendor call is made from here:
         # `_WITHDRAW_ROUTES_SQL` records why — a third-party round trip inside the one

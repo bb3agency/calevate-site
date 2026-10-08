@@ -41,10 +41,17 @@ the record cannot answer it three different ways.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from typing import Literal, Protocol, runtime_checkable
+from typing import Final, Literal, Protocol, runtime_checkable
 
 from apps.api.compliance.models import KYC_PROVIDERS
+
+#: The two masked shapes an outcome may carry; the `kyc_records` CHECK pins the same two.
+MASKED_ID_SHAPE: Final = re.compile(r"XXXX-XXXX-[0-9]{4}|XXXXX[0-9]{4}X")
+
+#: Which DigiLocker record the client chose to share (D-692).
+IdDocument = Literal["aadhaar", "pan"]
 
 #: Re-exported, NOT redefined. The vocabulary lives with the other KYC vocabularies in
 #: `compliance/models.py`, beside the CHECK constraint that enforces it; a second tuple
@@ -89,7 +96,7 @@ class VerificationStart:
 
 @dataclass(frozen=True, slots=True)
 class VerificationOutcome:
-    """The result, normalized. FOUR fields, and no fifth is ever added here.
+    """The result, normalized — and nothing else an adapter read crosses this line.
 
     `verified_name` is the holder name as the source record spells it — a NAME, and
     deliberately not the number it was read from. `failure_reason` is our word for why,
@@ -100,6 +107,15 @@ class VerificationOutcome:
     verified: bool
     verified_name: str | None = None
     failure_reason: str | None = None
+    # The ID MASKED by the adapter before it gets here (D-692): `XXXX-XXXX-1234` for
+    # Aadhaar, last four only; `XXXXX1234X` for PAN. `__post_init__` refuses any other
+    # shape, so a full number cannot leave an adapter through this type. Date of birth,
+    # address, photo, XML and full numbers a provider returns are read past and dropped.
+    masked_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.masked_id is not None and not MASKED_ID_SHAPE.fullmatch(self.masked_id):
+            raise ValueError("masked_id must be XXXX-XXXX-1234 or XXXXX1234X")
 
 
 class ProviderContractUnverifiedError(RuntimeError):
@@ -139,20 +155,42 @@ class IdentityVerificationProvider(Protocol):
         call. `tests/kyc_provider_seam_test.py` found exactly that.
         """
 
-    async def start(self, *, entity_type: str, redirect_back_url: str) -> VerificationStart:
-        """Open a run at the provider and hand back where to send the client."""
+    @property
+    def webhook_is_authoritative(self) -> bool:
+        """Does a signed delivery CARRY the outcome, or only say which run to ask about?
+
+        False for a provider whose outcome we pull with our own credentials
+        (`fetch_outcome`): its delivery is a doorbell, and what we record comes from the
+        authenticated read rather than from a body anybody holding the secret could write.
+        """
+
+    async def start(
+        self, *, entity_type: str, redirect_back_url: str, id_document: IdDocument
+    ) -> VerificationStart:
+        """Open a run at the provider for the chosen record; say where to send the client."""
+
+    async def fetch_outcome(
+        self, *, provider_ref: str, id_document: IdDocument
+    ) -> VerificationOutcome | None:
+        """Ask the provider how this run ended. None while the client has not finished.
+
+        Called when the client returns from the provider and when a non-authoritative
+        webhook arrives (D-692)."""
 
     def verify_webhook(self, *, raw: bytes, headers: dict[str, str]) -> bool:
         """True only if these exact bytes carry this provider's valid signature."""
 
     def parse_outcome(self, *, raw: bytes) -> VerificationOutcome:
         """Translate a VERIFIED delivery into our four facts. Never called before
-        `verify_webhook` has returned True."""
+        `verify_webhook` has returned True. When `webhook_is_authoritative` is False only
+        `provider_ref` is meaningful."""
 
 
 __all__ = [
     "KYC_PROVIDERS",
+    "MASKED_ID_SHAPE",
     "EntityBranch",
+    "IdDocument",
     "IdentityVerificationProvider",
     "ProviderContractUnverifiedError",
     "VerificationOutcome",

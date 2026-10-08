@@ -403,16 +403,13 @@ class Settings(BaseSettings):
     #: one and the pickers lock), and every minute is metered at the `platform` rate key,
     #: the ₹1/min BYOK rate, instead of a voice tier.
     thinnest_byok_enabled: bool = False
-    #: The ThinnestAI customer workspace (`org_…`) that Studio-rung agents live in (D-687):
-    #: the one workspace with our Cartesia key installed as its own voice key (BYOK scope
-    #: `voice`). Clear-rung agents live in the developer workspace, whose BYOK stays off,
-    #: because a customer inherits its developer's keys unless it brings its own
-    #: (`thinnest-findings/mirror/snapshots/2026-10-07b/pages/api-reference/
-    #: bring-your-own-keys.md:107-109`). None while it is not set up: the Studio rung is then
-    #: not offered on this engine. Set by `POST /v1/ops/voices/studio-workspace` or by hand.
-    thinnest_studio_workspace_id: str | None = Field(
-        default=None, max_length=128, pattern=r"^org_[A-Za-z0-9_-]+$"
-    )
+    #: The ThinnestAI voice band sold as the Clear rung (D-688): `premium` (pay-as-you-go,
+    #: no plan needed) or `studio` (the shared Studio catalogue and our clones, listed only on
+    #: Pro and above, `thinnest-findings/mirror/snapshots/2026-10-07b/pages/api-reference/
+    #: voices/list-voices.md:7`). Only voices of this band can be added and offered as Clear,
+    #: and a Clear minute is metered at this band's attested rate. An agent already published
+    #: keeps its band's rate key until it is republished.
+    thinnest_clear_voice_band: Literal["premium", "studio"] = "premium"
     #: The public `https://` origin of `apps/api` (e.g. `https://api.calevate.tech`) that
     #: ThinnestAI's custom actions call for our in-call tools (`reliability/engine_actions.py`).
     #: Not `webhook_base_url`: that is voice-runtime's face, which may not write the DNC list
@@ -1727,6 +1724,15 @@ class Settings(BaseSettings):
     # provide. Because the NAME contains `secret`, `platform_config.is_secret_key`
     # classifies it into the encrypted `platform_secrets` path with no allowlist to edit.
     kyc_verification_webhook_secret: str | None = None
+    # Cashfree Secure ID API credentials (D-692), from the provider's own dashboard. Absent
+    # by default, and then the DigiLocker option reads "not available yet" while manual
+    # document review carries the load. The client secret also signs Cashfree's webhooks.
+    # Both names contain `client_`; the secret's contains `secret`, so
+    # `platform_config.is_secret_key` routes it to the encrypted `platform_secrets` path.
+    kyc_verification_client_id: str | None = Field(default=None, max_length=128)
+    kyc_verification_client_secret: str | None = None
+    # Which of the provider's two bases to call. `sandbox` is for a test account only.
+    kyc_verification_environment: Literal["sandbox", "production"] = "production"
 
     # WHO CALEVATE IS ON AN INVOICE (SLICE AL). Rule 46 of the CGST Rules makes the
     # supplier's legal name, registered address and GSTIN mandatory particulars of a tax

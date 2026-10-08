@@ -51,10 +51,12 @@ export function OpsStatusStrip({
         tone: platform.load_shed_mode === "normal" ? ("ok" as const) : ("warn" as const),
       }
     : unknown;
+  // D-692: Calevate does not register as a telemarketer and no outbound gate asks for it,
+  // so an absent registration is the expected state rather than an alarm.
   const registration = platform
     ? platform.tm_registration.is_live
       ? { value: "Live", tone: "ok" as const }
-      : { value: "Not live", tone: "danger" as const }
+      : { value: "Not required", tone: "unknown" as const }
     : unknown;
   const stuck =
     deadLetters.status === "read"

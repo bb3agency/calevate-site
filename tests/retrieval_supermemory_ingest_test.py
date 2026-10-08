@@ -155,7 +155,7 @@ async def _publish(tenant_id: uuid.UUID, agent_id: uuid.UUID, *, body: str = _BO
     """Submit, approve and publish one source through the REAL path. Returns its id."""
     async with tenant_session(tenant_id) as session:
         source = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Fees", body=body
+            session, tenant_id=tenant_id, name="Fees", body=body
         )
     async with tenant_session(tenant_id) as session:
         await kb_service.approve_source(session, source_id=source["id"], approved_by=None)
@@ -195,10 +195,7 @@ async def test_publishing_a_source_writes_its_chunks_into_box_three_with_the_ten
 
     assert box3.ingests, "publishing knowledge wrote nothing to the store that serves search"
     for body in box3.ingests:
-        assert body[ASSUMED_CONTRACT.container_tags_key] == [
-            f"tenant:{tenant_id}",
-            f"agent:{agent_id}",
-        ]
+        assert body[ASSUMED_CONTRACT.container_tags_key] == [f"tenant:{tenant_id}"]
         assert body[ASSUMED_CONTRACT.content_key]
     # And the ledger records exactly what was sent, which is what every later difference is
     # measured against.
@@ -223,7 +220,7 @@ async def test_the_metadata_written_at_ingest_is_the_provenance_a_search_reads_b
     await _publish(tenant_id, agent_id)
     sent = box3.ingests[0]
 
-    scope = TenantScope.for_publish(tenant_id=tenant_id, agent_id=agent_id)
+    scope = TenantScope.for_publish(tenant_id=tenant_id)
     record = {
         ASSUMED_CONTRACT.text_key: sent[ASSUMED_CONTRACT.content_key],
         ASSUMED_CONTRACT.result_tags_key: sent[ASSUMED_CONTRACT.container_tags_key],
@@ -233,7 +230,7 @@ async def test_the_metadata_written_at_ingest_is_the_provenance_a_search_reads_b
     passages, rejected = parse_search({"results": [record]}, scope=scope)
     assert rejected == 0
     assert passages[0].provenance.label == "Fees"
-    assert passages[0].provenance.agent_id == agent_id
+    assert passages[0].provenance.agent_id is None
     assert passages[0].provenance.document_version == 1
     assert passages[0].provenance.source_id is not None
 
@@ -247,7 +244,7 @@ def test_no_write_body_can_be_built_without_a_tenant_scope() -> None:
     to its own tenant's query AND unreachable by the tag-scoped delete an erasure sends. The
     scope is a required positional of a type no string can stand in for, and each builder
     re-reads the tag out of the body it just built."""
-    scope = TenantScope.for_publish(tenant_id=uuid.uuid4(), agent_id=uuid.uuid4())
+    scope = TenantScope.for_publish(tenant_id=uuid.uuid4())
     body = ingest_payload(
         scope,
         document_id=uuid.uuid4(),

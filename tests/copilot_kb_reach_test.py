@@ -84,7 +84,6 @@ async def _upload_text(
         return await uploads.create_upload(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name=name,
             filename=f"{name.lower().replace(' ', '-')}.txt",
             content_type="text/plain",
@@ -167,12 +166,11 @@ async def test_a_published_pdf_is_live_knowledge_the_copilot_cannot_read(
     What WOULD be a defect is the answer the client gets. `_NOTHING_PUBLISHED` tells them to
     add it under Knowledge — about a price list they uploaded this morning.
     """
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         row = await uploads.create_upload(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Tariff card",
             filename="tariff.pdf",
             content_type="application/pdf",

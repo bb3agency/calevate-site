@@ -337,7 +337,22 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # deliveries in the gap were lost (the call list settles them, without transcripts
     # for inbound calls). One agent, bounded, recovered: attention.
     "engine_webhook_reenabled": "attention",
+    "engine_webhook_redelivery_failed": "attention",
     "engine_webhook_sweep_incomplete": "attention",
+    # D-691, a `contact.opted_out` the vendor reported and we could not file. The vendor's
+    # own workspace list still refuses the number, so nobody is rung meanwhile: attention.
+    "engine_optout_abandoned": "attention",
+    # D-691, numbers rented in ThinnestAI's console. Each is one number or one workspace
+    # application, recoverable by an operator in the day; none moves money by itself.
+    "engine_number_attachment_failed": "attention",
+    "engine_number_attachment_repaired": "attention",
+    "engine_number_unrecorded": "attention",
+    "engine_number_missing_at_vendor": "attention",
+    "engine_business_details_lapsed": "attention",
+    # D-691, a person-level write the client's own workspace did not take. Our own list and
+    # erasure already did their part; the remaining copy is one task for an operator.
+    "engine_dnc_push_failed": "attention",
+    "engine_contact_erasure_failed": "attention",
     "engine_call_settled_without_delivery": "attention",
     # D-678 phase 2, call lifecycle. The vendor deleted (or pointed away) a recording we
     # had not copied: unrecoverable against our 90-day floor.
@@ -346,6 +361,20 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # or the API key is not a full key. Campaigns stall, nobody is rung, nothing is lost.
     "engine_balance_exhausted": "page",
     "engine_key_cannot_place_calls": "page",
+    # D-690. A dial refused for our own set-up at the vendor (the agent, its number, the
+    # phone provider): every such dial fails until an operator acts, nobody is rung.
+    "engine_dial_setup_refused": "page",
+    # D-690. One calling number used its daily allowance: nothing rang, contacts wait for
+    # tomorrow or another number, nothing is lost.
+    "engine_number_daily_limit": "attention",
+    # D-690, a live agent's call settings at the vendor. Repaired is recovered; drifted is a
+    # setting still wrong (a built-in tool that could dial, a hand-over number) until fixed.
+    "engine_agent_settings_repaired": "attention",
+    "engine_agent_settings_drifted": "page",
+    # D-690, per-call cost. A variance is a wrong attested rate on that call's money; a
+    # Studio call with no Cartesia cost row understates its cost.
+    "engine_call_cost_variance": "page",
+    "engine_studio_synthesis_cost_missing": "page",
     # The attested per-minute rate no longer matches what the vendor charges (money is
     # being metered wrong on every call), or the call log matches nothing of ours.
     "engine_charge_mismatch": "page",
@@ -354,6 +383,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # live agent's callers cannot opt out mid-call (the post-call transcript pass still
     # can), which is the compliance tool, so it pages.
     "engine_actions_repaired": "attention",
+    # D-688: a live agent's own-voice-key switch did not match its rung and was put back.
+    "engine_agent_voice_key_repaired": "attention",
     "engine_actions_unreachable": "page",
     # D-687: a live agent speaks a voice the platform no longer has (a deleted clone), so its
     # callers hear the platform's standard voice. The call works; the voice is wrong.
@@ -477,6 +508,16 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # D-687: the Studio workspace speaks on a voice key that is not our Cartesia one, so its
     # voices are not offered. Nobody's call fails; somebody must fix the key.
     "studio_voice_key_wrong_provider": "attention",
+    # D-688: our Cartesia key is no longer on in the workspace while Studio agents are live;
+    # their calls speak the platform's default voice. Calls connect, so not paged.
+    "studio_voice_key_off_with_agents": "attention",
+    # D-688: a rotated Cartesia key did not reach the voice platform. If the old key was
+    # revoked, every Studio call stops speaking, with no fallback, so it pages.
+    "studio_voice_key_push_failed": "page",
+    # D-687, D-688: the voice platform listed voices but none in the band sold as Clear (the
+    # setting, or a plan below Pro for the Studio band). Not paged: the account answered,
+    # nothing a live call speaks broke this hour, and the fix is an operator's daylight act.
+    "voice_catalogue_no_studio_band": "attention",
     "voice_catalogue_sync_failed": "attention",
     # Payments cannot be verified at all, so money is arriving and nothing is crediting it.
     "razorpay_webhook_unconfigured": "page",
@@ -636,6 +677,18 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # alarm in this family that IS urgent (`knowledge_pack_publish_failed` below).
     "knowledge_pack_residue_unattributable": "attention",
     "knowledge_pack_gc_abandoned": "attention",
+    # An owner's ID image held past its 30-day hold (D-692). Attention, not a page: the
+    # next nightly tick retries, but a person's ID kept past its stated life is a broken
+    # promise an operator should see the same day.
+    "kyc_owner_id_purge_abandoned": "attention",
+    # The DigiLocker provider refused or did not answer a client's start or return (D-692).
+    # The client sees the refusal and can retry or upload documents instead; nothing is
+    # lost, so attention rather than a page.
+    "verification_provider_refused": "attention",
+    "verification_provider_unreachable": "attention",
+    # Our server's IPv4 is not on the provider's allow-list: every DigiLocker run fails
+    # until an operator adds it, so attention the same day rather than a page.
+    "verification_provider_ip_not_whitelisted": "attention",
     # ONE CLIENT'S KNOWLEDGE IS LIVE EVERYWHERE EXCEPT ON THE PHONE: the publish committed
     # and the in-call pack could not be built or stored, so the agent keeps answering out
     # of the pack it last loaded. Bounded to one agent, self-healing on the next publish of
@@ -694,6 +747,12 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # measured 14 Sep 2026). Worse than its sparse-key twin above and still not a page: the
     # scan selects by difference, so the next tick re-selects exactly the same agents.
     "kb_gloss_pack_refresh_failed": "attention",
+    # A publish reached some of a client's agents and others kept the previous version
+    # (D-689). The catch-up converges it without anyone acting; attention, never a page.
+    "kb_fan_out_incomplete": "attention",
+    # An archived agent's vendor copy of the client's knowledge would not come down. It
+    # stays claimed and the agent answers no calls, so it is billing and tidiness only.
+    "kb_retired_agent_copy_left": "attention",
     "caller_embed_unusable_response": "attention",
     "caller_embed_unmeterable": "attention",
     "caller_embed_worklist_failed": "attention",

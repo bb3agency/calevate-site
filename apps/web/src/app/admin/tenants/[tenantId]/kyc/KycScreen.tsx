@@ -24,6 +24,7 @@ import { TonePill } from "../tonePill";
 import { CarrierApplicationPanel, CarrierPill } from "./CarrierApplicationPanel";
 import { FactList, SubHeading } from "./FactList";
 import { KycRecordForm } from "./KycRecordForm";
+import { KycReviewPanel } from "./KycReviewPanel";
 import { recordStamp } from "./kycDraft";
 
 /**
@@ -69,6 +70,8 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
         }
         description="Our identity check and the carrier's approval. Both gate a phone number."
       />
+
+      <KycReviewPanel tenantId={tenantId} access={write} />
 
       <Card
         title="Our identity check"

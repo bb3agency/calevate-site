@@ -34,9 +34,7 @@ pytestmark = pytest.mark.anyio
 async def _publish(tenant_id: uuid.UUID, agent_id: uuid.UUID, *, name: str, body: str) -> uuid.UUID:
     """Submit, approve and publish one source, returning its id."""
     async with tenant_session(tenant_id) as session:
-        result = await service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name=name, body=body
-        )
+        result = await service.submit_source(session, tenant_id=tenant_id, name=name, body=body)
     async with tenant_session(tenant_id) as session:
         await service.approve_source(session, source_id=result["id"], approved_by=None)
         await service.publish_source(session, tenant_id=tenant_id, source_id=result["id"])
@@ -145,7 +143,6 @@ async def test_text_the_knowledge_font_cannot_draw_is_refused_by_name() -> None:
         result = await service.submit_source(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             # Devanagari: a real thing a client pastes, and outside the Telugu+Latin font.
             name="Nirdesh",
             body="हम सुबह नौ बजे से रात आठ बजे तक खुले हैं।",

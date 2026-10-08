@@ -23,7 +23,11 @@ from apps.api.engine.thinnest import (
 )
 from apps.api.engine.vendor_http import EngineRejectedError
 from calevate_shared.engine import AgentConfig, CallContext, RecallOutcome
-from calevate_shared.webhook_signature import sha256_signature, sha256_signature_matches
+from calevate_shared.webhook_signature import (
+    sha256_signature,
+    sha256_signature_matches,
+    timestamped_sha256_signature,
+)
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
@@ -53,15 +57,64 @@ def _cfg(**update: Any) -> AgentConfig:
     return base.model_copy(update=update)
 
 
+def tools_state(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """`GET`/`PATCH /agents/{id}/tools` as the vendor answers it (update-built-in-tools.md:
+    705-790): the saved switches, `body`'s applied over every tool off and a chat hand-over."""
+    switches = dict.fromkeys(
+        (
+            "capture_lead",
+            "escalate_to_human",
+            "schedule_callback",
+            "call_them_now",
+            "send_whatsapp",
+            "send_sms",
+            "reply_by_email",
+        ),
+        False,
+    )
+    hand_over: dict[str, Any] = {"mode": "chat", "phone": None, "line": None}
+    if body:
+        switches.update(body.get("tools", {}))
+        hand_over.update(body.get("handOver", {}))
+    return {
+        "agent": "ag_1",
+        "tools": [{"id": "search_knowledge", "enabled": True}]
+        + [{"id": tool, "enabled": on} for tool, on in switches.items()],
+        "webSearch": {"enabled": False, "switchable": False},
+        "recall": "two_tier",
+        "verifyByCode": False,
+        "handOver": hand_over,
+        "messages": [],
+    }
+
+
 def _recorder(responses: dict[tuple[str, str], httpx.Response]) -> tuple[Handler, list[Any]]:
+    """Answers `responses`, a 404 for anything else, and the built-in tools route the way the
+    vendor does unless a test names its own answer for it."""
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         path = request.url.path.removeprefix("/api/v1")
-        return responses.get((request.method, path), httpx.Response(404, json={"error": "x"}))
+        named = responses.get((request.method, path))
+        if named is not None:
+            return named
+        if path.endswith("/tools") and request.method == "PATCH":
+            return httpx.Response(200, json=tools_state(json.loads(request.content)))
+        if path.endswith("/tools") and request.method == "GET":
+            return httpx.Response(200, json=tools_state())
+        return httpx.Response(404, json={"error": "x"})
 
     return handler, seen
+
+
+def _agent_write(seen: list[httpx.Request]) -> httpx.Request:
+    """The last agent write (`POST /agents` or `PATCH /agents/{id}`), not the tools PATCH."""
+    return next(
+        r
+        for r in reversed(seen)
+        if r.method in ("POST", "PATCH") and not r.url.path.endswith(("/tools", "/byok-voice"))
+    )
 
 
 def _body(request: httpx.Request) -> dict[str, Any]:
@@ -79,20 +132,27 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
         }
     )
     assert await _engine(handler).create_agent(_cfg()) == "ag_1"
-    body = _body(seen[-1])
+    body = _body(_agent_write(seen))
     assert "Ee call record avutundi." in body["instructions"]
     assert body["greeting"] == "Idi AI assistant. Ee call record avutundi."
-    # "Telugu" is the console's exact option (FOUNDER-RELAYED console reading, 6 Oct 2026).
-    assert body["language"] == "Telugu" and body["secondLanguage"] is None
+    # One language: fixed on the agent and on calls (snapshots/2026-10-08/pages/channels/
+    # voice.md:225-239); `secondLanguage` is retired and not sent.
+    assert body["language"] == "Telugu" and "secondLanguage" not in body
     assert body["voice"] == {
+        "answersCalls": True,
+        "unavailableMessage": None,
+        "language": "Telugu",
         "recordCalls": True,
         "maxCallSeconds": 600,
         "detectMachines": False,
         "summariseCalls": False,
         "pastConversations": "fresh",
     }
-    assert body["collectFields"] == []
+    assert body["collectFields"] == [] and body["captureLeads"] is False
+    # No per-agent switch stated (the workspace on its own keys): voice and model not sent.
     assert "model" not in body and "voice" not in body["voice"]
+    # The built-in tools were pinned after the write and read back.
+    assert seen[-1].method == "PATCH" and seen[-1].url.path.endswith("/agents/ag_1/tools")
 
 
 async def test_a_documented_language_is_named() -> None:
@@ -105,8 +165,9 @@ async def test_a_documented_language_is_named() -> None:
     await _engine(handler).create_agent(
         _cfg(language_primary="hi-IN", languages_extra=["en-IN", "te-IN"])
     )
-    body = _body(seen[-1])
-    assert (body["language"], body["secondLanguage"]) == ("Hindi", "English")
+    body = _body(_agent_write(seen))
+    # More than one language: "Match the customer", with calls following it.
+    assert (body["language"], body["voice"]["language"]) == ("auto", None)
 
 
 async def test_a_retried_create_adopts_the_agent_it_already_made() -> None:
@@ -124,7 +185,7 @@ async def test_a_retried_create_adopts_the_agent_it_already_made() -> None:
         }
     )
     assert await _engine(handler).create_agent(cfg) == "ag_old"
-    assert [r.method for r in seen] == ["GET", "PATCH"]
+    assert [r.method for r in seen] == ["GET", "PATCH", "PATCH"]
     assert len(tagged) <= 60 and tagged.startswith("Sunrise Clinic receptionist #cv-")
 
 
@@ -139,7 +200,7 @@ async def test_another_tenants_agent_of_the_same_name_is_not_adopted() -> None:
         }
     )
     assert await _engine(handler).create_agent(_cfg()) == "ag_new"
-    assert [r.method for r in seen] == ["GET", "POST"]
+    assert [r.method for r in seen] == ["GET", "POST", "PATCH"]
 
 
 @pytest.mark.parametrize(
@@ -148,7 +209,6 @@ async def test_another_tenants_agent_of_the_same_name_is_not_adopted() -> None:
         ({"system_prompt": "x" * INSTRUCTIONS_MAX_CHARS}, "engine_prompt_too_long"),
         ({"opening_line": "y" * 201}, "engine_greeting_too_long"),
         ({"max_call_duration_s": 1800}, "engine_call_cap_out_of_range"),
-        ({"caller_memory_enabled": True}, "engine_caller_memory_unsupported"),
     ],
 )
 async def test_what_the_engine_cannot_hold_is_refused_before_any_request(
@@ -419,11 +479,38 @@ def _delivery(agent: str = "ag_1") -> bytes:
     ).encode()
 
 
+def _v2(body: bytes, secret: str, *, minutes_ago: float = 0) -> dict[str, str]:
+    """`x-thinnest-signature-v2` over `<delivered-at>.<body>` (snapshots/2026-10-08/pages/
+    api-reference/webhooks.md:100-108)."""
+    from datetime import UTC, datetime, timedelta
+
+    at = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).isoformat()
+    return {
+        "X-Thinnest-Signature-V2": timestamped_sha256_signature(body, secret, signed_at=at),
+        "X-Thinnest-Delivered-At": at,
+    }
+
+
 def test_a_delivery_signed_with_the_agents_secret_is_accepted() -> None:
     body = _delivery()
     engine = _engine(_recorder({})[0], signing_secret_for={"ag_1": "s3cr3t"}.get)
-    headers = {"X-Thinnest-Signature": sha256_signature(body, "s3cr3t")}
-    assert engine.verify_webhook(headers, body, "203.0.113.9").ok
+    assert engine.verify_webhook(_v2(body, "s3cr3t"), body, "203.0.113.9").ok
+
+
+def test_a_delivery_without_a_signed_time_is_refused() -> None:
+    """v1 alone signs no time, so it is not accepted; nor is a delivery with no signature."""
+    body = _delivery()
+    engine = _engine(_recorder({})[0], signing_secret_for={"ag_1": "s3cr3t"}.get)
+    for headers in ({"x-thinnest-signature": sha256_signature(body, "s3cr3t")}, {}):
+        verdict = engine.verify_webhook(headers, body, "203.0.113.9")
+        assert (verdict.ok, verdict.reason) == (False, "signature_missing")
+
+
+def test_a_stale_delivery_time_is_refused() -> None:
+    body = _delivery()
+    engine = _engine(_recorder({})[0], signing_secret_for={"ag_1": "s3cr3t"}.get)
+    verdict = engine.verify_webhook(_v2(body, "s3cr3t", minutes_ago=6), body, "203.0.113.9")
+    assert (verdict.ok, verdict.reason) == (False, "delivery_stale")
 
 
 @pytest.mark.parametrize(
@@ -438,9 +525,7 @@ def test_a_delivery_that_cannot_be_proved_is_refused(
 ) -> None:
     body = _delivery()
     engine = _engine(_recorder({})[0], signing_secret_for=secret.get)
-    verdict = engine.verify_webhook(
-        {"x-thinnest-signature": sha256_signature(body, signed_with)}, body, "203.0.113.9"
-    )
+    verdict = engine.verify_webhook(_v2(body, signed_with), body, "203.0.113.9")
     assert (verdict.ok, verdict.method, verdict.reason) == (False, "hmac", reason)
 
 

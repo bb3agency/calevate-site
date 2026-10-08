@@ -64,8 +64,8 @@ export function hostedVoiceFacts(data: HostedVoices): Fact[] {
     { key: "cached", label: "Voices the voice platform lists", value: String(data.cached) },
     {
       key: "studio",
-      label: "The Studio workspace",
-      value: data.studio_workspace_id === null ? "not set up" : "set up",
+      label: "Studio voices (our Cartesia key)",
+      value: data.studio_ready ? "on" : "off",
     },
   ];
 }

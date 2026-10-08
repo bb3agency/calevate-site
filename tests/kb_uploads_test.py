@@ -65,7 +65,6 @@ async def _upload_pdf(
         return await uploads.create_upload(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name=name,
             filename="price-list.pdf",
             content_type="application/pdf",
@@ -261,12 +260,11 @@ async def test_a_document_awaiting_its_text_cannot_be_approved_yet(
 ) -> None:
     """ "Not yet" and "you may not" are different answers, and a client who is told the
     first one reloads instead of filing a ticket."""
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         row = await uploads.create_upload(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Scanned menu",
             filename="menu.jpg",
             content_type="image/jpeg",
@@ -321,7 +319,6 @@ async def test_publishing_a_link_sends_the_address_and_no_document(
         row = await uploads.create_link(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Opening hours",
             url="https://example.com/hours",
             submitted_by=None,
@@ -348,13 +345,12 @@ async def test_publishing_a_link_sends_the_address_and_no_document(
 async def test_a_link_to_an_address_we_will_not_fetch_is_refused_at_submission() -> None:
     """A client-supplied URL is fetched by US as well as by the vendor — the re-scrape
     sweep reads the page — so it is an SSRF surface and goes through the one gate."""
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         with pytest.raises(ProblemError) as raised:
             await uploads.create_link(
                 session,
                 tenant_id=tenant_id,
-                agent_id=agent_id,
                 name="Metadata",
                 url="http://169.254.169.254/latest/meta-data/",
                 submitted_by=None,
@@ -397,7 +393,6 @@ async def test_a_changed_page_becomes_a_new_version_for_review_and_the_live_one_
         row = await uploads.create_link(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Opening hours",
             url="https://example.com/hours",
             submitted_by=None,
@@ -414,7 +409,6 @@ async def test_a_changed_page_becomes_a_new_version_for_review_and_the_live_one_
     changed = await kb_ingest._recheck_link(
         upload_id=uuid.UUID(str(row["id"])),
         tenant_id=tenant_id,
-        agent_id=agent_id,
         url="https://example.com/hours",
         known_digest="a-digest-from-the-last-reading",
         name="Opening hours",
@@ -426,7 +420,9 @@ async def test_a_changed_page_becomes_a_new_version_for_review_and_the_live_one_
             await session.execute(
                 text(
                     "SELECT version, status, is_active FROM kb_sources "
-                    "WHERE agent_id = :a AND name = 'Opening hours' ORDER BY version"
+                    "WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :a) "
+                    "AND name = 'Opening hours' ORDER BY version"
                 ),
                 {"a": agent_id},
             )
@@ -449,7 +445,6 @@ async def test_a_change_already_submitted_for_review_is_not_submitted_again(
         row = await uploads.create_link(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Price list",
             url="https://example.com/prices",
             submitted_by=None,
@@ -481,7 +476,6 @@ async def test_a_change_already_submitted_for_review_is_not_submitted_again(
         return await kb_ingest._recheck_link(
             upload_id=uuid.UUID(str(row["id"])),
             tenant_id=tenant_id,
-            agent_id=agent_id,
             url="https://example.com/prices",
             known_digest=known,
             name="Price list",
@@ -497,7 +491,9 @@ async def test_a_change_already_submitted_for_review_is_not_submitted_again(
             await session.execute(
                 text(
                     "SELECT version, status FROM kb_sources "
-                    "WHERE agent_id = :a AND name = 'Price list' ORDER BY version"
+                    "WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :a) "
+                    "AND name = 'Price list' ORDER BY version"
                 ),
                 {"a": agent_id},
             )

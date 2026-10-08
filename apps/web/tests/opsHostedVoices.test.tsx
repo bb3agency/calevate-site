@@ -7,12 +7,14 @@ import {
   OPS_CLONES_PATH,
   OPS_HOSTED_PATH,
   OPS_PREVIEW_FETCH_PATH,
-  OPS_STUDIO_WORKSPACE_PATH,
+  OPS_STUDIO_DISABLE_PATH,
+  OPS_STUDIO_ENABLE_PATH,
+  OPS_STUDIO_VOICES_PATH,
   type HostedVoice,
   type HostedVoices,
-  type StudioWorkspace,
+  type StudioVoices,
 } from "@/lib/api/opsHostedVoices";
-import { OPS_VOICES_PATH } from "@/lib/api/opsVoices";
+import { OPS_VOICES_PATH, OPS_VOICES_REFRESH_PATH } from "@/lib/api/opsVoices";
 import { OPS_PREVIEW_PATH, previewUrl } from "@/lib/api/voicePreview";
 
 import { expectNoA11yViolations } from "./a11y";
@@ -26,7 +28,7 @@ import { problem, renderAdminPage, type Routes } from "./harness";
  *
  * 1. **The server picks the screen.** `available: true` shows the hosted screen and never
  *    reads the Pipecat catalogue; `available: false` shows the Pipecat catalogue and never
- *    reads the Studio workspace. The engine is not named in the bundle.
+ *    reads the Studio voices state. The engine is not named in the bundle.
  * 2. **A clone carries both consents and the step-up confirmation**, and cannot be sent
  *    without both boxes ticked.
  * 3. **Deleting a clone with live agents on it is a second, informed decision**: the first
@@ -34,7 +36,8 @@ import { problem, renderAdminPage, type Routes } from "./harness";
  *    only then is `confirm=true` sent.
  * 4. **Every offered voice can be given a preview**: generate for a Studio voice or a clone,
  *    upload for a stock platform voice, and play through the admin route.
- * 5. **The Studio workspace is set up behind a confirmation** carrying its step-up header.
+ * 5. **Studio voices are switched on and off behind a confirmation** carrying its step-up
+ *    header, and switching off with Studio agents live is a second, informed decision.
  */
 
 const SUPERADMIN: AdminMe = {
@@ -50,6 +53,9 @@ function voice(over: Partial<HostedVoice> = {}): HostedVoice {
     label: "Anjali",
     source: "engine",
     rung: "clear",
+    band: "premium",
+    sold: true,
+    not_sold_reason: null,
     is_custom: false,
     accent: "Telugu",
     description: "Warm and calm",
@@ -92,6 +98,7 @@ const STUDIO = voice({
   label: "Meera",
   source: "byok",
   rung: "studio",
+  band: null,
   preview_available: false,
   preview_source: null,
 });
@@ -103,16 +110,24 @@ function hosted(over: Partial<HostedVoices> = {}): HostedVoices {
     voices: [voice(), CLONE, STOCK_NO_PREVIEW, STUDIO],
     cached: 37,
     offered: 2,
-    studio_workspace_id: "ws_studio",
+    studio_ready: true,
+    clear_band: "premium",
     note: "2 voices are offered to clients.",
+    bands: { standard: 3, premium: 1, studio: 2 },
+    plan_note: null,
     ...over,
   };
 }
 
-const WORKSPACE_READY: StudioWorkspace = {
-  workspace_id: "ws_studio",
+const EXPLANATION =
+  "Switching it on would move every agent that is not set to stay on the platform's own voices onto Cartesia at the Studio rate, so every published Clear agent is set to stay off it first.";
+
+const STUDIO_ON: StudioVoices = {
   ready: true,
-  note: "Studio agents run in this workspace on our Cartesia key.",
+  cartesia_key_configured: true,
+  live_studio_agents: 2,
+  explanation: EXPLANATION,
+  note: "On: Studio agents speak on our Cartesia key; Clear agents stay off it.",
   key: {
     enabled: true,
     scope: "voice",
@@ -123,18 +138,26 @@ const WORKSPACE_READY: StudioWorkspace = {
   },
 };
 
-const WORKSPACE_MISSING: StudioWorkspace = {
-  workspace_id: null,
+const STUDIO_OFF: StudioVoices = {
+  ...STUDIO_ON,
   ready: false,
-  note: "No Studio workspace is set up, so no Studio voice can be offered.",
-  key: null,
+  live_studio_agents: 0,
+  note: "Off: our Cartesia key is not installed in the workspace yet.",
+  key: {
+    enabled: false,
+    scope: null,
+    complete: false,
+    using: "none",
+    voice_provider: null,
+    speaks_on_own_voice: false,
+  },
 };
 
 function routes(over: Routes = {}): Routes {
   return {
     [ADMIN_ME_PATH]: SUPERADMIN,
     [HOSTED_VOICES_PROBE_PATH]: hosted(),
-    [OPS_STUDIO_WORKSPACE_PATH]: WORKSPACE_READY,
+    [OPS_STUDIO_VOICES_PATH]: STUDIO_ON,
     ...over,
   };
 }
@@ -207,7 +230,7 @@ describe("the voices page picks its screen from the server's answer", () => {
     expect(screen.queryByRole("listitem", { name: "Meera" })).toBeNull();
   });
 
-  it("shows the Pipecat catalogue and never reads the Studio workspace when voices are not hosted", async () => {
+  it("shows the Pipecat catalogue and never reads the Studio voices when voices are not hosted", async () => {
     const { calls } = renderAdminPage(<VoicesPage />, {
       [ADMIN_ME_PATH]: SUPERADMIN,
       [HOSTED_VOICES_PROBE_PATH]: NOT_HOSTED,
@@ -224,7 +247,7 @@ describe("the voices page picks its screen from the server's answer", () => {
 
     await screen.findByText(/No voice has been added yet/);
     expect(screen.queryByRole("tab", { name: "Clear" })).toBeNull();
-    expect(calls.some((c) => c.path === OPS_STUDIO_WORKSPACE_PATH)).toBe(false);
+    expect(calls.some((c) => c.path === OPS_STUDIO_VOICES_PATH)).toBe(false);
   });
 
   it("renders a failed probe as a refusal, not as either screen", async () => {
@@ -278,6 +301,79 @@ describe("the hosted voices", () => {
     await screen.findByText("Give it a preview, then enable it.");
     const write = calls.find((c) => c.method === "POST" && c.path === OPS_HOSTED_PATH)!;
     expect(JSON.parse(write.body!)).toEqual({ voice_id: "engine:new" });
+  });
+
+  it("shows every band with a badge and will not add a voice outside the Studio band", async () => {
+    const all = `${OPS_HOSTED_PATH}?scope=all`;
+    const premium = voice({
+      voice_id: "engine:priya",
+      label: "Priya",
+      rung: null,
+      band: "standard",
+      sold: false,
+      not_sold_reason: "Only Premium-tier voices are sold as Clear on this platform, and Priya is in the Standard tier.",
+      added: false,
+      state: "disabled",
+      offered: false,
+    });
+    const { calls } = renderAdminPage(
+      <VoicesPage />,
+      routes({ [all]: hosted({ scope: "all", voices: [voice(), premium] }) }),
+    );
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Every voice on the platform" }));
+    const row = within(await screen.findByRole("listitem", { name: "Priya" }));
+    expect(row.getByText("Standard tier")).toBeTruthy();
+    expect(row.queryByText("Clear")).toBeNull();
+    const add = row.getByRole("button", { name: "Add Priya" }) as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+    expect(row.getByText(/Priya is in the Standard tier/)).toBeTruthy();
+    expect(within(card("Anjali")).getByText("Premium tier")).toBeTruthy();
+    expect(
+      screen.getByText(/On the platform: 3 Standard · 1 Premium · 2 Studio/),
+    ).toBeTruthy();
+    fireEvent.click(add);
+    expect(calls.some((c) => c.method === "POST" && c.path === OPS_HOSTED_PATH)).toBe(false);
+  });
+
+  it("explains plainly when the platform lists none of the tier sold as Clear", async () => {
+    const sentence =
+      "ThinnestAI listed 4 voice(s) but none in the Premium tier, the tier sold as Clear ('Voice band sold as Clear' in the ops console). Check the account on ThinnestAI, then refresh.";
+    renderAdminPage(
+      <VoicesPage />,
+      routes({
+        [HOSTED_VOICES_PROBE_PATH]: hosted({
+          voices: [],
+          bands: { standard: 3, studio: 1 },
+          plan_note: sentence,
+        }),
+      }),
+    );
+
+    expect(await screen.findByText("No Premium-tier voices on the voice platform")).toBeTruthy();
+    expect(screen.getByText(sentence)).toBeTruthy();
+  });
+
+  it("prints the server's refresh sentence as written", async () => {
+    const sentence = "ThinnestAI listed 2 voice(s): 1 Standard, 0 Premium, 1 Studio.";
+    const { calls } = renderAdminPage(
+      <VoicesPage />,
+      routes({
+        [`POST ${OPS_VOICES_REFRESH_PATH}`]: {
+          seen: 2,
+          written: 2,
+          pruned: 0,
+          complete: true,
+          in_force: 1,
+          bands: { standard: 1, studio: 1 },
+          note: sentence,
+        },
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText(sentence)).toBeTruthy();
+    expect(calls.some((c) => c.method === "POST" && c.path === OPS_VOICES_REFRESH_PATH)).toBe(true);
   });
 
   it("switches a voice on for clients with one PATCH naming the voice and the state", async () => {
@@ -399,25 +495,26 @@ describe("deleting a clone", () => {
   });
 });
 
-describe("the Studio workspace card", () => {
-  it("says the workspace is not ready and sets it up behind a step-up confirmation", async () => {
+describe("the Studio voices card", () => {
+  it("says Studio voices are off and switches them on behind a step-up confirmation", async () => {
     const { calls } = renderAdminPage(
       <VoicesPage />,
       routes({
-        [`GET ${OPS_STUDIO_WORKSPACE_PATH}`]: WORKSPACE_MISSING,
-        [`POST ${OPS_STUDIO_WORKSPACE_PATH}`]: WORKSPACE_READY,
+        [`GET ${OPS_STUDIO_VOICES_PATH}`]: STUDIO_OFF,
+        [`POST ${OPS_STUDIO_ENABLE_PATH}`]: STUDIO_ON,
       }),
     );
 
-    expect(await screen.findByText(/Not ready — Studio voices cannot be offered/)).toBeTruthy();
-    expect(screen.getByText(WORKSPACE_MISSING.note)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Set up Studio workspace" }));
-    const dialog = await screen.findByRole("dialog", { name: "Set up the Studio workspace?" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Set up" }));
+    expect(await screen.findByText(/Off — Studio voices cannot be offered/)).toBeTruthy();
+    expect(screen.getByText(STUDIO_OFF.note)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Enable Studio voices" }));
+    const dialog = await screen.findByRole("dialog", { name: "Enable Studio voices?" });
+    expect(within(dialog).getByText(EXPLANATION)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Enable Studio voices" }));
 
-    await screen.findByText(/Ready — Studio voices can be offered/);
-    const write = calls.find((c) => c.method === "POST" && c.path === OPS_STUDIO_WORKSPACE_PATH)!;
-    expect(write.headers["X-Confirm-Action"]).toBe("setup_studio_workspace");
+    await screen.findByText(/On — Studio voices can be offered/);
+    const write = calls.find((c) => c.method === "POST" && c.path === OPS_STUDIO_ENABLE_PATH)!;
+    expect(write.headers["X-Confirm-Action"]).toBe("enable_studio_voices");
     expect(JSON.parse(write.body!)).toEqual({});
   });
 
@@ -425,20 +522,51 @@ describe("the Studio workspace card", () => {
     renderAdminPage(
       <VoicesPage />,
       routes({
-        [`GET ${OPS_STUDIO_WORKSPACE_PATH}`]: WORKSPACE_MISSING,
-        [`POST ${OPS_STUDIO_WORKSPACE_PATH}`]: problem(422, {
-          type: "urn:calevate:business_rule/studio_voice_key_missing",
-          title: "No Cartesia key is installed",
-          detail: "Install the Cartesia key in Secrets before setting up the Studio workspace.",
-          kind: "business_rule",
+        [`GET ${OPS_STUDIO_VOICES_PATH}`]: STUDIO_OFF,
+        [`POST ${OPS_STUDIO_ENABLE_PATH}`]: problem(409, {
+          type: "urn:calevate:conflict/studio_agents_not_kept_off",
+          title: "Studio voices were not switched on",
+          detail: "1 published agent(s) could not be confirmed as staying on the voice platform's own voices.",
+          kind: "conflict",
         }),
       }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Set up Studio workspace" }));
-    const dialog = await screen.findByRole("dialog", { name: "Set up the Studio workspace?" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Set up" }));
-    expect(await within(dialog).findByText(/Install the Cartesia key in Secrets/)).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Enable Studio voices" }));
+    const dialog = await screen.findByRole("dialog", { name: "Enable Studio voices?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Enable Studio voices" }));
+    expect(await within(dialog).findByText(/could not be confirmed as staying/)).toBeTruthy();
+  });
+
+  it("asks again with the server's words before switching off under live Studio agents", async () => {
+    const inUse = problem(409, {
+      type: "urn:calevate:conflict/studio_voices_in_use",
+      title: "Published agents are speaking Studio voices",
+      detail: "2 published agent(s) speak a Studio voice.",
+      kind: "conflict",
+    });
+    const { calls } = renderAdminPage(
+      <VoicesPage />,
+      routes({
+        [`POST ${OPS_STUDIO_DISABLE_PATH}?confirm=false`]: inUse,
+        [`POST ${OPS_STUDIO_DISABLE_PATH}?confirm=true`]: STUDIO_OFF,
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Turn off Studio voices" }));
+    const dialog = await screen.findByRole("dialog", { name: "Turn off Studio voices?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Turn off Studio voices" }));
+    expect(await within(dialog).findByText(/2 published agent\(s\) speak a Studio voice/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Turn off and move those agents" }));
+    await waitFor(() =>
+      expect(calls.filter((c) => c.method === "POST").map((c) => c.path)).toEqual([
+        `${OPS_STUDIO_DISABLE_PATH}?confirm=false`,
+        `${OPS_STUDIO_DISABLE_PATH}?confirm=true`,
+      ]),
+    );
+    expect(calls.find((c) => c.method === "POST")!.headers["X-Confirm-Action"]).toBe(
+      "disable_studio_voices",
+    );
   });
 });
 
@@ -517,7 +645,7 @@ describe("accessibility", () => {
   it("has no axe violations on the hosted screen", async () => {
     const { container } = renderAdminPage(<VoicesPage />, routes());
     await screen.findByRole("listitem", { name: "Anjali" });
-    await screen.findByText(/Ready — Studio voices can be offered/);
+    await screen.findByText(/On — Studio voices can be offered/);
     await expectNoA11yViolations(container, "admin/ops/voices/page.tsx (hosted)");
   });
 });

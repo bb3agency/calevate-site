@@ -24,6 +24,7 @@
 import type { ComponentType } from "react";
 
 import {
+  BadgeCheck,
   BarChart3,
   BellRing,
   Blocks,
@@ -121,6 +122,9 @@ export function clientNavigation(slug: string): NavGroup[] {
         // outbound dialling. It sat under "Settings & account" — the group of things set
         // once and forgotten — which is exactly where a client whose calling is blocked
         // would not look (ux-audit C-3 🔒).
+        // D-692: where the client verifies the business and accepts the no-cold-calls
+        // pledge; the read-only Verification screen below shows what we hold.
+        { href: `/c/${slug}/verify-business`, label: "Verify your business", icon: BadgeCheck },
         { href: `/c/${slug}/verification`, label: "Verification", icon: ShieldCheck },
         { href: `/c/${slug}/do-not-call`, label: "Do not call", icon: PhoneOff },
         { href: `/c/${slug}/messaging-consent`, label: "Messaging consent", icon: MessageSquare },

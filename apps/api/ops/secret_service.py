@@ -576,6 +576,7 @@ async def rewrap_tenant_credentials(
     import time
 
     from apps.api.actions.credentials import credential_context
+    from apps.api.compliance.kyc_documents import document_context
     from apps.api.db.session import tenant_session
 
     keys = kek_ring() if ring is None else ring
@@ -628,6 +629,48 @@ async def rewrap_tenant_credentials(
                         "dn": fresh.dek_nonce,
                         "kek": active.kek_id,
                         "id": credential_id,
+                        "old": bytes(dek_wrapped),
+                    },
+                )
+                rewrapped += rowcount_of(result)
+            # The KYC files' envelopes (D-692) ride the same walk: a rotation that skipped
+            # them would leave every stored certificate unreadable once the old KEK retires.
+            documents = (
+                await session.execute(
+                    text("SELECT id, dek_wrapped, dek_nonce FROM kyc_documents ORDER BY id")
+                )
+            ).all()
+            for document_id, dek_wrapped, dek_nonce in documents:
+                examined += 1
+                try:
+                    fresh = rewrap(
+                        Envelope(
+                            ciphertext=b"",
+                            nonce=b"",
+                            dek_wrapped=bytes(dek_wrapped),
+                            dek_nonce=bytes(dek_nonce),
+                            kek_id=0,
+                        ),
+                        context=document_context(tenant_id, document_id),
+                        ring=keys,
+                    )
+                except ProblemError:
+                    log.error(
+                        "kyc_document_rewrap_unreadable",
+                        extra={"tenant_id": str(tenant_id), "document_id": str(document_id)},
+                    )
+                    unreadable.append(f"{tenant_id}:{document_id}")
+                    continue
+                result = await session.execute(
+                    text(
+                        "UPDATE kyc_documents SET dek_wrapped = :dw, dek_nonce = :dn, "
+                        "kek_version = :kek WHERE id = :id AND dek_wrapped = :old"
+                    ),
+                    {
+                        "dw": fresh.dek_wrapped,
+                        "dn": fresh.dek_nonce,
+                        "kek": active.kek_id,
+                        "id": document_id,
                         "old": bytes(dek_wrapped),
                     },
                 )

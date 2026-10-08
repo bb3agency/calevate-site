@@ -108,6 +108,54 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
 
 ## 3. Campaign Compliance Gate [GATE — launch button disabled until all pass]
 
+> **D-692 (founder decision, 8 Oct 2026) CHANGES THIS GATE — read this box before the
+> DLT bullets below.** Calevate does NOT register as a telemarketer and clients do NOT
+> register on DLT. The outbound precondition — at campaign launch, on every dispatch tick
+> and on every single dial (`compliance.service.check_dispatch`) — is now, on EVERY plan
+> tier:
+>
+> - **a verified KYC record** (`kyc_missing`, `kyc_not_verified`), reached by either path
+>   the client chooses: document upload with manual admin review (business certificate +
+>   the owner's Aadhaar — masked copy — or PAN card), or DigiLocker through a licensed
+>   provider (Cashfree; `docs/evidence/digilocker-kyc-providers-2026-10-08.md`). The
+>   business certificate (GST, or Certificate of Incorporation / Udyam) is required on
+>   both paths;
+> - **no outstanding admin "require DigiLocker"** (`kyc_digilocker_required`): an operator
+>   may require a fresh DigiLocker run even after a manual approval, and outbound stays
+>   blocked until one completes after the requirement was set;
+> - **an accepted, current no-cold-calls pledge** (`outbound_pledge_missing`,
+>   `outbound_pledge_outdated`): the client calls only people who deal with it or asked to
+>   be called, never purchased or scraped lists. Versioned; every acceptance records who,
+>   when, which version, the SHA-256 of the exact text and the IP
+>   (`outbound_pledge_acceptances`, append-only, plus an `audit_log` row); a new version
+>   blocks outbound until re-accepted.
+>
+> **UNCHANGED:** the DNC scrub on every dial, calling hours, the list-consent provenance
+> (purchased lists refused), the AI disclosure and the truthful answers (hard rule 5), the
+> agreements, money, the account state and the Regulation 4 autodialer notice (D-692 did
+> not decide on it, so it still binds). **No per-contact consent record is required**
+> beyond what D-624 already lets an account opt into. **Inbound never depends on any of
+> this.**
+>
+> **INACTIVE, NOT DELETED (hard rule 8):** the DLT entity chain (`tm_registration_missing`,
+> `pe_registration_*`, `tm_link_not_active`), the bound DLT-registered number
+> (`number_not_bound_to_agent` for an agent with none, `number_not_registered`,
+> number_missing), the series rule (`number_series_mismatch`) and the DLT voice template
+> (dlt_template_*) are no longer asked by any gate; the tables, columns and functions
+> stay. A campaign that names a number must still have it bound to the campaign's agent.
+> Promotional campaigns are NOT refused by D-692 (it added no gate beyond KYC and the
+> pledge); the national preference scrub still applies to them, and whether a promotional
+> voice call may go out at all without a registered telemarketer's 140 header is one of
+> the counsel questions below.
+>
+> **OPEN COUNSEL QUESTIONS** (`docs/evidence/dlt-roles-and-operating-model-2026-09-18.md`
+> §8 and Addendum 2): whether TCCCPR 2025 Reg 3(2) reaches a relationship call from an
+> unregistered 10-digit sender; the 2025 UTM enforcement and Reg 25(6) disconnection of
+> ALL the sender's resources, which on a shared vendor workspace is a contagion risk across
+> clients; and whether the TRAI direction quoted below (no ordinary 10-digit numbers for
+> service calls) can be met without DLT at all. The paragraphs below describe the DLT
+> model as it was built and remain the reference if the decision is reversed.
+
 DLT role model (corrected): the **client is the Principal Entity (PE)** — calls are made
 on their behalf, under their identity and templates; **Calevate is the registered
 Telemarketer (TM)** linked to each client PE. Calevate's TM registration follows Udyam
@@ -132,10 +180,10 @@ cite the same string:
   cannot be active either, and telling a client to chase an authorisation for a
   registration they do not yet have sends them to the wrong desk.
 - `campaigns.classification` set; number series matches (promotional⇔140;
-  transactional/service⇔160 — `number_series_mismatch`, `number_missing`); the number's own
+  transactional/service⇔160 — `number_series_mismatch`, number_missing); the number's own
   DLT header registered (`number_not_registered`); voice `dlt_templates.status='approved'`
-  and linked, for this classification (`dlt_template_missing`, `dlt_template_not_approved`,
-  `dlt_template_mismatch`). Three registrations, and none implies another.
+  and linked, for this classification (dlt_template_missing, dlt_template_not_approved,
+  dlt_template_mismatch — rule names retired with D-692). Three registrations, and none implies another.
   - **`standard` IS NO LONGER IN THE ALLOWED SET, AND THIS BULLET USED TO SAY
     `160/standard`.** TRAI direction RG-25/(18)/2023-QoS (E-10291), 18 Jun 2024: *"Senders
     shall not use any other 10-digit fixed line/ mobile number for making Promotional/
@@ -1011,12 +1059,24 @@ Identity & access
 Data
 - Postgres RLS FORCEd on all tenant tables; app sets tenant GUC from verified session;
   fail-closed. Admin access path uses distinct role + always-audited queries.
-- Recordings: our object storage is system of record; SSE + per-tenant envelope keys (KMS);
+- Recordings: our object storage is system of record; encrypted at rest by the store's SSE
+  (AES256, `workers/storage.py`), not sealed in the application;
   presigned URLs 5-min TTL — EXCEPT a call recording's link, which D-153 sizes to the
   recording's own duration and caps at `RECORDING_LINK_CEILING_S`
   (`apps/api/crm/routes.py`). That is the widest credential window this platform
   opens and it is named here rather than left inside a flat "5-min" that would
   understate it; bucket public-access blocked at account level.
+- KYC files (D-692): only the BUSINESS certificate is kept as a file, for as long as the
+  account is open. Each file is sealed in the application with `core/envelope.seal_bytes`
+  (a fresh AES-256-GCM DEK per document, wrapped by `PLATFORM_KEK`, tenant and row id as
+  AAD) before it reaches the bucket, and the store's SSE applies on top; the object is
+  ciphertext and is never served by presigned URL — an admin download is decrypted in
+  memory and audited. Prefix `kyc-documents/{tenant}/`, destroyed by the account erasure.
+  A manually uploaded owner ID (Aadhaar masked copy, or PAN card) is deleted when an admin
+  decides the review, or after 30 days undecided (`workers/kyc_owner_id_purge`).
+  DigiLocker documents are never stored: the provider's response is read in memory for
+  the name and a masked number. Kept: status, ID type, name, name match, masked ID
+  (`XXXX-XXXX-1234` / `XXXXX1234X`, CHECK-pinned), provider reference, timestamps.
 - Secrets: engine/model/client keys in secrets manager only; DB stores references.
   Quarterly rotation; per-integration webhook secrets.
 - usage_events, consent_ledger, audit_log: INSERT-only DB grants (no UPDATE/DELETE for app role).
@@ -1153,7 +1213,7 @@ SDLC & ops
 | Webhook spoofing (fake call.ended) | HMAC + replay cache; idempotent pipeline keyed by engine_call_id. Vobiz carrier callbacks: published source range AND our shared `callback_key` secret AND, once gate 55 closes, the V3 signature (D-673) |
 | Client uploads poisoned/wrong KB | The account's own people publish without review (D-658), so the client owns what they add; automated refusals (invisible characters, size/format, OCR legibility); preview; versioned chunks; instant rollback. `pending_approval` + admin review remains for content nobody in the account added (view-as, intake seed, a changed page an operator linked); a changed page a member linked goes live like the link itself |
 | Runaway campaign / cost bomb | pre-dispatch caps; prepaid credit; concurrency ceilings; big red switch |
-| Recording bucket exposure | account-level public block; envelope encryption; presigned-only; breach runbook |
+| Recording bucket exposure | account-level public block; SSE at rest; presigned-only; breach runbook |
 | Insider (us) misuse of client data | audit_log on all admin reads; least-privilege; DPA commitments |
 | Vendor compromise (engine) | our storage is system of record; adapter isolation; ability to rotate engine keys + swap engine |
 | Caller impersonation for data ("what did my wife discuss") | agent never reads back prior-call contents; caller-auth features only where a client explicitly enables them |

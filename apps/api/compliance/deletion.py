@@ -328,7 +328,11 @@ UNIDENTIFIED_OUTCOME: Final = "unidentified_caller_not_matchable"
 #:
 #: A deployment set to a third-party engine (`ENGINE=cartesia`) still has a vendor-held
 #: execution record; `retention.execute_deletion_request` opens a `voice_engine` task naming
-#: those ids, and the entry's last sentence covers it.
+#: those ids. ThinnestAI is the exception (founder decision, 8 Oct 2026, revised; D-691): it
+#: has no per-call delete (`snapshots/2026-10-08/pages/api-reference/calls/cancel-call.md:7`)
+#: and `DELETE /contacts/{id}` is workspace-wide, so it is asked only in the client's own
+#: workspace, and otherwise the proof says `VOICE_PLATFORM_RETAINED`
+#: (`compliance/processor_erasure.py`) for that tenant's calls.
 #:
 #: The PROOF's `engine_deletion: "unconfirmed_pending_vendor_api"` is a separate, durable
 #: wire token and is not renamed (hard rule 4 forbids back-filling proofs already issued).
@@ -487,9 +491,13 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "what passed through it has not been established: no retention period and no way of "
     "deleting from it can be stated, and none is assumed. If it holds anything, removing "
     "it is a written request to that platform. Where a call instead ran on a third-party "
-    "voice platform, that platform keeps its own record of the call; this request does "
-    "not reach it, removing it is a written request naming those calls, and until that "
-    "request is answered the honest position is that a copy exists.",
+    "voice platform, that platform keeps its own record of the call. Where the platform "
+    "holds this business's calls in a workspace of the business's own, the person's "
+    "record there is erased too, recordings included, and the certificate says the erasure "
+    "was requested and where its outcome is recorded. Where it does not, the record is not "
+    "deleted there — the platform's only deletion would remove the person's history for "
+    "every business sharing the account — and the certificate says the copy expires with "
+    "the platform plan's retention period.",
     "Two further processors handle what is said on a call and are not reached by this "
     "request either: the speech service that turns the call audio into text, and the "
     "language model that produces the agent's replies. Neither publishes a way for us "
@@ -738,9 +746,13 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "no retention period and no deletion route is stated for it here and none is "
             "assumed; if it holds anything, removing it is a written request to that "
             "platform. Where a call instead ran on a third-party voice platform, that "
-            "platform keeps its own record of the call, this request does not reach it, "
-            "and removing it is a written request naming those calls. Do not tell the "
-            "data principal such a copy is gone until that request has been answered."
+            "platform keeps its own record of the call. In a workspace of the business's own "
+            "on that platform the person's record is erased too, recordings included; in a "
+            "shared one it is not deleted, because the only deletion it offers removes the "
+            "person's history for every business sharing it, and it expires with the plan's "
+            "retention. The certificate of each erasure says which, and a written request "
+            "covers any copy the platform reports as still queued. Do not tell the data "
+            "principal that copy is gone until the certificate or the task says so."
         ),
         # The hosting platform is Pipecat Cloud; its row in
         # `apps/web/src/lib/legal/subprocessors.ts` is the client-facing copy this entry

@@ -160,6 +160,7 @@ def _mount_routers(application: FastAPI) -> None:
         admin_router as first_campaign_admin_router,
     )
     from apps.api.compliance.first_campaign_routes import router as first_campaign_router
+    from apps.api.compliance.kyc_admin_routes import router as kyc_admin_router
     from apps.api.compliance.kyc_routes import router as kyc_router
     from apps.api.compliance.kyc_routes import webhook_router as kyc_webhook_router
     from apps.api.compliance.national_dnd_routes import (
@@ -168,6 +169,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.compliance.national_dnd_routes import (
         global_router as global_dnc_router,
     )
+    from apps.api.compliance.outbound_pledge_routes import router as outbound_pledge_router
     from apps.api.compliance.registration_routes import router as dlt_registration_router
     from apps.api.compliance.tenant_erasure_routes import router as tenant_erasure_router
     from apps.api.compliance.whatsapp_optin_routes import (
@@ -383,6 +385,8 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(tenant_account_router)
     application.include_router(dlt_registration_router)
     application.include_router(kyc_router)
+    application.include_router(kyc_admin_router)
+    application.include_router(outbound_pledge_router)
     # The RESELLER stage: our carrier approves each client business separately before a
     # number can be rented for it (evidence doc 2026-09-13 §5.2). Mounted beside the KYC
     # pair because it is the same kind of thing — a gating record with a client-facing

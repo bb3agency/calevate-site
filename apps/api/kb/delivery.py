@@ -120,7 +120,7 @@ SELECT a.id,
           FROM kb_chunks c
           JOIN kb_sources s ON s.id = c.source_id
           JOIN kb_documents d ON d.id = c.document_id
-         WHERE c.tenant_id = a.tenant_id AND c.agent_id = a.id
+         WHERE c.tenant_id = a.tenant_id
            AND c.is_active AND s.is_active
            AND d.gloss_state = :pending) AS awaiting_translation
 FROM agents a
@@ -185,17 +185,19 @@ async def tenant_delivery(
     READ-ONLY and lock-free. Every row is a HINT about an instant that has already passed —
     a publish committing mid-read moves an agent from `preparing` to `live` — which is
     harmless here in a way it is not for the sweep: the sweep ACTS on its answer and takes
-    `try_lock_agent_publishes` to do it, and this only draws a screen that refetches.
+    `try_lock_tenant_knowledge` to do it, and this only draws a screen that refetches.
+
+    Every agent answers from the tenant's one corpus (D-689), so the entries are read once.
     """
     rows = (
         await session.execute(
             text(_ROSTER_SQL), {"tid": tenant_id, "pending": GLOSS_PENDING, "limit": limit}
         )
     ).all()
+    entries = await read_entries(session, tenant_id=tenant_id)
     out: list[AgentDelivery] = []
     for row in rows:
         agent_id = UUID(str(row[0]))
-        entries = await read_entries(session, tenant_id=tenant_id, agent_id=agent_id)
         out.append(
             AgentDelivery(
                 agent_id=agent_id,

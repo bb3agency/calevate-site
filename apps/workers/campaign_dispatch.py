@@ -114,6 +114,7 @@ from apps.api.campaigns.service import (
 # clock pin THIS check too — the campaign window and the per-dial gate must agree
 # on what time it is.
 from apps.api.compliance import service as compliance_service
+from apps.api.compliance.platform_dnc import ENGINE_PERSON_REFUSALS
 from apps.api.compliance.service import (
     BIG_RED_SWITCH_RULE,
     PERSON_LEVEL_REFUSALS,
@@ -138,7 +139,7 @@ from apps.api.engine.carrier_pacing import (
 
 # OUR normalized engine error, not a vendor payload shape — hard rule 2 bounds what
 # may cross this line and an HTTP status is on the safe side of it.
-from apps.api.engine.vendor_http import RECIPIENT_OPTED_OUT_CODE, EngineRejectedError
+from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.integrations import service as integrations
 from apps.api.worker.service import POSTCALL_DEDUPE_PREFIX
 
@@ -1382,10 +1383,10 @@ async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str) -> None:
     it belongs on. One writer, both refusal shapes, so they can never diverge again.
     """
     record_compliance_block(rule=rule)
-    # The voice platform's own opt-out or do-not-call list
-    # (`vendor_http.RECIPIENT_OPTED_OUT_CODE`) is a fact about the person too; it is the
-    # vendor's refusal and not the gate's, so it is not a member of the gate's set.
-    if rule in PERSON_LEVEL_REFUSALS or rule == RECIPIENT_OPTED_OUT_CODE:
+    # The voice platform's own opt-out or do-not-call list (`platform_dnc.
+    # ENGINE_PERSON_REFUSALS`) is a fact about the person too; it is the vendor's refusal and
+    # not the gate's, so it is not a member of the gate's set.
+    if rule in PERSON_LEVEL_REFUSALS or rule in ENGINE_PERSON_REFUSALS:
         settle = "status = 'dnc_blocked'"
     else:
         settle = (

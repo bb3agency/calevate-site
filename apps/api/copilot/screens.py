@@ -244,11 +244,28 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         aliases=("contracts", "terms", "sign up documents", "paperwork", "consent forms"),
     ),
     Screen(
+        route="/c/{slug}/verify-business",
+        name="Verify your business",
+        group="Compliance & data",
+        summary=(
+            "Where the owner verifies the business and their own ID and accepts the "
+            "no-cold-calls pledge, which together unlock outbound calling."
+        ),
+        aliases=(
+            "kyc",
+            "business proof",
+            "upload documents",
+            "digilocker",
+            "pledge",
+            "activation",
+        ),
+    ),
+    Screen(
         route="/c/{slug}/verification",
         name="Verification",
         group="Compliance & data",
-        summary="The identity and business checks that unlock outbound calling.",
-        aliases=("kyc", "identity", "business proof", "documents check", "activation"),
+        summary="What is on file from the business checks, and anything still blocking calls.",
+        aliases=("identity", "documents check", "verification status"),
     ),
     Screen(
         route="/c/{slug}/do-not-call",

@@ -121,11 +121,10 @@ def test_the_rules_that_do_not_depend_on_classification_still_fire() -> None:
         number_dlt_status="pending",
         number_agent_id=uuid4(),
     )
+    # D-692 retired the template and number-registration rules; binding is still asked.
     assert _rules(_channel_blockers(broken)) == {
         "classification_not_campaignable",
-        "dlt_template_missing",
         "number_not_bound_to_agent",
-        "number_not_registered",
     }
 
 

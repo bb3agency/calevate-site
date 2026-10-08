@@ -77,10 +77,11 @@ line, no phone number — `engine_agent_ref` is a vendor-issued opaque id, which
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, cast
 
 from arq import Retry
 
+from apps.api.agents.engine_settings import check_agent_settings
 from apps.api.agents.hosted_voices import agent_voice_withdrawn
 from apps.api.agents.publishing import engine_drift_for
 from apps.api.agents.reconciliation import (
@@ -99,6 +100,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
+from apps.api.engine.catalogue import HostsVoices
 from apps.api.reliability.engine_actions import check_agent_actions
 
 log = get_logger(__name__)
@@ -188,6 +190,67 @@ def _assert_the_tick_fits_its_interval() -> None:
 
 _assert_the_tick_fits_its_interval()
 _assert_the_sweep_can_refresh_a_verdict_before_it_expires()
+
+
+async def _repair_own_voice_key(engine_name: str, candidate: DriftCandidate, *, on: bool) -> None:
+    """Set one live agent's own-voice-key switch back to what its rung requires. A vendor
+    failure is left to the next tick, which finds the same drift first."""
+    # `own_voice_key_expected` is set only by an engine that hosts its voices (`service.
+    # _engine_voice_fields`), so the configured engine is one.
+    engine = cast(HostsVoices, get_engine())
+    try:
+        await engine.set_agent_own_voice_key(candidate.engine_agent_ref, on=on)
+    except ProblemError as exc:
+        log.warning(
+            "engine_agent_voice_key_repair_failed",
+            extra={"agent_id": str(candidate.agent_id), "reason": exc.code},
+        )
+        return
+    alert(
+        "WORKER_STALL",
+        "engine_agent_voice_key_repaired",
+        detail=(
+            f"engine={engine_name}: a live agent was "
+            + ("off" if on else "on")
+            + " our own voice key, against its voice's rung, and was put back"
+        ),
+        agent_id=str(candidate.agent_id),
+        tenant_id=str(candidate.tenant_id),
+    )
+
+
+async def _reconcile_settings(engine_name: str, candidate: DriftCandidate) -> None:
+    """One live agent's call settings put back where they drifted, and the alarm naming them."""
+    checked = await check_agent_settings(
+        tenant_id=candidate.tenant_id,
+        agent_id=candidate.agent_id,
+        engine_agent_ref=candidate.engine_agent_ref,
+    )
+    if checked is None or not checked.drifted:
+        return
+    named = ", ".join(checked.drifted)
+    if checked.repaired:
+        alert(
+            "WORKER_STALL",
+            "engine_agent_settings_repaired",
+            detail=(
+                f"engine={engine_name}: a live agent's settings on the voice platform had "
+                f"moved from what this agent publishes ({named}) and were put back"
+            ),
+            agent_id=str(candidate.agent_id),
+            tenant_id=str(candidate.tenant_id),
+        )
+    else:
+        alert(
+            "WORKER_STALL",
+            "engine_agent_settings_drifted",
+            detail=(
+                f"engine={engine_name}: a live agent's settings on the voice platform differ "
+                f"from what this agent publishes ({named}) and could not be put back"
+            ),
+            agent_id=str(candidate.agent_id),
+            tenant_id=str(candidate.tenant_id),
+        )
 
 
 async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | None:
@@ -307,6 +370,19 @@ async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | N
             agent_id=str(candidate.agent_id),
             tenant_id=str(candidate.tenant_id),
         )
+
+    # THE AGENT'S OWN-VOICE-KEY SWITCH (D-688), REPAIRED rather than only recorded, and the
+    # one exception besides the in-call actions to this module's read-only rule: it is a
+    # single field our rung decides, nobody's emergency edit, and a Clear agent left on our
+    # Cartesia key bills every call at the Studio rate. The script is not touched.
+    if drift.own_voice_key_applied is False and drift.own_voice_key_expected is not None:
+        await _repair_own_voice_key(engine_name, candidate, on=drift.own_voice_key_expected)
+
+    # THE AGENT'S CALL SETTINGS (D-690): voice, model, recording, call cap, caller memory,
+    # escalation, call-backs, collected fields, call language, built-in tools and hand-over.
+    # Repaired for the own-voice-key switch's reason — each is a value our row decides — and
+    # alarmed naming which moved. The script is still only reported.
+    await _reconcile_settings(engine_name, candidate)
 
     # A VOICE THE ENGINE NO LONGER HAS (D-687): a clone deleted on the platform moves every
     # agent on it to a standard voice (delete-voice-clone.md:7), so callers hear a voice

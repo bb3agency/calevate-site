@@ -65,7 +65,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
         <Card
           title="Knowledge awaiting approval"
           density="compact"
-          info="Only knowledge an operator added, or a page an operator linked, waits here: what the client's own people add goes live on its own (D-658). Approving does not make a source live; Publish does."
+          info="This is the client's knowledge, shared by all its agents. Only knowledge an operator added, or a page an operator linked, waits here: what the client's own people add goes live on its own (D-658). Approving does not make a source live; Publish does."
         >
           <RestrictionNote reason={kbWrite.reason} />
           {queue.error ? (
@@ -145,7 +145,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                     >
                       <p className="text-xs text-danger">
                         Rejecting <span className="font-semibold">{source.name}</span> v
-                        {source.version}. It stays out of the agent&apos;s answers, and the
+                        {source.version}. It stays out of the agents&apos; answers, and the
                         reason below is recorded on the document permanently — a repeat
                         rejection does not rewrite it.
                       </p>
@@ -257,7 +257,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
         ) : awaitingPublish.length > 0 ? (
           <Card title="Approved, awaiting publish" density="compact">
             <p className="text-xs text-ink-muted">
-              The agent does not know these until they are published.
+              None of the client&apos;s agents know these until they are published.
             </p>
             <RestrictionNote reason={kbWrite.reason} />
             <ul className="divide-y divide-line">

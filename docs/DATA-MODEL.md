@@ -512,10 +512,14 @@ dlt_templates(id, tenant_id, kind ENUM[voice], classification, body TEXT,
 > all, because the engine holds the running dialogue and discards it at hangup.
 
 ```
-kb_sources(id, tenant_id, agent_id, kind ENUM[file,url,text,call_corpus], name, uri,
+kb_sources(id, tenant_id, agent_id NULL, kind ENUM[file,url,text,call_corpus], name, uri,
   status ENUM[uploaded,parsed,pending_approval,approved,rejected,archived],
   submitted_by, approved_by, approved_at, rejection_reason, published_at,
-  is_active BOOL, version INT, UNIQUE(agent_id, name, version))
+  is_active BOOL, version INT, UNIQUE(tenant_id, name, version))
+  -- D-689: a source belongs to the TENANT and every agent of the tenant answers from it.
+  -- `agent_id` is deprecated (not written since migration e6b2d9f4a1c3; provenance on
+  -- older rows; dropped in a later release), as is the same column on kb_uploads,
+  -- kb_chunks (cleared) and kb_index_documents.
   -- A named source is VERSIONED, and publish eligibility is `approved_at IS NOT NULL`,
   -- not `status = 'approved'`: FLOWS §7's rollback republishes a version that an earlier
   -- publish ARCHIVED, and gating on the current status refused the only rows the
@@ -533,7 +537,9 @@ kb_documents(id, tenant_id, source_id, idx INT, title, content TEXT, meta JSONB,
   -- migrates the values across and clears the keys. Do not write them here again.
 engine_kb_routes(engine, engine_kb_ref, tenant_id, agent_id, source_id, digest,
   created_at, updated_at,
-  PRIMARY KEY (engine, engine_kb_ref), UNIQUE (source_id, engine))
+  PRIMARY KEY (engine, engine_kb_ref), UNIQUE (source_id, agent_id))
+  -- ONE CLAIM PER (SOURCE, AGENT) since D-689: on an engine whose knowledge is per vendor
+  -- agent, a source is one vendor object on each of the tenant's agents.
   -- THE CLAIM THAT TIES ONE VENDOR KNOWLEDGE BASE TO ONE TENANT. We run one engine
   -- account for every tenant and the vendor's knowledge base is an ACCOUNT-level object
   -- with no owner field, so this row is the only thing that says whose it is. Without it
@@ -1169,6 +1175,28 @@ kyc_records(id, tenant_id UNIQUE → organizations ON DELETE RESTRICT,
   -- an Aadhaar pasted into a business field fails at the moment of the mistake.
   -- Deliberately does NOT duplicate `dlt_registrations.pe_id` — overlapping evidence, two
   -- regimes, different holders.
+  -- D-692 (migration a7c3e91d5f20) adds: kyc_path ENUM[manual,digilocker], legal_business_name,
+  -- gst_registered BOOL, gstin (format CHECK, only when GST-registered), owner_id_type
+  -- ENUM[aadhaar,pan] + owner_id_masked (CHECK pins XXXX-XXXX-dddd / XXXXXddddX), name_match,
+  -- digilocker_required + _reason/_at/_by_admin_id (reason required when set) and
+  -- digilocker_verified_at. `kyc_blocker` is now the dial gate on EVERY tier, plus
+  -- `kyc_digilocker_required`. Untenanted SELECT arm `kyc_records_review_queue_read` (status
+  -- submitted/in_review only) feeds the admin review queue.
+kyc_documents(id, tenant_id → organizations RESTRICT, slot ENUM[business,owner_id],
+  kind (business: gst|incorporation|udyam; owner_id: aadhaar|pan_card), object_key,
+  filename (1-99), content_type ENUM[pdf,jpeg,png], size_bytes (1..5 MiB), sha256,
+  uploaded_by_user_id → users, payload_nonce, dek_wrapped, dek_nonce, kek_version,
+  superseded_at, purged_at, created_at, updated_at)
+  -- D-692. Metadata of uploaded KYC files; the bytes are envelope-sealed ciphertext under
+  -- `kyc-documents/{tenant}/`. One current row per slot (partial unique index). Owner-ID
+  -- files are purged on the review decision or after 30 days (untenanted SELECT arm
+  -- `kyc_documents_owner_id_purge_read`); the business certificate is kept while the
+  -- account is open. FORCEd §1 RLS.
+outbound_pledge_acceptances(id, tenant_id → organizations RESTRICT, pledge_version INT > 0,
+  text_sha256, accepted_by_user_id → users, ip, accepted_at, created_at)   -- INSERT-only
+  -- D-692. The no-cold-calls pledge; the gate compares the latest row's version with
+  -- `compliance.outbound_pledge.PLEDGE_VERSION`. Append-only + TRUNCATE triggers, ALWAYS.
+kyc_verification_requests gains id_document ENUM[aadhaar,pan] NULL (D-692).
 autodialer_notices(id, tenant_id → organizations RESTRICT, state ENUM[notified,withdrawn],
   access_provider TEXT NOT NULL, objective TEXT NOT NULL, notified_on DATE,
   notice_reference TEXT NULL, declared_clis TEXT[] NOT NULL DEFAULT '{}',

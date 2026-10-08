@@ -574,12 +574,11 @@ async def test_knowledge_on_file_but_unapproved_is_a_step_outstanding_on_our_sid
     review queue is knowledge the client HAS WRITTEN and that we have not published, and the
     retrieval result is empty either way. Told "nothing on file matches that", they go
     looking for a fact they already wrote."""
-    tenant_id, agent_id = await _tenant()
+    tenant_id, _agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
         await kb_service.submit_source(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Hours",
             body="We are open from nine in the morning until seven in the evening.",
         )

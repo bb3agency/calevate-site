@@ -6,14 +6,14 @@ import { EmptyState } from "@/components/console/emptyState";
 import { ProblemNotice, Skeleton, formatCount } from "@/components/ui";
 import { useKbChunks, useKbUploads, type useKbSources } from "@/lib/api/kb";
 import { useClientSession } from "@/lib/api/session";
-import { lookup } from "@/lib/lookup";
 
 import { FactRow } from "./SubmittedList";
 import { UploadRow } from "./UploadList";
 
 /**
  * EVERYTHING THIS ACCOUNT HAS TAUGHT ITS AGENTS, in one list: the files, photos and web
- * pages it sent, then the facts it typed — each row saying where it is.
+ * pages it sent, then the facts it typed — each row saying where it is. No row names an
+ * agent, because every row is shared by all of them (D-689).
  *
  * Two reads behind one list, and each keeps its own honesty (§52): a read that failed gets
  * its refusal and no rows, and "nothing yet" is said only when BOTH answered empty —
@@ -21,13 +21,7 @@ import { UploadRow } from "./UploadList";
  * sent this morning was never received. The upload list is read once; each row that is
  * still moving watches itself (`useKbUpload`) and stops the moment it settles.
  */
-export function SourcesList({
-  agentNames,
-  sources,
-}: {
-  agentNames: Record<string, string>;
-  sources: ReturnType<typeof useKbSources>;
-}) {
+export function SourcesList({ sources }: { sources: ReturnType<typeof useKbSources> }) {
   const session = useClientSession();
   const uploads = useKbUploads(session);
   const [previewing, setPreviewing] = useState<string | null>(null);
@@ -80,17 +74,12 @@ export function SourcesList({
         ) : (
           <ul className="divide-y divide-line">
             {uploadRows?.map((upload) => (
-              <UploadRow
-                key={upload.id}
-                upload={upload}
-                agentName={lookup(agentNames, upload.agent_id) ?? null}
-              />
+              <UploadRow key={upload.id} upload={upload} />
             ))}
             {facts?.map((source) => (
               <FactRow
                 key={source.id}
                 source={source}
-                agentName={lookup(agentNames, source.agent_id) ?? null}
                 open={previewing === source.id}
                 onToggle={() => setPreviewing(previewing === source.id ? null : source.id)}
                 chunks={chunks}

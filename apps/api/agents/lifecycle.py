@@ -70,7 +70,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.engine_choice import (
-    byok_in_force,
     refuse_choice_under_byok,
     require_engine_choice,
 )
@@ -363,17 +362,9 @@ async def create_agent(
     return agent_id
 
 
-#: A published agent cannot be put back on the engine's default voice or model by clearing
-#: the choice: the vendor documents no value that resets either (`thinnest-findings/mirror/
-#: pages/api-reference/agents.md:105-110,156` name ids only), so the last one sent would
-#: keep speaking while our row, and the rate key stamped from it, said otherwise.
-ENGINE_CHOICE_RESET_UNSUPPORTED = "engine_choice_reset_unsupported"
-
-
 async def _check_engine_choice(
     session: AsyncSession,
     *,
-    published: bool,
     republish: bool,
     held: tuple[str | None, str | None],
     voice: tuple[bool, str | None],
@@ -384,27 +375,12 @@ async def _check_engine_choice(
     A live agent is checked by the republish that follows (`publish_agent`); any other
     agent is checked here, so a draft cannot store a voice that would refuse its first
     publish. `held` is the row's current (voice, model); `voice`/`model` are (sent, value).
+
+    Clearing a choice is allowed: the adapter sends `null`, which puts the vendor agent back
+    on its default (`engine/thinnest.ThinnestEngine._agent_body`). A cleared VOICE on a live
+    agent is then refused by its republish (`engine_choice.VOICE_REQUIRED`), because the
+    vendor's default voice bills at a band that is not on sale; a cleared model is not.
     """
-    # Under BYOK the workspace's own keys run the legs and no catalogue choice is sent, so
-    # clearing one changes nothing at the vendor and is allowed.
-    byok = byok_in_force(get_engine())
-    legs = (("voice", voice, held[0]), ("language model", model, held[1]))
-    for what, (sent, value), current in legs:
-        if sent and value is None and current is not None and published and not byok:
-            log.warning(
-                "agent_engine_choice_refused", extra={"reason": ENGINE_CHOICE_RESET_UNSUPPORTED}
-            )
-            raise ProblemError(
-                kind="business_rule",
-                code=ENGINE_CHOICE_RESET_UNSUPPORTED,
-                title=f"This agent's {what} cannot be put back to the default",
-                detail=(
-                    f"The voice platform keeps the last {what} it was given and offers no "
-                    "way to return to its default, so clearing the choice would not change "
-                    "what callers hear."
-                ),
-                remediation=f"Choose another {what} instead.",
-            )
     refuse_choice_under_byok(
         get_engine(),
         voice_id=voice[1] if voice[0] else None,
@@ -522,7 +498,6 @@ async def update_agent(
     republish = str(row[0]) == "live" and bool(row[1])
     await _check_engine_choice(
         session,
-        published=bool(row[1]),
         republish=republish,
         held=(row[2], row[3]),
         voice=(set_engine_voice_id, engine_voice_id),
@@ -730,7 +705,6 @@ async def archive_agent(
     pausing it IS, because deactivate is the emergency brake and an incident is the worst
     possible time to be told to go and tidy up a campaign first.
     """
-    del tenant_id
     # THE LOCK COMES FIRST, AND WITHOUT IT THE CHECK BELOW IS DECORATIVE. Counting
     # campaigns is a read, and a read under READ COMMITTED proves nothing about the
     # instant after it: a campaign launch that had already read this agent as `live`
@@ -777,6 +751,13 @@ async def archive_agent(
         ref = await _engine_agent_ref(session, agent_id)
         await retire_agent_carrier_bindings(agent_id=agent_id, ref=ref)
         await retire_in_call_actions(agent_id=agent_id, ref=ref)
+        # Its copies of the client's knowledge go with it (D-689): the vendor agent object
+        # stays standing (see above), so its documents would otherwise stay billed and
+        # claimed. Best effort; a restored agent catches up on its next publish. Imported
+        # here: `kb.service` imports `agents.t0`, which imports `agents.service`.
+        from apps.api.kb.service import withdraw_agent_knowledge
+
+        await withdraw_agent_knowledge(session, tenant_id=tenant_id, agent_id=agent_id)
     return LifecycleResult(
         agent_id=agent_id, status="archived", changed=moved, numbers_released=released
     )

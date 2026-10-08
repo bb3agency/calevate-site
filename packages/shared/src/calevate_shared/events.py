@@ -67,6 +67,32 @@ class CallEvent(BaseModel):
         return self.status in TERMINAL_STATUSES
 
 
+EngineNoticeKind = Literal["lead_captured", "conversation_escalated"]
+
+
+class EngineNotice(BaseModel):
+    """Something the ENGINE's own agent did during a conversation that is not a call
+    lifecycle step: it took down a lead, or it handed the conversation to a person.
+
+    Ids only. The vendor's description of the lead (a name, a number) is never carried:
+    our own extraction pass over the transcript is the record of what was said, and this
+    notice only tells the receiver that the engine acted, so it can be routed and counted.
+    `tenant_id`/`agent_id` are resolved from `engine_agent_ref` by the receiver, as on
+    `CallEvent`.
+    """
+
+    kind: EngineNoticeKind
+    #: The engine's id for the delivery, stable across its retries; the inbox dedupe key.
+    notice_id: str
+    engine_agent_ref: str | None = None
+    #: The call it happened on, when the engine names one (a chat has none).
+    engine_call_id: str | None = None
+    occurred_at: datetime | None = None
+    tenant_id: UUID | None = None
+    agent_id: UUID | None = None
+    engine: str
+
+
 class TranscriptTurn(BaseModel):
     """One turn of a conversation.
 
@@ -89,6 +115,8 @@ __all__ = [
     "CallDirection",
     "CallEvent",
     "CallStatus",
+    "EngineNotice",
+    "EngineNoticeKind",
     "Speaker",
     "TranscriptTurn",
 ]

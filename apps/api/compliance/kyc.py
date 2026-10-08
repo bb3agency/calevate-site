@@ -79,26 +79,14 @@ and they get different answers:
   LEGAL-OPS-PLAYBOOK.md` §9). That is also why this record exists at all: we verify the
   same entity their operator verifies, so our dial gate cannot be looser than the
   carrier's.
-* **Dialling is gated for `self_serve` and `trial` only.** This mirrors
-  `credits_exhausted` exactly, and for the same kind of reason. FLOWS §2 and SURFACES
-  §2b both scope the calling restriction to self-serve accounts, and the docs win
-  (CLAUDE.md). Substantively: R-11's risk is an *anonymous* signup dialling India's
-  network. A managed tenant is not anonymous — we contracted with them, an access
-  provider granted their ₹5,900 Principal Entity registration only after checking
-  PAN/GST/CIN and the authorised signatory's ID, and their operator issued their
-  connection only against their own KYC and CAF. That assurance is out of band and
-  is already gated at
-  dial time by `pe_registration_*` and `number_not_registered`. Making the dial gate
-  tier-blind would therefore not close a risk; it would halt every existing client's
-  calling on a data-entry backlog, and this repo has already paid that price once with
-  `tm_registration_missing`.
-
-**The residual risk, stated rather than hidden:** a managed tenant whose operator KYC we
-never saw keeps dialling. That gap closes at the point it can actually be
-closed — an ops sweep requiring a verification for every tenant holding a number — and
-that is a `platform_state`-shaped ops surface, not a change to this predicate. It is NOT
-closed by widening the dial gate, which would refuse the tenants whose paperwork we do
-hold along with the ones whose we do not.
+* **Dialling is gated for EVERY tier (D-692).** It used to be `self_serve`/`trial` only,
+  on the ground that a managed client's identity was already proven by its DLT Principal
+  Entity registration and gated at dial time by `pe_registration_*`. D-692 removed the
+  client DLT requirement, which removed that assurance, so a verified KYC record (plus the
+  no-cold-calls pledge, `compliance/outbound_pledge.py`) is now the outbound precondition
+  for every account. An admin can additionally REQUIRE a DigiLocker verification for one
+  client (`digilocker_outstanding`), which blocks that client's outbound until a run
+  completes after the requirement was set.
 
 **Inbound is never gated.** Nothing here is reachable from an inbound call: the gate
 lives in `compliance.service.check_dispatch`, which inbound calls never enter (its
@@ -109,6 +97,7 @@ caller who dialled in initiated the call anyway.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -118,6 +107,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.models import KYC_VERIFIED
+from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 
 # The client-facing wording of the two refusals, defined ONCE and shared by the dial
@@ -178,6 +168,20 @@ class KycRecord:
     # The holder name the aggregator returned. A NAME, deliberately without the number it
     # was read from, exactly as `signatory_name` is.
     verified_name: str | None
+    # D-692: the path chosen, the business facts the numbering application needs, and the
+    # admin's "require DigiLocker" override with the instant a run last satisfied it.
+    kyc_path: str | None = None
+    legal_business_name: str | None = None
+    gst_registered: bool | None = None
+    gstin: str | None = None
+    digilocker_required: bool = False
+    digilocker_required_reason: str | None = None
+    digilocker_required_at: datetime | None = None
+    digilocker_verified_at: datetime | None = None
+    name_match: bool | None = None
+    # Which owner ID proved the person (`aadhaar` | `pan`) and that ID masked.
+    owner_id_type: str | None = None
+    owner_id_masked: str | None = None
 
     @property
     def is_verified(self) -> bool:
@@ -185,6 +189,19 @@ class KycRecord:
         caller so the dial gate, the launch preview, the number-purchase route and the
         client's own screen can never answer "is `in_review` good enough" differently."""
         return self.status == KYC_VERIFIED
+
+    @property
+    def digilocker_outstanding(self) -> bool:
+        """An admin required DigiLocker and no run has completed SINCE they did.
+
+        A run completed before the requirement does not satisfy it: the admin asked for a
+        fresh, deeper check, and an old one is what they were looking at when they asked.
+        """
+        if not self.digilocker_required:
+            return False
+        if self.digilocker_verified_at is None or self.digilocker_required_at is None:
+            return True
+        return self.digilocker_verified_at < self.digilocker_required_at
 
 
 NOT_RECORDED = KycRecord(
@@ -207,7 +224,10 @@ NOT_RECORDED = KycRecord(
 _SELECT = (
     "SELECT status, entity_type, document_kind, document_ref, signatory_name, "
     "evidence_ref, rejection_reason, submitted_at, verified_at, "
-    "verification_source, verification_provider, verification_reference, verified_name "
+    "verification_source, verification_provider, verification_reference, verified_name, "
+    "kyc_path, legal_business_name, gst_registered, gstin, digilocker_required, "
+    "digilocker_required_reason, digilocker_required_at, digilocker_verified_at, name_match, "
+    "owner_id_type, owner_id_masked "
     "FROM kyc_records WHERE tenant_id = :tid"
 )
 
@@ -240,6 +260,17 @@ async def read_kyc(session: AsyncSession, *, tenant_id: UUID) -> KycRecord:
         verification_provider=row[10],
         verification_reference=row[11],
         verified_name=row[12],
+        kyc_path=row[13],
+        legal_business_name=row[14],
+        gst_registered=row[15],
+        gstin=row[16],
+        digilocker_required=bool(row[17]),
+        digilocker_required_reason=row[18],
+        digilocker_required_at=row[19],
+        digilocker_verified_at=row[20],
+        name_match=row[21],
+        owner_id_type=row[22],
+        owner_id_masked=row[23],
     )
 
 
@@ -337,11 +368,246 @@ async def record_kyc(
     )
 
 
+#: The admin's "deeper verification" override (D-692), in the client's words.
+DIGILOCKER_REQUIRED_REASON = (
+    "We need you to verify the business owner's identity through DigiLocker before this "
+    "account can place outbound calls. Open Verify your business and choose DigiLocker. "
+    "Answering inbound calls is unaffected."
+)
+
+#: Statuses in which the client may still change what they declared. Once a reviewer is
+#: looking at it, or it is verified, a change has to come through support — otherwise a
+#: verified business could rename itself after approval.
+_EDITABLE_STATUSES = (None, "not_started", "rejected", "expired")
+
+
+def _tokens(name: str) -> list[str]:
+    return sorted(token for token in re.split(r"[^a-z]+", name.lower()) if len(token) > 1)
+
+
+def names_match(declared: str | None, attested: str | None) -> bool | None:
+    """Whether the owner the client named is the person DigiLocker attested. Advisory:
+    shown to the reviewer, never a gate on its own, because initials and transliteration
+    make an exact rule refuse real people. None when either side is missing."""
+    if not declared or not attested:
+        return None
+    left, right = _tokens(declared), _tokens(attested)
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    shorter, longer = (left, right) if len(left) <= len(right) else (right, left)
+    return len(shorter) >= 2 and all(token in longer for token in shorter)
+
+
+async def save_business_details(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    entity_type: str,
+    legal_business_name: str,
+    gst_registered: bool,
+    gstin: str | None,
+    owner_name: str,
+) -> None:
+    """The client's declaration, upserted. Refused once a reviewer has it or it is verified."""
+    current = await read_kyc(session, tenant_id=tenant_id)
+    if current.status not in _EDITABLE_STATUSES:
+        raise ProblemError.business_rule(
+            "kyc_details_locked",
+            "These details are with our review team or already verified, so they cannot be "
+            "changed here.",
+            remediation="Contact support if something needs correcting.",
+        )
+    # A DigiLocker run already took its branch from the entity type on file; changing it
+    # afterwards would re-label a signatory check as a proprietor's.
+    if current.verification_source == "aggregator" and current.entity_type != entity_type:
+        raise ProblemError.business_rule(
+            "entity_type_on_file_differs",
+            "Our record of how this business is registered does not match what you selected.",
+            remediation="Contact support to correct the registered entity type.",
+        )
+    await session.execute(
+        text(
+            "INSERT INTO kyc_records (id, tenant_id, status, entity_type, legal_business_name, "
+            "  gst_registered, gstin, signatory_name, created_at, updated_at) "
+            "VALUES (:id, :tid, 'not_started', :entity, :name, :gst, :gstin, :owner, now(), "
+            "  now()) "
+            "ON CONFLICT (tenant_id) DO UPDATE SET entity_type = EXCLUDED.entity_type, "
+            "  legal_business_name = EXCLUDED.legal_business_name, "
+            "  gst_registered = EXCLUDED.gst_registered, gstin = EXCLUDED.gstin, "
+            "  signatory_name = EXCLUDED.signatory_name, updated_at = now()"
+        ),
+        {
+            "id": uuid7(),
+            "tid": tenant_id,
+            "entity": entity_type,
+            "name": legal_business_name,
+            "gst": gst_registered,
+            "gstin": gstin if gst_registered else None,
+            "owner": owner_name,
+        },
+    )
+
+
+async def submit_for_manual_review(
+    session: AsyncSession, *, tenant_id: UUID, owner_id_type: str, owner_id_masked: str
+) -> None:
+    """Move the record to `submitted` on the manual path, with the owner ID's type and
+    masked number. The caller has checked that the details and both documents are on
+    file."""
+    await session.execute(
+        text(
+            "UPDATE kyc_records SET status = 'submitted', kyc_path = 'manual', "
+            "  owner_id_type = :id_type, owner_id_masked = :masked, "
+            "  rejection_reason = NULL, submitted_at = now(), updated_at = now() "
+            "WHERE tenant_id = :tid"
+        ),
+        {"tid": tenant_id, "id_type": owner_id_type, "masked": owner_id_masked},
+    )
+
+
+async def mark_digilocker_path(session: AsyncSession, *, tenant_id: UUID) -> None:
+    """Record that the client chose DigiLocker. Status is left to the outcome."""
+    await session.execute(
+        text(
+            "UPDATE kyc_records SET kyc_path = 'digilocker', updated_at = now() "
+            "WHERE tenant_id = :tid AND (kyc_path IS NULL OR status <> 'verified')"
+        ),
+        {"tid": tenant_id},
+    )
+
+
+async def record_digilocker_completion(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    verified_name: str | None,
+    owner_id_type: str,
+    owner_id_masked: str | None,
+) -> None:
+    """Stamp that a DigiLocker run completed now: which ID it fetched, that ID masked, and
+    whether the attested name matches the owner the client named.
+
+    Called for every successful run, including one on an already-verified record, because
+    that is exactly how an admin's "require DigiLocker" is satisfied.
+    """
+    record = await read_kyc(session, tenant_id=tenant_id)
+    await session.execute(
+        text(
+            "UPDATE kyc_records SET digilocker_verified_at = now(), name_match = :match, "
+            "  owner_id_type = :id_type, "
+            "  owner_id_masked = :masked, updated_at = now() "
+            "WHERE tenant_id = :tid"
+        ),
+        {
+            "tid": tenant_id,
+            "match": names_match(record.signatory_name, verified_name),
+            "id_type": owner_id_type,
+            "masked": owner_id_masked,
+        },
+    )
+
+
+async def set_digilocker_requirement(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    required: bool,
+    reason: str | None,
+    admin_id: UUID | None,
+) -> None:
+    """The admin override. Requiring creates the record if there is none, because an admin
+    may ask for DigiLocker before the client has started anything."""
+    if required:
+        await session.execute(
+            text(
+                "INSERT INTO kyc_records (id, tenant_id, status, digilocker_required, "
+                "  digilocker_required_reason, digilocker_required_at, "
+                "  digilocker_required_by_admin_id, created_at, updated_at) "
+                "VALUES (:id, :tid, 'not_started', true, :reason, now(), :admin, now(), now()) "
+                "ON CONFLICT (tenant_id) DO UPDATE SET digilocker_required = true, "
+                "  digilocker_required_reason = EXCLUDED.digilocker_required_reason, "
+                "  digilocker_required_at = now(), "
+                "  digilocker_required_by_admin_id = EXCLUDED.digilocker_required_by_admin_id, "
+                "  updated_at = now()"
+            ),
+            {"id": uuid7(), "tid": tenant_id, "reason": reason, "admin": admin_id},
+        )
+        return
+    await session.execute(
+        text(
+            "UPDATE kyc_records SET digilocker_required = false, "
+            "  digilocker_required_reason = NULL, digilocker_required_at = NULL, "
+            "  digilocker_required_by_admin_id = NULL, updated_at = now() "
+            "WHERE tenant_id = :tid"
+        ),
+        {"tid": tenant_id},
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class NumberingSubmission:
+    """What a numbering application in the client's name needs, ready to send.
+
+    `document_kind` is the application's own vocabulary (`gst`/`incorporation`/`udyam`,
+    send-business-details.md:513-522); the file is read from `object_key`. Built only from
+    a VERIFIED record, so nothing is submitted in a client's name on unchecked paperwork.
+    """
+
+    tenant_id: UUID
+    legal_business_name: str
+    gst_registered: bool
+    document_kind: str
+    document_id: UUID
+    object_key: str
+    filename: str
+    content_type: str
+    size_bytes: int
+
+
+async def numbering_submission_bundle(
+    session: AsyncSession, *, tenant_id: UUID
+) -> NumberingSubmission | None:
+    """The submission-ready bundle for renting numbers in the client's own name, or None
+    when the record is not verified or a field or the business document is missing."""
+    from apps.api.compliance.kyc_documents import current_documents
+
+    record = await read_kyc(session, tenant_id=tenant_id)
+    if not record.is_verified or not record.legal_business_name:
+        return None
+    if record.gst_registered is None:
+        return None
+    business = (await current_documents(session, tenant_id=tenant_id)).get("business")
+    if business is None or business.purged_at is not None:
+        return None
+    return NumberingSubmission(
+        tenant_id=tenant_id,
+        legal_business_name=record.legal_business_name,
+        gst_registered=record.gst_registered,
+        document_kind=business.kind,
+        document_id=business.id,
+        object_key=business.object_key,
+        filename=business.filename,
+        content_type=business.content_type,
+        size_bytes=business.size_bytes,
+    )
+
+
 __all__ = [
+    "DIGILOCKER_REQUIRED_REASON",
     "KYC_MISSING_REASON",
     "NOT_RECORDED",
     "KycRecord",
+    "NumberingSubmission",
     "kyc_not_verified_reason",
+    "mark_digilocker_path",
+    "names_match",
+    "numbering_submission_bundle",
     "read_kyc",
+    "record_digilocker_completion",
     "record_kyc",
+    "save_business_details",
+    "set_digilocker_requirement",
+    "submit_for_manual_review",
 ]

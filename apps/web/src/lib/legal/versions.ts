@@ -231,6 +231,17 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:ba11f924af7771e39ad73dacdd28ed3ee2c160bf7cdc089c2918036fdd792afc",
       },
+      // D-692: section 4's KYC entry now says what verification keeps: the business document
+      // (encrypted, kept while the account is open), the owner ID file until review or 30
+      // days, the masked number, the name check and the provider reference; the outbound
+      // pledge record replaces the DLT registration row. MATERIAL: a stored document class
+      // that revision 13 said we never hold.
+      {
+        revision: "14",
+        material: true,
+        contentHash:
+          "sha256:9f71baee2e9036d8741ba9aeef83be392796f5c0fefa9c4177bdf494dc30bbfb",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -305,6 +316,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:3797db2fafabcbb66c415b4fe0b8336279262b54f21616d4203b466205792ee3",
       },
+      // D-692: outbound calling rests on verification and the no-cold-calls pledge, not DLT
+      // registrations; Calevate is no longer described as the client's telemarketer; numbers
+      // rented through Calevate are described, and released on closure. MATERIAL: the
+      // client's outbound obligations change.
+      {
+        revision: "12",
+        material: true,
+        contentHash:
+          "sha256:69167dddcd65f840aba69236f6bb13b02db594a08f45d7743f86e68849faedc9",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -334,6 +355,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash:
           "sha256:116c73a400c7d37265f0371317b5bdb2c0b772383f95855e7f1136f3e6436dd8",
+      },
+      // D-692: section 2.1 replaces the three DLT registrations with business verification
+      // and the no-cold-calls pledge, and section 2.2 drops the number-series and
+      // sender-confirmation rules. MATERIAL: what the client must do before an outbound call
+      // changes.
+      {
+        revision: "4",
+        material: true,
+        contentHash:
+          "sha256:898212624fa7874985731e6be44175bb14bb1239084847bb5e5569e862f54542",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -577,6 +608,14 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: false,
         contentHash:
           "sha256:aa9cf51213205f2f5a50e094c51789c79a73688536231dd7ca5b52788e36c64d",
+      },
+      // D-692: adds the identity-verification category (DigiLocker), configured, not enabled
+      // until its credentials are set. MATERIAL: a new sub-processor.
+      {
+        revision: "14",
+        material: true,
+        contentHash:
+          "sha256:c7f067f1456e649fcf610b02a9f13efb2f5ae2690d35034f7912a1fb4036c952",
       },
     ],
     effectiveDate: "2026-09-02",

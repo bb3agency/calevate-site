@@ -211,7 +211,7 @@ async def test_proposing_writes_nothing_and_confirming_takes_the_forms_door() ->
             await session.execute(
                 text(
                     "SELECT id, status, is_active, kind, version, submitted_by "
-                    "FROM kb_sources WHERE agent_id = :a"
+                    "FROM kb_sources WHERE tenant_id = (SELECT tenant_id FROM agents WHERE id = :a)"
                 ),
                 {"a": agent},
             )
@@ -292,7 +292,10 @@ async def test_a_second_submission_is_a_second_version_rather_than_a_no_op() -> 
     async with tenant_session(tenant) as session:
         versions = (
             await session.execute(
-                text("SELECT version FROM kb_sources WHERE agent_id = :a ORDER BY version"),
+                text(
+                    "SELECT version FROM kb_sources WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :a) ORDER BY version"
+                ),
                 {"a": agent},
             )
         ).scalars()

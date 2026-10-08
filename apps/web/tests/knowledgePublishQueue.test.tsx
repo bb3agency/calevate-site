@@ -78,10 +78,10 @@ const OPERATOR: AdminMe = {
   ],
 };
 
+/** A source as the API sends it since D-689: the client's knowledge, shared by all its agents. */
 function source(over: Partial<KbSource> = {}): KbSource {
   return {
     id: "0192f0aa-7777-7000-8000-0000000000dd",
-    agent_id: "0192f0aa-7777-7000-8000-0000000000ee",
     name: "Clinic price list",
     kind: "text",
     status: "approved",
@@ -228,7 +228,7 @@ describe("the publish queue, in the three states a read can be in", () => {
     // count, and no Publish button is offered over sources we have not seen.
     expect(container.querySelector(".animate-pulse")).not.toBeNull();
     expect(container.textContent).not.toContain(
-      "The agent does not know these",
+      "agents know these until they are published",
     );
   });
 

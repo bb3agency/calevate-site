@@ -32,7 +32,7 @@ import { DLT_NOT_RECORDED } from "./fixtures/sharedReads";
  * the nav list, so the screen deliberately has no `<h1>` of its own to wait for.
  */
 // Anchored to the header sentence: the number card says "Indian telecom rules require …" too.
-const SCREEN = /Indian telecom rules ask two things/;
+const SCREEN = /To verify it, or to accept the no-cold-calls pledge/;
 
 function record(over: Partial<KycRecord> = {}): KycRecord {
   return {
@@ -53,6 +53,17 @@ function record(over: Partial<KycRecord> = {}): KycRecord {
     verification_reference: null,
     verified_name: null,
     self_verification_available: false,
+    kyc_path: null,
+    legal_business_name: null,
+    gst_registered: null,
+    gstin: null,
+    owner_id_type: null,
+    owner_id_masked: null,
+    name_match: null,
+    digilocker_required: false,
+    digilocker_required_reason: null,
+    digilocker_outstanding: false,
+    documents: [],
     ...over,
   };
 }
@@ -96,7 +107,7 @@ describe("business verification verdict", () => {
     expect(
       screen.queryByText("What this affects while it is outstanding"),
     ).not.toBeNull();
-    expect(screen.queryByText("What to send us")).not.toBeNull();
+    expect(screen.queryByText("What we need")).not.toBeNull();
 
     // THE VERDICT BOX ITSELF, which is the sentence the client reads first and the half
     // that was wrong: it carried `KYC_STATUS_COPY["verified"]` — headline, "next" and
@@ -122,7 +133,7 @@ describe("business verification verdict", () => {
 
     await screen.findByText(SCREEN);
     expect(container.textContent).toContain("Your business is verified.");
-    expect(screen.queryByText("What to send us")).toBeNull();
+    expect(screen.queryByText("What we need")).toBeNull();
     // Fails VISIBLE: the unrecognised word is still on screen, in the record we hold,
     // so a client can quote it back to us.
     expect(container.textContent).toContain("verified_by_operator");
@@ -135,7 +146,7 @@ describe("business verification verdict", () => {
     expect(
       screen.queryByText("What this affects while it is outstanding"),
     ).toBeNull();
-    expect(screen.queryByText("What to send us")).toBeNull();
+    expect(screen.queryByText("What we need")).toBeNull();
     expect(container.textContent).not.toContain(
       "Calls coming IN are unaffected",
     );

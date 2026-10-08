@@ -210,6 +210,7 @@ async def _observe_one(engine_name: str, candidate: KbDriftCandidate) -> _Observ
     async with tenant_session(candidate.tenant_id) as session:
         before = await handles_if_no_publish_in_flight(
             session,
+            tenant_id=candidate.tenant_id,
             agent_id=candidate.agent_id,
             # THE ROUTE'S OWN VENDOR OBJECT (D-380). Without it an experiment arm's route
             # was scored against the parent AGENT's recorded handles, which is `missing`
@@ -240,7 +241,10 @@ async def _observe_one(engine_name: str, candidate: KbDriftCandidate) -> _Observ
 
     async with tenant_session(candidate.tenant_id) as session:
         after = await handles_if_no_publish_in_flight(
-            session, agent_id=candidate.agent_id, engine_agent_ref=candidate.engine_agent_ref
+            session,
+            tenant_id=candidate.tenant_id,
+            agent_id=candidate.agent_id,
+            engine_agent_ref=candidate.engine_agent_ref,
         )
     if after is None or after != before:
         log.info(

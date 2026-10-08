@@ -264,8 +264,11 @@ class CompiledFactsRetriever:
         ).all()
         return [(UUID(str(r[0])), str(r[1]), str(r[2])) for r in rows]
 
-    async def _glosses(self, request: RetrievalRequest) -> dict[UUID, tuple[tuple[str, str], ...]]:
-        """agent id → ((line prefix, gloss), ...) for the live sources that have a gloss.
+    async def _glosses(self, request: RetrievalRequest) -> tuple[tuple[str, str], ...]:
+        """((line prefix, gloss), ...) for the tenant's live sources that have a gloss.
+
+        One set for every agent: knowledge is the tenant's (D-689), so the same knowledge
+        line appears in every agent's block and the same gloss serves each of them.
 
         Keyed by the LINE PREFIX rather than by the source name, and built through
         `agents/t0.knowledge_line_prefix` rather than by re-spelling `f"- {name}: "`, so the
@@ -285,13 +288,11 @@ class CompiledFactsRetriever:
         costs nothing to evaluate.
         """
         if dominant_script(request.question) == SCRIPT_OTHER:
-            return {}
-        by_agent: dict[UUID, list[tuple[str, str]]] = {}
-        for agent_id, name, gloss in await live_glosses(
-            self._session, tenant_id=request.tenant_id, agent_id=request.agent_id
-        ):
-            by_agent.setdefault(agent_id, []).append((knowledge_line_prefix(name), gloss))
-        return {agent_id: tuple(pairs) for agent_id, pairs in by_agent.items()}
+            return ()
+        return tuple(
+            (knowledge_line_prefix(name), gloss)
+            for name, gloss in await live_glosses(self._session, tenant_id=request.tenant_id)
+        )
 
     @staticmethod
     def _gloss_score(
@@ -335,8 +336,12 @@ class CompiledFactsRetriever:
         question_tokens = tokens(request.question)
         glosses = await self._glosses(request)
         scored: list[tuple[float, Passage]] = []
+        # ONE PASSAGE PER LINE. Every agent's block carries the tenant's knowledge half
+        # (D-689), so a tenant-wide question would otherwise get the same published fact
+        # once per agent and fill `k` with copies of it. The first agent's copy is kept;
+        # the blocks are read in name order, so which one is stable.
+        seen: set[str] = set()
         for agent_id, agent_name, block in await self._live_blocks(request):
-            agent_glosses = glosses.get(agent_id, ())
             provenance = Provenance(
                 # What a person would call it. The agent's name is the client's own word
                 # for the thing that answers their phone, which is what makes a citation
@@ -348,9 +353,12 @@ class CompiledFactsRetriever:
                 # answers, so naming one source would be a citation that does not check out.
             )
             for line in facts_of(block):
+                if line in seen:
+                    continue
+                seen.add(line)
                 score = max(
                     score_line(question_tokens, line),
-                    self._gloss_score(question_tokens, request.question, line, agent_glosses),
+                    self._gloss_score(question_tokens, request.question, line, glosses),
                 )
                 if score > 0.0:
                     passage = Passage(text=line[:4000], provenance=provenance, score=score)

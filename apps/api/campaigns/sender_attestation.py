@@ -55,16 +55,6 @@ ATTESTABLE_CLASSIFICATIONS: Final[frozenset[str]] = frozenset({"service", "trans
 ATTESTATION_RULE: Final[str] = "outbound_sender_not_attested"
 
 
-def attestation_reason(series: str, classification: str) -> str:
-    """The client-facing refusal. Says what to do, in both of the two ways out."""
-    return (
-        f"This campaign dials from a {series} number, and TRAI requires {classification} "
-        "voice calls to come from a registered 140 or 160 series header. Either attach a "
-        "140 or 160 number, or confirm on the number's settings page that your business is "
-        "the sender and accepts responsibility for calls from this one."
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class AttestationState:
     """The latest row for one number, read as an answer rather than a history."""
@@ -150,7 +140,6 @@ __all__ = [
     "SENDER_STATEMENT",
     "SENDER_STATEMENT_VERSION",
     "AttestationState",
-    "attestation_reason",
     "latest_attestation",
     "record_attestation",
 ]

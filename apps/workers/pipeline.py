@@ -143,6 +143,7 @@ from apps.api.reliability.service import (
 )
 from apps.api.worker.service import POSTCALL_DEDUPE_PREFIX, REMETER_DEDUPE_PREFIX
 from apps.workers import storage
+from apps.workers.engine_charges import reconcile_call_charge
 from apps.workers.engine_delivery import execution_truth, post_call_truth, seal_listing
 from apps.workers.extraction import MODEL_FAILURE, extract_call, model_answered
 from apps.workers.handoff import settle_handoff
@@ -1406,6 +1407,17 @@ async def _post_call_stages(
     if _owes_usage(snapshot):
         with span("pipeline.meter", call_id=str(call_id)) as stage:
             set_span_attributes(stage, usage_row_count=await _meter(tenant_id, call_id, snapshot))
+
+    # STEP 5b — what the engine says it charged, recorded once and reconciled against the
+    # metering above (an engine priced by attested minute; never a cost of record, D-690).
+    if snapshot.engine_charged_inr is not None:
+        with span("pipeline.reconcile_charge", call_id=str(call_id)) as stage:
+            set_span_attributes(
+                stage,
+                outcome=await reconcile_call_charge(
+                    tenant_id, call_id, snapshot.engine_charged_inr
+                ),
+            )
 
     # STEP 6 — notifications, through the OUTBOX so a crash cannot lose them.
     if lead_id is not None and extraction is not None:

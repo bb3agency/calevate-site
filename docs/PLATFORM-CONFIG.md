@@ -172,14 +172,14 @@ console-managed the same way and plays `carrier_concurrency`'s part on `ENGINE=t
 Its other console-managed settings are `thinnest_byok_enabled` (needs republish; the
 operator's statement that the developer workspace runs on all three of its own keys),
 `engine_actions_base_url` (needs republish; the public API origin its in-call actions call)
-and `thinnest_studio_workspace_id` (added by D-687, 8 Oct 2026: the one shared ThinnestAI
-customer workspace that holds every Studio agent, with voice-only BYOK on and our Cartesia
-key installed, an `org_…` id; set by `POST /v1/ops/voices/studio-workspace`, which creates
-the workspace and installs the key, or
-entered by hand; unset means Studio is not offered on this engine).
+and `thinnest_clear_voice_band` (added by D-688, 8 Oct 2026, needs republish, default
+`premium`: the ThinnestAI voice band sold as Clear, `premium` or `studio`; Studio voices and
+clones need ThinnestAI Pro). D-687's `thinnest_studio_workspace_id` is removed: every agent
+lives in the developer workspace and says per agent whether it speaks on our voice key.
 `ENGINE_INTAKE_KEK` is env-only, in `ENV_ONLY_REASONS`. No BYOK provider key is stored
 under a ThinnestAI setting: full (`scope: all`) BYOK is not on sale (D-681), and the Studio
-rung's voice-only BYOK sends our Cartesia key to ThinnestAI once, for the Studio workspace,
+rung's voice-only BYOK sends our Cartesia key to ThinnestAI's developer workspace (on
+"Enable Studio voices", and again through the outbox when `cartesia_api_key` is rotated),
 where it is stored encrypted (`thinnest-findings/mirror/snapshots/2026-10-07b/pages/
 api-reference/bring-your-own-keys.md:77-78`; `docs/THINNEST-INTEGRATION.md` §4a).
 The ThinnestAI keys appear in the console's Calling section with plain labels, and

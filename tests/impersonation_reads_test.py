@@ -29,6 +29,21 @@ from apps.api.main import app
 # no `X-Impersonate-Org` header. Impersonation never touches them, so gating them on a
 # mutating permission costs nobody a view.
 ADMIN_CONSOLE_GETS: dict[str, str] = {
+    "/v1/admin/kyc/reviews": (
+        "the cross-client KYC review queue (D-692) — admin console, never impersonated"
+    ),
+    "/v1/admin/tenants/{tenant_id}/kyc": (
+        "the operator's review of one client's KYC files and pledge (D-692); the client's "
+        "own view is GET /v1/compliance/kyc, which is org:read"
+    ),
+    "/v1/admin/tenants/{tenant_id}/kyc/documents/{document_id}": (
+        "the operator's decrypted download of one KYC file for review (D-692) — admin "
+        "console only; a client never downloads its stored files back"
+    ),
+    "/v1/admin/numbers/engine/business-details": (
+        "the platform account's business-details application on the voice platform "
+        "(D-691) — admin console, platform-wide, never impersonated"
+    ),
     "/v1/ops/voices/hosted": (
         "the platform's hosted voice catalogue and its curation (D-687) — admin console, "
         "platform-wide, never impersonated"
@@ -37,8 +52,8 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "the operator's player for any hosted voice's stored preview (D-687) — admin "
         "console, platform-wide, never impersonated"
     ),
-    "/v1/ops/voices/studio-workspace": (
-        "the Studio workspace's own-key state at the voice platform (D-687) — admin "
+    "/v1/ops/voices/studio-voices": (
+        "whether our Cartesia key is on in the voice platform workspace (D-688) — admin "
         "console, platform-wide, never impersonated"
     ),
     "/v1/admin/tenants": "the client directory — admin console, never impersonated",

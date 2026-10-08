@@ -24,10 +24,12 @@ pages/` (VERIFIED-VENDOR-DOCS), abbreviated `snap:` below:
 What crosses out of this module is OURS: `VendorAction` and `LiveCall` carry ids, our own
 url and the customer's number for matching — never a vendor error sentence.
 
-UNVERIFIED, and the reason `worker/engine_actions.py` identifies a call the way it does: no
-page in either mirror documents a placeholder or header that tells an action WHICH call or
-conversation it was made from. Placeholders are parameters the model fills
-(snap:api-reference/actions/create-action.md:442; agent/custom-api.md:63-83).
+WHICH CALL. Placeholders with a dot are filled by the platform, never the model, so a caller
+cannot talk the agent into a different value: `{{call.id}}` is the id `GET /calls` lists,
+and every action call also carries an `X-Call-Id` header
+(snapshots/2026-10-08/pages/agent/custom-api.md:84-119; api-reference/actions/
+create-action.md:7). Every body of ours carries `{{call.id}}` as `call_id`, and the receiver
+reads the call itself with `GET /calls/{id}` (`call`).
 """
 
 from __future__ import annotations
@@ -35,14 +37,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from typing import Any, Final
+from urllib.parse import quote
 
 import httpx
-from calevate_shared.engine_scope import scoped_handle, split_handle
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import NO_CREDENTIALS_REASON, engine_not_configured
-from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL, WORKSPACE_HEADER
+from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, vendor_request
 
 ENGINE: Final = "thinnest"
@@ -53,6 +55,13 @@ SECRET_HEADER: Final = "X-Agent-Secret"
 
 _PAGE_SIZE: Final = 100
 _MAX_PAGES: Final = 5
+
+#: The body field naming the call an action was made on, and the platform placeholder that
+#: fills it (agent/custom-api.md:90-96). Not a declared parameter: the model never sees it.
+CALL_ID_FIELD: Final = "call_id"
+CALL_ID_PLACEHOLDER: Final = "{{call.id}}"
+#: The header the platform sends with every action call naming the same call (:116-119).
+CALL_ID_HEADER: Final = "X-Call-Id"
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,8 +82,13 @@ class ActionDefinition:
 
     def body_template(self) -> str:
         """A JSON object of every parameter, each placeholder QUOTED, as the vendor requires
-        (snap:api-reference/actions/create-action.md:201-209)."""
-        return json.dumps({p.name: "{{" + p.name + "}}" for p in self.parameters})
+        (snap:api-reference/actions/create-action.md:201-209), plus the call it was made on."""
+        return json.dumps(
+            {
+                CALL_ID_FIELD: CALL_ID_PLACEHOLDER,
+                **{p.name: "{{" + p.name + "}}" for p in self.parameters},
+            }
+        )
 
     def wire(self) -> dict[str, Any]:
         return {
@@ -116,7 +130,7 @@ class VendorAction:
 
 @dataclass(frozen=True, slots=True)
 class LiveCall:
-    """One call the vendor reports as connected right now."""
+    """One call as the vendor describes it (`GET /calls/{id}`)."""
 
     engine_call_id: str
     direction: str | None
@@ -124,6 +138,14 @@ class LiveCall:
     phone: str | None
     #: Our `reference` on a call we placed — our `calls.id` (`ThinnestEngine.start_outbound_call`).
     reference: str | None
+    #: The vendor agent that is on the call.
+    agent_ref: str | None = None
+    #: The vendor's status word: `ringing` or `connected` while it is live.
+    status: str | None = None
+
+    @property
+    def live(self) -> bool:
+        return self.status in ("ringing", "connected")
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,17 +243,13 @@ class ThinnestActions:
     async def _request(
         self, method: str, path: str, *, route: str, agent_ref: str, **kwargs: Any
     ) -> dict[str, Any]:
-        """`path` names `{agent}` where the vendor agent id goes; the workspace comes from the
-        agent's handle (`calevate_shared.engine_scope`, D-687)."""
-        agent, workspace = split_handle(agent_ref)
-        headers = {WORKSPACE_HEADER: workspace} if workspace else {}
+        """`path` names `{agent}` where the vendor agent id goes."""
         return await vendor_request(
             self._http(),
             method,
-            path.replace("{agent}", agent),
+            path.replace("{agent}", agent_ref),
             engine=ENGINE,
             route=route,
-            headers=headers,
             **kwargs,
         )
 
@@ -322,35 +340,28 @@ class ThinnestActions:
             ok=data.get("ok") is True, status=status if isinstance(status, int) else 0
         )
 
-    async def live_calls(self, agent_ref: str) -> list[LiveCall]:
-        """The agent's connected calls. One page of 100: a vendor agent with more live calls
-        than that is far past the workspace's concurrency, so a longer list is refused."""
-        agent, workspace = split_handle(agent_ref)
-        page = await self._request(
+    async def call(self, agent_ref: str, call_id: str) -> LiveCall | None:
+        """`GET /calls/{id}`: the call an action names, or None when the vendor holds no
+        such call. `agent` is `{id, name}` and `phone` the customer's number
+        (snapshots/2026-10-08/pages/api-reference/calls/get-call.md:7)."""
+        row = await self._request(
             "GET",
-            "/calls",
-            route="/calls",
+            f"/calls/{quote(call_id, safe='')}",
+            route="/calls/{id}",
             agent_ref=agent_ref,
-            params={"agent": agent, "status": "connected", "limit": _PAGE_SIZE},
+            absent_is_success=True,
         )
-        rows = page.get("items")
-        if not isinstance(rows, list):
-            raise _bad("/calls returned a list without `items`")
-        if _str(page.get("nextCursor")) is not None:
-            raise _bad("/calls listed more connected calls than one page holds")
-        calls: list[LiveCall] = []
-        for row in rows:
-            if not isinstance(row, dict) or _str(row.get("id")) is None:
-                continue
-            calls.append(
-                LiveCall(
-                    engine_call_id=scoped_handle(str(row["id"]), workspace),
-                    direction=_str(row.get("direction")),
-                    phone=_str(row.get("phone")),
-                    reference=_str(row.get("reference")),
-                )
-            )
-        return calls
+        if _str(row.get("id")) is None:
+            return None
+        agent = row.get("agent")
+        return LiveCall(
+            engine_call_id=str(row["id"]),
+            direction=_str(row.get("direction")),
+            phone=_str(row.get("phone")),
+            reference=_str(row.get("reference")),
+            agent_ref=_str(agent.get("id")) if isinstance(agent, dict) else _str(agent),
+            status=_str(row.get("status")),
+        )
 
 
 _DEFAULT: ThinnestActions | None = None
@@ -371,6 +382,9 @@ def set_thinnest_actions(client: ThinnestActions | None) -> None:
 
 
 __all__ = [
+    "CALL_ID_FIELD",
+    "CALL_ID_HEADER",
+    "CALL_ID_PLACEHOLDER",
     "SECRET_HEADER",
     "ActionDefinition",
     "ActionParam",

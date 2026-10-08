@@ -1637,7 +1637,7 @@ describe("a deleted agent offers nothing to tweak (the founder's screenshot)", (
     // The switches, the save buttons and the teach-it form are all gone, not disabled.
     for (const name of [
       /Save changes/,
-      /Add to agent/,
+      /Add to your knowledge/,
       /Let AI draft/i,
       /Switch off/,
       /Switch on/,
@@ -1727,84 +1727,28 @@ describe("changing what an agent is", () => {
   });
 });
 
-describe("teaching the agent", () => {
+describe("what the agent knows (D-689: the business's knowledge, shared)", () => {
   beforeEach(() => openSection("knowledge"));
-  it("files a submission against THIS agent, with no picker to get wrong", async () => {
-    const { calls } = await renderClientPage(
-      page,
-      routes({
-        "POST /v1/kb/sources": {
-          id: "src-1",
-          status: "pending_approval",
-          version: 1,
-        },
-      }),
-    );
+
+  it("says the agent uses the business knowledge and links to where it is added", async () => {
+    await renderClientPage(page, routes());
 
     await screen.findByText("What it knows");
     const panel = card("What it knows");
-    // The form opens from a button (D-657), so the section is a list until someone teaches.
-    await act(async () => {
-      fireEvent.click(await pressable(panel, /Teach it a fact/));
-    });
-    await act(async () => {
-      fireEvent.change(within(panel).getByLabelText("What this is about"), {
-        target: { value: "Clinic hours" },
-      });
-      fireEvent.change(
-        within(panel).getByLabelText("What the agent should say"),
-        {
-          target: { value: "We are open 9am to 7pm, Monday to Saturday." },
-        },
-      );
-    });
-    await act(async () => {
-      fireEvent.click(await pressable(panel, /Add to agent/));
-    });
-
-    // Matched on the METHOD too: `/v1/kb/sources` is also the LIST read this panel makes
-    // on mount, and `find` on the path alone returns that GET every time.
-    const posted = calls.find(
-      (call) => call.path === "/v1/kb/sources" && call.method === "POST",
-    );
-    expect(posted, "no POST to /v1/kb/sources").toBeTruthy();
-    expect(JSON.parse(posted?.body ?? "{}").agent_id).toBe("agent-1");
+    expect(panel.textContent).toContain("Reception uses your business knowledge");
+    const link = within(panel).getByRole("link", { name: /Open your business knowledge/ });
+    expect(link.getAttribute("href")).toBe("/c/acme/knowledge");
   });
 
-  it("shows only this agent's knowledge, not the whole account's", async () => {
-    const { container } = await renderClientPage(
-      page,
-      routes({
-        "/v1/kb/sources": [
-          {
-            id: "s1",
-            agent_id: "agent-1",
-            name: "Clinic hours",
-            kind: "text",
-            status: "pending_approval",
-            version: 1,
-            is_active: false,
-            published_at: null,
-            chunks: 2,
-          },
-          {
-            id: "s2",
-            agent_id: "someone-else",
-            name: "Другой agent's pricing",
-            kind: "text",
-            status: "approved",
-            version: 1,
-            is_active: true,
-            published_at: "2026-08-01T00:00:00Z",
-            chunks: 3,
-          },
-        ],
-      }),
-    );
+  it("offers no per-agent form and no per-agent list of sources", async () => {
+    const { calls } = await renderClientPage(page, routes());
 
-    await screen.findByText("Clinic hours");
-    expect(container.textContent).not.toContain("Другой agent's pricing");
-    expect(within(card("What it knows")).getByText("In review")).toBeTruthy();
+    await screen.findByText("What it knows");
+    const panel = card("What it knows");
+    expect(within(panel).queryByRole("button", { name: /Teach it a fact/ })).toBeNull();
+    expect(within(panel).queryByRole("textbox")).toBeNull();
+    // Knowledge lives on one page for the whole business, so this panel reads none of it.
+    expect(calls.some((call) => call.path.startsWith("/v1/kb/sources"))).toBe(false);
   });
 });
 

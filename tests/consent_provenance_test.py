@@ -345,31 +345,25 @@ async def test_provenance_cannot_be_rewritten_once_the_campaign_is_running() -> 
 # ------------------------------------------------------ DLT PE / TM registration
 
 
-async def test_a_client_with_no_pe_registration_cannot_launch_an_outbound_campaign() -> None:
-    """§3, first bullet. Unregistered traffic is dropped at the network as spam and the
-    complaints land on the client's entity, so "we never asked" is the one answer the
-    gate may not give. Inbound answering is unaffected — that IS the interim mode."""
+async def test_a_client_with_no_pe_registration_launches_under_d692() -> None:
+    """D-692 retired the client PE registration as a launch condition (SEC-COMP §3 box)."""
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
         campaign_id = await _campaign(session, tenant_id, agent_id)
         blockers = await service.launch_blockers(
             session, tenant_id=tenant_id, campaign_id=campaign_id
         )
-        with pytest.raises(ProblemError) as excinfo:
-            await service.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
-        status = (
-            await session.execute(
-                text("SELECT status FROM campaigns WHERE id = :c"), {"c": campaign_id}
-            )
-        ).scalar()
+        result = await service.launch_campaign(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
 
-    assert [b.rule for b in blockers] == ["pe_registration_missing"], [b.rule for b in blockers]
-    assert excinfo.value.code == "campaign_launch_blocked"
-    assert status == "draft"
+    # D-692: clients do not register on DLT; KYC and the pledge are the precondition.
+    assert [b.rule for b in blockers] == [], [b.rule for b in blockers]
+    assert result["status"] == "running"
 
 
 @pytest.mark.parametrize("pe_status", ["not_started", "submitted", "suspended", "rejected"])
-async def test_a_pe_registration_that_is_not_live_blocks_by_its_own_name(pe_status: str) -> None:
+async def test_a_pe_registration_that_is_not_live_no_longer_blocks(pe_status: str) -> None:
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
         await _register_pe(session, tenant_id, status=pe_status)
@@ -377,19 +371,12 @@ async def test_a_pe_registration_that_is_not_live_blocks_by_its_own_name(pe_stat
         blockers = await service.launch_blockers(
             session, tenant_id=tenant_id, campaign_id=campaign_id
         )
-    assert [b.rule for b in blockers] == ["pe_registration_not_active"], (
-        pe_status,
-        [b.rule for b in blockers],
-    )
-    assert pe_status.replace("_", " ") in blockers[0].reason
+    assert [b.rule for b in blockers] == [], (pe_status, [b.rule for b in blockers])
 
 
 @pytest.mark.parametrize("tm_link", ["not_linked", "pending", "revoked"])
-async def test_a_pe_without_a_live_tm_link_blocks_separately(tm_link: str) -> None:
-    """The PE and the TM-link are two facts, not one: a client can be a registered
-    Principal Entity and still not have authorised Calevate to dial on their behalf.
-    Collapsing them into one blocker sends the client to re-register something that is
-    already done."""
+async def test_a_pe_without_a_live_tm_link_no_longer_blocks(tm_link: str) -> None:
+    """D-692: the TM link is no longer asked by the launch gate."""
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
         await _register_pe(session, tenant_id, tm_link_status=tm_link)
@@ -397,7 +384,7 @@ async def test_a_pe_without_a_live_tm_link_blocks_separately(tm_link: str) -> No
         blockers = await service.launch_blockers(
             session, tenant_id=tenant_id, campaign_id=campaign_id
         )
-    assert [b.rule for b in blockers] == ["tm_link_not_active"], [b.rule for b in blockers]
+    assert [b.rule for b in blockers] == [], [b.rule for b in blockers]
 
 
 async def test_an_active_pe_with_a_live_tm_link_and_recorded_provenance_launches() -> None:
@@ -425,7 +412,7 @@ async def test_the_gate_names_both_new_blockers_at_once() -> None:
             session, tenant_id, agent_id, consent_source=None, consent_collected_at=None
         )
         rules = await _rules(session, tenant_id, campaign_id)
-    assert rules == {"pe_registration_missing", "consent_provenance_missing"}, rules
+    assert rules == {"consent_provenance_missing"}, rules
 
 
 # ------------------------------------------------------------------- hard rule 1

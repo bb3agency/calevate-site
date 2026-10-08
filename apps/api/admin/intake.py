@@ -585,7 +585,7 @@ async def record_intake(
     # stops deciding the other one.
     block = t0.compile_block(
         previous=compile_t0_facts(facts),
-        knowledge=await kb_service.active_knowledge(session, agent_id=agent_id),
+        knowledge=await kb_service.active_knowledge(session, tenant_id=tenant_id),
     ).block
     body, current_block = await _current_prompt(session, agent_id)
     if current_block == block and body is not None and block in body:
@@ -630,7 +630,6 @@ async def record_intake(
         seeded = await kb_service.submit_source(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name=_KB_SOURCE_NAME,
             body=seed,
             kind="text",

@@ -332,7 +332,7 @@ async def test_an_invitation_grants_exactly_the_role_it_was_issued_for() -> None
 async def _publish(tenant_id: uuid.UUID, agent_id: uuid.UUID, name: str, body: str) -> uuid.UUID:
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name=name, body=body
+            session, tenant_id=tenant_id, name=name, body=body
         )
         await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
         await kb_service.publish_source(session, tenant_id=tenant_id, source_id=submitted["id"])
@@ -355,7 +355,8 @@ async def test_rollback_republishes_the_previous_version() -> None:
         rows = (
             await session.execute(
                 text(
-                    "SELECT version, is_active FROM kb_sources WHERE agent_id = :a "
+                    "SELECT version, is_active FROM kb_sources WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :a) "
                     "AND name = 'Hours' ORDER BY version"
                 ),
                 {"a": agent_id},
@@ -368,12 +369,11 @@ async def test_a_rejected_source_can_never_be_published() -> None:
     """The approval gate, from the other side: rejection is terminal. Re-approval is
     refused by the CAS, and publish must refuse it too — a rejected document reaching
     the agent is the exact failure the gate exists to prevent."""
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Prices",
             body="Consultation is free of charge, forever, for everyone.",
         )
@@ -403,7 +403,8 @@ async def test_only_one_version_of_a_named_source_is_ever_live() -> None:
         active = (
             await session.execute(
                 text(
-                    "SELECT count(*) FROM kb_sources WHERE agent_id = :a AND name = 'Parking' "
+                    "SELECT count(*) FROM kb_sources WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :a) AND name = 'Parking' "
                     "AND is_active = true"
                 ),
                 {"a": agent_id},

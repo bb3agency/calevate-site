@@ -432,6 +432,10 @@ AREAS: tuple[Area, ...] = (
             # area for the same reason: a wrong figure here is a wrong recurring charge,
             # not a display bug.
             "apps/api/campaigns/number_models.py",
+            # `calls.engine_charged_inr` (D-690) is what the voice platform says it charged
+            # for one call, the input `workers/engine_charges` reconciles our metering
+            # against — money, so this area's failures.
+            "apps/api/crm/models.py",
         ),
         why=(
             "metering, credits, caps, rating and invoicing. Money arithmetic fails "

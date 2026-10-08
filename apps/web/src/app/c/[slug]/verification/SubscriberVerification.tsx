@@ -6,7 +6,6 @@ import { PhoneIncoming, PhoneOutgoing, PhoneOff } from "lucide-react";
 import type { ChecklistItem } from "@/components/console/checklist";
 import { MonoValue, formatIST } from "@/components/ui";
 import {
-  DOCUMENT_KINDS,
   documentKindLabel,
   entityTypeLabel,
   type KycRecord,
@@ -54,43 +53,31 @@ export function WhatWeKeep() {
   return (
     <ul className={LIST}>
       <li>
-        <span className={LEAD_IN}>There is nothing to upload here, on purpose.</span> We
-        record your business&apos;s public registration number — the one anyone can
-        look up on the government register — and a reference to where our paperwork
-        is filed. No scan, no photograph and no copy of any document is stored.
+        <span className={LEAD_IN}>Your business certificate.</span> The GST certificate, or
+        the Certificate of Incorporation or Udyam certificate, encrypted, for as long as the
+        account is open. It is deleted when the account is closed.
       </li>
       <li>
-        <span className={LEAD_IN}>Never send an Aadhaar or an individual&apos;s PAN.</span>{" "}
-        We do not ask for one, we have nowhere to put one, and a value shaped like an
-        Aadhaar is refused by the system rather than merely discouraged. What we need
-        identifies the business, not a person.
+        <span className={LEAD_IN}>Only a masked owner ID.</span> If you upload the
+        owner&apos;s Aadhaar (the masked copy) or PAN card, the file is deleted as soon as our
+        review is done, or after 30 days if it is not reviewed. We keep its type and a masked
+        number — the last four digits of an Aadhaar, or a PAN as XXXXX1234X. We never take a
+        full Aadhaar number.
+      </li>
+      <li>
+        <span className={LEAD_IN}>Nothing from DigiLocker but the result.</span> If you
+        verify through DigiLocker, we receive whether it succeeded, the name on the record and
+        a masked number. The document itself is never sent to us or stored.
       </li>
       <li>
         <span className={LEAD_IN}>Verification is ours to do, not yours to declare.</span>{" "}
-        There is no control on this page that sets your own status — the rules make
-        confirming who holds the connection our job, not something you can claim about
-        yourself, so a business marking itself verified would be worth nothing to
-        anyone.
-      </li>
-      <li>
-        <span className={LEAD_IN}>
-          This is separate from your{" "}
-          <Term id="dlt" />{" "}
-          registration.
-        </span>{" "}
-        The two overlap in the documents they rest on, but they are held by different
-        people for different purposes, and neither one clears the other. Your campaign
-        registration is on this page too.
+        There is no control anywhere that sets your own status: our review, or the
+        DigiLocker result, decides it.
       </li>
     </ul>
   );
 }
 
-/**
- * Business verification as one checklist row: the verdict as its label, the next step as
- * its detail, and the last refusal reason (non-null whenever the status is `rejected`)
- * while the account is not yet cleared, never under a verified record.
- */
 export function kycItem(record: KycRecord): ChecklistItem {
   const copy = verdictCopy(record);
   return {
@@ -112,64 +99,38 @@ export function kycItem(record: KycRecord): ChecklistItem {
 
 function WhatWeNeed() {
   return (
-    <Section title="What to send us">
+    <Section title="What we need">
       <p className="text-sm text-ink-muted">
-        Send these to your account manager and we will verify the account. We only need
-        the numbers below — not copies of anything.
+        Everything is done on the Verify your business page.
       </p>
       <ul className={`mt-3 ${LIST}`}>
         <li>
-          <span className={LEAD_IN}>
-            Your registered business name and what kind of business it is
-          </span>{" "}
-          — company, LLP, partnership, sole proprietorship, trust or HUF.
+          <span className={LEAD_IN}>Your business details</span> — the legal name, how the
+          business is registered, whether it is GST-registered and the GSTIN if so.
         </li>
         <li>
-          <span className={LEAD_IN}>One registration number for the business.</span> Any one
-          of: {Object.values(DOCUMENT_KINDS).map((spec) => spec.label).join(", ")}.
+          <span className={LEAD_IN}>One business certificate</span> — the GST certificate,
+          or the Certificate of Incorporation or Udyam certificate.
         </li>
         <li>
-          <span className={LEAD_IN}>The registered address of the business.</span> It has to
-          match the city a number is issued in, so a mismatch is the most common reason one
-          gets held up.
+          <span className={LEAD_IN}>The owner&apos;s identity</span> — either the
+          owner&apos;s Aadhaar (masked copy) or PAN card for our review, or a DigiLocker
+          verification.
         </li>
         <li>
-          <span className={LEAD_IN}>
-            The name of the person authorised to sign for the business.
-          </span>{" "}
-          A name only — we do not record their identity document.
+          <span className={LEAD_IN}>The no-cold-calls pledge</span> — accepted by somebody at
+          the business.
         </li>
       </ul>
-      <p className="mt-3 text-sm text-ink">
-        <span className={LEAD_IN}>Never send an Aadhaar or an individual&apos;s PAN.</span>{" "}
-        What we need identifies the business, not a person.
-      </p>
     </Section>
   );
 }
 
 /**
- * The three consequences, split by who they hit and stated in the order that stops the
- * wrong assumption first.
- *
- * The dial gate is scoped to self-serve and trial accounts and the purchase gate is
- * not, and the difference is deliberate in the API (`apps/api/compliance/kyc.py`). The
- * client response carries no `plan_tier`, and `/v1/usage` — which does — needs
- * `billing:read`, so a member of staff would be refused it. Rather than either fetch a
- * panel this reader may not be allowed to see, or assert a stop that may not apply to
- * their account, the copy states each gate with the accounts it applies to. Saying "on
- * self-serve and trial plans" to a managed client costs them a moment; telling a
- * managed client their outbound calling has stopped when it has not costs them a day.
- *
- * WHICH WAY ROUND THE SENTENCE GOES CHANGED WITH THE MOTION, though the fact behind it
- * did not. The claim read "stopped on self-serve and trial accounts" — our own tier names,
- * and phrased as though the gate were the exception. Every account is now prepaid unless
- * an operator deliberately puts it on a retainer, so the gate is what almost every reader
- * is under: it is stated as the rule, with the managed account as the carve-out, and in
- * words rather than in plan tiers. The API's scoping is unchanged.
- *
- * The icons carry the direction of the call, which is the whole distinction the list is
- * making and the one a worried client skims for.
+ * The three consequences, stated in the order that stops the wrong assumption first:
+ * inbound is never affected; outbound is stopped on every plan until the business is
+ * verified and the pledge accepted (D-692); a new number is blocked on every account.
+ * The icons carry the direction of the call, which is what a worried client skims for.
  */
 function WhatItAffects() {
   return (
@@ -182,11 +143,10 @@ function WhatItAffects() {
         </Affected>
         <Affected
           icon={PhoneOutgoing}
-          claim="Outgoing calls: stopped, unless yours is an account we run for you."
+          claim="Outgoing calls: stopped, on every plan."
         >
           Campaigns will not launch and one-off outbound calls are refused, naming this
-          verification as the reason. Accounts we set up and manage for you are not gated
-          here — their identity was verified with us before the number was bought.
+          verification or the no-cold-calls pledge as the reason, until both are done.
         </Affected>
         <Affected
           icon={PhoneOff}

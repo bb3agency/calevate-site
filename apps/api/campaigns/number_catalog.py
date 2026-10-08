@@ -52,7 +52,7 @@ from apps.api.agents.service import InboundRouting
 from apps.api.billing.number_rental import collect_number_rental, is_prepaid, ist_date
 from apps.api.billing.service import get_balance
 from apps.api.billing.trials import trial_billing_active
-from apps.api.campaigns import number_supply
+from apps.api.campaigns import engine_numbers, number_supply
 from apps.api.campaigns.number_holder import HolderIdentity, require_holder
 from apps.api.campaigns.number_pricing import AttestedNumberPrice, require_attested_price_inr
 from apps.api.campaigns.provisioning import (
@@ -368,9 +368,13 @@ async def assign_number_to_agent(
             text("UPDATE phone_numbers SET direction = :dir, updated_at = now() WHERE id = :nid"),
             {"dir": direction, "nid": number_id},
         )
-    return await agents_service.attach_number_to_agent(
+    routing = await agents_service.attach_number_to_agent(
         session, number_id=number_id, agent_id=agent_id
     )
+    # On a voice platform whose numbers are attached through its own API (D-691); a
+    # refusal there alarms and the daily number sweep retries it.
+    await engine_numbers.sync_number_attachment(session, number_id=number_id)
+    return routing
 
 
 __all__ = [

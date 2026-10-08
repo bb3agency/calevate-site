@@ -42,15 +42,9 @@ import { ACCEPTED_KINDS_SENTENCE, ACCEPT_ATTRIBUTE, MAX_UPLOAD_MB, fileSize } fr
  *    has actually left the device (`lib/api/client.ts`).
  */
 export function AddDocument({
-  agentId,
-  agentName,
   allowed,
   reason,
 }: {
-  /** Which agent learns this. Empty while the agent list has not answered. */
-  agentId: string;
-  /** Named on the card when there is more than nothing to say. */
-  agentName: string | null;
   allowed: boolean;
   reason: string | null;
 }) {
@@ -70,14 +64,14 @@ export function AddDocument({
   /** The last file this panel accepted, so the row can say what it is sending. */
   const [sending, setSending] = useState<File | null>(null);
 
-  const disabled = !allowed || !agentId || upload.isPending;
+  const disabled = !allowed || upload.isPending;
 
   function send(file: File): void {
     if (disabled) return;
     setSending(file);
     setProgress({ loaded: 0, total: file.size });
     upload.mutate(
-      { agentId, file, onProgress: setProgress },
+      { file, onProgress: setProgress },
       {
         // Cleared on BOTH outcomes: a bar left at 100% under a refusal is the screen
         // saying the file arrived, which is the opposite of what happened.
@@ -100,8 +94,8 @@ export function AddDocument({
         <p className="text-sm text-ink-muted">
           <span>
             Send us what you already have — a price list, a menu, a leaflet, or a photo of
-            one. {ACCEPTED_KINDS_SENTENCE} Up to {MAX_UPLOAD_MB} MB each.
-            {agentName ? ` Goes to ${agentName}.` : ""}
+            one. {ACCEPTED_KINDS_SENTENCE} Up to {MAX_UPLOAD_MB} MB each. Every one of
+            your agents will use it.
           </span>
         </p>
 
@@ -184,8 +178,8 @@ export function AddDocument({
             className="space-y-2"
             noValidate
             onSubmit={valid.onSubmit(() => {
-              if (!allowed || !agentId || link.isPending) return;
-              link.mutate({ agentId, url: url.trim() }, { onSuccess: () => setUrl("") });
+              if (!allowed || link.isPending) return;
+              link.mutate({ url: url.trim() }, { onSuccess: () => setUrl("") });
             })}
           >
             <label htmlFor={urlInputId} className={FIELD_LABEL}>
@@ -204,7 +198,7 @@ export function AddDocument({
                   inputMode="url"
                   required
                   value={url}
-                  disabled={!allowed || !agentId || link.isPending}
+                  disabled={!allowed || link.isPending}
                   onChange={(event) => setUrl(event.target.value)}
                   placeholder="https://your-website.in/prices"
                   className={`${FIELD_INLINE} w-full pl-8`}
@@ -213,10 +207,8 @@ export function AddDocument({
               <button
                 type="submit"
                 /* The empty-address rule is NOT repeated here: pressing answers in words,
-                   where a dead button answers with nothing. Having no agent to teach IS
-                   still a dead button — that one is not an answer the person can correct
-                   on this form. */
-                disabled={!allowed || !agentId || link.isPending}
+                   where a dead button answers with nothing. */
+                disabled={!allowed || link.isPending}
                 title={reason ?? undefined}
                 className={PRIMARY_BUTTON}
               >
@@ -226,7 +218,7 @@ export function AddDocument({
             {valid.error("url")}
             <span className={FIELD_HINT}>
               We read the page and check it again from time to time. If it changes, we ask
-              you about the new version before your agent uses it.
+              you about the new version before your agents use it.
             </span>
             {link.error && <ProblemNotice error={link.error} />}
           </form>

@@ -51,6 +51,7 @@ from apps.api.compliance.models import (
     CALLBACK_CONSENT_WITHDRAWN_REASON,
     INQUIRY_CONSENT_WINDOW_DAYS,
 )
+from apps.api.compliance.platform_dnc import ENGINE_PERSON_REFUSALS
 from apps.api.compliance.service import (
     BIG_RED_SWITCH_RULE,
     CALLING_HOURS_RULE,
@@ -65,14 +66,15 @@ from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.engine.carrier_pacing import LINES_BUSY_RULE, PACING_RULE
-from apps.api.engine.vendor_http import RECIPIENT_OPTED_OUT_CODE
+from apps.api.engine.vendor_http import NUMBER_DAILY_LIMIT_CODE
 from apps.api.integrations import service as integrations
 
 log = get_logger(__name__)
 
-#: The dial refusals that say the carrier account had no line or slot free, not that this
-#: lead may not be called: the call is booked as a call-back instead of being lost.
-LINE_REFUSALS: frozenset[str] = frozenset({LINES_BUSY_RULE, PACING_RULE})
+#: The dial refusals that say the calling account or number had no line, slot or daily
+#: allowance free, not that this lead may not be called: the call is booked as a call-back
+#: instead of being lost.
+LINE_REFUSALS: frozenset[str] = frozenset({LINES_BUSY_RULE, PACING_RULE, NUMBER_DAILY_LIMIT_CODE})
 
 #: Gate refusals about the CLOCK or the whole PLATFORM, never about this person: outside
 #: 09:00-21:00 IST, a maintenance drain, the platform halt. The call is booked as a
@@ -615,7 +617,7 @@ async def ingest_lead(
         )
         return {"lead_id": resolved_lead, "dispatched": None, "call_id": unconfirmed.call_id}
     except ProblemError as refused:
-        if refused.code == RECIPIENT_OPTED_OUT_CODE:
+        if refused.code in ENGINE_PERSON_REFUSALS:
             # The voice platform will not call this person, and nothing rang. Recorded like
             # a gate refusal and committed: raising would roll the lead back, and the
             # sender's retry would ask to dial the same person again.

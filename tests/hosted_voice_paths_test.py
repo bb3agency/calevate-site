@@ -1,6 +1,6 @@
-"""The edges of D-687 that are not the voice panel: a Studio delivery keyed by its workspace
-at the receiver, read in it by the worker, the drift sweep noticing a deleted clone, and the
-preview store.
+"""The edges of D-687/D-688 that are not the voice panel: a delivery keyed by the vendor's own
+call id at the receiver and read as it is by the worker, the drift sweep noticing a deleted
+clone and repairing an agent's own-voice-key switch, and the preview store.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from apps.workers import engine_delivery, engine_reconciliation, storage
 from calevate_shared.engine import ExecutionSnapshot
 from signed_intake import SIGNED_INTAKES, keyed_event
 from sqlalchemy import text
-from tests.hosted_voice_fakes import CatalogueRows
+from tests.hosted_voice_fakes import CatalogueRows, HostingEngine, selected
 
 INTAKE = SIGNED_INTAKES["thinnest"]
 
@@ -27,40 +27,27 @@ INTAKE = SIGNED_INTAKES["thinnest"]
 # --- the receiver ------------------------------------------------------------------------
 
 
-def test_a_studio_delivery_is_keyed_in_its_workspace_and_matched_on_the_bare_agent() -> None:
+def test_a_delivery_is_keyed_by_its_call_id_and_matched_on_the_agent() -> None:
     payload = {
+        "id": "evt_1",
         "event": "call.analysed",
         "data": {"id": "out_1", "agent": {"id": "ag_9"}, "analysedAt": "T"},
     }
-    keyed = keyed_event(INTAKE, payload, engine_agent_ref="ag_9@org_studio")
-    assert not isinstance(keyed, str) and keyed.execution_id == "out_1@org_studio"
-    ours = keyed_event(INTAKE, payload, engine_agent_ref="ag_9")
-    assert not isinstance(ours, str) and ours.execution_id == "out_1"
-    assert keyed_event(INTAKE, payload, engine_agent_ref="ag_1@org_studio") == "agent mismatch"
+    keyed = keyed_event(INTAKE, payload, engine_agent_ref="ag_9")
+    assert not isinstance(keyed, str) and keyed.execution_id == "out_1"
+    assert keyed_event(INTAKE, payload, engine_agent_ref="ag_1") == "agent mismatch"
 
 
-def test_a_call_id_that_already_carries_a_scope_is_not_keyed() -> None:
-    payload = {"event": "call.analysed", "data": {"id": "out_1@org_x"}}
-    assert keyed_event(INTAKE, payload, engine_agent_ref="ag_9@org_studio") == (
-        "unusable execution key"
-    )
+# --- the worker reads a delivered document as it is --------------------------------------
 
 
-# --- the worker reads a delivery in the workspace it was keyed in ------------------------
-
-
-def test_the_worker_reads_a_delivered_document_in_its_workspace() -> None:
-    asked: list[str | None] = []
-
+def test_the_worker_reads_a_delivered_document() -> None:
     class _Reads:
         name = "thinnest"
 
-        def snapshot_from_delivery(
-            self, payload: dict[str, Any], *, workspace: str | None = None
-        ) -> ExecutionSnapshot:
-            asked.append(workspace)
+        def snapshot_from_delivery(self, payload: dict[str, Any]) -> ExecutionSnapshot:
             return ExecutionSnapshot(
-                engine_call_id=f"out_1@{workspace}",
+                engine_call_id=str(payload["data"]["id"]),
                 direction="outbound",
                 status="completed",
                 raw_status="completed",
@@ -73,9 +60,9 @@ def test_the_worker_reads_a_delivered_document_in_its_workspace() -> None:
     snapshot = engine_delivery.snapshot_of_document(
         _Reads(),  # type: ignore[arg-type]
         document,
-        execution_id="out_1@org_studio",
+        execution_id="out_1",
     )
-    assert asked == ["org_studio"] and snapshot.raw_document == document
+    assert snapshot.raw_document == document
 
 
 # --- the drift sweep notices a voice the platform no longer has --------------------------
@@ -114,7 +101,12 @@ async def test_the_drift_sweep_alarms_on_a_withdrawn_voice(
     raised: list[str] = []
 
     async def _drift(**kw: Any) -> Any:
-        return SimpleNamespace(state="in_sync", truthful_answer_applied=True)
+        return SimpleNamespace(
+            state="in_sync",
+            truthful_answer_applied=True,
+            own_voice_key_applied=True,
+            own_voice_key_expected=None,
+        )
 
     async def _recorded(*a: Any, **kw: Any) -> bool:
         return True
@@ -144,6 +136,101 @@ async def test_the_drift_sweep_alarms_on_a_withdrawn_voice(
     )
     await engine_reconciliation._reconcile_one("thinnest", candidate)
     assert ("engine_agent_voice_withdrawn" in raised) is withdrawn
+
+
+def _sweep_doubles(
+    monkeypatch: pytest.MonkeyPatch, drift: Any, raised: list[str], *, withdrawn: bool = False
+) -> None:
+    async def _drift(**kw: Any) -> Any:
+        return drift
+
+    async def _recorded(*a: Any, **kw: Any) -> bool:
+        return True
+
+    async def _silence(*a: Any, **kw: Any) -> str:
+        return "unchanged"
+
+    async def _actions(**kw: Any) -> str:
+        return "healthy"
+
+    async def _withdrawn(session: Any, *, agent_id: Any) -> bool:
+        return withdrawn
+
+    monkeypatch.setattr(engine_reconciliation, "engine_drift_for", _drift)
+    monkeypatch.setattr(engine_reconciliation, "record_drift", _recorded)
+    monkeypatch.setattr(engine_reconciliation, "reconcile_inbound_truthful_answer", _silence)
+    monkeypatch.setattr(engine_reconciliation, "check_agent_actions", _actions)
+    monkeypatch.setattr(engine_reconciliation, "agent_voice_withdrawn", _withdrawn)
+    monkeypatch.setattr(
+        engine_reconciliation, "alert", lambda stage, code, **kw: raised.append(code)
+    )
+
+
+def _candidate(ref: str = "ag_1") -> DriftCandidate:
+    return DriftCandidate(
+        tenant_id=uuid.uuid4(), agent_id=uuid.uuid4(), engine_agent_ref=ref, drift_checked_at=None
+    )
+
+
+@pytest.mark.parametrize("expected", [False, True])
+async def test_the_drift_sweep_puts_an_agents_own_voice_key_switch_back(
+    monkeypatch: pytest.MonkeyPatch, expected: bool
+) -> None:
+    raised: list[str] = []
+    drift = SimpleNamespace(
+        state="not_applied",
+        truthful_answer_applied=True,
+        own_voice_key_applied=False,
+        own_voice_key_expected=expected,
+    )
+    _sweep_doubles(monkeypatch, drift, raised)
+    engine = HostingEngine()
+    engine.own_voice_key["ag_1"] = not expected
+    with selected(engine):
+        await engine_reconciliation._reconcile_one("thinnest", _candidate())
+    assert engine.own_voice_key["ag_1"] is expected
+    assert raised == ["engine_agent_voice_key_repaired"]
+
+
+async def test_a_switch_repair_the_platform_refuses_is_left_to_the_next_tick(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raised: list[str] = []
+    drift = SimpleNamespace(
+        state="not_applied",
+        truthful_answer_applied=True,
+        own_voice_key_applied=False,
+        own_voice_key_expected=False,
+    )
+    _sweep_doubles(monkeypatch, drift, raised)
+    engine = HostingEngine()
+    engine.own_voice_key["ag_1"] = True
+    engine.refuse_switch.add("ag_1")
+    with selected(engine):
+        await engine_reconciliation._reconcile_one("thinnest", _candidate())
+    assert engine.own_voice_key["ag_1"] is True and raised == []
+
+
+async def test_a_judged_switch_mismatch_is_not_applied_and_names_the_expectation() -> None:
+    from apps.api.agents.verification import judge
+    from calevate_shared.engine import AgentConfig, AgentSnapshot
+
+    cfg = AgentConfig(
+        tenant_id=str(uuid.uuid4()),
+        agent_id=str(uuid.uuid4()),
+        name="A",
+        system_prompt="Be kind.",
+        opening_line="Namaste.",
+        direction="inbound",
+        engine_own_voice_key=False,
+    )
+    engine = HostingEngine()
+    held = AgentSnapshot(engine_agent_ref="ag_1", engine_own_voice_key=True, engine="thinnest")
+    unread = held.model_copy(update={"engine_own_voice_key": None})
+    assert judge(engine, cfg, held).own_voice_key_applied is False
+    assert judge(engine, cfg, unread).own_voice_key_applied is None
+    unasked = cfg.model_copy(update={"engine_own_voice_key": None})
+    assert judge(engine, unasked, held).own_voice_key_applied is not False
 
 
 # --- the preview store --------------------------------------------------------------------

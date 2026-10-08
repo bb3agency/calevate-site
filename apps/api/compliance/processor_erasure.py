@@ -74,6 +74,11 @@ __all__ = [
     "OWN_RUNTIME_ENGINES",
     "PROCESSORS",
     "STATUSES",
+    "VOICE_PLATFORM_ERASURE_REQUESTED",
+    "VOICE_PLATFORM_ERASURE_SENTENCE",
+    "VOICE_PLATFORM_RETAINED",
+    "VOICE_PLATFORM_RETAINED_ENGINES",
+    "VOICE_PLATFORM_RETAINED_SENTENCE",
     "ProcessorErasureTask",
     "VendorRefRejectedError",
     "assert_vendor_refs_are_id_shaped",
@@ -180,6 +185,35 @@ def assert_vendor_refs_are_id_shaped(refs: list[str]) -> None:
                 "all-digit ids, it is indistinguishable from a number here and needs a "
                 "prefix before it can be stored."
             )
+
+
+#: Engines whose copy of a call is deleted at the vendor ONLY in the client's own workspace
+#: (founder decision, 8 Oct 2026, revised; D-691). ThinnestAI offers no per-call,
+#: per-recording or per-conversation delete — `DELETE /calls/{id}` only cancels a call not
+#: yet ended (`thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/calls/
+#: cancel-call.md:7`) — and its one erasure, `DELETE /contacts/{id}`, acts on a whole
+#: WORKSPACE. In the client's own workspace that is exactly this client's history of the
+#: person, so it is asked (`workers/engine_customer_data.erase_engine_contact`); in our
+#: shared developer workspace it would erase other clients', so nothing is asked, no task is
+#: opened, and the copy expires with the plan's retention.
+VOICE_PLATFORM_RETAINED_ENGINES: Final = frozenset({"thinnest"})
+
+#: The proof's `engine_deletion` for an erasure that reached such calls. A durable wire
+#: token (hard rule 4): never renamed once written.
+VOICE_PLATFORM_RETAINED: Final = "not_deleted_expires_with_plan_retention"
+
+#: The proof's sentence for those calls, in the founder's words.
+VOICE_PLATFORM_RETAINED_SENTENCE: Final = (
+    "not deleted at the voice platform; expires with its plan retention"
+)
+
+#: The same erasure for a tenant with its OWN ThinnestAI workspace, where the contact is
+#: erased (`apps/workers/engine_customer_data.erase_engine_contact`). A durable wire token.
+VOICE_PLATFORM_ERASURE_REQUESTED: Final = "contact_erasure_requested_in_client_workspace"
+VOICE_PLATFORM_ERASURE_SENTENCE: Final = (
+    "erasure of this person's contact requested in the voice platform workspace held for "
+    "this business, recordings included; the outcome is recorded on the erasure task"
+)
 
 
 def engine_held_call_refs(engine_call_ids: Iterable[str]) -> list[str]:

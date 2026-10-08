@@ -6,9 +6,9 @@ The vendor is an `httpx.MockTransport` built from the documented shapes in
 OFF and `enabled` on create is refused (actions/create-action.md:7, :93-98); headers are
 write-only, only `headerNames` come back (:457, :7); `PATCH` with headers replaces the set
 (actions/update-action.md:7); list is `{items, nextCursor}` (actions/list-actions.md:133-147);
-`test` answers `{ok, status, result}` (actions/test-action.md:99-118); live calls are
-`GET /calls?agent=&status=connected` with `phone` the customer's number
-(calls/list-calls.md:262-277, :504).
+`test` answers `{ok, status, result}` (actions/test-action.md:99-118). An action call names
+its call in the `X-Call-Id` header and the body's `{{call.id}}`
+(snapshots/2026-10-08/pages/agent/custom-api.md:84-119), read back with `GET /calls/{id}`.
 
 SHARED DATABASE DISCIPLINE: every row is minted here and every assertion is scoped to it.
 """
@@ -28,6 +28,9 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.engine.thinnest_actions import (
+    CALL_ID_FIELD,
+    CALL_ID_HEADER,
+    CALL_ID_PLACEHOLDER,
     SECRET_HEADER,
     ThinnestActions,
     set_thinnest_actions,
@@ -63,7 +66,7 @@ class FakeThinnest:
         self.sealed: dict[str, dict[str, str]] = {}
         self.live: list[dict[str, Any]] = []
         self.requests: list[tuple[str, str, dict[str, Any] | None]] = []
-        self.live_calls_fail = False
+        self.calls_fail = False
         self.test_ok = True
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -71,13 +74,14 @@ class FakeThinnest:
         path = request.url.path.removeprefix("/api/v1")
         body = json.loads(request.content) if request.content else None
         self.requests.append((request.method, path, body))
-        if path == "/calls" and request.method == "GET":
-            if self.live_calls_fail:
+        if path.startswith("/calls/") and request.method == "GET":
+            if self.calls_fail:
                 return httpx.Response(500, json={"error": "boom"})
-            agent = request.url.params.get("agent")
-            assert request.url.params.get("status") == "connected"
-            items = [c for c in self.live if c["agent"]["id"] == agent]
-            return httpx.Response(200, json={"items": items, "nextCursor": None})
+            wanted = path.removeprefix("/calls/")
+            row = next((c for c in self.live if c["id"] == wanted), None)
+            if row is None:
+                return httpx.Response(404, json={"error": "No such call.", "code": "not_found"})
+            return httpx.Response(200, json=row)
         parts = path.strip("/").split("/")
         assert parts[0] == "agents" and parts[2] == "actions"
         agent = parts[1]
@@ -214,9 +218,20 @@ def _live(
 
 
 async def _post(
-    tool: str, ref: str, secret: str | None, body: dict[str, Any], engine: str = ENGINE
+    tool: str,
+    ref: str,
+    secret: str | None,
+    body: dict[str, Any],
+    engine: str = ENGINE,
+    *,
+    call_id: str | None = None,
 ) -> httpx.Response:
+    """One action call as the platform makes it: our secret, and the call it was made on in
+    `X-Call-Id` and in the body's `call_id` (both filled by the platform, never the model)."""
     headers = {SECRET_HEADER: secret} if secret is not None else {}
+    if call_id is not None:
+        headers[CALL_ID_HEADER] = call_id
+        body = {CALL_ID_FIELD: call_id, **body}
     transport = httpx.ASGITransport(app=api_app, client=("127.0.0.1", 44444))
     async with httpx.AsyncClient(transport=transport, base_url="http://api") as raw:
         return await raw.post(
@@ -240,7 +255,13 @@ def test_every_action_is_a_documented_shape_with_quoted_placeholders(
         assert 3 <= len(wire["name"]) <= 40 and wire["name"].replace("_", "").isalnum()
         assert len(wire["description"]) >= 10 and len(wire["parameters"]) <= 20
         template = json.loads(wire["bodyTemplate"])
-        assert template == {p["name"]: "{{" + p["name"] + "}}" for p in wire["parameters"]}
+        # Every body names its call with the platform-filled `{{call.id}}`, which is not a
+        # parameter the model sees (agent/custom-api.md:84-96).
+        assert template == {
+            CALL_ID_FIELD: CALL_ID_PLACEHOLDER,
+            **{p["name"]: "{{" + p["name"] + "}}" for p in wire["parameters"]},
+        }
+        assert all(p["name"] != "caller_number" for p in wire["parameters"])
         assert "enabled" not in wire and "headers" not in wire
     names = {d.name for d in definitions(ENGINE, "ag_x")}
     assert names == set(ACTION_NAMES.values())
@@ -393,8 +414,8 @@ async def test_unknown_agent_wrong_secret_and_no_header_are_one_401(vendor: Fake
     ]
     assert {r.status_code for r in answers} == {401}
     assert {r.text for r in answers} == {answers[0].text}
-    # Refused before parsing: the vendor's live-call list was never asked.
-    assert not any(p == "/calls" for _m, p, _b in vendor.requests)
+    # Refused before parsing: the vendor was never asked about a call.
+    assert not any(p.startswith("/calls") for _m, p, _b in vendor.requests)
 
 
 async def test_one_agents_secret_cannot_act_for_another_tenants_agent(
@@ -433,12 +454,14 @@ async def test_opt_out_suppresses_the_vendor_reported_number_once_on_replay(
     tenant_id, agent_id, ref, secret = await _published(vendor)
     call_id, row = _live(ref, phone="919876511101")
     vendor.live.append(row)
-    body = {"caller_number": "98765 11101", "reason": "stop calling", "language": "{{language}}"}
-    first = await _post("opt-out", ref, secret, body)
-    second = await _post("opt-out", ref, secret, body)
+    body = {"reason": "stop calling", "language": "{{language}}"}
+    first = await _post("opt-out", ref, secret, body, call_id=call_id)
+    second = await _post("opt-out", ref, secret, body, call_id=call_id)
     assert first.status_code == second.status_code == 200
     assert first.json()["status"] == second.json()["status"] == "recorded"
     assert set(first.json()) == {"status", "say"}
+    # The call was read by its id, never found by a number.
+    assert ("GET", f"/calls/{call_id}", None) in vendor.requests
     async with tenant_session(tenant_id) as session:
         dnc = (
             await session.execute(
@@ -458,52 +481,56 @@ async def test_opt_out_suppresses_the_vendor_reported_number_once_on_replay(
     assert calls == [(agent_id, "inbound", "+919876511101", "in_progress")]
 
 
-async def test_no_live_call_and_a_mismatched_number_get_the_same_answer(
+async def test_no_call_an_unknown_call_and_a_contradicting_body_get_the_same_answer(
     vendor: FakeThinnest,
 ) -> None:
     tenant_id, _agent, ref, secret = await _published(vendor)
-    nobody = await _post("opt-out", ref, secret, {"caller_number": "9876511102"})
-    _call, row = _live(ref, phone="919876511103")
+    call_id, row = _live(ref, phone="919876511103")
     vendor.live.append(row)
-    wrong = await _post("opt-out", ref, secret, {"caller_number": "9876511102"})
-    missing = await _post("opt-out", ref, secret, {"caller_number": "{{caller_number}}"})
-    for answer in (nobody, wrong, missing):
+    no_header = await _post("opt-out", ref, secret, {})
+    unknown = await _post("opt-out", ref, secret, {}, call_id=f"in_{uuid.uuid4()}")
+    # A body naming another call than the header is not trusted either way.
+    headers = {SECRET_HEADER: secret, CALL_ID_HEADER: call_id, "Content-Type": "application/json"}
+    transport = httpx.ASGITransport(app=api_app, client=("127.0.0.1", 44444))
+    async with httpx.AsyncClient(transport=transport, base_url="http://api") as raw:
+        contradicting = await raw.post(
+            f"/v1/worker/engine-actions/{ENGINE}/opt-out?agent={ref}",
+            content=json.dumps({CALL_ID_FIELD: "in_other"}),
+            headers=headers,
+        )
+    for answer in (no_header, unknown, contradicting):
         assert answer.status_code == 200
         assert answer.json() == {"status": "caller_not_matched", "say": NOT_MATCHED_SAY}
     async with tenant_session(tenant_id) as session:
         dnc = (
             await session.execute(
-                text(
-                    "SELECT count(*) FROM dnc_list WHERE phone_e164 IN "
-                    "('+919876511102', '+919876511103')"
-                )
+                text("SELECT count(*) FROM dnc_list WHERE phone_e164 = '+919876511103'")
             )
         ).scalar_one()
     assert dnc == 0
 
 
-async def test_the_same_number_on_two_live_calls_is_not_guessed_between(
-    vendor: FakeThinnest,
-) -> None:
+async def test_a_call_that_has_ended_is_not_acted_on(vendor: FakeThinnest) -> None:
     _t, _a, ref, secret = await _published(vendor)
-    for _ in range(2):
-        vendor.live.append(_live(ref, phone="919876511104")[1])
-    answer = await _post("callback-cancel", ref, secret, {"caller_number": "9876511104"})
+    call_id, row = _live(ref, phone="919876511104")
+    vendor.live.append({**row, "status": "completed"})
+    answer = await _post("callback-cancel", ref, secret, {}, call_id=call_id)
     assert answer.json()["status"] == "caller_not_matched"
 
 
-async def test_another_agents_live_call_is_not_reachable(vendor: FakeThinnest) -> None:
+async def test_another_agents_call_is_not_reachable(vendor: FakeThinnest) -> None:
     _ta, _aa, ref_a, secret_a = await _published(vendor)
     _tb, _ab, ref_b, _sb = await _published(vendor)
-    vendor.live.append(_live(ref_b, phone="919876511105")[1])
-    answer = await _post("opt-out", ref_a, secret_a, {"caller_number": "9876511105"})
+    call_id, row = _live(ref_b, phone="919876511105")
+    vendor.live.append(row)
+    answer = await _post("opt-out", ref_a, secret_a, {}, call_id=call_id)
     assert answer.json()["status"] == "caller_not_matched"
 
 
 async def test_a_vendor_outage_is_an_honest_unavailable(vendor: FakeThinnest) -> None:
     _t, _a, ref, secret = await _published(vendor)
-    vendor.live_calls_fail = True
-    answer = await _post("opt-out", ref, secret, {"caller_number": "9876511106"})
+    vendor.calls_fail = True
+    answer = await _post("opt-out", ref, secret, {}, call_id=f"in_{uuid.uuid4()}")
     assert answer.status_code == 200
     assert answer.json() == {"status": "unavailable", "say": UNAVAILABLE_SAY}
 
@@ -528,10 +555,12 @@ async def test_a_callback_on_an_outbound_call_confirms_then_books_our_dialled_nu
     vendor_call, row = _live(ref, phone="919876511107", direction="outbound", reference=str(ours))
     vendor.live.append(row)
     day = (datetime.now(UTC).astimezone(IST) + timedelta(days=2)).date().isoformat()
-    ask = {"caller_number": "+919876511107", "callback_date": day, "callback_time": "11:00"}
-    first = await _post("callback", ref, secret, {**ask, "confirmed": "no"})
+    ask = {"callback_date": day, "callback_time": "11:00"}
+    first = await _post("callback", ref, secret, {**ask, "confirmed": "no"}, call_id=vendor_call)
     assert first.json()["status"] == "needs_confirmation" and first.json()["booked_for"]
-    second = await _post("callback", ref, secret, {**ask, "confirmed": "yes", "note": "price"})
+    second = await _post(
+        "callback", ref, secret, {**ask, "confirmed": "yes", "note": "price"}, call_id=vendor_call
+    )
     assert second.json()["status"] == "booked"
     async with tenant_session(tenant_id) as session:
         booked = (
@@ -548,8 +577,9 @@ async def test_a_callback_on_an_outbound_call_confirms_then_books_our_dialled_nu
 
 async def test_cancel_with_nothing_booked_says_so(vendor: FakeThinnest) -> None:
     _t, _a, ref, secret = await _published(vendor)
-    vendor.live.append(_live(ref, phone="919876511108")[1])
-    answer = await _post("callback-cancel", ref, secret, {"caller_number": "9876511108"})
+    call_id, row = _live(ref, phone="919876511108")
+    vendor.live.append(row)
+    answer = await _post("callback-cancel", ref, secret, {}, call_id=call_id)
     assert answer.json()["status"] == "cancelled"
 
 
@@ -560,7 +590,7 @@ async def test_handoff_tells_the_truth_without_asking_for_the_number(
     answer = await _post("handoff", ref, secret, {"reason": "wants a person"})
     assert answer.status_code == 200
     assert answer.json()["status"] == "not_available"
-    assert not any(p == "/calls" for _m, p, _b in vendor.requests)
+    assert not any(p.startswith("/calls") for _m, p, _b in vendor.requests)
 
 
 async def test_an_unknown_tool_and_an_unreadable_body_are_refused_after_auth(
@@ -590,7 +620,12 @@ async def test_the_drift_sweep_alarms_on_repaired_and_unreachable_actions(
     from apps.workers import engine_reconciliation as sweep
 
     async def _drift(**_kw: Any) -> Any:
-        return SimpleNamespace(state="applied", truthful_answer_applied=True)
+        return SimpleNamespace(
+            state="applied",
+            truthful_answer_applied=True,
+            own_voice_key_applied=True,
+            own_voice_key_expected=None,
+        )
 
     async def _record(*_a: Any, **_kw: Any) -> bool:
         return True
@@ -602,6 +637,11 @@ async def test_the_drift_sweep_alarms_on_repaired_and_unreachable_actions(
     monkeypatch.setattr(sweep, "engine_drift_for", _drift)
     monkeypatch.setattr(sweep, "record_drift", _record)
     monkeypatch.setattr(sweep, "reconcile_inbound_truthful_answer", _inbound)
+
+    async def _no_settings(**_kw: Any) -> None:
+        return None
+
+    monkeypatch.setattr(sweep, "check_agent_settings", _no_settings)
     monkeypatch.setattr(sweep, "alert", lambda _stage, code, **_kw: raised.append(code))
     candidate = DriftCandidate(
         tenant_id=uuid.uuid4(),
@@ -644,3 +684,40 @@ async def test_pausing_an_agent_retires_its_actions(monkeypatch: pytest.MonkeyPa
             )
         ).scalar_one()
     assert result.changed and retired == [(agent_id, ref)]
+
+
+# --- live transfer (D-690) -------------------------------------------------------------
+
+
+async def test_an_agent_that_transfers_live_holds_no_handover_action_of_ours(
+    vendor: FakeThinnest,
+) -> None:
+    """With a destination on duty the platform's own `escalate_to_human` puts the caller
+    through, so our record-only hand-over action is removed rather than left to contradict
+    it; the drift sweep (`live_handover=None`) neither recreates nor removes it."""
+    tenant_id, _agent, ref = await _route()
+    await _ensure(tenant_id, ref)
+    handoff = ACTION_NAMES["handoff"]
+    assert handoff in {a["name"] for a in vendor.actions[ref].values()}
+    async with tenant_session(tenant_id) as session:
+        await ensure_agent_actions(session, engine=ENGINE, engine_agent_ref=ref, live_handover=True)
+    names = {a["name"] for a in vendor.actions[ref].values()}
+    assert handoff not in names and len(names) == 3
+    verdict = await check_agent_actions(tenant_id=tenant_id, engine=ENGINE, engine_agent_ref=ref)
+    assert verdict == "in_sync"
+    assert handoff not in {a["name"] for a in vendor.actions[ref].values()}
+
+
+async def test_the_drift_probe_identifies_no_call_and_writes_nothing(vendor: FakeThinnest) -> None:
+    """The probe is the call-back cancel action: a vendor test sends no call id
+    (agent/custom-api.md:111-114), so our endpoint finds no call and changes nothing."""
+    _t, _a, ref, secret = await _published(vendor)
+    tested = [p for m, p, _b in vendor.requests if p.endswith("/test")]
+    assert tested == []
+    await check_agent_actions(tenant_id=_t, engine=ENGINE, engine_agent_ref=ref)
+    probe_id = next(
+        i for i, a in vendor.actions[ref].items() if a["name"] == ACTION_NAMES["callback-cancel"]
+    )
+    assert any(p.endswith(f"/actions/{probe_id}/test") for _m, p, _b in vendor.requests)
+    answer = await _post("callback-cancel", ref, secret, {})
+    assert answer.json()["status"] == "caller_not_matched"

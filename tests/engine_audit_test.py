@@ -1595,14 +1595,15 @@ _VENDOR_ONLY_KEYS = frozenset(
         # Their per-call charge in integer micro-units (usage call log). Ours is
         # `unit_cost_paid` in NUMERIC rupees; the vendor field never crosses the adapter.
         "costMicro",
-        # ThinnestAI voices, clones, own keys and customer workspaces (D-687): camelCase
-        # nouns only they spell. Ours are `voice_id`, a stored preview, `engine_workspace`.
+        # ThinnestAI voices, clones and own keys (D-687): camelCase
+        # nouns only they spell. Ours are `voice_id`, a stored preview, `engine_own_voice_key`.
         "movedAgents",
         "previewUrl",
         "usableOnAgents",
         "voiceId",
         "voiceOnlyByok",
-        "workspaceId",
+        # D-690: the built-in tools' hand-over object; ours is `HandoffSpec`.
+        "handOver",
     }
 )
 # `next_page` was here and is gone with the Cartesia listing rewrite (D-270): their page
@@ -1624,12 +1625,25 @@ _VENDOR_ONLY_KEYS = frozenset(
 #: vocabulary is a guard somebody switches off.
 _SHARED_PAYLOAD_KEYS = frozenset(
     {
+        # D-690: `tools` (the built-in tools list), `mode` and `line` (the hand-over's) are
+        # everyday words in our own code too, so none proves where a payload came from.
+        "tools",
+        "mode",
+        "line",
+        # The webhook envelope's ids and time, which the receiver in voice-runtime reads
+        # too (Lane 2, D-689), so they are not banned outside the adapter.
+        "agentId",
+        "callId",
+        "sentAt",
         # `title` is a knowledge document's name on ThinnestAI and `KBSourceRef.title` in
         # our own contract, so it proves nothing about where a payload came from.
         "title",
         # `using` is GET /byok's on/off flag, and an everyday English word our own code
         # uses too, so it proves nothing about a payload's origin.
         "using",
+        # An Agent's `byok` switch (D-688), and our own word for a hosted voice's source
+        # (`byok:<id>`), so it proves nothing about where a payload came from.
+        "byok",
         # D-687's ThinnestAI reads that are everyday words in our own code too: `accent`,
         # `description`, `language`, `sample` and `scope` are columns, fields or settings
         # here, `complete` is `EngineVoiceListing.complete`, and `kind`/`credentials` name

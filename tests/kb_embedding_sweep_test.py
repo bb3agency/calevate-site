@@ -93,7 +93,7 @@ async def _tenant_with_pending_chunk(body: str) -> tuple[uuid.UUID, uuid.UUID]:
     tenant_id, agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Hours", body=body
+            session, tenant_id=tenant_id, name="Hours", body=body
         )
         await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
         await kb_service.publish_source(
@@ -279,10 +279,10 @@ async def test_a_later_batch_failing_does_not_unrecord_a_batch_already_paid_for(
     """
     import httpx
 
-    tenant_id, agent_id = await _tenant_with_pending_chunk("A consultation costs 500 rupees.")
+    tenant_id, _agent_id = await _tenant_with_pending_chunk("A consultation costs 500 rupees.")
     async with tenant_session(tenant_id) as session:
         second = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Parking", body="Parking is free."
+            session, tenant_id=tenant_id, name="Parking", body="Parking is free."
         )
         await kb_service.approve_source(session, source_id=second["id"], approved_by=None)
         await kb_service.publish_source(

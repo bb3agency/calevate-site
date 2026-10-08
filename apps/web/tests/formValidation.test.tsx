@@ -320,7 +320,7 @@ describe("two answers missing at once", () => {
       "What the agent should say",
     ) as HTMLTextAreaElement;
 
-    fireEvent.click(screen.getByRole("button", { name: /Add to agent/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add to your knowledge/ }));
 
     expect(await screen.findByText("Say what this is about.")).toBeTruthy();
     expect(screen.getByText("Write what the agent should say.")).toBeTruthy();
@@ -332,12 +332,12 @@ describe("two answers missing at once", () => {
     // control, so the two cannot drift.
     fireEvent.change(title, { target: { value: "A" } });
     fireEvent.change(body, { target: { value: "Long enough to pass." } });
-    fireEvent.click(screen.getByRole("button", { name: /Add to agent/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add to your knowledge/ }));
     expect(await screen.findByText("Use at least 2 characters.")).toBeTruthy();
     expect(page.calls.some((c) => c.method === "POST")).toBe(false);
 
     fireEvent.change(title, { target: { value: "Parking" } });
-    fireEvent.click(screen.getByRole("button", { name: /Add to agent/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add to your knowledge/ }));
     await waitFor(() =>
       expect(
         page.calls.some(

@@ -89,7 +89,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.hosted_voices import sync_hosted_voices
+from apps.api.agents.hosted_voices import HostedSyncResult, sync_hosted_voices
 from apps.api.agents.languages import PRODUCT_LANGUAGES
 from apps.api.agents.models import PlatformVoiceCatalogEntry
 from apps.api.agents.voices import (
@@ -154,6 +154,10 @@ class VoiceSyncResult:
     #: Something the sync did not read, said for the operator, or None (D-687: the Studio
     #: half of an engine-hosted catalogue while no Studio workspace is set up).
     note: str | None = None
+    #: The hosted sync's own result on an engine that hosts its voices, None on any other.
+    #: The refresh route words its answer from it (bands, the plan) rather than from the
+    #: Pipecat catalogue's numbers.
+    hosted: HostedSyncResult | None = None
 
     @property
     def installed(self) -> bool:
@@ -307,6 +311,7 @@ async def sync_voice_catalogue(
             pruned=hosted.pruned,
             complete=True,
             note=hosted.studio_skipped_reason,
+            hosted=hosted,
         )
     if not engine.capabilities.lists_voices_independently():
         # A STATED NO-OP: the caller gets a result that says which of "nothing

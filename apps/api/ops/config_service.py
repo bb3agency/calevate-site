@@ -416,12 +416,6 @@ async def _revision(session: AsyncSession, key: str) -> int:
     return (await _current(session, key)).revision
 
 
-async def current_revision(session: AsyncSession, key: str) -> int:
-    """The stored revision of `key` (0 when unset), for a server-side writer that read the
-    value itself and so has no `If-Match` from a screen (`ops/hosted_voice_routes`)."""
-    return await _revision(session, key)
-
-
 def _is_noop(key: str, *, current: _Current, incoming: Any) -> bool:
     """Is this write storing the value that is already stored?
 

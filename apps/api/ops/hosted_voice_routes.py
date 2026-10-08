@@ -9,9 +9,10 @@
     GET    /v1/ops/voices/hosted/preview      play any hosted voice's stored preview
     POST   /v1/ops/voices/hosted/preview      upload a preview clip for a voice (audited)
     POST   /v1/ops/voices/hosted/preview/fetch  store the platform's own preview (audited)
-    GET    /v1/ops/voices/studio-workspace    the Studio workspace and its voice key
-    POST   /v1/ops/voices/studio-workspace    set it up: workspace, our Cartesia key, voice-only
-                                              own keys (step-up, audited)
+    GET    /v1/ops/voices/studio-voices       whether our Cartesia key is on in the workspace
+    POST   /v1/ops/voices/studio-voices/enable   switch it on, Clear agents kept off first
+                                              (step-up, audited)
+    POST   /v1/ops/voices/studio-voices/disable  switch it off (step-up, audited)
 
 The operator plays a preview from `GET /v1/ops/voices/hosted/preview`, for any hosted voice
 added or not; a client plays an offered one from `GET /v1/agents/engine-catalogue/preview`.
@@ -22,11 +23,12 @@ every route here answers that it does not apply.
 Voice ids travel in the body or the query, never the path, for `voice_curation_routes`'
 reason: half of a catalogue id is a vendor's alphabet.
 
-STEP-UP ON THE CLONE AND THE WORKSPACE, NOT ON CURATION. A clone carries the operator's two
+STEP-UP ON THE CLONE AND THE STUDIO SWITCH, NOT ON CURATION. A clone carries the operator's two
 legal promises about a person's voice and spends a plan slot; deleting one cannot be undone
-and moves every agent on it to a standard voice (delete-voice-clone.md:7); the workspace
-setup installs a credential. Adding, enabling and previewing touch no agent and no call and
-are reversible in a click, for `voice_curation_routes`' argument.
+and moves every agent on it to a standard voice (delete-voice-clone.md:7); the Studio switch
+installs a credential and changes which voice every agent speaks. Adding, enabling and
+previewing touch no agent and no call and are reversible in a click, for
+`voice_curation_routes`' argument.
 """
 
 from __future__ import annotations
@@ -36,7 +38,6 @@ from typing import Annotated, Final, Literal, cast
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -55,15 +56,24 @@ from apps.api.agents.hosted_voices import (
     HostedVoiceRow,
     VoiceScope,
     add_hosted_voice,
+    band_not_sold,
     count_hosted_voices,
+    count_listed_bands,
     list_hosted_voices,
+    live_studio_agents,
+    no_sold_band_sentence,
+    own_voice_key_ready,
     read_hosted_voice,
     record_clone,
     record_preview,
     rung_of_source,
     set_hosted_curation,
+    sold_hosted_band,
+    studio_voices_ready,
+    sync_hosted_voices,
     withdraw_hosted_voice,
 )
+from apps.api.agents.studio_voices import disable_studio_voices, enable_studio_voices
 from apps.api.agents.voice_curation import count_live_agents_by_engine_voice
 from apps.api.agents.voices import CurationState
 from apps.api.compliance.audit import write_audit
@@ -76,8 +86,12 @@ from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import get_settings
 from apps.api.core.stepup import StepUpGate
 from apps.api.engine import get_engine
-from apps.api.engine.catalogue import HostsVoices, OwnVoiceKeyState, VoiceCloneSample
-from apps.api.ops import config_service
+from apps.api.engine.catalogue import (
+    HostedVoiceBand,
+    HostsVoices,
+    OwnVoiceKeyState,
+    VoiceCloneSample,
+)
 
 log = get_logger(__name__)
 
@@ -87,9 +101,10 @@ GlobalSession = Annotated[AsyncSession, Depends(global_db)]
 VoiceCurator = Annotated[Principal, Depends(requires("ops:manage", realm="admin"))]
 
 #: The confirmation strings (`core/stepup.py`). Fixed rather than per-voice for the clone and
-#: the workspace, which have no id before they exist; per-voice for the delete.
+#: the Studio switch, which name no voice; per-voice for the delete.
 CLONE_CONFIRMATION: Final = "clone_voice"
-STUDIO_SETUP_CONFIRMATION: Final = "setup_studio_workspace"
+STUDIO_ENABLE_CONFIRMATION: Final = "enable_studio_voices"
+STUDIO_DISABLE_CONFIRMATION: Final = "disable_studio_voices"
 
 
 def delete_clone_confirmation(voice_id: str) -> str:
@@ -119,11 +134,6 @@ _READ_CHUNK_BYTES: Final = 64 * 1024
 #: `name` and `description` limits (create-voice-clone.md:537-544).
 CLONE_NAME_MAX: Final = 40
 CLONE_DESCRIPTION_MAX: Final = 200
-#: The Studio workspace we create (customers.md:52-56): a stable `externalId`, so a retried
-#: setup finds the one it made rather than making a second.
-STUDIO_WORKSPACE_NAME: Final = "Calevate Studio voices"
-STUDIO_WORKSPACE_EXTERNAL_ID: Final = "calevate-studio"
-_STUDIO_SETTING: Final = "thinnest_studio_workspace_id"
 #: A language tag such as `te-IN` (preview-byok-voice.md:462-465).
 LANGUAGE_TAG: Final = r"^[A-Za-z]{2,3}([-_][A-Za-z]{2,4})?$"
 _UPLOAD_THEN_ENABLE: Final = "Upload a preview, then enable it."
@@ -145,9 +155,17 @@ class HostedVoiceOut(Strict):
     voice_id: str
     label: str
     #: `engine` — the platform's own voice or our clone; `byok` — a voice of our Cartesia
-    #: key in the Studio workspace.
+    #: key (Studio).
     source: Literal["engine", "byok"]
-    rung: Literal["clear", "studio"]
+    #: The rung it is sold on, or null for a voice in a band we do not sell.
+    rung: Literal["clear", "studio"] | None
+    #: The voice platform's own price band for one of its voices (`standard`, `premium`,
+    #: `studio`); null for a Studio (own-key) voice.
+    band: HostedVoiceBand | None
+    #: In a band we sell. Only such a voice can be added and offered.
+    sold: bool
+    #: Why it cannot be added, for a voice in a band we do not sell; null otherwise.
+    not_sold_reason: str | None
     is_custom: bool
     accent: str | None
     description: str | None
@@ -176,7 +194,10 @@ class HostedVoiceOut(Strict):
             voice_id=row.voice_id,
             label=row.label,
             source=row.source,
-            rung=rung_of_source(engine, row.source),
+            rung=rung_of_source(engine, row.source) if row.sold else None,
+            band=row.band,
+            sold=row.sold,
+            not_sold_reason=None if row.sold else band_not_sold(row).detail,
             is_custom=row.is_custom,
             accent=row.accent,
             description=row.description,
@@ -216,12 +237,17 @@ class OwnVoiceKeyOut(Strict):
         )
 
 
-class StudioWorkspaceOut(Strict):
-    workspace_id: str | None
-    #: The engine's own report of the workspace's keys; null when none is set up.
-    key: OwnVoiceKeyOut | None
-    #: Studio voices can be sold: set up, speaking on our Cartesia key.
+class StudioVoicesOut(Strict):
+    #: The engine's own report of the workspace's keys.
+    key: OwnVoiceKeyOut
+    #: Studio voices can be spoken: our Cartesia key is on, for the voice only.
     ready: bool
+    #: A Cartesia key is set in our ops console to install.
+    cartesia_key_configured: bool
+    #: Published agents on a Studio voice: what switching off would move.
+    live_studio_agents: int
+    #: Why switching on keeps every Clear agent off our key first.
+    explanation: str
     note: str
 
 
@@ -233,8 +259,16 @@ class HostedVoicesOut(Strict):
     #: Hosted voices synced altogether, added or not.
     cached: int
     offered: int
-    studio_workspace_id: str | None
+    #: Studio voices are switched on (our Cartesia key on in the workspace), as last read.
+    studio_ready: bool
+    #: The engine's band sold as Clear (`thinnest_clear_voice_band`), or null on an engine
+    #: that does not host voices.
+    clear_band: HostedVoiceBand | None
     note: str
+    #: Voices the platform currently lists of its own, per band (withdrawn ones excluded).
+    bands: dict[str, int]
+    #: Set when the platform lists voices but none in the band we sell, saying why.
+    plan_note: str | None
 
 
 class AddHostedVoiceIn(Strict):
@@ -273,10 +307,9 @@ class FetchPreviewIn(Strict):
     language: str | None = Field(default=None, max_length=12, pattern=LANGUAGE_TAG)
 
 
-class StudioSetupIn(Strict):
-    #: An existing customer workspace (`org_…`) to use; omitted, one is created.
-    workspace_id: str | None = Field(default=None, max_length=128, pattern=r"^org_[A-Za-z0-9_-]+$")
-    #: The Cartesia model the key runs; omitted, the provider's usual one.
+class StudioEnableIn(Strict):
+    #: The Cartesia model the key runs, when it is installed now; omitted, the provider's
+    #: usual one. Ignored when the workspace already holds a Cartesia key.
     model: str | None = Field(default=None, max_length=64)
 
 
@@ -377,9 +410,10 @@ async def _store_preview(
     summary="The voices the voice platform hosts, as curated here (admin realm)",
     description=(
         "On a voice platform that hosts its own voices: by default the voices an operator "
-        "added; `?scope=all` adds every voice the last sync read. Only ADDED and ENABLED "
-        "voices are offered to clients. `available` is false on a platform whose voices "
-        "come from Calevate's own catalogue."
+        "added; `?scope=all` adds every voice the last sync read, in every band the platform "
+        "lists, with `band` and `sold`. Only ADDED and ENABLED voices in a sold band are offered "
+        "to clients; `plan_note` says why when the platform lists none in the band we sell. "
+        "`available` is false on a platform whose voices come from Calevate's own catalogue."
     ),
 )
 async def list_hosted(
@@ -395,8 +429,11 @@ async def list_hosted(
             voices=[],
             cached=0,
             offered=0,
-            studio_workspace_id=None,
+            studio_ready=False,
+            clear_band=None,
             note="Voices on this deployment come from Calevate's own catalogue.",
+            bands={},
+            plan_note=None,
         )
     rows = await list_hosted_voices(session, scope=scope)
     live = await count_live_agents_by_engine_voice()
@@ -405,16 +442,23 @@ async def list_hosted(
         for row in rows
     ]
     offered = sum(1 for v in voices if v.offered)
+    bands = await count_listed_bands(session)
+    listed = sum(bands.values())
     return HostedVoicesOut(
         available=True,
         scope=scope,
         voices=voices,
         cached=await count_hosted_voices(session),
         offered=offered,
-        studio_workspace_id=get_settings().thinnest_studio_workspace_id,
+        studio_ready=await studio_voices_ready(session),
+        clear_band=sold_hosted_band(),
         note=(
             f"{offered} voice(s) offered to clients. Add a voice from the full list, check "
             "its preview, then enable it."
+        ),
+        bands={str(band): count for band, count in bands.items()},
+        plan_note=(
+            no_sold_band_sentence(listed) if listed and not bands.get(sold_hosted_band()) else None
         ),
     )
 
@@ -427,7 +471,9 @@ async def list_hosted(
     summary="Add one synced voice to the voices that can be offered (audited)",
     description=(
         "Marks a voice the last sync read as ADDED. It arrives disabled, so a client cannot "
-        "choose it until it is enabled; give it a preview first. Idempotent."
+        "choose it until it is enabled; give it a preview first. Only a voice in a band we sell "
+        "(the platform's band sold as Clear, or a Studio voice of our own key) can be added: "
+        "any other is refused with `voice_band_not_sold`. Idempotent."
     ),
 )
 async def add_hosted(
@@ -742,11 +788,7 @@ async def fetch_preview(
     engine = _hosting_engine()
     row = await read_hosted_voice(session, payload.voice_id)
     if row.source == "byok":
-        workspace = get_settings().thinnest_studio_workspace_id
-        if not workspace:
-            raise _studio_not_set_up()
         audio = await engine.preview_own_key_voice(
-            workspace=workspace,
             voice_id=row.vendor_id,
             text=payload.text,
             language=payload.language,
@@ -797,134 +839,150 @@ async def hosted_voice_preview(
     return await stored_preview_response(voice_id, offered_only=False)
 
 
-# --- the Studio workspace -------------------------------------------------------------
+# --- Studio voices: our Cartesia key in the workspace ---------------------------------
 
 
-def _studio_not_set_up() -> ProblemError:
-    return ProblemError(
-        kind="business_rule",
-        code="engine_studio_workspace_missing",
-        title="The Studio workspace is not set up",
-        detail="No workspace has been set up for Studio voices on this deployment.",
-        remediation="Set up the Studio workspace under Voices first.",
-    )
+#: What switching Studio voices on does to agents, said where the operator decides.
+STUDIO_SWITCH_EXPLAINED: Final = (
+    "Studio voices are our Cartesia key, switched on in the voice platform workspace for the "
+    "voice only. Switching it on would move every agent that is not set to stay on the "
+    "platform's own voices onto Cartesia at the Studio rate, so every published Clear agent "
+    "is set to stay off it first, and nothing is switched on unless all of them are."
+)
 
 
-def _studio_out(workspace: str | None, state: OwnVoiceKeyState | None) -> StudioWorkspaceOut:
-    ready = (
-        state is not None
-        and state.speaks_on_own_voice
-        and state.voice_provider == STUDIO_VOICE_PROVIDER
-    )
-    if workspace is None:
-        note = "Not set up: Studio voices are not offered."
-    elif ready:
-        note = "Ready: Studio agents run here on our Cartesia key."
+def _studio_out(state: OwnVoiceKeyState, *, live_studio_agents: int) -> StudioVoicesOut:
+    ready = own_voice_key_ready(state)
+    if ready:
+        note = "On: Studio agents speak on our Cartesia key; Clear agents stay off it."
+    elif state.voice_provider == STUDIO_VOICE_PROVIDER:
+        note = "Off: our Cartesia key is installed but not switched on for the voice."
     else:
-        note = (
-            "Set, but not speaking on our Cartesia key yet: Studio voices cannot be published. "
-            "Run the setup again."
-        )
-    return StudioWorkspaceOut(
-        workspace_id=workspace,
-        key=OwnVoiceKeyOut.of(state) if state is not None else None,
+        note = "Off: our Cartesia key is not installed in the workspace yet."
+    return StudioVoicesOut(
+        key=OwnVoiceKeyOut.of(state),
         ready=ready,
+        cartesia_key_configured=bool(get_settings().cartesia_api_key),
+        live_studio_agents=live_studio_agents,
+        explanation=STUDIO_SWITCH_EXPLAINED,
         note=note,
     )
 
 
 @router.get(
-    "/studio-workspace",
-    response_model=StudioWorkspaceOut,
+    "/studio-voices",
+    response_model=StudioVoicesOut,
     openapi_extra=permission_meta("ops:manage"),
-    summary="The workspace Studio agents run in, and its voice key",
+    summary="Whether Studio voices (our Cartesia key) are switched on in the workspace",
 )
-async def studio_workspace(_: VoiceCurator) -> StudioWorkspaceOut:
+async def studio_voices(session: GlobalSession, _: VoiceCurator) -> StudioVoicesOut:
     engine = _hosting_engine()
-    workspace = get_settings().thinnest_studio_workspace_id
-    if workspace is None:
-        return _studio_out(None, None)
-    return _studio_out(workspace, await engine.own_key_state(workspace=workspace))
+    return _studio_out(
+        await engine.own_key_state(),
+        live_studio_agents=await live_studio_agents(session, engine=engine.name),
+    )
 
 
 @router.post(
-    "/studio-workspace",
-    response_model=StudioWorkspaceOut,
+    "/studio-voices/enable",
+    response_model=StudioVoicesOut,
     openapi_extra=permission_meta("ops:manage"),
-    summary="Set up the Studio workspace on our Cartesia key (step-up confirmed, audited)",
+    summary="Switch Studio voices on: Clear agents kept off first (step-up confirmed, audited)",
     description=(
-        "Creates the customer workspace (or uses `workspace_id`), installs our Cartesia key "
-        "there as its voice key, switches on own keys for the voice only, and records the "
-        "workspace as `thinnest_studio_workspace_id`. Our developer workspace keeps its own "
-        "keys off. Idempotent. Requires `X-Confirm-Action: setup_studio_workspace`."
+        "In order: sets every published agent that is not on a Studio voice to stay on the "
+        "platform's own voices and reads each back, refusing with `studio_agents_not_kept_off` "
+        "if any is not; installs our Cartesia key as the workspace's voice key unless one is "
+        "already there; switches own keys on for the voice only; reads the state back and "
+        "re-reads the Studio voices. Idempotent. Requires `X-Confirm-Action: "
+        "enable_studio_voices`."
     ),
 )
-async def setup_studio_workspace(
-    payload: StudioSetupIn,
+async def enable_studio(
+    payload: StudioEnableIn,
     session: GlobalSession,
     request: Request,
-    tasks: BackgroundTasks,
     principal: VoiceCurator,
     step_up: StepUpGate,
     x_confirm_action: Annotated[str | None, Header()] = None,
-) -> StudioWorkspaceOut:
-    step_up.require(x_confirm_action, STUDIO_SETUP_CONFIRMATION)
+) -> StudioVoicesOut:
+    step_up.require(x_confirm_action, STUDIO_ENABLE_CONFIRMATION)
     engine = _hosting_engine()
-    settings = get_settings()
-    api_key = settings.cartesia_api_key
-    if not api_key:
-        raise ProblemError(
-            kind="business_rule",
-            code="studio_voice_key_missing",
-            title="No Cartesia key is installed",
-            detail="Studio voices speak on our Cartesia key, and none is set on this deployment.",
-            remediation="Install the Cartesia API key in the ops console, then run this again.",
-        )
-    if principal.user_id is None:
-        raise ProblemError(
-            kind="auth",
-            code="config_actor_unknown",
-            title="This session has no admin identity",
-            detail="A configuration change has to be attributable to an operator.",
-        )
-    workspace = payload.workspace_id or settings.thinnest_studio_workspace_id
-    if workspace is None:
-        workspace = await engine.create_workspace(
-            name=STUDIO_WORKSPACE_NAME, external_id=STUDIO_WORKSPACE_EXTERNAL_ID
-        )
-    await engine.install_own_voice_key(
-        workspace=workspace, provider=STUDIO_VOICE_PROVIDER, api_key=api_key, model=payload.model
-    )
-    state = await engine.enable_own_voice_key(workspace=workspace)
-    result = await config_service.set_value(
-        session,
-        key=_STUDIO_SETTING,
-        value=workspace,
-        note="Studio workspace set up from the Voices panel (D-687).",
-        actor_id=principal.user_id,
-        expected_revision=await config_service.current_revision(session, _STUDIO_SETTING),
-    )
+    result = await enable_studio_voices(session, engine, model=payload.model)
+    try:
+        # The Studio voices become readable now; a failed read leaves them to the next
+        # refresh rather than undoing a switch the platform has already made.
+        await sync_hosted_voices(session, engine, engine_name=engine.name)
+    except ProblemError as exc:
+        log.warning("studio_voices_sync_after_enable_failed", extra={"reason": exc.code})
     await _audit(
         session,
         request,
         principal,
-        action="ops.studio_workspace_set_up",
+        action="ops.studio_voices_enabled",
         voice_id=None,
         summary={
-            "workspace_id": workspace,
-            "voice_provider": state.voice_provider,
-            "speaks_on_own_voice": state.speaks_on_own_voice,
-            "setting_changed": result.recorded,
+            "agents_kept_off": result.agents_kept_off,
+            "key_installed": result.key_installed,
+            "voice_provider": result.state.voice_provider,
+            "speaks_on_own_voice": result.state.speaks_on_own_voice,
         },
     )
-    if result.recorded:
-        tasks.add_task(config_service.propagate)
-    return _studio_out(workspace, state)
+    return _studio_out(
+        result.state, live_studio_agents=await live_studio_agents(session, engine=engine.name)
+    )
+
+
+@router.post(
+    "/studio-voices/disable",
+    response_model=StudioVoicesOut,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Switch Studio voices off (step-up confirmed, audited)",
+    description=(
+        "Switches the workspace's own keys off and takes every Studio voice off offer. Agents "
+        "on a Studio voice speak the platform's default voice from their next call, so this is "
+        "refused with `studio_voices_in_use` while any is published, unless `confirm=true`. "
+        "Requires `X-Confirm-Action: disable_studio_voices`."
+    ),
+)
+async def disable_studio(
+    session: GlobalSession,
+    request: Request,
+    principal: VoiceCurator,
+    step_up: StepUpGate,
+    confirm: Annotated[bool, Query()] = False,
+    x_confirm_action: Annotated[str | None, Header()] = None,
+) -> StudioVoicesOut:
+    step_up.require(x_confirm_action, STUDIO_DISABLE_CONFIRMATION)
+    engine = _hosting_engine()
+    live = await live_studio_agents(session, engine=engine.name)
+    if live and not confirm:
+        raise ProblemError(
+            kind="conflict",
+            code="studio_voices_in_use",
+            title="Published agents are speaking Studio voices",
+            detail=(
+                f"{live} published agent(s) speak a Studio voice. Switching Studio voices off "
+                "moves them to the voice platform's default voice on their next call."
+            ),
+            remediation="Move those agents to a Clear voice first, or switch off with "
+            "confirm=true.",
+        )
+    state = await disable_studio_voices(session, engine)
+    await _audit(
+        session,
+        request,
+        principal,
+        action="ops.studio_voices_disabled",
+        voice_id=None,
+        summary={"live_studio_agents": live, "speaks_on_own_voice": state.speaks_on_own_voice},
+    )
+    return _studio_out(state, live_studio_agents=live)
 
 
 __all__ = [
     "CLONE_CONFIRMATION",
-    "STUDIO_SETUP_CONFIRMATION",
+    "STUDIO_DISABLE_CONFIRMATION",
+    "STUDIO_ENABLE_CONFIRMATION",
     "delete_clone_confirmation",
     "router",
     "sniff_preview_type",

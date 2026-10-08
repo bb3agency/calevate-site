@@ -52,7 +52,7 @@ const TM_STATUSES: TmStatus[] = [
  */
 
 /**
- * Calevate's own DLT telemarketer registration — the platform-wide campaign blocker.
+ * Calevate's own DLT telemarketer registration. Under D-692 no outbound gate reads it.
  *
  * The symptom this fixes: the registration became a launch-gate input, and no surface
  * showed it. Every client's campaign could be refused with `tm_registration_missing`
@@ -137,12 +137,12 @@ export function TmRegistrationPanel({
               <CircleAlert aria-hidden className="h-5 w-5" />
             )
           }
-          title={live ? "LIVE — we may lawfully dial" : "NOT LIVE — no client can launch"}
+          title={live ? "LIVE — on record" : "NOT REQUIRED (D-692)"}
         >
           <p className="mt-1">
             {live
-              ? "This is not blocking any launches. Each client still needs its own registration in its own name, and to be linked to us as its telemarketer."
-              : "While this is not live, NO client can launch an outbound campaign, however complete their own registration is. Inbound answering is unaffected — clients' receptionists keep working."}
+              ? "Kept on record. Under D-692 no outbound gate asks for this registration."
+              : "Under D-692 Calevate does not register as a telemarketer and no outbound gate asks for this. Outbound needs each client's verified KYC and accepted no-cold-calls pledge instead."}
           </p>
         </NoticeBox>
 
@@ -284,9 +284,7 @@ export function TmRegistrationPanel({
           <div className="flex gap-3 rounded-card border border-line bg-app p-4 text-sm">
             <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
             <p className="text-ink-muted">
-              {makingLive
-                ? "Recording this as active opens the platform-wide launch gate for every client."
-                : "Anything other than active closes that gate: no client can launch an outbound campaign until it is recorded active again."}
+              Recording this changes no outbound gate under D-692; it is kept for the record.
             </p>
           </div>
 

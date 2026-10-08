@@ -36,10 +36,8 @@ sweep, the vendor-object claim (`engine_kb_routes`, D-519) and the whole of
   `integrations/egress_guard.assert_public_http_url`, the one gate every outbound fetch in
   this repo already goes through, at submission AND again before each fetch (the guard's
   own docstring explains why once is not enough: the DNS is the client's).
-* **Someone else's agent.** `insert_source_version` runs `assert_visible` first, because
-  PostgreSQL checks foreign keys with row security BYPASSED and a `kb_sources` row naming
-  another tenant's agent would take a slot in `(agent_id, name, version)` that the owning
-  tenant could then never use.
+* **Whose knowledge.** The CLIENT's, not one agent's (D-689): an upload names no agent,
+  and every agent of the account answers from it once it is published.
 
 ═══ WHO IS REVIEWED ═══
 
@@ -329,7 +327,6 @@ async def create_upload(
     session: AsyncSession,
     *,
     tenant_id: UUID,
-    agent_id: UUID,
     name: str | None,
     filename: str,
     content_type: str | None,
@@ -392,7 +389,6 @@ async def create_upload(
     source_id, version, status = await insert_source_version(
         session,
         tenant_id=tenant_id,
-        agent_id=agent_id,
         name=source_name,
         kind="file",
         # The FILENAME, not the key: `kb_sources.uri` is a human-readable provenance field
@@ -410,16 +406,15 @@ async def create_upload(
     # approved chunks exactly as it does for pasted knowledge.
     await session.execute(
         text(
-            "INSERT INTO kb_uploads (id, tenant_id, agent_id, source_id, source_kind, "
+            "INSERT INTO kb_uploads (id, tenant_id, source_id, source_kind, "
             "original_key, original_filename, original_bytes, original_sha256, "
             "content_type, document_key, document_sha256, ingest_status, created_at, "
-            "updated_at) VALUES (:id, :tid, :aid, :sid, :kind, :key, :fname, :bytes, "
+            "updated_at) VALUES (:id, :tid, :sid, :kind, :key, :fname, :bytes, "
             ":sha, :ctype, :dkey, :dsha, :status, now(), now())"
         ),
         {
             "id": upload_id,
             "tid": tenant_id,
-            "aid": agent_id,
             "sid": source_id,
             "kind": kind,
             "key": key,
@@ -450,7 +445,6 @@ async def create_upload(
     return {
         "id": upload_id,
         "source_id": source_id,
-        "agent_id": agent_id,
         "name": source_name,
         "source_kind": kind,
         "ingest_status": UPLOAD_RECEIVED,
@@ -469,7 +463,6 @@ async def create_link(
     session: AsyncSession,
     *,
     tenant_id: UUID,
-    agent_id: UUID,
     name: str | None,
     url: str,
     submitted_by: UUID | None,
@@ -507,7 +500,6 @@ async def create_link(
     source_id, version, status = await insert_source_version(
         session,
         tenant_id=tenant_id,
-        agent_id=agent_id,
         name=source_name,
         kind="url",
         uri=url[:2048],
@@ -517,14 +509,13 @@ async def create_link(
     upload_id = uuid7()
     await session.execute(
         text(
-            "INSERT INTO kb_uploads (id, tenant_id, agent_id, source_id, source_kind, "
-            "source_url, ingest_status, created_at, updated_at) VALUES (:id, :tid, :aid, "
+            "INSERT INTO kb_uploads (id, tenant_id, source_id, source_kind, "
+            "source_url, ingest_status, created_at, updated_at) VALUES (:id, :tid, "
             ":sid, 'url', :url, :status, now(), now())"
         ),
         {
             "id": upload_id,
             "tid": tenant_id,
-            "aid": agent_id,
             "sid": source_id,
             "url": url[:2048],
             "status": UPLOAD_RECEIVED,
@@ -544,7 +535,6 @@ async def create_link(
     return {
         "id": upload_id,
         "source_id": source_id,
-        "agent_id": agent_id,
         "name": source_name,
         "source_kind": "url",
         "ingest_status": UPLOAD_RECEIVED,
@@ -574,7 +564,7 @@ def _name_from_url(url: str) -> str:
 
 
 _LIST_SQL = """
-SELECT u.id, u.source_id, u.agent_id, s.name, u.source_kind, u.ingest_status,
+SELECT u.id, u.source_id, s.name, u.source_kind, u.ingest_status,
        u.ingest_detail, s.status, s.is_active, s.version, u.original_filename,
        u.original_bytes, u.source_url, u.change_detected_at, u.created_at, u.updated_at,
        u.text_provenance
@@ -583,7 +573,7 @@ FROM kb_uploads u JOIN kb_sources s ON s.id = u.source_id
 
 
 async def list_uploads(
-    session: AsyncSession, *, agent_id: UUID | None = None, limit: int = MAX_UPLOADS_PAGE
+    session: AsyncSession, *, limit: int = MAX_UPLOADS_PAGE
 ) -> list[dict[str, Any]]:
     """Every upload and link this tenant has, newest first. RLS does the scoping.
 
@@ -591,11 +581,9 @@ async def list_uploads(
     NAME live there and are deliberately not duplicated here, so a screen that shows an
     upload shows the same review state the approval queue does.
     """
-    clause = "WHERE u.agent_id = :aid " if agent_id else ""
     rows = (
         await session.execute(
-            text(f"{_LIST_SQL} {clause}ORDER BY u.created_at DESC LIMIT :limit"),
-            {"aid": agent_id, "limit": limit} if agent_id else {"limit": limit},
+            text(f"{_LIST_SQL} ORDER BY u.created_at DESC LIMIT :limit"), {"limit": limit}
         )
     ).all()
     return [_row_out(row) for row in rows]
@@ -616,21 +604,20 @@ def _row_out(row: Any) -> dict[str, Any]:
     return {
         "id": row[0],
         "source_id": row[1],
-        "agent_id": row[2],
-        "name": row[3],
-        "source_kind": row[4],
-        "ingest_status": row[5],
-        "ingest_detail": row[6],
-        "review_state": row[7],
-        "is_live": row[8],
-        "version": row[9],
-        "filename": row[10],
-        "byte_size": row[11],
-        "source_url": row[12],
-        "change_detected_at": row[13],
-        "created_at": row[14],
-        "updated_at": row[15],
-        "text_provenance": row[16],
+        "name": row[2],
+        "source_kind": row[3],
+        "ingest_status": row[4],
+        "ingest_detail": row[5],
+        "review_state": row[6],
+        "is_live": row[7],
+        "version": row[8],
+        "filename": row[9],
+        "byte_size": row[10],
+        "source_url": row[11],
+        "change_detected_at": row[12],
+        "created_at": row[13],
+        "updated_at": row[14],
+        "text_provenance": row[15],
     }
 
 

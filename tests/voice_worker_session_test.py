@@ -512,7 +512,7 @@ async def _publish_a_fact(tenant_id: uuid.UUID, agent_id: uuid.UUID, fact: str) 
     """submit -> approve -> publish, which is the only path that writes the pack pointer."""
     async with tenant_session(tenant_id) as db:
         submitted = await kb_service.submit_source(
-            db, tenant_id=tenant_id, agent_id=agent_id, name="Alterations", body=fact
+            db, tenant_id=tenant_id, name="Alterations", body=fact
         )
         await kb_service.approve_source(db, source_id=submitted["id"], approved_by=None)
         await kb_service.publish_source(

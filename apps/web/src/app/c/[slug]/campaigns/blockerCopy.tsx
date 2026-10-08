@@ -66,50 +66,6 @@ export const BLOCKER_COPY: Record<string, BlockerNote> = {
   disclosure_missing: {
     text: "The agent needs its AI disclosure line — required on every call.",
   },
-  dlt_template_missing: {
-    text: (
-      <>
-        Attach the{" "}
-        <Term id="dlt" /> voice template
-        this campaign speaks under.
-      </>
-    ),
-  },
-  dlt_template_not_approved: {
-    text: (
-      <>
-        The <Term id="dlt" /> template is
-        still with the registrar.
-      </>
-    ),
-  },
-  dlt_template_mismatch: {
-    text: "The template's category doesn't match this campaign's.",
-  },
-  number_missing: { text: "Choose the number these calls will come from." },
-  /*
-   * TWO WAYS OUT, AND THE SECOND ONE IS THE CLIENT'S OWN DECISION TO TAKE.
-   *
-   * TRAI's direction binds the SENDER, which under Model B (D-474) is the client, so an
-   * ordinary number is refused by default and only the client can record the exception
-   * (`campaigns/sender_attestation.py`). A bullet naming only the first way out would send
-   * a business off to buy a number it may not need. Promotional is deliberately not
-   * offered the second way: no client statement makes a marketing call from an ordinary
-   * number lawful, and the gate refuses to widen that classification.
-   */
-  number_series_mismatch: {
-    text: (
-      <>
-        Marketing calls have to come from a{" "}
-        <Term id="series140" term="140-series" /> number, and service or reminder
-        calls from a <Term id="series160" term="160-series" /> one. This
-        campaign&apos;s number is neither. Attach one that is — or, for service and
-        reminder calls, confirm on the number&apos;s own page that your business is
-        the sender of calls made from it.
-      </>
-    ),
-    owner: "client",
-  },
   no_contacts: { text: "Upload the contact list." },
 
   /*
@@ -296,7 +252,13 @@ export const PLATFORM_BLOCKER = "tm_registration_missing";
  * and then leaves the client on a campaign screen with nothing to press. This adds the
  * link, and nothing else.
  */
-export const KYC_BLOCKERS = ["kyc_missing", "kyc_not_verified"];
+export const KYC_BLOCKERS = [
+  "kyc_missing",
+  "kyc_not_verified",
+  "kyc_digilocker_required",
+  "outbound_pledge_missing",
+  "outbound_pledge_outdated",
+];
 
 /**
  * The autodialler-notice refusals whose fix is on the Agreements screen, where

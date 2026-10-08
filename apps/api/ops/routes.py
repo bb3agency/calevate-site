@@ -95,6 +95,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
+from apps.api.agents.hosted_voices import hosted_refresh_note, offered_hosted_voices
 from apps.api.agents.reconciliation import read_engine_drift
 from apps.api.agents.voice_sync import (
     VoiceSyncResult,
@@ -1110,10 +1111,15 @@ class VoiceCatalogueRefreshOut(BaseModel):
     #: How many voices are in this process's catalogue. `0` means the built-in seed is in
     #: force (`agents/voices.SEED_CATALOG`). ⚠ SINCE D-588 THERE IS NO SEED: `0` means
     #: this process offers NO voices, which is the correct state for a deployment nobody
-    #: has synced and is not the same fact as "nothing is enabled".
+    #: has synced and is not the same fact as "nothing is enabled". On an engine that hosts
+    #: its voices (D-687) it is the hosted voices offered to clients instead: the Pipecat
+    #: catalogue is not what that engine speaks.
     in_force: int
     #: One sentence an operator reads verbatim.
     note: str
+    #: On an engine that hosts its voices: how many of its own voices it listed, per price
+    #: band (`standard`, `premium`, `studio`). Null on any other engine.
+    bands: dict[str, int] | None = None
 
 
 @router.post(
@@ -1131,7 +1137,9 @@ class VoiceCatalogueRefreshOut(BaseModel):
         "anybody can be put on it (D-588), so this alone changes what nobody "
         "may choose. It changes no agent and no call either: an agent already speaking a "
         "voice keeps speaking it whatever this returns. A sync that reads nothing is "
-        "refused rather than applied, so a bad credential cannot empty the catalogue."
+        "refused rather than applied, so a bad credential cannot empty the catalogue. On a "
+        "platform that hosts its own voices every band it lists is cached, `bands` counts them, "
+        "and the note says so plainly when none is in the band sold as Clear."
     ),
 )
 async def refresh_voice_catalogue_route(
@@ -1160,6 +1168,23 @@ async def refresh_voice_catalogue_route(
     engine = get_engine()
     result = await sync_voice_catalogue(session, engine)
     in_force = await load_voice_catalogue(session)
+    summary: dict[str, object] = {
+        "seen": result.seen,
+        "written": result.written,
+        "pruned": result.pruned,
+        "complete": result.complete,
+    }
+    hosted = result.hosted
+    bands: dict[str, int] | None = None
+    if hosted is None:
+        note = _voice_refresh_note(result, in_force=in_force)
+    else:
+        # An engine that hosts its voices (D-687): what is in force is the hosted offer, and
+        # the sentence is about the platform's bands, never the Pipecat catalogue's count.
+        in_force = len(await offered_hosted_voices(session))
+        bands = {str(band): count for band, count in hosted.bands.items()}
+        summary["bands"] = bands
+        note = hosted_refresh_note(hosted, offered=in_force)
     # BACKEND-PATTERNS §4: a write an operator triggered leaves a record of who triggered
     # it. The cache itself carries no history — it is refreshed whole — so this audit row
     # is the only place "the catalogue changed at 14:02 because Sri pressed refresh" exists.
@@ -1169,12 +1194,7 @@ async def refresh_voice_catalogue_route(
         actor=principal,
         object_type="platform_voice_catalog",
         ip=client_request_ip(request),
-        summary={
-            "seen": result.seen,
-            "written": result.written,
-            "pruned": result.pruned,
-            "complete": result.complete,
-        },
+        summary=summary,
     )
     return VoiceCatalogueRefreshOut(
         seen=result.seen,
@@ -1182,7 +1202,8 @@ async def refresh_voice_catalogue_route(
         pruned=result.pruned,
         complete=result.complete,
         in_force=in_force,
-        note=_voice_refresh_note(result, in_force=in_force),
+        bands=bands,
+        note=note,
     )
 
 

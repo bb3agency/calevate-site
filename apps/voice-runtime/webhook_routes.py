@@ -46,6 +46,7 @@ import json
 import time
 from collections.abc import Callable, Coroutine, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
 
 from apps.api.core.alerting import (
@@ -70,7 +71,11 @@ from pydantic import BaseModel, ConfigDict
 from signed_intake import (
     AGENT_QUERY_PARAM,
     SIGNED_INTAKES,
+    STALE_DELIVERY,
+    SignedEvent,
     SignedIntake,
+    delivery_attempt,
+    delivery_is_fresh,
     delivery_signature_matches,
     keyed_event,
     signing_secret,
@@ -140,7 +145,12 @@ router = APIRouter(prefix="/hooks/v1", tags=["engine-webhooks"])
 # restore the amplifier — but an operator can now see that somebody is replaying our
 # deliveries with rewritten content, which nothing in this system could see before.
 _DEDUPE_TTL_S = 3600
+# The jobs this receiver enqueues, spelled here as literals so `scripts/check_job_wiring`
+# can read every name at its enqueue site; `signed_intake` routes each signed event to one
+# of them and `tests/thinnest_intake_security_test.py` holds the two spellings equal.
 INGEST_JOB = "ingest_engine_event"
+ENGINE_OPT_OUT_JOB = "ingest_engine_opt_out"
+ENGINE_NOTICE_JOB = "ingest_engine_notice"
 
 # Hard rule 3's number, in one place so the metric, the alert and the docs agree.
 _ACK_BUDGET_MS = 500.0
@@ -820,8 +830,13 @@ async def _receive_signed(
         raise _intake_unavailable(engine, exc.code) from None
     if secret is None:
         raise _refuse_signed(engine, source_ip, "no signing secret is held for this agent")
-    if not delivery_signature_matches(raw, request.headers.get(intake.signature_header), secret):
+    if not delivery_signature_matches(intake, raw, request.headers, secret):
         raise _refuse_signed(engine, source_ip, "signature does not verify")
+    # After the signature, because the delivery time is part of what it signs: a stranger
+    # cannot restamp a captured body. A refusal, not an ack, so a genuine attempt delayed
+    # past the window is retried by the vendor with a fresh time (webhooks.md:110-117).
+    if not delivery_is_fresh(intake, request.headers, now=datetime.now(UTC)):
+        raise _refuse_signed(engine, source_ip, STALE_DELIVERY)
 
     try:
         decoded = json.loads(raw)
@@ -834,9 +849,14 @@ async def _receive_signed(
         return acknowledge_ignored(
             response, started, engine, reason="unreadable payload", meter=WEBHOOK_ACK
         )
-    keyed = keyed_event(intake, decoded, engine_agent_ref=agent_ref)
+    keyed = keyed_event(
+        intake,
+        decoded,
+        engine_agent_ref=agent_ref,
+        event_id_header=request.headers.get(intake.event_id_header),
+    )
     if isinstance(keyed, str):
-        if keyed != "event not consumed":
+        if keyed not in ("event not consumed", "test delivery"):
             alert("ROUTE_HANDLER", "webhook_unkeyable", engine=engine, detail=keyed)
         return acknowledge_ignored(response, started, engine, reason=keyed, meter=WEBHOOK_ACK)
 
@@ -860,8 +880,8 @@ async def _receive_signed(
                 }
             ),
             redis_key=f"calevate:wh:{engine}:{keyed.execution_id}:{keyed.event_name}",
-            job=INGEST_JOB,
-            job_id=job_id_for(INGEST_JOB, engine, keyed.execution_id, keyed.event_name),
+            job=keyed.job,
+            job_id=_signed_job_id(keyed, engine),
             job_payload={
                 "engine": engine,
                 "execution_id": keyed.execution_id,
@@ -869,6 +889,7 @@ async def _receive_signed(
                 "engine_agent_ref": agent_ref,
                 "delivery": sealed,
             },
+            attempt=delivery_attempt(intake, request.headers),
         ),
         raw,
         response=response,
@@ -876,6 +897,15 @@ async def _receive_signed(
         meter=WEBHOOK_ACK,
         signed=True,
     )
+
+
+def _signed_job_id(keyed: SignedEvent, engine: str) -> str:
+    """The job id of a signed event, each job named by its constant."""
+    if keyed.job == ENGINE_OPT_OUT_JOB:
+        return job_id_for(ENGINE_OPT_OUT_JOB, engine, keyed.execution_id, keyed.event_name)
+    if keyed.job == ENGINE_NOTICE_JOB:
+        return job_id_for(ENGINE_NOTICE_JOB, engine, keyed.execution_id, keyed.event_name)
+    return job_id_for(INGEST_JOB, engine, keyed.execution_id, keyed.event_name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -900,10 +930,21 @@ class InboxWork:
     job_id: str
     #: The job's payload; `inbox_row_id` is added once the claim exists.
     job_payload: Mapping[str, Any]
+    #: The sender's attempt number for `webhook_deliveries.attempts`, where it says one.
+    attempt: int = 1
 
     @property
     def event_key(self) -> str:
         return f"{self.key_id}:{self.event_name}"
+
+
+def _log_redelivery(work: InboxWork) -> None:
+    """A duplicate writes no forensic row, so a sender's later attempt is recorded here:
+    the attempt number is how an operator tells a vendor retry from a replay. Ids only."""
+    log.info(
+        "webhook_duplicate_attempt",
+        extra={"engine": work.provider, "execution_id": work.key_id, "attempt": work.attempt},
+    )
 
 
 async def settle(
@@ -923,6 +964,7 @@ async def settle(
     source = work.provider
     digest = _body_digest(delivered)
     if await _fast_path_seen(work.redis_key, digest, engine=source):
+        _log_redelivery(work)
         return _ack(
             response,
             started,
@@ -986,6 +1028,7 @@ async def settle(
         )
 
     if not claimed:
+        _log_redelivery(work)
         return _ack(
             response,
             started,
@@ -1053,13 +1096,14 @@ async def _claim_and_enqueue(work: InboxWork, *, signed: bool) -> tuple[bool, st
                     text(
                         "INSERT INTO webhook_deliveries (id, direction, source, event_type, "
                         "status, attempts, signature_valid, first_at, last_at, created_at) "
-                        "VALUES (:id, 'in', :source, :event_type, 'received', 1, :sig, "
+                        "VALUES (:id, 'in', :source, :event_type, 'received', :attempts, :sig, "
                         "now(), now(), now())"
                     ),
                     {
                         "id": uuid7(),
                         "source": work.provider,
                         "event_type": work.event_name,
+                        "attempts": work.attempt,
                         "sig": signed,
                     },
                 )

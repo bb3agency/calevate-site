@@ -95,7 +95,7 @@ async def _published(*facts: str) -> tuple[uuid.UUID, uuid.UUID]:
     async with tenant_session(tenant_id) as session:
         for n, fact in enumerate(facts):
             submitted = await kb_service.submit_source(
-                session, tenant_id=tenant_id, agent_id=agent_id, name=f"Tailoring {n}", body=fact
+                session, tenant_id=tenant_id, name=f"Tailoring {n}", body=fact
             )
             await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
             await kb_service.publish_source(

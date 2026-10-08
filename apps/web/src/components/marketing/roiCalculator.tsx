@@ -486,7 +486,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
   const [rateChoice, setRateChoice] = useState<string>(LIST_RATE);
   // OPENS ON THE VOICE AN AGENT CAN ACTUALLY BE PUT ON, as the server says per deployment
   // (`headlineVoice`, from `voice_not_offered`). Which rung is held back depends on the
-  // engine — Studio on ThinnestAI until its Studio workspace is ready (D-687), the cheaper
+  // engine — Studio on ThinnestAI until Studio voices are switched on (D-688), the cheaper
   // rung on our own voices (D-629) — so a hard-coded default opens on the wrong one on one
   // of them. Opening on a voice nobody can buy prices the comparison at a rate the buyer
   // cannot run at, the direction `rateFor`'s warning above is about. The held-back voice

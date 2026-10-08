@@ -42,7 +42,6 @@ import {
  * the identity headers, the RFC-9457 parsing and the progress plumbing.
  */
 
-const AGENT_ID = "0192f0aa-5555-7000-8000-000000000001";
 const UPLOAD_ID = "0192f0aa-7777-7000-8000-000000000001";
 const SOURCE_ID = "0192f0aa-8888-7000-8000-000000000001";
 
@@ -57,13 +56,13 @@ const ME: Me = {
 };
 
 const STAFF: Me = { ...ME, role: "staff", permissions: ["agents:read"] };
-const AGENT = { id: AGENT_ID, name: "Front desk", status: "live" };
+/** An upload as the API sends it since D-689: knowledge is the business's, so no agent. */
+type UploadWire = KbUpload;
 
-function upload(over: Partial<KbUpload> = {}): KbUpload {
+function upload(over: Partial<UploadWire> = {}): UploadWire {
   return {
     id: UPLOAD_ID,
     source_id: SOURCE_ID,
-    agent_id: AGENT_ID,
     name: "Price list.pdf",
     source_kind: "pdf",
     ingest_status: "processed",
@@ -81,12 +80,11 @@ function upload(over: Partial<KbUpload> = {}): KbUpload {
 }
 
 async function renderKnowledge(
-  uploads: KbUpload[] | ReturnType<typeof problem>,
+  uploads: UploadWire[] | ReturnType<typeof problem>,
   over: Routes = {},
 ) {
   return await renderClientPage(<KnowledgePage />, {
     "/v1/me": ME,
-    "/v1/agents": [AGENT],
     "/v1/kb/sources": [],
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
     "/v1/kb/uploads": uploads,
@@ -215,15 +213,15 @@ afterEach(() => {
 });
 
 /**
- * Wait until the panel knows which agent it is teaching.
+ * Wait until the panel knows the person may add knowledge.
  *
- * The upload control is deliberately dead until `/v1/me` and `/v1/agents` have answered —
- * a file chosen before either would be posted with no agent, or by somebody the route
- * refuses. So every test that operates the control waits for the same thing a client
- * waits for.
+ * The upload control is dead until `/v1/me` has answered — a file chosen before it would
+ * be posted by somebody the route may refuse. It does NOT wait for an agent: knowledge is
+ * the business's (D-689). So every test that operates the control waits for the same thing
+ * a client waits for.
  */
 async function ready(): Promise<void> {
-  await screen.findByText(/Goes to Front desk/);
+  await waitFor(() => expect(filePicker().disabled).toBe(false));
 }
 
 /** The drop zone's real control — found the way assistive technology finds it. */
@@ -267,7 +265,7 @@ describe("the control the founder could not find", () => {
     expect(filePicker().accept).toContain(".pdf");
   });
 
-  it("sends the file as multipart, to the agent the form is filed against", async () => {
+  it("sends the file as multipart, to the business and to no one agent", async () => {
     await renderKnowledge([]);
     await ready();
     choose("prices.pdf");
@@ -276,7 +274,7 @@ describe("the control the founder could not find", () => {
     const sent = xhrCalls[0];
     expect(sent.method).toBe("POST");
     expect(sent.url).toContain("/v1/kb/uploads");
-    expect(sent.form?.get("agent_id")).toBe(AGENT_ID);
+    expect(sent.form?.has("agent_id")).toBe(false);
     expect((sent.form?.get("file") as File).name).toBe("prices.pdf");
     // The identity every other request carries — the point of `apiUpload` living in the
     // transport module rather than beside the screen.
@@ -382,6 +380,33 @@ describe("the control the founder could not find", () => {
     expect(container.textContent).not.toContain("kb_link_refused");
   });
 
+  it("adds a page to the business's knowledge without naming an agent", async () => {
+    const { calls } = await renderKnowledge([], {
+      "POST /v1/kb/links": upload({ source_kind: "url", name: "Prices page" }),
+    });
+
+    await ready();
+    fireEvent.change(screen.getByLabelText(/address of a page/i), {
+      target: { value: "https://example.in/prices" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add page/i }));
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "POST" && c.path === "/v1/kb/links")).toBe(true),
+    );
+    const posted = calls.find((c) => c.method === "POST" && c.path === "/v1/kb/links");
+    expect(JSON.parse(posted?.body ?? "{}")).toEqual({ url: "https://example.in/prices" });
+  });
+
+  it("opens the upload even when the account has no agent yet", async () => {
+    // What is added now reaches the first agent when it is published, so the door is open
+    // without one — and the screen never asks for the agent list to decide it.
+    const { calls } = await renderKnowledge([]);
+    await ready();
+    expect(filePicker().disabled).toBe(false);
+    expect(calls.some((c) => c.path === "/v1/agents")).toBe(false);
+  });
+
   it("answers an empty address in our words rather than the browser's", async () => {
     await renderKnowledge([]);
     await ready();
@@ -430,7 +455,7 @@ describe("what each state means to the person who sent the file", () => {
 
     await screen.findByText("Price list.pdf");
     expect(container.textContent).toContain("In use");
-    expect(container.textContent).toContain("Your agent is using this now");
+    expect(container.textContent).toContain("Your agents are using this now");
   });
 
   it("says we are reading a file that has just arrived, and how long that takes", async () => {
@@ -604,7 +629,7 @@ describe("text a machine read is confirmed by a person before a caller hears it"
 
     // The consequence, before the irreversible act (`components/confirmDialog.tsx`).
     const dialog = await screen.findByRole("dialog");
-    expect(dialog.textContent).toContain("your agent never sees it");
+    expect(dialog.textContent).toContain("your agents never see it");
     fireEvent.click(screen.getByRole("button", { name: /throw it away/i }));
 
     await waitFor(() =>
@@ -653,9 +678,9 @@ describe("a row that moves on its own", () => {
     );
 
     await screen.findByText("Price list.pdf");
-    expect(container.textContent).toContain("Going to your agent");
+    expect(container.textContent).toContain("Going to your agents");
     expect(container.textContent).toContain(
-      "Your agent is being given this now",
+      "Your agents are being given this now",
     );
   });
 
@@ -679,7 +704,7 @@ describe("a row that moves on its own", () => {
 
     await screen.findByText("Price list.pdf");
     await waitFor(() =>
-      expect(container.textContent).toContain("Your agent is using this now"),
+      expect(container.textContent).toContain("Your agents are using this now"),
     );
     // ONE item was watched, not the list. A whole-list poll on a four-second timer to see
     // one row change is the shape this deliberately is not.
@@ -728,7 +753,7 @@ describe("removing a document, and reading the original", () => {
 
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain(
-      "Your agent stops using this straight away",
+      "Your agents stop using this straight away",
     );
     fireEvent.click(screen.getByRole("button", { name: /remove it/i }));
 
@@ -809,7 +834,7 @@ describe("who may add, and what happens to what they add", () => {
     await screen.findByText(/Add a file or a web page/i);
     expect(filePicker().disabled).toBe(true);
     expect(container.textContent).toContain("nobody approves it first");
-    expect(container.textContent).not.toContain("reviewed before your agent starts using it");
+    expect(container.textContent).not.toContain("reviewed before your agents start using it");
     expect(container.textContent).toContain(
       "Only an account owner can add knowledge to this account.",
     );

@@ -239,10 +239,8 @@ def test_a_search_body_cannot_be_built_without_the_tenant_tag() -> None:
         RetrievalRequest(tenant_id=tenant_id, agent_id=agent_id, question="opening hours")
     )
     payload = search_payload(scope, question="opening hours", k=3)
-    assert payload[ASSUMED_CONTRACT.container_tags_key] == [
-        f"tenant:{tenant_id}",
-        f"agent:{agent_id}",
-    ]
+    # No agent narrowing: published knowledge is the tenant's (D-689).
+    assert payload[ASSUMED_CONTRACT.container_tags_key] == [f"tenant:{tenant_id}"]
     # The scope is a required positional of a type only the request can mint: there is no
     # string a call site could pass instead, and no default to fall through to.
     with pytest.raises(TypeError):

@@ -178,3 +178,44 @@ export function useTenantEngineNumbers(tenantId: string) {
     enabled: Boolean(tenantId),
   });
 }
+
+export type RecordedEngineNumber = components["schemas"]["RecordedEngineNumberOut"];
+export type RecordEngineNumber = components["schemas"]["RecordEngineNumberIn"];
+
+/**
+ * Record a number the voice platform holds for this client, from its own list (D-691).
+ *
+ * Only the number and how it is used are sent: whether it is rented, its handle and its
+ * series are read from the platform. A rented number is priced at the attested monthly
+ * rate and its first month is collected in the same request, and the platform is told
+ * which agent answers it.
+ */
+export function useRecordEngineNumber(tenantId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: RecordEngineNumber) =>
+      apiRequest<RecordedEngineNumber>(
+        adminSession(),
+        `/v1/admin/numbers/tenants/${tenantId}/engine/record`,
+        { method: "POST", body },
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["admin", "engine-numbers", tenantId] });
+      void client.invalidateQueries({ queryKey: ["admin", "number-costs"] });
+      void client.invalidateQueries({ queryKey: ["admin", "numbers"] });
+    },
+  });
+}
+
+export type EngineBusinessDetails = components["schemas"]["BusinessDetailsOut"];
+
+export const ENGINE_BUSINESS_DETAILS_PATH = "/v1/admin/numbers/engine/business-details";
+
+/** The voice platform's business-details application, read live. Read-only (D-691). */
+export function useEngineBusinessDetails() {
+  return useQuery({
+    queryKey: ["admin", "engine-business-details"],
+    queryFn: () =>
+      apiRequest<EngineBusinessDetails>(adminSession(), ENGINE_BUSINESS_DETAILS_PATH),
+  });
+}

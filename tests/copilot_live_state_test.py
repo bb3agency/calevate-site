@@ -131,7 +131,7 @@ async def test_the_block_reports_what_the_tenant_actually_has() -> None:
     # `readiness_rows` for the same tenant rather than against a hand-written list: a
     # literal here would be this test agreeing with a copy of the compliance rules, which
     # is the drift `context.py` refuses to introduce. A brand-new organisation really is
-    # blocked (no DLT Principal Entity, no accepted agreements), and the block says so.
+    # blocked (no verified KYC, no accepted agreements), and the block says so.
     async with tenant_session(tenant_id) as session:
         expected = tuple(
             row.rule
@@ -140,7 +140,7 @@ async def test_the_block_reports_what_the_tenant_actually_has() -> None:
             )
         )
     assert state.blocker_rules == expected
-    assert "pe_registration_missing" in expected, "a fresh org has not registered its PE"
+    assert "kyc_missing" in expected, "a fresh org has not verified its business"
     assert not state.partial
 
     rendered = context.render_live(state)

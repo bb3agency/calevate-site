@@ -159,6 +159,26 @@ async def test_the_record_route_takes_thinnest_only_on_thinnest(
         assert refused.status_code == 422
         assert refused.json()["type"].endswith("/number_provider_not_on_this_engine")
         monkeypatch.setattr(get_settings(), "engine", "thinnest")
+        # On its own engine the hand-typed number must be one the platform holds (D-691);
+        # it is brought, so it is not priced, and nothing answers it, so nothing is attached.
+        from apps.api.campaigns import engine_numbers
+        from calevate_shared.engine import ProvisionedNumber
+
+        async def _held(_workspace: object) -> list[ProvisionedNumber]:
+            return [
+                ProvisionedNumber(
+                    e164=body["e164"],
+                    provider="thinnest",
+                    engine_number_ref=body["e164"].lstrip("+"),
+                    engine_owned=False,
+                )
+            ]
+
+        async def _unchanged(*_a: object, **_k: object) -> str:
+            return "unchanged"
+
+        monkeypatch.setattr(engine_numbers, "vendor_numbers", _held)
+        monkeypatch.setattr(engine_numbers, "sync_number_attachment", _unchanged)
         recorded = await http.post(NUMBERS.format(tenant_id=tenant_id), json=body, headers=headers)
     assert recorded.status_code in (200, 201), recorded.text
     async with tenant_session(tenant_id) as session:

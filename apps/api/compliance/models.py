@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -772,6 +773,101 @@ class KycRecord(PKMixin, TimestampMixin, Base):
     # The holder name the aggregator attested. A NAME, deliberately without the number
     # it was read from, exactly as `signatory_name` is.
     verified_name: Mapped[str | None] = mapped_column(Text)
+    # D-692 (migration a7c3e91d5f20). Which path the client chose, and the business facts
+    # a numbering application needs whichever path it was.
+    kyc_path: Mapped[str | None] = mapped_column(Text)
+    legal_business_name: Mapped[str | None] = mapped_column(Text)
+    gst_registered: Mapped[bool | None]
+    gstin: Mapped[str | None] = mapped_column(Text)
+    # The admin override: DigiLocker required even after a manual review passed. Outbound
+    # stays blocked until `digilocker_verified_at` is later than `digilocker_required_at`.
+    digilocker_required: Mapped[bool] = mapped_column(server_default=text("false"))
+    digilocker_required_reason: Mapped[str | None] = mapped_column(Text)
+    digilocker_required_at: Mapped[datetime | None]
+    digilocker_required_by_admin_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="RESTRICT")
+    )
+    digilocker_verified_at: Mapped[datetime | None]
+    # Whether `verified_name` matches `signatory_name`; NULL until a DigiLocker run lands.
+    name_match: Mapped[bool | None]
+    # Which owner ID was used (`aadhaar` | `pan`) and that ID MASKED — never a full number;
+    # the migration's CHECK pins the two masked shapes exactly.
+    owner_id_type: Mapped[str | None] = mapped_column(Text)
+    owner_id_masked: Mapped[str | None] = mapped_column(Text)
+
+
+class KycDocument(PKMixin, TimestampMixin, Base):
+    """One uploaded KYC file's metadata (D-692; migration a7c3e91d5f20).
+
+    The bytes are in object storage under `kyc-documents/{tenant}/`. One CURRENT row per
+    `(tenant, slot)`; a replacement stamps `superseded_at` on the old row, so the file an
+    admin reviewed stays identifiable after the client uploads another. `purged_at` is set
+    when the bytes are deleted (an owner ID once its review is decided) while the row stays
+    as the record that it existed.
+    """
+
+    __tablename__ = "kyc_documents"
+    __table_args__ = (
+        CheckConstraint(
+            "(slot = 'business' AND kind IN ('gst', 'incorporation', 'udyam')) OR "
+            "(slot = 'owner_id' AND kind IN ('aadhaar', 'pan_card'))",
+            name="slot_and_kind",
+        ),
+        CheckConstraint(
+            "content_type IN ('application/pdf', 'image/jpeg', 'image/png')",
+            name="content_type_enum",
+        ),
+        CheckConstraint("size_bytes > 0 AND size_bytes <= 5242880", name="size_bounded"),
+        CheckConstraint("char_length(filename) BETWEEN 1 AND 99", name="filename_bounded"),
+        CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="sha256_hex"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    slot: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    content_type: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    uploaded_by_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    # The envelope the object's ciphertext was sealed under (`core/envelope.seal_bytes`).
+    payload_nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    dek_wrapped: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    dek_nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    kek_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    superseded_at: Mapped[datetime | None]
+    purged_at: Mapped[datetime | None]
+
+
+class OutboundPledgeAcceptance(PKMixin, Base):
+    """A client's acceptance of one version of the no-cold-calls pledge (D-692).
+
+    APPEND-ONLY (`APPEND_ONLY_TABLES`): re-accepting is a new row. The gate reads the
+    latest row's `pledge_version` against `compliance.outbound_pledge.PLEDGE_VERSION`.
+    """
+
+    __tablename__ = "outbound_pledge_acceptances"
+    __table_args__ = (
+        CheckConstraint("pledge_version > 0", name="version_positive"),
+        CheckConstraint("text_sha256 ~ '^[0-9a-f]{64}$'", name="text_sha256_hex"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    pledge_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    text_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    accepted_by_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    ip: Mapped[str | None] = mapped_column(Text)
+    accepted_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
 class KycVerificationRequest(PKMixin, TimestampMixin, Base):
@@ -816,6 +912,8 @@ class KycVerificationRequest(PKMixin, TimestampMixin, Base):
     # client.
     failure_reason: Mapped[str | None] = mapped_column(Text)
     completed_at: Mapped[datetime | None]
+    # Which DigiLocker record the client chose to share (D-692); NULL on older runs.
+    id_document: Mapped[str | None] = mapped_column(Text)
 
 
 class CarrierComplianceApplication(PKMixin, TimestampMixin, Base):

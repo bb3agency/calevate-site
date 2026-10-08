@@ -354,6 +354,22 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
     status: "Configured, not enabled. No merchant account has been confirmed.",
   },
   {
+    key: "identity-verification",
+    category: "Identity verification",
+    named: [],
+    does:
+      "Verifies a client business owner's Aadhaar or PAN through DigiLocker, when the " +
+      "client chooses that route instead of a manual review.",
+    receives:
+      "The owner's DigiLocker sign-in happens on the provider's page. We receive the " +
+      "name on the record, a masked Aadhaar or PAN and the provider's reference; we " +
+      "store no document or image from this route.",
+    location: "An Indian company; where it processes is not yet confirmed in writing.",
+    status:
+      "Configured, not enabled. It activates only when the provider's credentials are " +
+      "set; until then a client verifies by manual review.",
+  },
+  {
     key: "knowledge-search",
     category: "Knowledge search",
     named: [],

@@ -81,6 +81,32 @@ class BoundedByConstruction:
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     # --- bounded by a constant or a registry in this repo ---------------------------
+    # --- D-692 KYC: `documents` is the CURRENT file per slot, and there are two slots ----
+    "GET /v1/compliance/kyc": BoundedByConstruction(
+        by=(
+            "`documents` lists the current file per slot; `kyc_documents` has two slots "
+            "(`business`, `owner_id`, a CHECK) and `ux_kyc_documents_current_per_slot` allows "
+            "one current row each, so at most two entries."
+        )
+    ),
+    "PUT /v1/compliance/kyc/details": BoundedByConstruction(
+        by="the same two-slot `documents` list as `GET /v1/compliance/kyc`."
+    ),
+    "POST /v1/compliance/kyc/submit": BoundedByConstruction(
+        by="the same two-slot `documents` list as `GET /v1/compliance/kyc`."
+    ),
+    "POST /v1/compliance/kyc/verification/complete": BoundedByConstruction(
+        by="the same two-slot `documents` list as `GET /v1/compliance/kyc`."
+    ),
+    "GET /v1/admin/tenants/{tenant_id}/kyc": BoundedByConstruction(
+        by="the same two-slot `documents` list as `GET /v1/compliance/kyc`."
+    ),
+    "POST /v1/admin/tenants/{tenant_id}/kyc/review": BoundedByConstruction(
+        by="the same two-slot `documents` list as `GET /v1/compliance/kyc`."
+    ),
+    "POST /v1/admin/tenants/{tenant_id}/kyc/digilocker-requirement": BoundedByConstruction(
+        by="the same two-slot `documents` list as `GET /v1/compliance/kyc`."
+    ),
     "GET /v1/ops/engine-minute-prices": BoundedByConstruction(
         by=(
             "one row per engine in `billing/engine_minutes.ATTESTED_MINUTE_ENGINES` times "

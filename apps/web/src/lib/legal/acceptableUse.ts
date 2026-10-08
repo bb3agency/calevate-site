@@ -60,16 +60,17 @@ export const ACCEPTABLE_USE: LegalDocument = {
         {
           kind: "callout",
           tone: "warning",
-          title: "The registrations are yours, and the liability follows them",
+          title: "Outbound calls are for people who expect them",
           text:
-            "Under India's commercial-communications framework, the business on whose " +
-            "behalf a call is made is the Principal Entity (PE) and is registered as " +
-            "such. Calevate is the registered Telemarketer (TM) linked to your " +
-            "registration. That is not an administrative detail: the calls go out under " +
-            "your identity, on templates registered in your name, and enforcement — " +
-            "warnings, usage caps, suspension of your telecom resources, blacklisting — " +
-            "lands on you. We build the gates and refuse the launch when a gate is not " +
-            "green. We cannot take the obligation off you and we will not pretend to.",
+            "Calevate is not a registered telemarketer and does not register you as a " +
+            "Principal Entity. Outbound calling is offered only on the basis of the " +
+            "no-cold-calls pledge in section 2.1: your agents call people who already deal " +
+            "with you or asked to be called, from a number held in your business's name. " +
+            "Calls go out under your identity, and enforcement against unsolicited " +
+            "commercial calls — warnings, usage caps, suspension or disconnection of " +
+            "telecom resources, blacklisting — lands on you. We build the gates and refuse " +
+            "the launch when a gate is not green. We cannot take the obligation off you and " +
+            "we will not pretend to.",
         },
         {
           kind: "para",
@@ -88,7 +89,7 @@ export const ACCEPTABLE_USE: LegalDocument = {
       subsections: [
         {
           id: "registrations",
-          heading: "2.1 Registrations — three of them, and none implies another",
+          heading: "2.1 Verification and the no-cold-calls pledge",
           blocks: [
             {
               kind: "para",
@@ -121,35 +122,29 @@ export const ACCEPTABLE_USE: LegalDocument = {
             {
               kind: "para",
               text:
-                "A campaign will not launch until all of these exist and are active. The " +
-                "product checks each one separately and tells you which is missing.",
+                "A campaign will not launch until both of these are in place. The product " +
+                "checks each one separately and tells you which is missing.",
             },
             {
               kind: "list",
               ordered: true,
               items: [
-                "Our Telemarketer registration. Ours to obtain, and until it is active " +
-                  "nobody on the platform dials out — the refusal is the same for every " +
-                  "client at once and there is nothing at your end that clears it. When " +
-                  "you need our registration number, to name Calevate as your " +
-                  "telemarketer on the registrar's portal, your dashboard shows it on " +
-                  "the campaign registration screen.",
-                "Your Principal Entity registration, and the active link between it and " +
-                  "our Telemarketer registration. Yours to obtain; we run the process for " +
-                  "you as part of onboarding. We check three things in this order: that " +
-                  "your registration exists, that it is active, and that it authorises " +
-                  "Calevate to dial for you — an authorisation cannot be active for a " +
-                  "registration that does not exist.",
-                "The number you are calling from, and the header registered against it. " +
-                  "The connection must be one you hold in " +
-                  "your own name with an Indian operator — you are the subscriber of " +
-                  "record for it, not us, and we neither sell nor rent telephone " +
-                  "numbers. A header registered to somebody else, or registered for one " +
-                  "class of message and used for another, is the same category of breach " +
-                  "as the number-series misuse in section 2.2. You also need an approved " +
-                  "voice template for the kind of campaign you are running: we check " +
-                  "that a template is attached, that the registrar has approved it, and " +
-                  "that its category matches the campaign's.",
+                "A verified business. You verify your business once, either by uploading " +
+                  "its registration document (a GST, incorporation or Udyam certificate) " +
+                  "and an identity document of the owner (a PAN card, or an Aadhaar card " +
+                  "with all but the last four digits masked) for our team to review, or by " +
+                  "confirming the owner's Aadhaar or PAN through DigiLocker. We may ask you " +
+                  "to complete the DigiLocker route even after a manual review; until you " +
+                  "do, outbound calls stay paused.",
+                "The no-cold-calls pledge, accepted by the account owner in its current " +
+                  "version. In it you confirm that your agents will call only people who " +
+                  "already have a relationship with you — your existing customers, people " +
+                  "who have enquired with you, and people who have asked you to call them; " +
+                  "that you will never call numbers from a purchased, rented, scraped or " +
+                  "otherwise acquired contact list; that you will stop calling anyone who " +
+                  "asks you to, straight away; and that your outbound calling will be " +
+                  "suspended if you break it. When we change the pledge you accept the new " +
+                  "version before your next outbound call.",
               ],
             },
             {
@@ -167,12 +162,11 @@ export const ACCEPTABLE_USE: LegalDocument = {
             {
               kind: "para",
               text:
-                "Promotional calls go out on a 140-series number. Service calls go out " +
-                "on the 160 series, or from an ordinary ten-digit number if you have " +
-                "first confirmed that your business is the sender of calls from it — the " +
-                "last paragraph of this section says how. You classify each campaign, " +
-                "and the product refuses a campaign with no number chosen or with a " +
-                "number whose series does not match what the campaign actually is.",
+                "You classify each campaign as service or promotional, and the " +
+                "classification must match what the call actually is. Calls go out from " +
+                "an ordinary ten-digit number held in your business's name and bound to " +
+                "the agent placing them; the product refuses a campaign whose number is " +
+                "not bound to its agent.",
             },
             {
               kind: "para",
@@ -192,35 +186,20 @@ export const ACCEPTABLE_USE: LegalDocument = {
             {
               kind: "callout",
               tone: "warning",
-              title: "Misclassification is the most common way to lose a registration",
+              title: "Misclassification is a breach of the pledge",
               text:
                 "Labelling a promotional campaign as a service campaign to reach people " +
                 "who have opted out of promotions is not a shortcut, it is the specific abuse " +
-                "the number series exists to prevent, and it is the failure mode " +
-                "registrations are revoked for. Do not do it. If you do it, we will stop " +
+                "the do-not-disturb rules exist to prevent, and it is the kind of call that " +
+                "gets a number disconnected. Do not do it. If you do it, we will stop " +
                 "your account.",
             },
             {
               kind: "para",
               text:
-                "Service calls may not carry a sales message. An agent on a service or " +
-                "160-series line is topic-fenced and the regression suite asserts that it " +
-                "refuses promotional turns. Do not configure around that.",
-            },
-            {
-              kind: "para",
-              text:
-                "Commercial voice calls to a customer are meant to come from a registered " +
-                "140 or 160 series number. An ordinary ten-digit number is not one, so a " +
-                "campaign that dials from an ordinary number is refused until somebody " +
-                "with owner access on your account confirms, on that number's own " +
-                "settings page, that your business is the sender of those calls and " +
-                "accepts responsibility for them. Nobody at Calevate can give that " +
-                "confirmation for you, even while helping you with your account, because " +
-                "the obligation is the sender's and you are the sender. It covers service " +
-                "campaigns only — no confirmation of any kind makes a promotional call " +
-                "from an ordinary number acceptable — and you may withdraw it whenever " +
-                "you like, which stops those campaigns from the moment you do.",
+                "Service calls may not carry a sales message. An agent on a service line " +
+                "is topic-fenced and the regression suite asserts that it refuses " +
+                "promotional turns. Do not configure around that.",
             },
           ],
         },
@@ -361,7 +340,7 @@ export const ACCEPTABLE_USE: LegalDocument = {
               text:
                 "The decision about whether your calls need to announce either thing is " +
                 "yours, because the obligation is yours. You are the Data Fiduciary for " +
-                "the conversation and the registered Principal Entity for the call. Indian " +
+                "the conversation and the sender of the call. Indian " +
                 "courts have treated recording a call without the other party's knowledge " +
                 "as an interference with the right to privacy, a draft TRAI amendment on " +
                 "commercial communications is under consultation, and if you call anyone " +
@@ -563,8 +542,8 @@ export const ACCEPTABLE_USE: LegalDocument = {
               "into a prompt, without a basis for doing so — that content is answered from " +
               "on live calls and is not searched by an erasure request.",
             "Reselling access, or operating the service on behalf of a third party, " +
-              "without our written agreement — the registrations are per Principal Entity " +
-              "and a call placed for somebody else's business under your registration is " +
+              "without our written agreement — verification and the pledge are per " +
+              "business, and a call placed for somebody else's business under yours is " +
               "a breach of the telecom rules as well as of this policy.",
             "Placing calls to numbers outside India, or using the service for a business " +
               "not established in India. Calevate is India-only (section 1); the product " +

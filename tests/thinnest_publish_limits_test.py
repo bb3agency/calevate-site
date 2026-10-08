@@ -304,7 +304,7 @@ async def test_publish_registers_the_agents_results_webhook(
 
     seen: list[tuple[str, str, bool]] = []
 
-    async def _ensure(session: Any, *, engine: str, engine_agent_ref: str) -> None:
+    async def _ensure(session: Any, *, engine: str, engine_agent_ref: str, **_kw: Any) -> None:
         # The route row the endpoint's secret is stored on must already exist.
         row = (
             await session.execute(
@@ -337,7 +337,7 @@ async def test_a_failed_webhook_registration_fails_the_publish_and_reclaims_the_
 ) -> None:
     from apps.api.agents import service
 
-    async def _refuse(session: Any, *, engine: str, engine_agent_ref: str) -> None:
+    async def _refuse(session: Any, *, engine: str, engine_agent_ref: str, **_kw: Any) -> None:
         raise ProblemError(
             kind="dependency", code="engine_unavailable", title="down", detail="down"
         )
@@ -367,10 +367,10 @@ async def test_failed_in_call_actions_fail_the_publish_and_reclaim_the_agent(
     so a failed action registration fails the publish like a failed webhook does."""
     from apps.api.agents import service
 
-    async def _ok(session: Any, *, engine: str, engine_agent_ref: str) -> None:
+    async def _ok(session: Any, *, engine: str, engine_agent_ref: str, **_kw: Any) -> None:
         return None
 
-    async def _refuse(session: Any, *, engine: str, engine_agent_ref: str) -> None:
+    async def _refuse(session: Any, *, engine: str, engine_agent_ref: str, **_kw: Any) -> None:
         raise ProblemError(
             kind="validation", code="engine_actions_url_not_public", title="no", detail="no"
         )

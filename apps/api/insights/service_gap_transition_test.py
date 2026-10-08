@@ -101,7 +101,10 @@ async def test_a_second_teach_is_refused_and_seeds_no_second_draft() -> None:
                 await session.execute(
                     # Every status: an owner's teach is approved on submission (D-658), so
                     # the duplicate would be a live source, not one waiting for review.
-                    text("SELECT count(*) FROM kb_sources WHERE agent_id = :a"),
+                    text(
+                        "SELECT count(*) FROM kb_sources WHERE tenant_id = "
+                        "(SELECT tenant_id FROM agents WHERE id = :a)"
+                    ),
                     {"a": agent_id},
                 )
             ).scalar_one()

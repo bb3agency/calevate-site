@@ -15,26 +15,14 @@ again. Doctrine borrowed wholesale from
 that is blocked OUTSIDE this repository is a dated, argued assertion, not an xfail
 waiting to flip on a vendor's schedule.
 
-**2. Two refusals that mean the same disease and take different cures.**
-`runbooks/kb-out-of-sync.md` opens on exactly this — "the wrong cure leaves the agent
-quoting the old prices" — and it rests on a claim no test made its SUBJECT: that
-`_require_addressable` runs BEFORE `_reconcile_engine_state`, so when both conditions hold
-the operator is handed the more specific diagnosis. Get it backwards and an operator whose
-only problem is a missing handle is sent to "reconcile this agent's knowledge on the voice
-platform" — i.e. to match documents by content and delete one, with no handle to check
-their answer against, which runbook §A step 3 says is where a live knowledge base gets
-deleted by mistake.
-
-Measured honestly, because the sabotage was run: swapping the two calls DOES also redden
-`kb_lifecycle_test::test_a_live_version_we_cannot_address_blocks_the_publish`, and by
-accident rather than by design — erasing a handle is exactly what makes the engine's copy
-of that same version unaccounted, so both conditions were already true in that fixture
-without it saying so. That coincidence is not a guarantee: it disappears the moment
-someone reproduces the missing handle by any other route, and it asserts only the CODE,
-never that the two refusals carry different advice. The tests below make the ordering the
-subject — a distinct, separately attached document supplies the second condition — and
-assert the remediations do not converge, which is the property the runbook actually
-depends on and the one nothing else looks at.
+**2. One refusal, and the state that used to have a second.** `runbooks/kb-out-of-sync.md`
+describes `kb_engine_out_of_sync`: the engine holds a copy no row of ours mentions. A live
+version with no recorded handle used to be refused separately (`kb_engine_ref_unknown`);
+since D-689 knowledge is the client's and is one copy per agent, so a live version with no
+claim on an agent is one that agent has not been given yet, and a copy the engine still
+holds without a claim is exactly the unaccounted case. The tests below hold both halves:
+that state is diagnosed as out of sync, and the remediation sends the operator to
+reconcile rather than to withdraw a copy by title.
 
 Hard rule 6: knowledge sources here are invented clinic prices. No phone number appears
 in a payload or an assertion message.
@@ -90,7 +78,6 @@ async def test_a_submission_we_cannot_read_is_refused_by_name(unsupported: str) 
             await kb_service.submit_source(
                 session,
                 tenant_id=tenant_id,
-                agent_id=agent_id,
                 name="Fees",
                 body="A consultation costs 500 rupees and is payable at reception.",
                 kind=unsupported,
@@ -104,7 +91,11 @@ async def test_a_submission_we_cannot_read_is_refused_by_name(unsupported: str) 
     async with tenant_session(tenant_id) as session:
         rows = (
             await session.execute(
-                text("SELECT count(*) FROM kb_sources WHERE agent_id = :a"), {"a": agent_id}
+                text(
+                    "SELECT count(*) FROM kb_sources WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :a)"
+                ),
+                {"a": agent_id},
             )
         ).scalar()
     assert rows == 0, "a refused submission must leave no row behind to be approved later"
@@ -113,12 +104,11 @@ async def test_a_submission_we_cannot_read_is_refused_by_name(unsupported: str) 
 async def test_text_is_still_accepted_and_still_chunks() -> None:
     """The other direction of the same guard. Without it the refusal above is satisfied
     by an endpoint that refuses everything, which is a different outage."""
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Fees",
             body="A consultation costs 500 rupees and is payable at reception.",
         )
@@ -218,40 +208,20 @@ async def _forget_the_handle(tenant_id: uuid.UUID, agent_id: uuid.UUID, name: st
         await session.execute(
             text(
                 "DELETE FROM engine_kb_routes "
-                "WHERE source_id IN (SELECT id FROM kb_sources WHERE agent_id = :a "
+                "WHERE source_id IN (SELECT id FROM kb_sources WHERE tenant_id = "
+                "(SELECT tenant_id FROM agents WHERE id = :a) "
                 "AND name = :n AND is_active = true)"
             ),
             {"a": agent_id, "n": name},
         )
 
 
-async def test_when_both_diagnoses_hold_the_operator_is_handed_the_specific_one() -> None:
-    """The runbook's first instruction, asserted.
-
-    Both conditions are true at once here, which is not a contrived state — it is what a
-    commit failure on an agent that also has a pre-handle version leaves behind:
-
-      * a live version of this named source with NO recorded handle ⇒ `_require_addressable`
-      * a document on the engine that no row of ours mentions   ⇒ `_reconcile_engine_state`
-
-    They take DIFFERENT cures. `kb_engine_ref_unknown` sends an operator to withdraw one
-    stale copy they identify by title and content; `kb_engine_out_of_sync` sends them to
-    reconcile a whole agent. Handing over the second when the first is true means matching
-    documents by content with no handle to check the answer against — and runbook §A step
-    3 is explicit that a wrong deletion there takes down a live knowledge base.
-
-    So the ORDER of the two guards is a product decision, not an implementation detail,
-    and this is the only test that would notice it being swapped.
-    """
+async def test_a_live_version_whose_claim_is_gone_is_diagnosed_as_out_of_sync() -> None:
+    """The state `kb_engine_ref_unknown` used to name: the live version's claim is gone and
+    the engine still holds its copy. That copy is unaccounted, so the publish refuses with
+    `kb_engine_out_of_sync` and nothing moves."""
     tenant_id, agent_id = await _tenant_with_published_agent()
     await _publish_new_version(tenant_id, agent_id, "Fees", "A consultation costs 500 rupees.")
-
-    # Condition 2: something on the engine we cannot account for.
-    ref = await _engine_ref(tenant_id, agent_id)
-    await get_engine().attach_kb(
-        ref, KBSourceRef(kb_id=str(uuid.uuid4()), title="Hand-attached", text="Parking is free.")
-    )
-    # Condition 1: the live version's handle is gone.
     await _forget_the_handle(tenant_id, agent_id, "Fees")
 
     v2 = await _submit_and_approve(tenant_id, agent_id, "Fees", "A consultation costs 800 rupees.")
@@ -259,30 +229,14 @@ async def test_when_both_diagnoses_hold_the_operator_is_handed_the_specific_one(
     with pytest.raises(ProblemError) as raised:
         await _publish(tenant_id, v2)
 
-    assert raised.value.code == "kb_engine_ref_unknown", (
-        f"both diagnoses held and the operator was handed {raised.value.code!r}. "
-        "`_require_addressable` must run before `_reconcile_engine_state`: the missing "
-        "handle is the specific finding, and the reconcile remediation sent for the "
-        "general one has an operator deleting a document they matched by eye"
-    )
-    # The remediation must be the SPECIFIC cure, not the general one. Two refusals whose
-    # advice is interchangeable are one refusal with two names.
-    assert "withdraw the stale copy" in (raised.value.remediation or "")
-    assert "reconcile" not in (raised.value.remediation or "")
-
-    # And nothing moved: the client's agent is still answering from approved text.
+    assert raised.value.code == "kb_engine_out_of_sync"
+    assert "reconcile" in (raised.value.remediation or "")
     assert await _live_versions(tenant_id, agent_id, "Fees") == [1]
 
 
-async def test_the_two_refusals_do_not_share_a_cure() -> None:
-    """The contrast that makes the assertion above mean something.
-
-    With the handle intact, the same unaccounted document produces the OTHER refusal and
-    the OTHER remediation. Without this, `test_when_both_diagnoses_hold...` would pass
-    against an implementation that had collapsed both into one message — which is what
-    this path looked like before D-41, and is the state the runbook's opening line exists
-    to prevent.
-    """
+async def test_a_hand_attached_copy_refuses_the_publish_with_the_reconcile_cure() -> None:
+    """With every claim intact, a document somebody attached by hand is unaccounted and the
+    publish refuses with the reconcile remediation, leaving the live version as it was."""
     tenant_id, agent_id = await _tenant_with_published_agent()
     await _publish_new_version(tenant_id, agent_id, "Fees", "A consultation costs 500 rupees.")
     ref = await _engine_ref(tenant_id, agent_id)

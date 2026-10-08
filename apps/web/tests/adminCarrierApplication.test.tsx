@@ -6,6 +6,7 @@ import TenantKycPage from "@/app/admin/tenants/[tenantId]/kyc/page";
 import { TenantSectionNav } from "@/app/admin/tenants/[tenantId]/TenantShell";
 import { carrierApplicationPath, type TenantSummary } from "@/lib/api/admin";
 import { KYC_PATH, type CarrierApplication, type KycRecord } from "@/lib/api/kyc";
+import type { AdminKyc } from "@/lib/api/kycReview";
 
 import { problem, type Routes } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
@@ -91,6 +92,17 @@ function kyc(): KycRecord {
     verification_reference: null,
     verified_name: null,
     self_verification_available: false,
+    kyc_path: null,
+    legal_business_name: null,
+    gst_registered: null,
+    gstin: null,
+    owner_id_type: null,
+    owner_id_masked: null,
+    name_match: null,
+    digilocker_required: false,
+    digilocker_required_reason: null,
+    digilocker_outstanding: false,
+    documents: [],
   };
 }
 
@@ -112,12 +124,47 @@ function application(over: Partial<CarrierApplication> = {}): CarrierApplication
   };
 }
 
+/** The D-692 review panel's own read, mounted above the panel this file is about. */
+function adminKyc(): AdminKyc {
+  return {
+    tenant_id: TENANT,
+    recorded: false,
+    status: null,
+    kyc_path: null,
+    entity_type: null,
+    legal_business_name: null,
+    gst_registered: null,
+    gstin: null,
+    owner_name: null,
+    owner_id_type: null,
+    owner_id_masked: null,
+    verified_name: null,
+    name_match: null,
+    verification_provider: null,
+    verification_reference: null,
+    rejection_reason: null,
+    submitted_at: null,
+    verified_at: null,
+    is_verified: false,
+    digilocker_required: false,
+    digilocker_required_reason: null,
+    digilocker_required_at: null,
+    digilocker_verified_at: null,
+    digilocker_outstanding: false,
+    documents: [],
+    pledge_accepted_version: null,
+    pledge_accepted_at: null,
+    pledge_current_version: 1,
+  };
+}
+
 function render(routes: Partial<Routes> = {}) {
   return renderAdminRoute(<TenantKycPage params={routeParams({ tenantId: TENANT })} />, {
     [TENANT_PATH]: tenant(),
     [ADMIN_ME_PATH]: ME,
     [KYC_PATH]: kyc(),
     [CARRIER_PATH]: application(),
+    [`/v1/admin/tenants/${TENANT}/kyc`]: adminKyc(),
     ...routes,
   });
 }

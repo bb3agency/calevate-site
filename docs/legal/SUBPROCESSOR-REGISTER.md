@@ -52,6 +52,7 @@ are comma-separated keys; aliases are comma-separated words that would identify 
 | Resend | Transactional email | email | no | Resend |
 | Sentry | Error and performance monitoring | monitoring | no | Sentry |
 | Razorpay | Card, UPI and netbanking payments | payments | yes | Razorpay |
+| Cashfree | DigiLocker verification of a client business owner's Aadhaar or PAN (D-692); configured, not enabled until its keys are set | identity-verification | no | Cashfree |
 | Supermemory | Knowledge store and search outside the call (configured, not selected) | knowledge-search | no | Supermemory |
 | Cohere | Text embeddings (contingency) | knowledge-search | no | Cohere |
 | Meta | WhatsApp Business messages | messaging | yes | Meta |
@@ -189,13 +190,13 @@ category rows say the same facts without the names. Evidence classes follow hard
 - EVIDENCE: VENDOR-PUBLISHED, RELAYED (`docs/evidence/cartesia-tts-verification-2026-09-06.md`
   §A5); cartesia.ai is egress-blocked here. Certification claims recorded there are
   marketing lines, not certificates, and are not repeated publicly.
-- Path on the live deployment (D-687, 8 Oct 2026): the hosted voice platform sends the
-  agent's words to Cartesia on OUR Cartesia key, installed in one shared ThinnestAI
-  customer workspace with voice-only BYOK on (`thinnest-findings/mirror/snapshots/
+- Path on the live deployment (D-687, D-688, 8 Oct 2026): the hosted voice platform sends a
+  Studio agent's words to Cartesia on OUR Cartesia key, installed in our ThinnestAI developer
+  workspace with voice-only BYOK on and followed only by agents set to it (`thinnest-findings/mirror/snapshots/
   2026-10-07b/pages/api-reference/bring-your-own-keys.md:13-24`). Cartesia bills our
   account directly; ThinnestAI holds the key encrypted (`:77-78`). On `ENGINE=pipecat` our
   own call program calls Cartesia directly. Same receipt either way.
-- Status: configured, not enabled. Nothing is sent until the Studio workspace exists with
+- Status: configured, not enabled. Nothing is sent until Studio voices are switched on with
   our key installed and a client publishes a Studio agent (OPERATIONS gate T-12).
 
 ### Gnani (text-to-speech, Clear)

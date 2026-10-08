@@ -364,6 +364,10 @@ function Certificate({ proof, requestId }: { proof: ErasureProof; requestId: str
 // honest "not yet confirmed" for any value we have not worded — never the raw code.
 const ENGINE_DELETION_COPY: Record<string, string> = {
   unconfirmed_pending_vendor_api: "deletion requested, not yet confirmed",
+  not_deleted_expires_with_plan_retention:
+    "not deleted at the voice platform; expires with its plan retention",
+  contact_erasure_requested_in_client_workspace:
+    "erasure requested in this business's own workspace at the voice platform",
 };
 
 function engineDeletionCopy(status: string): string {

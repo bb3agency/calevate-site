@@ -19,13 +19,11 @@ Checks, in the order that fails cheapest-first:
    Checked for `self_serve`/`trial` only: a managed client is invoiced against a
    retainer, and blocking their calls over a credit balance they never bought would be
    an outage caused by a concept that does not apply to them.
-2c. **Subscriber KYC** — a self-serve tenant whose business identity we have not
-   verified cannot dial (R-11's last mitigation; SURFACES §2b, FLOWS §2). Also
-   `self_serve`/`trial` only, and `apps/api/compliance/kyc.py` argues at length why
-   that is the right line and where the residual risk is: a managed tenant's identity
-   was verified out of band before we bought their number, and is already gated at
-   dial time by `pe_registration_*`. Provisioning a NEW number is gated for every
-   tier — that gate is in `campaigns/provisioning.py` and has no tier test at all.
+2c. **Subscriber KYC and the no-cold-calls pledge (D-692)** — every tenant, whatever its
+   tier, needs a verified KYC record (and a completed DigiLocker run when an admin has
+   required one) and an accepted, current pledge before it may dial. These REPLACE the
+   client's DLT entity chain and the bound DLT-registered number as the outbound
+   precondition; `docs/ROADMAP.md` D-692 records why and the open counsel questions.
 3. **Calling hours** — the PLATFORM window, 09:00-21:00 IST (SEC-COMP §2.5). India is
    one timezone, so there is nothing per-tenant to resolve; a campaign may NARROW its
    own window, and because that is a campaign fact rather than a number fact it is
@@ -40,11 +38,11 @@ Checks, in the order that fails cheapest-first:
    scoped to that verdict alone: ordinary drift does not stop a client's calling.
 6. **India-only destination** — a non-`+91` number is out of scope for the freeze
    (LEGAL-OPS-PLAYBOOK §14/§18) and refused before a line is seized (`destination_not_india`).
-7. **The DLT regulatory layer** — Calevate's TM registration and the client's PE-TM
-   chain (`outbound_entity_blockers`), and the agent's own DLT-registered header
-   (`agent_outbound_number_blocker`). This is the layer the campaign gate always had and
-   the single-lead / instant-callback paths did not until §10.8 made a requested callback
-   regulated outbound. VOICE only — skipped for WhatsApp via `dlt_governed=False`.
+7. **The DLT regulatory layer — INACTIVE under D-692.** Calevate's TM registration, the
+   client's PE-TM chain (`registration.outbound_entity_blockers`) and the agent's own
+   DLT-registered header (`agents.service.agent_outbound_number_blocker`) are no longer
+   asked by this gate. The functions and the data stay (hard rule 8); KYC and the pledge
+   (2c) carry the outbound precondition instead.
 7b. **The sender's advance autodialer notice** — TCCCPR Regulation 4 requires the Sender
    to tell its Originating Access Provider, in writing and in advance, that it uses an
    auto dialler and what for (`autodialer_notice_blocker`). Every call this gate clears
@@ -77,7 +75,7 @@ from apps.api.agents.reconciliation import (
     TRUTHFUL_ANSWER_MISSING,
     TRUTHFUL_ANSWER_VERDICT_TTL_S,
 )
-from apps.api.agents.service import agent_outbound_number_blocker, agent_registered_numbers
+from apps.api.agents.service import agent_registered_numbers
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
 from apps.api.billing.trials import trial_billing_active
@@ -91,18 +89,24 @@ from apps.api.compliance.carrier_application import (
     read_carrier_application,
 )
 from apps.api.compliance.dnc_recall import enqueue_dnc_recall
+from apps.api.compliance.engine_dnc import queue_engine_dnc_push
 from apps.api.compliance.first_campaign import (
     FIRST_CAMPAIGN_REVIEW_PENDING_REASON,
     first_campaign_rejected_reason,
     read_first_campaign_review,
 )
-from apps.api.compliance.kyc import KYC_MISSING_REASON, kyc_not_verified_reason, read_kyc
+from apps.api.compliance.kyc import (
+    DIGILOCKER_REQUIRED_REASON,
+    KYC_MISSING_REASON,
+    kyc_not_verified_reason,
+    read_kyc,
+)
 from apps.api.compliance.models import (
     CALLBACK_SUPPRESSED_REASON,
     CONSENT_STATUSES,
     DNC_REMOVABLE_SOURCES,
 )
-from apps.api.compliance.registration import outbound_entity_blockers
+from apps.api.compliance.outbound_pledge import pledge_blocker
 from apps.api.core.alerting import record_compliance_block
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
@@ -464,15 +468,12 @@ async def spend_capped(session: AsyncSession, *, tenant_id: UUID) -> bool:
 #
 #   * **`PREPAID_TIERS` — does this account pay from a wallet?** D-521 made that the
 #     default, so it now also contains `prepaid`;
-#   * **`SELF_SERVE_TIERS` — did a STRANGER open this account?** That is what the three
-#     predicates below are for. `kyc_blocker` exists because on the self-serve motion the
-#     applicant is unknown to us (D-47: "a managed tenant is not anonymous — we
-#     contracted with them"), and `first_campaign_hold_blocker` is R-11's manual review of
-#     an account nobody vetted. `prepaid` is a tier an OPERATOR types into the wizard for
-#     a client they have met, so it does NOT join this set: had it, the migration that
-#     moved every existing tenant onto prepaid would have refused every one of their dials
-#     with `kyc_missing` and held every campaign for review — a platform-wide outage
-#     dressed as a billing change.
+#   * **`SELF_SERVE_TIERS` — did a STRANGER open this account?** That is what
+#     `first_campaign_hold_blocker` (R-11's manual review of an account nobody vetted)
+#     asks. `kyc_blocker` asked it too until D-692 made KYC an every-tier outbound
+#     precondition. `prepaid` is a tier an OPERATOR types into the wizard for a client
+#     they have met, so it does NOT join this set: had it, the migration that moved every
+#     existing tenant onto prepaid would have held every campaign for review.
 #
 # Spelled literally rather than derived from `PREPAID_TIERS` because it is now a
 # DIFFERENT fact, not a copy of one. What the derivation was protecting — that the wallet
@@ -558,18 +559,30 @@ async def kyc_blocker(session: AsyncSession, *, tenant_id: UUID) -> tuple[str, s
     is: `campaigns.service.launch_blockers` asks the same question, and a campaign that
     launches "ready" and is then refused on every dial is the shape that produces.
 
-    Self-serve and trial only. The argument for that line — including why a tier-blind
-    DIAL gate would block every existing client without closing the risk, while the
-    tier-blind PROVISIONING gate does close it — is in `apps/api/compliance/kyc.py`.
+    EVERY TIER (D-692): with the client DLT requirement gone, a managed account's identity
+    is no longer proven by a Principal Entity registration, so this is what proves it.
+    The third rule is the admin's "require DigiLocker" override, which holds outbound
+    until a run completes after the requirement was set (`KycRecord.digilocker_outstanding`).
     """
-    if await plan_tier_of(session, tenant_id) not in SELF_SERVE_TIERS:
-        return None
     record = await read_kyc(session, tenant_id=tenant_id)
-    if not record.recorded:
+    if not record.recorded or record.status == "not_started":
         return ("kyc_missing", KYC_MISSING_REASON)
     if not record.is_verified:
         return ("kyc_not_verified", kyc_not_verified_reason(str(record.status)))
+    if record.digilocker_outstanding:
+        return ("kyc_digilocker_required", DIGILOCKER_REQUIRED_REASON)
     return None
+
+
+async def outbound_pledge_blocker(
+    session: AsyncSession, *, tenant_id: UUID
+) -> tuple[str, str] | None:
+    """`(rule, reason)` if the no-cold-calls pledge blocks this tenant's outbound (D-692).
+
+    Re-exported from `compliance.outbound_pledge` so every gate composes it from this
+    module, beside `kyc_blocker`, the way the launch preview and the dial gate already do.
+    """
+    return await pledge_blocker(session, tenant_id=tenant_id)
 
 
 async def carrier_application_blocker(
@@ -846,12 +859,11 @@ async def check_dispatch(
     disabled — SURFACES §2b asks for blocked features to be visibly explained instead
     of silently missing.
 
-    `dlt_governed` selects the LEGAL REGIME, not a strength. The DLT/TCCCPR world — a
-    live PE-TM chain and a registered 140/160 header — governs VOICE telemarketing and
-    is the default. WhatsApp is a DIFFERENT regime entirely (Meta BSP / WABA, opt-in in
-    `whatsapp_alert_optin_ledger`; LEGAL-OPS-PLAYBOOK §11 is explicit it is "Not
-    DLT/TCCCPR"), so the escalation path passes `dlt_governed=False` to skip the two DLT
-    checks that do not describe it — it has no 140/160 number and no PE-TM chain to have.
+    `dlt_governed` selects the LEGAL REGIME, not a strength. The TCCCPR world governs
+    VOICE calling and is the default; since D-692 the only check it still selects is the
+    Regulation 4 autodialer notice. WhatsApp is a DIFFERENT regime entirely (Meta BSP /
+    WABA, opt-in in `whatsapp_alert_optin_ledger`; LEGAL-OPS-PLAYBOOK §11 is explicit it is
+    "Not DLT/TCCCPR"), so the escalation path passes `dlt_governed=False`.
     It is NOT a bypass of hard rule 5: every other rule (halt, account, agent, KYC,
     money, hours, DNC, consent, and the India-only destination) still runs, and the flag
     defaults to the stricter voice regime so a forgotten caller gets MORE checks, not
@@ -958,6 +970,12 @@ async def check_dispatch(
     blocked_on_kyc = await kyc_blocker(session, tenant_id=tenant_id)
     if blocked_on_kyc is not None:
         rule, reason = blocked_on_kyc
+        return DispatchDecision(allowed=False, rule=rule, reason=reason)
+    # The no-cold-calls pledge (D-692), beside KYC because together they replace the DLT
+    # entity chain as "who may dial", and before the money for KYC's reason.
+    unpledged = await outbound_pledge_blocker(session, tenant_id=tenant_id)
+    if unpledged is not None:
+        rule, reason = unpledged
         return DispatchDecision(allowed=False, rule=rule, reason=reason)
 
     # THE AGREEMENTS, and they sit HERE — after "who are you" and before the money — for
@@ -1122,46 +1140,18 @@ async def check_dispatch(
                 ),
             )
 
-    # THE DLT REGULATORY LAYER, for the single-lead ("call this lead", D-21) and instant
-    # callback VOICE paths (LEGAL-OPS-PLAYBOOK §10.8: a requested callback is regulated
-    # outbound). The campaign path already enforces the SAME conditions once per tick in
-    # `campaigns.service.dispatch_blockers`, so a running campaign reaches these having
-    # already passed them — the checks are shared, not duplicated: `outbound_entity_blockers`
-    # is the one implementation both gates read, and `agent_outbound_number_blocker` is the
-    # single-lead twin of `_channel_blockers`' number rule (a callback has an agent, not a
-    # campaign `number_id`). Last in the gate because it is the paperwork layer: a client
-    # sees "you have no credit" before "your DLT chain is incomplete", and the enforcement
-    # is identical whichever fails first. Skipped for WhatsApp (`dlt_governed=False`),
-    # which is a Meta-BSP channel with no PE-TM chain and no 140/160 number (§11).
+    # THE DLT LAYER IS INACTIVE UNDER D-692. This branch used to refuse on Calevate's TM
+    # registration and the client's PE-TM chain (`registration.outbound_entity_blockers`)
+    # and on the agent's DLT-registered header (`agents.service.agent_outbound_number_blocker`).
+    # The founder decided on 8 Oct 2026 that clients do not register on DLT and Calevate
+    # does not register as a telemarketer; KYC and the no-cold-calls pledge, asked above,
+    # replace both. `docs/ROADMAP.md` D-692 names the counsel questions that stay open.
+    #
+    # What remains here is the sender's advance autodialer notice — TCCCPR Regulation 4,
+    # a separate obligation D-692 did not decide on, so it still binds. Skipped for
+    # WhatsApp (`dlt_governed=False`), which is a Meta-BSP channel with no carrier notice
+    # (LEGAL-OPS-PLAYBOOK §11). `compliance/autodialer.py` carries the evidence class.
     if dlt_governed:
-        # WHO may place this call — Calevate's TM registration and the client's PE-TM chain.
-        entity = await outbound_entity_blockers(session, tenant_id=tenant_id)
-        if entity:
-            rule, reason = entity[0]
-            return DispatchDecision(allowed=False, rule=rule, reason=reason)
-
-        # From WHAT header — the agent's own DLT-registered bound number, never the
-        # engine's shared pool (D-420 / playbook §10.8). Refusing here closes the fallback
-        # that `resolve_caller_id` used to call "fine" for a D-21 click.
-        number_block = await agent_outbound_number_blocker(session, agent_id=agent_id)
-        if number_block is not None:
-            rule, reason = number_block
-            return DispatchDecision(allowed=False, rule=rule, reason=reason)
-
-        # AND WHETHER THE SENDER TOLD THEIR ACCESS PROVIDER THAT IT AUTODIALS — TCCCPR
-        # Regulation 4, which requires the Sender to notify the Originating Access
-        # Provider in advance and in writing of the use of an auto dialler and the
-        # intended objective of the calls. Every call this gate clears is autodialled, so
-        # it is a precondition of outbound as such rather than of any one campaign;
-        # `compliance/autodialer.py` carries the evidence class (REPORTED) and states what
-        # the text does not say, including that the unit of the obligation is not stated.
-        #
-        # LAST INSIDE THIS BRANCH, which is the opposite of the general-before-specific
-        # order the rest of the gate takes, and deliberately: the two rules above name
-        # registrations a client can be part-way through, and a notice they cannot usefully
-        # send until they know which registered header the calls will come from. Reporting
-        # "tell your provider you autodial" to a client whose Principal Entity is still
-        # pending would be the wrong next action.
         notice_block = await autodialer_notice_blocker(
             session,
             tenant_id=tenant_id,
@@ -1269,6 +1259,8 @@ async def add_to_dnc(
     # since. Skipping the case where the suppression is not new would skip exactly the
     # case where a second dial had time to appear.
     await enqueue_dnc_recall(session, tenant_id=tenant_id, phones=[phone_e164])
+    # D-691: and onto the client's own voice platform workspace list, where it has one.
+    await queue_engine_dnc_push(session, tenant_id=tenant_id, phones=[phone_e164])
     # D-514's SECOND door, which this writer never had. The gate at fire time is the
     # enforcement and it covers this number already (`dnc` is in `PERSON_LEVEL_REFUSALS`,
     # read uncached per number, so the promise settles `refused` on the very next tick).
@@ -1323,6 +1315,7 @@ __all__ = [
     "ist_now",
     "kyc_blocker",
     "latest_call_consent",
+    "outbound_pledge_blocker",
     "outbound_requires_consent",
     "spend_capped",
     "truthful_answer_drift_blocker",

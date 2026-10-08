@@ -226,12 +226,14 @@ TENANT_ERASURE_LIMITATIONS: tuple[str, ...] = (
     "in this system deletes one — not this erasure, not that retention period. Removing "
     "the live content is manual work on every copy, and so is removing a pack.",
     "The files this client uploaded are not deleted by this erasure, and that is stated "
-    "here because nothing else states it. Two sets of them: the documents uploaded as "
+    "here because nothing else states it. Three sets of them: the documents uploaded as "
     "knowledge for the agents to answer from, and the identity and registration paperwork "
     "uploaded for the telecom carrier registration — a GST certificate, the signed "
-    "carrier application and whatever was attached to it. Both are stored under this "
-    "account's own folder in our object storage, and this erasure destroys those "
-    "uploaded files: every object under both folders, including one left behind by an "
+    "carrier application and whatever was attached to it. A third set is the KYC "
+    "verification files: the business certificate, and an owner's ID still held because "
+    "its review was not decided. All are stored under this "
+    "account's own folders in our object storage, and this erasure destroys those "
+    "uploaded files: every object under all three folders, including one left behind by an "
     "upload that failed halfway. It "
     "is named here rather than left to the counts because these are the business's own "
     "documents rather than a caller's record, so a reader could reasonably have expected "
@@ -405,13 +407,15 @@ TENANT_ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
         keyword="uploaded files",
         outcome="destroyed",
         why=(
-            "Two sets of uploaded files are destroyed by this erasure. The documents "
+            "Three sets of uploaded files are destroyed by this erasure. The documents "
             "uploaded as "
             "knowledge for the agents — a price list, a menu, a brochure — and the "
             "identity and registration paperwork uploaded for the telecom carrier "
             "registration, which is a GST certificate, the signed carrier application and "
-            "whatever was attached to it. Both sit under this account's own folder in our "
-            "object storage, and both folders are listed and emptied. ⚠ UNTIL 18 SEPTEMBER "
+            "whatever was attached to it. A third set, since D-692, is the KYC verification "
+            "files — the business certificate and any owner ID still awaiting review. All "
+            "sit under this account's own folders in our object storage, and every folder is "
+            "listed and emptied. ⚠ UNTIL 18 SEPTEMBER "
             "2026 NEITHER WAS REACHED BY ANYTHING: two comments in our own code asserted "
             "that closing an account swept them and no such sweep existed, so the only "
             "thing that would eventually have removed a file was a bucket-wide seven-year "
@@ -425,7 +429,8 @@ TENANT_ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "is not a thing a certificate may pass over in silence."
         ),
         # The sweep is `workers/retention.py::execute_tenant_erasure` over
-        # `storage.kb_tenant_prefix` and `storage.carrier_tenant_prefix`.
+        # `storage.kb_tenant_prefix`, `storage.carrier_tenant_prefix` and
+        # `storage.kyc_tenant_prefix`.
         authority=(
             "Calevate's erasure scope is the caller data this account collected — calls, "
             "transcripts, extracted fields, leads and recordings — and a document the "

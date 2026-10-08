@@ -51,7 +51,6 @@ async def test_an_invisible_character_is_refused_by_name(kind: str) -> None:
             await kb_service.submit_source(
                 session,
                 tenant_id=tenant_id,
-                agent_id=agent_id,
                 name="Refunds",
                 body=_BODIES[kind],
             )
@@ -62,7 +61,11 @@ async def test_an_invisible_character_is_refused_by_name(kind: str) -> None:
         assert "U+" in (refusal.value.detail or "")
         rows = (
             await session.execute(
-                text("SELECT count(*) FROM kb_sources WHERE agent_id = :a"), {"a": agent_id}
+                text(
+                    "SELECT count(*) FROM kb_sources WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :a)"
+                ),
+                {"a": agent_id},
             )
         ).scalar_one()
     assert rows == 0, "a refused submission still wrote a version somebody has to review"
@@ -71,13 +74,12 @@ async def test_an_invisible_character_is_refused_by_name(kind: str) -> None:
 async def test_a_source_name_is_checked_too() -> None:
     """The name is not decoration: it is the label a citation carries and the prefix the
     compiled T0 line is built from, so an override there reorders a line the same way."""
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         with pytest.raises(ProblemError) as refusal:
             await kb_service.submit_source(
                 session,
                 tenant_id=tenant_id,
-                agent_id=agent_id,
                 name="Fees ‮2026",
                 body="A consultation costs 500 rupees at this clinic.",
             )
@@ -92,11 +94,11 @@ async def test_telugu_conjunct_joiners_are_still_accepted() -> None:
     A refusal list that swept up "all zero-width characters" would reject the language it
     exists to serve, which is why they are excluded by name and pinned here.
     """
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     body = "సన్‌రైజ్ క్లినిక్ ఆదివారం ఉదయం 9 గంటల నుండి తెరిచి ఉంటుంది."
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Hours", body=body
+            session, tenant_id=tenant_id, name="Hours", body=body
         )
         chunks = await kb_service.preview(session, submitted["id"])
     assert "‌" in chunks[0]["content"]
@@ -134,15 +136,17 @@ async def test_a_tag_block_instruction_is_refused_rather_than_stored() -> None:
     assert "\U000e0000" <= _HIDDEN_INSTRUCTION[0] <= "\U000e007f"
     async with tenant_session(tenant_id) as session:
         with pytest.raises(ProblemError) as refusal:
-            await kb_service.submit_source(
-                session, tenant_id=tenant_id, agent_id=agent_id, name="Fees", body=body
-            )
+            await kb_service.submit_source(session, tenant_id=tenant_id, name="Fees", body=body)
         assert refusal.value.code == "kb_invisible_characters"
         assert refusal.value.status == 422
         assert "U+E00" in (refusal.value.detail or "")
         rows = (
             await session.execute(
-                text("SELECT count(*) FROM kb_sources WHERE agent_id = :a"), {"a": agent_id}
+                text(
+                    "SELECT count(*) FROM kb_sources WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :a)"
+                ),
+                {"a": agent_id},
             )
         ).scalar_one()
     assert rows == 0
@@ -156,12 +160,11 @@ async def test_an_ocr_reading_carrying_a_tag_block_is_refused_at_the_same_gate()
     typed paragraph is not. It is the SAME gate — pinned here because it is a second entry
     point into `kb_documents` and a guard applied at only one of two doors is not a guard.
     """
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Menu",
             body="Placeholder wording while the photograph is read.",
         )
@@ -197,7 +200,7 @@ async def test_a_legitimate_multilingual_faq_is_stored_exactly_as_written() -> N
     Asserted on what `preview` RETURNS — the reviewer's own screen — rather than on the
     function's return value, so a strip anywhere between the gate and the chunk fails here.
     """
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     body = (
         "సన్‌రైజ్ క్లినిక్ ☎️ 9 గంటల నుండి తెరిచి ఉంటుంది.\n\n"
         "क्लिनिक सोमवार से शनिवार तक खुला रहता है। 🩺 अपॉइंटमेंट के लिए कॉल करें।\n\n"
@@ -205,7 +208,7 @@ async def test_a_legitimate_multilingual_faq_is_stored_exactly_as_written() -> N
     )
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Hours", body=body
+            session, tenant_id=tenant_id, name="Hours", body=body
         )
         chunks = await kb_service.preview(session, submitted["id"])
     stored = "\n\n".join(chunk["content"] for chunk in chunks)

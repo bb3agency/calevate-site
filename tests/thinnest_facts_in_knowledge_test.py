@@ -190,7 +190,7 @@ def _priced_and_no_webhook(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _priced(session: Any, *, engine: str, rate_key: str, at: Any) -> bool:
         return True
 
-    async def _ensure(session: Any, *, engine: str, engine_agent_ref: str) -> None:
+    async def _ensure(session: Any, *, engine: str, engine_agent_ref: str, **_kw: Any) -> None:
         return None
 
     monkeypatch.setattr(engine_limits, "engine_minute_is_billable", _priced)

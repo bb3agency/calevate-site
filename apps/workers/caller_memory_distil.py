@@ -127,6 +127,10 @@ log = get_logger(__name__)
 #: below is per tick, so the cadence IS the spend rate.
 DISTIL_MINUTE: Final = 52
 
+#: Engines whose hosted agent keeps its own memory of a caller's past conversations
+#: (ThinnestAI's `pastConversations`, per agent), so this job does not run under them.
+ENGINES_THAT_REMEMBER: Final = frozenset({"thinnest"})
+
 #: How long after a call ends before it is considered finished enough to read.
 #:
 #: The post-call pipeline writes turns, then the redacted text, then the extraction. A
@@ -492,6 +496,13 @@ async def distil_caller_memories(ctx: dict[str, Any]) -> str:
     reach the retry ladder is a tick-wide failure (the worklist read, the pool, a missing
     credential), because retrying that is the only thing that could help.
     """
+    engine = get_settings().engine
+    if engine in ENGINES_THAT_REMEMBER:
+        # The engine keeps its own per-agent memory of past conversations and the agent is
+        # published to use it (`pastConversations: recap`), so a second memory of ours would
+        # be a second record of the same caller that nothing on this engine reads.
+        log.info("caller_memory_distil_engine_remembers", extra={"engine": engine})
+        return "engine_remembers"
     credentials = azure_credentials()
     if credentials is None:
         # Tolerant boot (BACKEND-PATTERNS §2): a deployment with no language credential runs
@@ -555,6 +566,7 @@ async def distil_caller_memories(ctx: dict[str, Any]) -> str:
 
 __all__ = [
     "DISTIL_MINUTE",
+    "ENGINES_THAT_REMEMBER",
     "LOOKBACK_DAYS",
     "MAX_CALLS_PER_TENANT",
     "MAX_CALLS_PER_TICK",

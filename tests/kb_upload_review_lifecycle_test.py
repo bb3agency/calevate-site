@@ -40,7 +40,6 @@ async def _staff_upload(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> dict[str, 
         return await uploads.create_upload(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Refund policy",
             filename="refund-policy.txt",
             content_type="text/plain",

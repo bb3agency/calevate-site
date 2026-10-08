@@ -50,7 +50,7 @@ async def _submit_and_approve(
 ) -> uuid.UUID:
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name=name, body=body
+            session, tenant_id=tenant_id, name=name, body=body
         )
         await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
     return uuid.UUID(str(submitted["id"]))
@@ -82,7 +82,8 @@ async def _engine_ref(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str:
 
 async def _recorded_handle(tenant_id: uuid.UUID, source_id: uuid.UUID) -> str | None:
     async with tenant_session(tenant_id) as session:
-        return await kb_service._engine_kb_ref(session, source_id)
+        routes = await kb_service._routes_of_source(session, source_id)
+        return routes[0][1] if routes else None
 
 
 class _Spy:
@@ -408,7 +409,8 @@ async def _live_versions(tenant_id: uuid.UUID, agent_id: uuid.UUID, name: str) -
         rows = (
             await session.execute(
                 text(
-                    "SELECT version FROM kb_sources WHERE agent_id = :a AND name = :n "
+                    "SELECT version FROM kb_sources WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :a) AND name = :n "
                     "AND is_active = true ORDER BY version"
                 ),
                 {"a": agent_id, "n": name},
@@ -484,13 +486,14 @@ async def test_two_publishers_of_one_named_source_leave_exactly_one_version_live
         winner = (
             await session.execute(
                 text(
-                    "SELECT id FROM kb_sources WHERE agent_id = :a AND name = 'Fees' "
+                    "SELECT id FROM kb_sources WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :a) AND name = 'Fees' "
                     "AND is_active = true"
                 ),
                 {"a": agent_id},
             )
         ).scalar()
-        recorded = await kb_service._engine_kb_ref(session, uuid.UUID(str(winner)))
+        recorded = await kb_service._engine_kb_ref(session, uuid.UUID(str(winner)), agent_id)
     assert recorded == attached[0], (
         "the live version's recorded handle is not the copy the engine is holding"
     )

@@ -18,6 +18,21 @@ it is "the one `GET /calls/{id}` answers to" (list-call-log.md:456-459), and tha
 answers to both the `out_…` id we store and the call reference (calls/get-call.md:7).
 UNVERIFIED which one the log carries for an API-placed call; rows that match nothing are
 counted, and a sweep where nothing matches says so in its alarm.
+
+PER CALL, TOO (D-690). The same figure rides `call.analysed` and `GET /calls/{id}` when the
+call has settled (snapshots/2026-10-08/pages/api-reference/calls/get-call.md:498-514). The
+post-call pipeline records it on `calls.engine_charged_inr` once and reconciles that call
+(`reconcile_call_charge`); a call that was not settled by then gets its figure from this
+sweep's log, recorded the same way.
+
+WHAT IS COMPARED. `costMicro` is what the call cost the workspace and the wallet's top-up fee
+is paid on top of it, when the wallet is filled. So the cost of a call is the charge times one
+plus the fee, and that is what the attested per-minute rate must reproduce: an operator who
+attests the band's list price without the fee is told so by the variance alarm. The fee is the
+plan's, VENDOR-STATED in `billing/rates.py` (9% on Pro, which the Studio band needs; 10% on
+pay-as-you-go) and chosen by the band Clear is sold on (`thinnest_topup_fee`). On a Studio
+call the charge is ThinnestAI's own minute only; Cartesia bills our key separately, and that
+cost is the call's `tts_kchars` row, which must exist.
 """
 
 from __future__ import annotations
@@ -30,8 +45,16 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from apps.api.billing.engine_minutes import BYOK_VOICE_RATE_KEY
+from apps.api.billing.rates import (
+    MONEY_Q,
+    ROUNDING,
+    THINNEST_PAYG_TOPUP_FEE,
+    THINNEST_WALLET_TOPUP_FEE,
+)
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.charges import EngineCharge, ReportsCharges
@@ -80,6 +103,120 @@ def within_tolerance(metered: Decimal, charged: Decimal) -> bool:
     return abs(metered - charged) <= allowed
 
 
+def thinnest_topup_fee(clear_band: str | None = None) -> Decimal:
+    """The wallet top-up fee of the plan this deployment's ThinnestAI workspace is on, as a
+    fraction. The Studio band is listed only on Pro and above, so a deployment selling Clear on
+    it is on Pro (9%); otherwise pay-as-you-go (10%) — the same reading the cost floors make
+    (`billing/rates.THINNEST_CLEAR_COST_FLOOR_BY_BAND`)."""
+    band = clear_band if clear_band is not None else get_settings().thinnest_clear_voice_band
+    return THINNEST_WALLET_TOPUP_FEE if band == "studio" else THINNEST_PAYG_TOPUP_FEE
+
+
+def cost_with_fee(charged: Decimal, *, fee: Decimal) -> Decimal:
+    """What a charge cost us once the top-up fee on the rupees that paid it is added."""
+    return (charged * (Decimal(1) + fee)).quantize(MONEY_Q, rounding=ROUNDING)
+
+
+def variance_sentence(metered: Decimal, expected: Decimal) -> str:
+    """`metered ₹x vs charged-with-fee ₹y: +₹z (+p%)` — the figure an operator acts on."""
+    diff = metered - expected
+    share = (
+        (diff / expected * Decimal(100)).quantize(Decimal("0.1"), rounding=ROUNDING)
+        if expected
+        else None
+    )
+    sign = "+" if diff >= 0 else "-"
+    pct = f" ({sign}{abs(share)}%)" if share is not None else ""
+    return (
+        f"metered INR {metered} vs charged-with-fee INR {expected}: "
+        f"{sign}INR {abs(diff).quantize(MONEY_Q, rounding=ROUNDING)}{pct}"
+    )
+
+
+_SET_CHARGE_SQL = text(
+    "UPDATE calls SET engine_charged_inr = :charged, updated_at = now() "
+    "WHERE id = :cid AND engine_charged_inr IS NULL RETURNING id"
+)
+_CALL_COSTS_SQL = text(
+    "SELECT "
+    "sum(qty * unit_cost_paid) FILTER (WHERE unit_type = 'platform_min'), "
+    "bool_or(unit_cost_paid IS NULL) FILTER (WHERE unit_type = 'platform_min'), "
+    "count(*) FILTER (WHERE unit_type = 'platform_min'), "
+    "max(meta->>'engine_rate_key') FILTER (WHERE unit_type = 'platform_min'), "
+    "count(*) FILTER (WHERE unit_type = 'tts_kchars'), "
+    "sum(qty * unit_cost_paid) FILTER (WHERE unit_type = 'tts_kchars') "
+    "FROM usage_events WHERE call_id = :cid AND tenant_id = :tid"
+)
+
+
+async def record_engine_charge(tenant_id: UUID, call_id: UUID, charged_inr: Decimal) -> bool:
+    """Write the vendor's charge on the call once. True when this write set it; a charge
+    already recorded is never overwritten, so a replay or a later read changes nothing."""
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(_SET_CHARGE_SQL, {"charged": charged_inr, "cid": call_id})
+        ).first()
+    return row is not None
+
+
+async def reconcile_call_charge(tenant_id: UUID, call_id: UUID, charged_inr: Decimal) -> str:
+    """Record one settled call's charge and compare it with what we metered for it.
+
+    Alarms, never corrects (hard rule 4): `engine_call_cost_variance` when the attested
+    minute differs from the charge with its top-up fee by more than the tolerance, naming
+    the variance; `engine_studio_synthesis_cost_missing` when a Studio call has no Cartesia
+    synthesis row beside its minute. Returns what happened, for the pipeline's span.
+    """
+    if not await record_engine_charge(tenant_id, call_id, charged_inr):
+        return "already_recorded"
+    async with tenant_session(tenant_id) as session:
+        row = (await session.execute(_CALL_COSTS_SQL, {"cid": call_id, "tid": tenant_id})).one()
+    metered, unpriced, minute_rows, rate_key, tts_rows, tts_cost = row
+    if not minute_rows:
+        return "not_metered"
+    outcome = "matched"
+    if rate_key == BYOK_VOICE_RATE_KEY and not tts_rows:
+        outcome = "synthesis_cost_missing"
+        alert(
+            "WORKER_TERMINAL",
+            "engine_studio_synthesis_cost_missing",
+            detail=(
+                "a Studio call has the voice platform's minute on the ledger and no Cartesia "
+                "synthesis cost beside it, so the call's cost is understated by what our "
+                "Cartesia key was billed for it"
+            ),
+            call_id=str(call_id),
+            tenant_id=str(tenant_id),
+        )
+    if unpriced or metered is None:
+        # Metered with no attested rate: `engine_minute_rate_unattested` already alarmed.
+        return "unpriced"
+    fee = thinnest_topup_fee()
+    expected = cost_with_fee(charged_inr, fee=fee)
+    metered_inr = Decimal(str(metered)).quantize(MONEY_Q, rounding=ROUNDING)
+    if within_tolerance(metered_inr, expected):
+        return outcome
+    synthesis = (
+        f" Cartesia synthesis is metered separately at INR "
+        f"{Decimal(str(tts_cost)).quantize(MONEY_Q, rounding=ROUNDING)}."
+        if tts_cost is not None
+        else ""
+    )
+    alert(
+        "WORKER_TERMINAL",
+        "engine_call_cost_variance",
+        detail=(
+            f"rate_key={rate_key}: {variance_sentence(metered_inr, expected)} "
+            f"(the voice platform charged INR {charged_inr}, plus the {fee * 100}% top-up "
+            "fee). The attested per-minute rate does not reproduce what this call cost."
+            f"{synthesis}"
+        ),
+        call_id=str(call_id),
+        tenant_id=str(tenant_id),
+    )
+    return "variance"
+
+
 async def _tenant_of(engine: str, agent_ref: str | None) -> UUID | None:
     """The tenant an agent's route belongs to; the route bridge is the one untenanted read
     `db/registry` exempts for exactly this resolution."""
@@ -105,13 +242,16 @@ async def _compare(engine: str, charge: EngineCharge, tally: _Tally) -> None:
         tally.unmatched += 1
         return
     tally.matched += 1
+    # A call the pipeline saw before the vendor settled it gets its figure here, once.
+    await record_engine_charge(tenant_id, UUID(str(row[0])), charge.charged_inr)
     if row[2] or row[1] is None:
         # Metered with no attested rate: `engine_minute_rate_unattested` already alarmed.
         tally.unpriced += 1
         return
-    metered = Decimal(str(row[1]))
-    if not within_tolerance(metered, charge.charged_inr):
-        tally.mismatched.append((str(row[0]), metered, charge.charged_inr))
+    metered = Decimal(str(row[1])).quantize(MONEY_Q, rounding=ROUNDING)
+    expected = cost_with_fee(charge.charged_inr, fee=thinnest_topup_fee())
+    if not within_tolerance(metered, expected):
+        tally.mismatched.append((str(row[0]), metered, expected))
 
 
 async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None = None) -> str:
@@ -132,16 +272,17 @@ async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None 
             )
             tally.unreached += 1
     if tally.mismatched:
-        named = ", ".join(
-            f"{call_id}: metered {metered} vs charged {charged}"
-            for call_id, metered, charged in tally.mismatched[:_ALERT_ID_LIMIT]
+        named = "; ".join(
+            f"{call_id}: {variance_sentence(metered, expected)}"
+            for call_id, metered, expected in tally.mismatched[:_ALERT_ID_LIMIT]
         )
         alert(
             "WORKER_TERMINAL",
             "engine_charge_mismatch",
             detail=(
                 f"engine={engine.name}: {len(tally.mismatched)} call(s) metered at a cost "
-                f"that differs from what the voice platform charged by more than the "
+                f"that differs from what the voice platform charged, with the "
+                f"{thinnest_topup_fee() * 100}% top-up fee added, by more than the "
                 f"tolerance, so the attested per-minute rate no longer matches the invoice. "
                 f"{named}"
             ),
@@ -178,6 +319,11 @@ __all__ = [
     "CHARGE_SWEEP_MINUTES",
     "CHARGE_TOLERANCE_INR",
     "CHARGE_TOLERANCE_SHARE",
+    "cost_with_fee",
+    "reconcile_call_charge",
     "reconcile_engine_charges",
+    "record_engine_charge",
+    "thinnest_topup_fee",
+    "variance_sentence",
     "within_tolerance",
 ]

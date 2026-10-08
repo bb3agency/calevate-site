@@ -21,7 +21,7 @@ client's action does not vary by campaign: they cannot scrub anything — it is 
 — so "two of your campaigns are waiting on us" is the whole of the actionable fact.
 
 EVERY REASON COMES FROM THE PREDICATE THAT ALREADY OWNS IT. This module composes
-`account_stopped_blocker`, `kyc_blocker`, `outbound_entity_blockers`,
+`account_stopped_blocker`, `kyc_blocker`, `outbound_pledge_blocker`,
 `first_campaign_hold_blocker`, `spend_capped`, `credits_exhausted`,
 `legal.service.agreements_blocker` and the platform halt — the same functions the gates
 call, returning the same `(rule, reason)` pairs. Nothing here re-derives a verdict, for the
@@ -48,7 +48,6 @@ from apps.api.agents.service import tenant_registered_numbers
 from apps.api.compliance.autodialer import autodialer_notice_blocker
 from apps.api.compliance.carrier_application import carrier_application_required
 from apps.api.compliance.preference_scrub import campaigns_awaiting_scrub
-from apps.api.compliance.registration import outbound_entity_blockers
 from apps.api.compliance.service import (
     NO_CREDITS_REASON,
     SPEND_CAP_REASON,
@@ -57,6 +56,7 @@ from apps.api.compliance.service import (
     credits_exhausted,
     first_campaign_hold_blocker,
     kyc_blocker,
+    outbound_pledge_blocker,
     spend_capped,
 )
 from apps.api.core.loadshed import PlatformStatus
@@ -146,10 +146,27 @@ ROW_COPY: dict[str, _Copy] = {
         title="Business not verified",
         actor="client",
         next_step=(
-            "Send us your business registration number and we will record it for you. "
-            "There is nothing to upload — it is a public registration number, never a "
-            "document. The Verification screen then shows what we hold."
+            "Open Verify your business: add the business details and certificate, then "
+            "either upload the owner's ID for review or verify through DigiLocker."
         ),
+    ),
+    "kyc_digilocker_required": _Copy(
+        title="DigiLocker verification requested",
+        actor="client",
+        next_step=(
+            "Open Verify your business and complete DigiLocker. Outbound calls resume as "
+            "soon as it is done; inbound calls are not affected."
+        ),
+    ),
+    "outbound_pledge_missing": _Copy(
+        title="No-cold-calls pledge not accepted",
+        actor="client",
+        next_step="The account owner reads and accepts the pledge on Verify your business.",
+    ),
+    "outbound_pledge_outdated": _Copy(
+        title="No-cold-calls pledge updated",
+        actor="client",
+        next_step="The account owner reads and accepts the new version on Verify your business.",
     ),
     "kyc_not_verified": _Copy(
         title="Business verification not cleared",
@@ -364,9 +381,10 @@ async def readiness_rows(
     if carrier is not None:
         rows.append(carrier)
 
-    rows.extend(
-        _row(*pair) for pair in await outbound_entity_blockers(session, tenant_id=tenant_id)
-    )
+    # D-692: the no-cold-calls pledge, where the DLT entity chain used to be.
+    unpledged = await outbound_pledge_blocker(session, tenant_id=tenant_id)
+    if unpledged is not None:
+        rows.append(_row(*unpledged))
 
     # THE SENDER'S OWN NOTICE, and it is here rather than only in `check_dispatch` because
     # a gate that stops every outbound call and appears on no screen is a client staring at

@@ -46,7 +46,7 @@ async def _tenant_with_projected_knowledge(fact: str) -> tuple[uuid.UUID, uuid.U
     tenant_id, agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Fees", body=fact
+            session, tenant_id=tenant_id, name="Fees", body=fact
         )
         await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
         await kb_service.publish_source(

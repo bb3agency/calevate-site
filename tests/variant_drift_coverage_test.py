@@ -360,7 +360,7 @@ async def test_an_experiment_arm_carries_no_knowledge_base_known_gap() -> None:
     # all the way through `recompile_t0` -> `publish_agent` -> `republish_running_variants`.
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Fees", body=FEES
+            session, tenant_id=tenant_id, name="Fees", body=FEES
         )
         await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
     async with tenant_session(tenant_id) as session:

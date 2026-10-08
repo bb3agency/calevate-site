@@ -35,7 +35,7 @@ async def _glossed_tenant(gloss: str) -> tuple[uuid.UUID, uuid.UUID]:
     tenant_id, agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Hours", body=_TELUGU
+            session, tenant_id=tenant_id, name="Hours", body=_TELUGU
         )
         await session.execute(
             text(
@@ -82,7 +82,7 @@ async def test_naming_a_neighbours_tenant_id_on_your_own_session_returns_nothing
     async with tenant_session(tenant_b) as session:
         assert await kb_service.live_glosses(session, tenant_id=tenant_a) == []
         own = await kb_service.live_glosses(session, tenant_id=tenant_b)
-    assert [gloss for _agent, _name, gloss in own] == ["Open Monday 8 am to 8 pm."]
+    assert [gloss for _name, gloss in own] == ["Open Monday 8 am to 8 pm."]
 
 
 async def test_a_neighbours_gloss_cannot_be_written_either() -> None:

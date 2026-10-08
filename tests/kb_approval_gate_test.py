@@ -66,9 +66,7 @@ async def _second_published_agent(tenant_id: uuid.UUID) -> uuid.UUID:
 
 async def _submit(tenant_id: uuid.UUID, agent_id: uuid.UUID, name: str, body: str) -> uuid.UUID:
     async with tenant_session(tenant_id) as session:
-        submitted = await service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name=name, body=body
-        )
+        submitted = await service.submit_source(session, tenant_id=tenant_id, name=name, body=body)
     return uuid.UUID(str(submitted["id"]))
 
 
@@ -160,7 +158,9 @@ async def test_a_rollback_target_is_a_version_a_human_actually_approved() -> Non
             await session.execute(
                 text(
                     "SELECT version, status, approved_at IS NOT NULL FROM kb_sources "
-                    "WHERE agent_id = :a AND name = 'Fees' ORDER BY version"
+                    "WHERE tenant_id = "
+                    "(SELECT tenant_id FROM agents WHERE id = :a) "
+                    "AND name = 'Fees' ORDER BY version"
                 ),
                 {"a": agent_id},
             )
@@ -175,33 +175,31 @@ async def test_a_rollback_target_is_a_version_a_human_actually_approved() -> Non
 # --- Lateral: a second agent in the same tenant --------------------------------------
 
 
-async def test_knowledge_approved_for_one_agent_does_not_reach_another() -> None:
-    """`(agent_id, name)` is the address of a knowledge source, and the second agent is
-    where a name-only assumption would show up. An approved, published source on the
-    second agent must leave the first agent's engine copy untouched."""
+async def test_approved_knowledge_reaches_every_agent_and_an_unapproved_version_none() -> None:
+    """Knowledge is the client's (D-689): an approved, published source is attached to every
+    agent, and a later version nobody approved reaches no agent at all."""
     tenant_id, agent_one = await _tenant_with_published_agent()
     agent_two = await _second_published_agent(tenant_id)
 
-    first = await _submit(tenant_id, agent_one, "Fees", "Agent one charges 500 rupees.")
+    first = await _submit(tenant_id, agent_one, "Fees", "The clinic charges 500 rupees.")
     async with tenant_session(tenant_id) as session:
         await service.approve_source(session, source_id=first, approved_by=None)
         await service.publish_source(session, tenant_id=tenant_id, source_id=first)
 
-    # Same NAME, other agent, never approved.
-    second = await _submit(tenant_id, agent_two, "Fees", "Agent two charges 900 rupees.")
+    # Same NAME, never approved.
+    second = await _submit(tenant_id, agent_two, "Fees", "The clinic charges 900 rupees.")
     with pytest.raises(ProblemError) as raised:
         async with tenant_session(tenant_id) as session:
             await service.publish_source(session, tenant_id=tenant_id, source_id=second)
     assert raised.value.code == "kb_not_approved"
 
     assert await _attached_count(tenant_id, agent_one) == 1
-    assert await _attached_count(tenant_id, agent_two) == 0
+    assert await _attached_count(tenant_id, agent_two) == 1
 
 
-async def test_publishing_one_agents_source_does_not_withdraw_the_other_agents() -> None:
-    """The supersession query is scoped by agent as well as by name. If it were not, a
-    client's second agent would silently lose its knowledge every time the first one was
-    updated — and our tables would report both as live."""
+async def test_a_new_version_leaves_exactly_one_copy_on_every_agent() -> None:
+    """Supersession is per tenant and name, and it runs on every agent: each agent ends a
+    rollover holding the new version and not the old one."""
     tenant_id, agent_one = await _tenant_with_published_agent()
     agent_two = await _second_published_agent(tenant_id)
 
@@ -223,10 +221,11 @@ async def test_publishing_one_agents_source_does_not_withdraw_the_other_agents()
     )
 
 
-async def test_a_draft_agent_never_receives_knowledge_even_when_approved() -> None:
-    """The gate's other side: approval is necessary, not sufficient. An agent the engine
-    has never seen has no handle to attach to, and pushing anyway would be a no-op our
-    tables recorded as a publish."""
+async def test_a_client_with_no_published_agent_publishes_and_no_vendor_copy_is_made() -> None:
+    """The gate's other side: approval is necessary, not sufficient. An agent the engine has
+    never seen has no handle to attach to, so nothing is pushed — and since D-689 that is
+    not a refusal: the knowledge is the client's and goes live for them, and each agent
+    receives its copy when it is published."""
     created = await admin_service.create_organization(
         name="Draft Clinic",
         slug=f"gate-{uuid.uuid4().hex[:8]}",
@@ -239,6 +238,11 @@ async def test_a_draft_agent_never_receives_knowledge_even_when_approved() -> No
     source_id = await _submit(tenant_id, agent_id, "Fees", "A consultation costs 500 rupees.")
     async with tenant_session(tenant_id) as session:
         await service.approve_source(session, source_id=source_id, approved_by=None)
-        with pytest.raises(ProblemError) as raised:
-            await service.publish_source(session, tenant_id=tenant_id, source_id=source_id)
-    assert raised.value.code == "agent_not_published"
+        assert await service.publish_source(session, tenant_id=tenant_id, source_id=source_id) == 1
+        assert await service._routes_of_source(session, source_id) == []
+        live = (
+            await session.execute(
+                text("SELECT is_active FROM kb_sources WHERE id = :s"), {"s": source_id}
+            )
+        ).scalar()
+    assert live is True

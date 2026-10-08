@@ -156,7 +156,7 @@ async def _publish(tenant_id: uuid.UUID, agent_id: uuid.UUID, name: str, body: s
     """Submit, approve and publish one named source. The whole FLOWS §7 gate."""
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name=name, body=body
+            session, tenant_id=tenant_id, name=name, body=body
         )
         await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
     source_id = uuid.UUID(str(submitted["id"]))
@@ -458,7 +458,7 @@ async def test_the_sweep_finds_a_publish_that_landed_after_our_side_failed() -> 
     with _engine(engine):
         async with tenant_session(tenant_id) as session:
             submitted = await kb_service.submit_source(
-                session, tenant_id=tenant_id, agent_id=agent_id, name="Fees", body=FEES
+                session, tenant_id=tenant_id, name="Fees", body=FEES
             )
             await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
         source_id = uuid.UUID(str(submitted["id"]))
@@ -610,14 +610,14 @@ async def test_an_agent_mid_publish_is_skipped_rather_than_reported_as_drifted()
     on the KEY — which a patched-out lock could not show.
     """
     engine = _scoped()
-    tenant_id, agent_id, ref = await _agent_with_knowledge(engine, ("Fees", FEES))
+    tenant_id, _agent_id, ref = await _agent_with_knowledge(engine, ("Fees", FEES))
     engine.calls.clear()
 
     async with tenant_session(tenant_id) as holder:
         # Exactly what `_lock_agent_publishes` takes, through the shared key helper.
         await holder.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-            {"key": kb_service.publish_lock_key(agent_id)},
+            {"key": kb_service.publish_lock_key(tenant_id)},
         )
         with _engine(engine):
             assert await sweep_kb_drift({}) == "checked=0 drifted=0"

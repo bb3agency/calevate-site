@@ -75,19 +75,6 @@ ACTION_NAMES: Final[dict[str, str]] = {
     CALLBACK_CANCEL: "cancel_call_back",
     HANDOFF: "request_human_handoff",
 }
-#: The parameter that identifies the call (`worker/engine_actions.resolve_live_call`).
-CALLER_NUMBER: Final = "caller_number"
-
-_CALLER_NUMBER_PARAM = ActionParam(
-    name=CALLER_NUMBER,
-    description=(
-        "The phone number this call is on, exactly as the caller says it, with the country "
-        "code if they give one. If you do not know it, ask the caller to say the number "
-        "you are speaking to them on before calling this. Never guess it and never use a "
-        "number they say belongs to somebody else."
-    ),
-    required=True,
-)
 
 _OPT_OUT_DESCRIPTION = (
     "Call this the moment the caller asks not to be contacted again: 'stop calling me', "
@@ -134,7 +121,6 @@ def definitions(engine: str, engine_agent_ref: str) -> tuple[ActionDefinition, .
             description=_OPT_OUT_DESCRIPTION,
             url=url(OPT_OUT),
             parameters=(
-                _CALLER_NUMBER_PARAM,
                 ActionParam(
                     "reason",
                     "A few of the caller's own words asking not to be called, in the "
@@ -153,7 +139,6 @@ def definitions(engine: str, engine_agent_ref: str) -> tuple[ActionDefinition, .
             description=_CALLBACK_DESCRIPTION,
             url=url(CALLBACK),
             parameters=(
-                _CALLER_NUMBER_PARAM,
                 ActionParam(
                     "callback_date", "The day, as YYYY-MM-DD. Never a relative word.", True
                 ),
@@ -181,7 +166,7 @@ def definitions(engine: str, engine_agent_ref: str) -> tuple[ActionDefinition, .
             name=ACTION_NAMES[CALLBACK_CANCEL],
             description=_CALLBACK_CANCEL_DESCRIPTION,
             url=url(CALLBACK_CANCEL),
-            parameters=(_CALLER_NUMBER_PARAM,),
+            parameters=(),
         ),
         ActionDefinition(
             name=ACTION_NAMES[HANDOFF],
@@ -327,13 +312,21 @@ async def ensure_agent_actions(
     engine: str,
     engine_agent_ref: str,
     client: ThinnestActions | None = None,
+    live_handover: bool | None = False,
 ) -> ActionsReconciliation:
-    """Make this vendor agent's four actions exist, carry our header, and be switched on.
+    """Make this vendor agent's actions exist, carry our header, and be switched on.
 
     Call it in the SAME tenant session that wrote the agent's `engine_agent_routes` row,
     after that write. A no-op on an engine whose tools are not vendor-side actions, so the
     publish path may call it for every engine. Converges by NAME, which the vendor keeps
     unique per agent (create-action.md:162-164), so a republish never makes a second one.
+
+    `live_handover` says whether the agent hands callers to a person itself (the vendor's
+    built-in `escalate_to_human`, D-690). Then our hand-over action is REMOVED: it can only
+    record a request and say nobody can be put through, and an agent holding both would be
+    told two contradicting things about the same caller. False keeps it (no destination is
+    on duty, so recording the request is all there is); None, the drift sweep's reading,
+    keeps whatever the last publish chose and repairs it if it is held.
     """
     if engine not in ACTION_ENGINES:
         return ActionsReconciliation(outcome="not_applicable")
@@ -357,8 +350,15 @@ async def ensure_agent_actions(
 
     held = {action.name: action for action in await actions.list_actions(engine_agent_ref)}
     created = repaired = reenabled = 0
+    handoff_name = ACTION_NAMES[HANDOFF]
     for wanted in definitions(engine, engine_agent_ref):
         current = held.get(wanted.name)
+        if wanted.name == handoff_name and (
+            live_handover or (live_handover is None and current is None)
+        ):
+            if live_handover and current is not None:
+                await actions.delete(engine_agent_ref, current.action_id)
+            continue
         if current is None:
             made = await actions.create(engine_agent_ref, wanted, secret=secret)
             await actions.update(engine_agent_ref, made.action_id, enabled=True)
@@ -412,10 +412,11 @@ async def retire_agent_actions(
     return removed
 
 
-#: The probe the drift check sends through the vendor's `test` endpoint: the handoff
-#: action, because on this engine it writes nothing and identifies no call, so a real call
-#: through every check the agent's own call passes costs one log line.
-PROBE_TOOL: Final = HANDOFF
+#: The probe the drift check sends through the vendor's `test` endpoint: the call-back
+#: cancel action, which every agent holds. A test has no conversation, so the platform sends
+#: no call id (agent/custom-api.md:111-114) and the action finds no call and writes nothing:
+#: a real call through every check the agent's own call passes costs one log line.
+PROBE_TOOL: Final = CALLBACK_CANCEL
 
 
 async def probe_agent_actions(
@@ -453,7 +454,11 @@ async def check_agent_actions(
     try:
         async with tenant_session(tenant_id) as session:
             converged = await ensure_agent_actions(
-                session, engine=engine, engine_agent_ref=engine_agent_ref, client=client
+                session,
+                engine=engine,
+                engine_agent_ref=engine_agent_ref,
+                client=client,
+                live_handover=None,
             )
         reachable = await probe_agent_actions(
             engine=engine, engine_agent_ref=engine_agent_ref, client=client
@@ -475,7 +480,6 @@ __all__ = [
     "AGENT_QUERY_PARAM",
     "CALLBACK",
     "CALLBACK_CANCEL",
-    "CALLER_NUMBER",
     "HANDOFF",
     "OPT_OUT",
     "ActionsDrift",

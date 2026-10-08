@@ -19,7 +19,7 @@ from tests.kb_workflow_test import _tenant_with_published_agent
 async def _publish(tenant_id: uuid.UUID, agent_id: uuid.UUID, *, name: str, body: str) -> None:
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
-            session, tenant_id=tenant_id, agent_id=agent_id, name=name, body=body
+            session, tenant_id=tenant_id, name=name, body=body
         )
         await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
         await kb_service.publish_source(
@@ -54,12 +54,11 @@ async def test_knowledge_that_was_never_approved_is_not_retrievable() -> None:
     definition of what may be retrieved — and this is the test that fails the day somebody
     makes the retriever read `kb_documents` directly to get better recall.
     """
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         await kb_service.submit_source(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Secret pricing",
             body="A consultation costs 500 rupees.",
         )

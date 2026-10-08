@@ -108,7 +108,6 @@ async def _tenant_with_pending_chunks(*bodies: str) -> tuple[uuid.UUID, uuid.UUI
             await kb_service.submit_source(
                 session,
                 tenant_id=tenant_id,
-                agent_id=agent_id,
                 name=f"Source {i}",
                 body=body,
             )

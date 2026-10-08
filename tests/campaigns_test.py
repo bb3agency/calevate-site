@@ -453,10 +453,9 @@ async def test_the_launch_gate_names_every_blocker_at_once() -> None:
         )
         rules = {b.rule for b in blockers}
 
+    # D-692 retired the DLT template, series and number-registration rules from the gate.
     assert rules == {
         "agent_not_live",
-        "dlt_template_missing",
-        "number_missing",
         "no_contacts",
         # SEC-COMP §3's DNC bullet, national half (migration a1c8e40f27b9): a promotional
         # campaign whose list no access provider has preference-scrubbed is refused by
@@ -466,7 +465,7 @@ async def test_the_launch_gate_names_every_blocker_at_once() -> None:
     assert all(b.reason.strip() for b in blockers), "every blocker tells the client what to do"
 
 
-async def test_a_promotional_campaign_cannot_dial_from_a_160_number() -> None:
+async def test_a_promotional_campaign_on_a_160_number_is_no_longer_refused() -> None:
     """140 ⇔ promotional, 160/standard ⇔ service & transactional (DATA-MODEL §6). A
     mismatch is a DLT violation, so it blocks launch rather than warning."""
     tenant_id, _, campaign_id = await _ready_campaign(classification="promotional", series="160")
@@ -474,12 +473,11 @@ async def test_a_promotional_campaign_cannot_dial_from_a_160_number() -> None:
         blockers = await service.launch_blockers(
             session, tenant_id=tenant_id, campaign_id=campaign_id
         )
-    mismatch = [b for b in blockers if b.rule == "number_series_mismatch"]
-    assert mismatch, [b.rule for b in blockers]
-    assert "140" in mismatch[0].reason and "160" in mismatch[0].reason
+    # D-692 retired the DLT template, series and number-registration rules from the gate.
+    assert "number_series_mismatch" not in [b.rule for b in blockers]
 
 
-async def test_a_service_campaign_dials_from_160_and_never_from_an_ordinary_did() -> None:
+async def test_a_service_campaign_may_dial_from_an_ordinary_did_under_d692() -> None:
     """`standard` used to launch a service campaign and TRAI's 18 Jun 2024 voice direction
     forbids it: a sender may not make promotional, service or transactional voice calls
     from any other 10-digit fixed line or mobile number. See
@@ -493,11 +491,11 @@ async def test_a_service_campaign_dials_from_160_and_never_from_an_ordinary_did(
     other, _, ordinary = await _ready_campaign(classification="service", series="standard")
     async with tenant_session(other) as session:
         blockers = await service.launch_blockers(session, tenant_id=other, campaign_id=ordinary)
-    assert [b.rule for b in blockers] == ["number_series_mismatch"]
-    assert "160" in blockers[0].reason
+    # D-692 retired the DLT template, series and number-registration rules from the gate.
+    assert [b.rule for b in blockers] == []
 
 
-async def test_an_unapproved_or_mismatched_dlt_template_blocks_launch() -> None:
+async def test_an_unapproved_or_mismatched_dlt_template_no_longer_blocks() -> None:
     tenant_id, _, pending = await _ready_campaign(template_status="submitted")
     other_tenant, _, mismatched = await _ready_campaign(
         classification="promotional", template_classification="service"
@@ -510,50 +508,9 @@ async def test_an_unapproved_or_mismatched_dlt_template_blocks_launch() -> None:
         mismatch_blockers = await service.launch_blockers(
             session, tenant_id=other_tenant, campaign_id=mismatched
         )
-    assert [b.rule for b in pending_blockers] == ["dlt_template_not_approved"]
-    assert [b.rule for b in mismatch_blockers] == ["dlt_template_mismatch"]
-
-
-async def test_an_unapproved_and_mismatched_template_reports_both_blockers_at_once() -> None:
-    """Approval and classification are independent properties of the attached template,
-    so a template failing both is reported as a LIST (SEC-COMP §3's "deliberately
-    exhaustive rather than fail-fast"). This used to be an `elif`, and a client who
-    chased the registrar's approval on a wrongly-classified template learnt about the
-    second blocker only after clearing the first."""
-    tenant_id, _, campaign_id = await _ready_campaign(
-        classification="promotional",
-        template_status="submitted",
-        template_classification="service",
-    )
-    async with tenant_session(tenant_id) as session:
-        blockers = await service.launch_blockers(
-            session, tenant_id=tenant_id, campaign_id=campaign_id
-        )
-    rules = [b.rule for b in blockers]
-    assert rules == ["dlt_template_not_approved", "dlt_template_mismatch"], rules
-
-
-async def test_template_and_number_refusals_name_the_next_action_per_state() -> None:
-    """The error ladder: every failure a client can reach says what to do next, so a
-    reason may never be just a status ("The DLT template is submitted." was one). Each
-    non-approved state ends differently, so the sentences must differ — and each must
-    carry its own next action, pinned by the words that name it."""
-    draft = service._template_not_approved_reason("draft")
-    submitted = service._template_not_approved_reason("submitted")
-    rejected = service._template_not_approved_reason("rejected")
-    assert len({draft, submitted, rejected}) == 3, "three states, three next actions"
-    assert "File it" in draft
-    assert "approval is recorded" in submitted
-    assert "Revise" in rejected
-    # A state the map has never met still fails closed with an instruction, not a status.
-    assert "Attach an approved one" in service._template_not_approved_reason("suspended")
-
-    pending = service._number_not_registered_reason("pending")
-    blocked = service._number_not_registered_reason("blocked")
-    assert pending != blocked
-    assert "registrar approves" in pending
-    assert "Pick a different" in blocked
-    assert "Pick a registered number" in service._number_not_registered_reason("withdrawn")
+    # D-692 retired the DLT template, series and number-registration rules from the gate.
+    assert [b.rule for b in pending_blockers] == []
+    assert [b.rule for b in mismatch_blockers] == []
 
 
 async def test_a_template_status_outside_the_enum_is_refused_by_name() -> None:
@@ -587,8 +544,12 @@ async def test_launch_check_on_a_running_campaign_names_the_status_blocker() -> 
 async def test_launch_is_refused_with_the_same_named_reasons_the_check_returned() -> None:
     """The check endpoint is a PREVIEW of the gate, never a substitute — so launching
     past a red check must fail with the identical rule names."""
-    tenant_id, _, campaign_id = await _ready_campaign(series="160")
+    tenant_id, agent_id, campaign_id = await _ready_campaign()
     async with tenant_session(tenant_id) as session:
+        # A blocker D-692 kept: an agent that is not live.
+        await session.execute(
+            text("UPDATE agents SET status = 'draft' WHERE id = :a"), {"a": agent_id}
+        )
         preview = await service.launch_blockers(
             session, tenant_id=tenant_id, campaign_id=campaign_id
         )
@@ -1197,7 +1158,7 @@ async def test_a_number_already_owned_by_another_tenant_is_a_conflict_not_a_500(
     assert excinfo.value.kind == "conflict"
 
 
-async def test_a_registered_template_starts_submitted_and_only_admin_approval_moves_it() -> None:
+async def test_a_registered_template_starts_submitted_and_approval_is_recorded() -> None:
     """A template we mark approved because we typed it in is how a campaign launches
     under a registration that does not exist."""
     tenant_id, agent_id = await _tenant()
@@ -1242,8 +1203,9 @@ async def test_a_registered_template_starts_submitted_and_only_admin_approval_mo
             )
         ).scalar()
 
-    assert [b.rule for b in before] == ["dlt_template_not_approved"]
-    assert after == [], "the registrar's approval is what unlocks the gate"
+    # D-692 retired the DLT template, series and number-registration rules from the gate.
+    assert [b.rule for b in before] == []
+    assert after == []
     assert ref == "1207161234567890123", "and the registrar's id is kept with it"
 
 
@@ -1547,7 +1509,7 @@ def test_a_campaign_contacts_custom_variables_are_bounded() -> None:
         ContactIn(phone="+919876500000", custom={"k" * (MAX_CONTACT_CUSTOM_KEY_LEN + 1): "v"})
 
 
-async def test_an_attested_ordinary_did_launches_a_service_campaign() -> None:
+async def test_an_ordinary_did_launches_a_service_campaign_attested_or_not() -> None:
     """The client's recorded exception, end to end through the real launch gate.
 
     TRAI binds the SENDER and names the delegation chain, so under Model B the client is
@@ -1566,7 +1528,8 @@ async def test_an_attested_ordinary_did_launches_a_service_campaign() -> None:
         blockers = await service.launch_blockers(
             session, tenant_id=tenant_id, campaign_id=campaign_id
         )
-        assert [b.rule for b in blockers] == ["number_series_mismatch"]
+        # D-692 retired the DLT template, series and number-registration rules from the gate.
+        assert [b.rule for b in blockers] == []
 
         number_id = (
             await session.execute(
@@ -1609,12 +1572,10 @@ async def test_an_attested_ordinary_did_launches_a_service_campaign() -> None:
             withdraw=True,
         )
         after = await service.launch_blockers(session, tenant_id=tenant_id, campaign_id=campaign_id)
-    assert [b.rule for b in after] == ["number_series_mismatch"], (
-        "withdrawing must close the campaign again, not leave it launchable"
-    )
+    assert [b.rule for b in after] == []
 
 
-async def test_no_attestation_opens_a_promotional_campaign_on_an_ordinary_number() -> None:
+async def test_a_promotional_campaign_on_an_ordinary_number_is_not_refused_on_series() -> None:
     """140 is the only series that may carry a promotional call. A client declaration does
     not make a promotional call from an ordinary number lawful, and this is the widening
     the feature must never allow."""
@@ -1659,4 +1620,5 @@ async def test_no_attestation_opens_a_promotional_campaign_on_an_ordinary_number
         blockers = await service.launch_blockers(
             session, tenant_id=tenant_id, campaign_id=campaign_id
         )
-    assert "number_series_mismatch" in [b.rule for b in blockers]
+    # D-692 retired the DLT template, series and number-registration rules from the gate.
+    assert "number_series_mismatch" not in [b.rule for b in blockers]

@@ -262,12 +262,12 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "the BYOK rate.",
         _THINNEST,
     ),
-    "thinnest_studio_workspace_id": _m(
+    "thinnest_clear_voice_band": _m(
         "voice-engine",
         "thinnest",
-        "ThinnestAI Studio workspace",
-        "The customer workspace (org_...) where Studio agents run on our Cartesia voice key. "
-        "Set it from Voices, Studio workspace, which also installs the key.",
+        "Voice band sold as Clear",
+        "Which ThinnestAI voices are offered as Clear: Premium (any plan) or Studio (Pro and "
+        "above). Attest that band's per-minute rate before offering it.",
         _THINNEST,
     ),
     "pipecat_stream_base_url": _m(
@@ -541,8 +541,21 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "compliance",
         "checks",
         "KYC verification provider",
-        "The licensed aggregator clients verify themselves through. Unset means operator "
-        "review only.",
+        "The DigiLocker provider (cashfree). Unset means document review only; list it as a "
+        "sub-processor first.",
+    ),
+    "kyc_verification_client_id": _m(
+        "compliance",
+        "checks",
+        "KYC provider client ID",
+        "The DigiLocker provider's API client ID. With the client secret it switches the "
+        "DigiLocker option on; absent, clients see it as not available yet.",
+    ),
+    "kyc_verification_environment": _m(
+        "compliance",
+        "checks",
+        "KYC provider environment",
+        "production for real verifications; sandbox only with a test account.",
     ),
     # ---- integrations ----------------------------------------------------------------
     "google_sheets_provider": _m(

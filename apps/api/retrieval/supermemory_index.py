@@ -133,7 +133,7 @@ _CONTENT_SHA_SQL: Final = (
 #: `tenant_id` is restated on every half on top of RLS for `kb/service.project_chunks`'
 #: reason: the one mistake RLS cannot see is a caller passing tenant A's id on B's session.
 _STALE_SQL: Final = f"""
-SELECT c.document_id, c.agent_id, c.source_id, c.version, d.content, s.name,
+SELECT c.document_id, c.source_id, c.version, d.content, s.name,
        {_CONTENT_SHA_SQL} AS sha
 FROM kb_chunks c
 JOIN kb_documents d ON d.id = c.document_id
@@ -164,10 +164,10 @@ LIMIT :limit
 #: over: a republish must be idempotent in the DATABASE and not in a read-then-write.
 _RECORD_SQL: Final = """
 INSERT INTO kb_index_documents
-  (id, tenant_id, agent_id, source_id, document_id, content_sha256, synced_at)
-VALUES (:id, :tid, :aid, :sid, :did, :sha, now())
+  (id, tenant_id, source_id, document_id, content_sha256, synced_at)
+VALUES (:id, :tid, :sid, :did, :sha, now())
 ON CONFLICT (document_id) DO UPDATE
-SET content_sha256 = EXCLUDED.content_sha256, agent_id = EXCLUDED.agent_id,
+SET content_sha256 = EXCLUDED.content_sha256, agent_id = NULL,
     source_id = EXCLUDED.source_id, synced_at = now(), updated_at = now()
 """
 
@@ -266,11 +266,11 @@ class SupermemoryIndexer:
             )
         ).all()
         ingested = 0
-        for document_id, agent_id, chunk_source_id, version, content, name, sha in rows:
+        for document_id, chunk_source_id, version, content, name, sha in rows:
             body = await self._client.ingest(
-                # The scope is minted HERE, from the row, so the tags on the document and
-                # the tenant it was published under cannot disagree.
-                TenantScope.for_publish(tenant_id=tenant_id, agent_id=UUID(str(agent_id))),
+                # The scope is minted HERE, so the tags on the document and the tenant it
+                # was published under cannot disagree.
+                TenantScope.for_publish(tenant_id=tenant_id),
                 document_id=UUID(str(document_id)),
                 content=content,
                 source_id=UUID(str(chunk_source_id)),
@@ -285,7 +285,6 @@ class SupermemoryIndexer:
                 {
                     "id": uuid7(),
                     "tid": tenant_id,
-                    "aid": agent_id,
                     "sid": chunk_source_id,
                     "did": document_id,
                     "sha": sha,

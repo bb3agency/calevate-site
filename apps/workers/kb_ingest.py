@@ -22,7 +22,7 @@ cannot hold that open, so the client's screen polls `ingest_status` instead.
   text a model read off a photograph, which used to wait for the owner to confirm it
   (`ExtractedText.needs_confirmation` still says a model read it; it no longer holds the
   text back). Anything else waits for a person.
-* **Publishing is last and is idempotent.** `publish_source` holds the agent's publish
+* **Publishing is last and is idempotent.** `publish_source` holds the tenant's knowledge
   lock, refuses a source that is not approved, and skips the vendor upload entirely when
   the digest and the handle both match. So a retry of this job costs a lock and a read.
 
@@ -110,6 +110,10 @@ RETRY_STALLED_AFTER = timedelta(minutes=30)
 
 #: The most rows one tick will re-drive.
 MAX_RETRIES_PER_TICK: Final = 25
+
+#: The most agents one tick brings up to their tenant's knowledge. A settled agent costs a
+#: few reads and no vendor call, so the bound is about a fleet-wide tick, not a vendor.
+MAX_CATCH_UP_AGENTS_PER_TICK: Final = 500
 
 #: One page fetch: the deadline, the redirect budget and the byte ceiling.
 #:
@@ -427,7 +431,7 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         await _mark(session, upload_id, UPLOAD_PROCESSING)
 
     # THE PUBLISH IS ITS OWN TRANSACTION AND ITS OWN SESSION, deliberately. It takes the
-    # agent's publish lock and makes vendor calls that can run for minutes; holding the
+    # tenant's knowledge lock and makes vendor calls that can run for minutes; holding the
     # extraction's transaction open across them would pin a connection and a lock for the
     # whole of it, and a rollback would then also discard the extracted chunks — throwing
     # away a model call we have already paid for because the vendor was slow.
@@ -438,16 +442,16 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             )
         except ProblemError as failure:
             # Every publish refusal is already written for a person and carries a
-            # remediation. `agent_not_published` is the common one and is not an error the
-            # client caused: their agent is not live yet, so there is nowhere to put the
-            # knowledge. It stays retryable — the sweep re-drives it — because publishing
-            # the agent is exactly the action that makes it succeed.
+            # remediation. A `dependency` refusal is the voice platform failing, not the
+            # document, so it stays retryable and the sweep re-drives it; the others need a
+            # person. (A client with no published agent is not a refusal since D-689: the
+            # knowledge goes live and each agent receives it when it is published.)
             await _fail(
                 tenant_id,
                 upload_id,
                 code=failure.code,
                 detail=f"{failure.detail} {failure.remediation or ''}".strip(),
-                retryable=failure.code == "agent_not_published",
+                retryable=failure.kind == "dependency",
             )
             return f"failed:{failure.code}"
         except Exception as failure:
@@ -480,8 +484,7 @@ async def publish_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str
     upload never comes here: `ingest_kb_source` publishes those, after reading them.
 
     A publish refusal is NOT raised for arq to retry, because none of them heals on a
-    retry seconds later: `agent_not_published` heals when the agent is published and the
-    sweep picks the source up then, and the others need a person, who sees the source
+    retry seconds later: they need a person, who sees the source
     "approved, not live" on both the client's screen and the operator's publish queue.
     Anything that is not a `ProblemError` is raised, so arq's retries and DLQ apply.
     """
@@ -552,7 +555,7 @@ async def _fail(
 #: tick against a `LIMIT`-ed page is the cost, and it is the right one: a policy on
 #: `kb_sources` would be permanent and platform-wide, to save one query on a cron.
 _DUE_LINKS_SQL = """
-SELECT u.id, u.tenant_id, u.source_id, u.agent_id, u.source_url, u.content_digest
+SELECT u.id, u.tenant_id, u.source_id, u.source_url, u.content_digest
 FROM kb_uploads u
 WHERE u.source_kind = 'url'
   AND (u.last_checked_at IS NULL OR u.last_checked_at < :due)
@@ -594,7 +597,7 @@ WHERE s.status = 'approved' AND s.published_at IS NULL AND NOT s.is_active
   AND NOT EXISTS (SELECT 1 FROM kb_uploads u WHERE u.source_id = s.id)
   AND NOT EXISTS (
     SELECT 1 FROM kb_sources n
-    WHERE n.agent_id = s.agent_id AND n.name = s.name AND n.version > s.version
+    WHERE n.tenant_id = s.tenant_id AND n.name = s.name AND n.version > s.version
       AND n.approved_at IS NOT NULL
   )
 ORDER BY s.updated_at
@@ -655,6 +658,11 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
 
     It is also reversible in the ordinary way: the superseded version is archived, not
     deleted, so FLOWS §7's rollback is a publish of the older row.
+
+    ═══ AND EVERY AGENT CATCHES UP ON ITS TENANT'S KNOWLEDGE (D-689) ═══
+
+    Knowledge belongs to the client, so an agent created after the last publish owes a T0
+    block and, on a per-agent engine, the documents (`_catch_up_agents`).
     """
     now = datetime.now(UTC)
     redriven = 0
@@ -709,6 +717,8 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
             continue
         published += 1
 
+    caught_up = await _catch_up_agents(failures)
+
     names = await _due_link_sources(due)
 
     changed = 0
@@ -726,9 +736,8 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
             if await _recheck_link(
                 upload_id=UUID(str(row[0])),
                 tenant_id=UUID(str(row[1])),
-                agent_id=UUID(str(row[3])),
-                url=str(row[4]),
-                known_digest=row[5],
+                url=str(row[3]),
+                known_digest=row[4],
                 name=name,
             ):
                 changed += 1
@@ -740,6 +749,7 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
         extra={
             "redriven": redriven,
             "typed": published,
+            "caught_up": caught_up,
             "links": checked,
             "changed": changed,
         },
@@ -750,7 +760,43 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
         raise KbSweepIncompleteError(
             f"{len(failures)} item(s) raised: {', '.join(failures[:_SWEEP_FAILURES_NAMED])}"
         )
-    return f"redriven={redriven} typed={published} links={checked} changed={changed}"
+    return (
+        f"redriven={redriven} typed={published} caught_up={caught_up} links={checked} "
+        f"changed={changed}"
+    )
+
+
+async def _catch_up_agents(failures: list[str]) -> int:
+    """Bring every agent of every tenant holding knowledge up to that knowledge (D-689).
+
+    The sweep's arm of `kb/service.catch_up_agent`: an agent created or restored after its
+    tenant last published, or one a fan-out could not reach, converges here within a tick
+    even if nobody publishes it. One transaction per agent, so one agent's vendor failure
+    neither rolls back nor starves its neighbours; an agent whose tenant is mid-publish is
+    skipped (TRY-lock) and selected again next tick. Returns the agents that changed.
+    """
+    from apps.workers.kb_gloss import tenants_holding_knowledge
+
+    changed = 0
+    visited = 0
+    for tenant_id in await tenants_holding_knowledge():
+        if visited >= MAX_CATCH_UP_AGENTS_PER_TICK:
+            break
+        async with tenant_session(tenant_id) as session:
+            agents = await kb_service.knowledge_agents(session, tenant_id=tenant_id)
+        for agent_id in agents[: MAX_CATCH_UP_AGENTS_PER_TICK - visited]:
+            visited += 1
+            try:
+                async with tenant_session(tenant_id) as session:
+                    result = await kb_service.catch_up_agent(
+                        session, tenant_id=tenant_id, agent_id=agent_id
+                    )
+            except Exception as exc:
+                _sweep_item_failed(failures, "catch_up", agent_id, exc)
+                continue
+            if result is not None and (result.attached or result.withdrawn):
+                changed += 1
+    return changed
 
 
 #: How many failed items the tick's error names before it stops listing them.
@@ -761,7 +807,7 @@ class KbSweepIncompleteError(RuntimeError):
     """A sweep tick in which at least one item raised; every other item was processed."""
 
 
-def _sweep_item_failed(failures: list[str], arm: str, source_id: UUID, exc: Exception) -> None:
+def _sweep_item_failed(failures: list[str], arm: str, item_id: UUID, exc: Exception) -> None:
     """Record one item's failure so the tick can move on to the next.
 
     One item must not stop the tick. Raised straight out of the loop, a single upload whose
@@ -771,10 +817,11 @@ def _sweep_item_failed(failures: list[str], arm: str, source_id: UUID, exc: Exce
     exception class only: a driver or vendor error can quote the row or page it failed on
     (hard rule 6).
     """
-    failures.append(f"{arm}:{source_id}:{type(exc).__name__}")
+    failures.append(f"{arm}:{item_id}:{type(exc).__name__}")
     log.error(
         "kb_upload_sweep_item_failed",
-        extra={"arm": arm, "source_id": str(source_id), "error": type(exc).__name__},
+        # A source id, or an agent id for the `catch_up` arm.
+        extra={"arm": arm, "item_id": str(item_id), "error": type(exc).__name__},
     )
 
 
@@ -816,7 +863,7 @@ _CHANGE_ALREADY_SUBMITTED_SQL = """
 SELECT 1
 FROM kb_uploads cu
 JOIN kb_sources cs ON cs.id = cu.source_id
-JOIN kb_sources s ON s.agent_id = cs.agent_id AND s.name = cs.name AND s.version > cs.version
+JOIN kb_sources s ON s.tenant_id = cs.tenant_id AND s.name = cs.name AND s.version > cs.version
 JOIN kb_uploads u ON u.source_id = s.id
 WHERE cu.id = :checked AND u.content_digest = :d
 LIMIT 1
@@ -833,7 +880,7 @@ SELECT s.submitted_by,
        )
 FROM kb_uploads cu
 JOIN kb_sources cs ON cs.id = cu.source_id
-JOIN kb_sources s ON s.agent_id = cs.agent_id AND s.name = cs.name AND s.submitted_by IS NOT NULL
+JOIN kb_sources s ON s.tenant_id = cs.tenant_id AND s.name = cs.name AND s.submitted_by IS NOT NULL
 WHERE cu.id = :checked
 ORDER BY s.version DESC
 LIMIT 1
@@ -844,7 +891,6 @@ async def _recheck_link(
     *,
     upload_id: UUID,
     tenant_id: UUID,
-    agent_id: UUID,
     url: str,
     known_digest: str | None,
     name: str,
@@ -901,7 +947,6 @@ async def _recheck_link(
         source_id, version, status = await kb_service.insert_source_version(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name=name,
             kind="url",
             uri=url[:2048],
@@ -912,14 +957,13 @@ async def _recheck_link(
         )
         await session.execute(
             text(
-                "INSERT INTO kb_uploads (id, tenant_id, agent_id, source_id, source_kind, "
+                "INSERT INTO kb_uploads (id, tenant_id, source_id, source_kind, "
                 "source_url, ingest_status, content_digest, last_checked_at, created_at, "
-                "updated_at) VALUES (gen_random_uuid(), :tid, :aid, :sid, 'url', :url, "
+                "updated_at) VALUES (gen_random_uuid(), :tid, :sid, 'url', :url, "
                 ":status, :digest, now(), now(), now())"
             ),
             {
                 "tid": tenant_id,
-                "aid": agent_id,
                 "sid": source_id,
                 "url": url[:2048],
                 "status": UPLOAD_RECEIVED,

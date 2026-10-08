@@ -20,11 +20,11 @@ authenticated** — the resend-multiplies-the-budget failure the OTP module's do
 says cannot happen, reachable by a double-tap on "resend".
 
 `pg_advisory_xact_lock` is the house primitive for exactly this (BACKEND-PATTERNS §5,
-`billing/service.lock_tenant_credits`, `kb/service._lock_agent_publishes`): the critical
+`billing/service.lock_tenant_credits`, `kb/service.lock_tenant_knowledge`): the critical
 section IS a database transaction, so the lock is released by COMMIT *or* ROLLBACK — the
 two events that decide whether the new credential exists — and there is no TTL to tune.
 The alternative, a unique index alone, is rejected here for the reason
-`_lock_agent_publishes` rejects it: the loser would learn it had lost only from an
+`lock_tenant_knowledge` rejects it: the loser would learn it had lost only from an
 `IntegrityError`, so a second click on "resend" would answer 500 instead of mailing a
 code. `auth_otp_challenges` carries one ANYWAY (migration `f1c8b7d5a903`) — but as the
 structural statement of the invariant against a future writer that forgets this call,

@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import {
   AudioLines,
+  BadgeCheck,
   BellRing,
   Building2,
   CalendarClock,
@@ -110,6 +111,13 @@ export const ADMIN_NAV: NavGroup[] = [
         icon: Hourglass,
         permission: "org:read",
         action: "open the hold queue",
+      },
+      {
+        href: "/admin/kyc-reviews",
+        label: "Identity reviews",
+        icon: BadgeCheck,
+        permission: "admin:tenants",
+        action: "open the identity review queue",
       },
       {
         href: "/admin/qa-sampling",

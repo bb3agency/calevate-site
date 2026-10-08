@@ -45,7 +45,6 @@ from typing import Any
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.campaigns import service
-from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import PUBLIC_PREFIXES, iter_api_routes
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
@@ -230,7 +229,7 @@ async def _with_platform_tm(
 # ------------------------------------------------- the load-bearing pair (the gate)
 
 
-async def test_no_tenant_can_launch_while_the_platform_tm_registration_is_not_live() -> None:
+async def test_the_platform_tm_registration_no_longer_blocks_a_launch() -> None:
     """A client with PERFECT paperwork still cannot launch while WE are unregistered.
 
     Every other §3 condition is satisfied for this tenant — the preview is green with
@@ -254,14 +253,13 @@ async def test_no_tenant_can_launch_while_the_platform_tm_registration_is_not_li
     green = await _with_platform_tm(tenant_id, "active", _rules, tm_id=LIVE_TM_ID)
     assert green == set(), f"the fixture campaign is not otherwise launchable: {green}"
 
+    # D-692: Calevate does not register as a telemarketer; no status blocks a launch.
     for status in ("not_registered", "submitted", "suspended", "revoked"):
         rules = await _with_platform_tm(tenant_id, status, _rules)
-        assert rules == {"tm_registration_missing"}, (
-            f"platform TM status {status!r} must block every launch by name, got {rules}"
-        )
+        assert rules == set(), f"platform TM status {status!r} must not block, got {rules}"
 
 
-async def test_the_launch_itself_is_refused_not_only_the_preview() -> None:
+async def test_the_launch_itself_goes_ahead_without_the_platform_registration() -> None:
     """The preview is UX; `launch_campaign` is the gate (hard rule 5).
 
     A blocker that only ever reached `launch_blockers` would leave the actual launch
@@ -273,20 +271,14 @@ async def test_the_launch_itself_is_refused_not_only_the_preview() -> None:
     tenant_id = uuid.UUID(str(org["id"]))
     campaign_id = await _perfect_campaign(tenant_id, uuid.UUID(str(org["agent_id"])))
 
-    async def _attempt(session: Any) -> tuple[list[str], str]:
-        with pytest.raises(ProblemError) as caught:
-            await service.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
-        status = (
-            await session.execute(
-                text("SELECT status FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
-            )
-        ).scalar()
-        return [str(field["rule"]) for field in caught.value.fields or []], str(status)
+    async def _attempt(session: Any) -> str:
+        launched = await service.launch_campaign(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
+        return str(launched["status"])
 
-    rules, status = await _with_platform_tm(tenant_id, "not_registered", _attempt)
-
-    assert rules == ["tm_registration_missing"]
-    assert status == "draft", "a blocked launch must not move the campaign"
+    # D-692: the launch path no longer asks the platform TM registration.
+    assert await _with_platform_tm(tenant_id, "not_registered", _attempt) == "running"
 
 
 async def test_recording_the_registration_live_lets_the_same_campaign_launch() -> None:
@@ -319,7 +311,7 @@ async def test_recording_the_registration_live_lets_the_same_campaign_launch() -
 
     blocked, launched = await _with_platform_tm(tenant_id, "not_registered", _before_and_after)
 
-    assert blocked == {"tm_registration_missing"}
+    assert blocked == set(), "D-692: an unregistered platform blocks nothing"
     assert launched["status"] == "running"
     assert launched["dialable"] == 1
 
@@ -636,7 +628,7 @@ async def test_an_admin_records_a_clients_pe_registration_on_the_tenant_path() -
     assert (audit[0], audit[1], audit[2]) == ("admin", "dlt_registration", str(tenant_id))
 
 
-async def test_recording_a_pe_registration_unblocks_that_tenant_only() -> None:
+async def test_a_missing_pe_registration_no_longer_blocks_a_launch() -> None:
     """End to end through the endpoint: a tenant blocked by `pe_registration_missing`
     launches after ops files their registration, and a second tenant stays blocked.
 
@@ -668,7 +660,8 @@ async def test_recording_a_pe_registration_unblocks_that_tenant_only() -> None:
                 text("DELETE FROM dlt_registrations WHERE tenant_id = :tid"), {"tid": tenant_id}
             )
 
-    assert await _rules(filed_id, filed_campaign) == {"pe_registration_missing"}
+    # D-692: clients do not register on DLT, so a missing PE blocks nothing.
+    assert await _rules(filed_id, filed_campaign) == set()
 
     async with _client() as http:
         response = await http.post(
@@ -683,7 +676,7 @@ async def test_recording_a_pe_registration_unblocks_that_tenant_only() -> None:
     assert response.status_code == 200, response.text
 
     assert await _rules(filed_id, filed_campaign) == set()
-    assert await _rules(unfiled_id, unfiled_campaign) == {"pe_registration_missing"}
+    assert await _rules(unfiled_id, unfiled_campaign) == set()
 
 
 async def test_a_pe_registration_recorded_active_must_name_itself() -> None:

@@ -144,11 +144,12 @@ export const TERMS_OF_SERVICE: LegalDocument = {
                 "business facts, prompts, knowledge content, uploaded lists and settings.",
             },
             {
-              term: "PE and TM",
+              term: "Outbound pledge",
               detail:
-                "Principal Entity and Telemarketer, as registered under India's " +
-                "commercial-communications framework. You are the PE. We are the TM " +
-                "linked to your registration.",
+                "The no-cold-calls pledge in section 2.1 of the Acceptable Use Policy, " +
+                "which the account owner accepts, in its current version, before any " +
+                "outbound call. We are not a registered telemarketer and do not register " +
+                "you as a Principal Entity.",
             },
             {
               term: "Engine",
@@ -169,8 +170,8 @@ export const TERMS_OF_SERVICE: LegalDocument = {
           kind: "para",
           text:
             "A hosted service that answers your incoming telephone calls with an AI " +
-            "agent, places outgoing calls on your instruction where your registrations " +
-            "permit it, records and transcribes those calls, extracts the fields you " +
+            "agent, places outgoing calls on your instruction once your business is " +
+            "verified and the outbound pledge is accepted, records and transcribes those calls, extracts the fields you " +
             "define into a lead record, and delivers them to your dashboard and, if you " +
             "connect one, to your own system.",
         },
@@ -189,13 +190,10 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             "We are not a telecommunications licensee and we do not provide the " +
             "telecommunications service itself. We are not your legal, tax, medical or " +
             "financial adviser, and nothing an agent says on your behalf is advice from " +
-            "us. We do not obtain your Principal Entity registration for you as a legal " +
-            "guarantee — we run the process on your instructions and the registration is " +
-            "granted, or not, by the access provider. We do not supply the telephone " +
-            "number or the telephone connection either, and we do not resell either one. " +
-            "You take the connection with an Indian operator in your own name and on your " +
-            "own account, you remain the subscriber of record for it, and we operate on " +
-            "that account using credentials you issue to us and can withdraw.",
+            "us. A telephone number you rent through Calevate is provided by the hosted " +
+            "voice platform that runs your calls, in your business's name and on the " +
+            "business details you verified with us; you are the sender of every call " +
+            "placed from it. Its monthly charge is shown before you rent it.",
         },
       ],
     },
@@ -229,9 +227,10 @@ export const TERMS_OF_SERVICE: LegalDocument = {
               "is charged under the wrong head and you cannot claim it. Clause 6.2 sets " +
               "out our own GST position.",
             "You must complete identity verification where the Acceptable Use Policy " +
-              "requires it, and keep your registrations and your notices current. A " +
-              "registration that lapses, or a notice you withdraw, stops your outbound " +
-              "calling until it is restored.",
+              "requires it, accept the outbound pledge, and keep your verification and " +
+              "your notices current. A verification that lapses, a pledge version you " +
+              "have not accepted, or a notice you withdraw stops your outbound calling " +
+              "until it is restored. Your incoming calls are unaffected.",
           ],
         },
       ],
@@ -245,7 +244,7 @@ export const TERMS_OF_SERVICE: LegalDocument = {
           tone: "warning",
           title: "The compliance obligations are yours, and this clause is why",
           text:
-            "You are the Principal Entity for every call and the Data Fiduciary for every " +
+            "You are the sender of every call and the Data Fiduciary for every " +
             "conversation. You decide who is called, what the agent says, what is written " +
             "down and what happens to it afterwards. The law attaches the duty to the " +
             "party that makes those decisions, and this agreement does not move it.",
@@ -254,23 +253,18 @@ export const TERMS_OF_SERVICE: LegalDocument = {
           kind: "list",
           items: [
             "Complying with the Acceptable Use Policy in full, including the calling " +
-              "hours, the number series, the suppression checks and the consent provenance " +
-              "rules.",
-            "Being the subscriber of record for every telephone connection your agents " +
-              "use, and the registered Principal Entity for every call placed on it. You " +
-              "warrant both, for every number you give us, and you tell us at once if " +
-              "either stops being true — a call placed on a connection registered to " +
-              "somebody else is a breach of the telecom rules before it is a breach of " +
-              "this agreement.",
-            "Being the sender of every call your agents place, and accepting what that " +
-              "carries. Commercial voice calls to a customer are meant to come from a " +
-              "registered 140 or 160 series number. If you want a campaign to dial from " +
-              "an ordinary ten-digit number instead, somebody with owner access on your " +
-              "account must confirm first, on that number's settings page, that your " +
-              "business is the sender and accepts responsibility for those calls — and " +
-              "no such confirmation makes a promotional call from an ordinary number " +
-              "acceptable. We cannot give that confirmation for you, and nobody at " +
-              "Calevate can give it while helping you with your account.",
+              "hours, the outbound pledge, the suppression checks and the consent " +
+              "provenance rules.",
+            "Making sure every telephone number your agents use is held in your " +
+              "business's name. You warrant it for every number, and you tell us at once " +
+              "if it stops being true — a call placed on a number held by somebody else " +
+              "is a breach of the telecom rules before it is a breach of this agreement.",
+            "Keeping the outbound pledge: your agents call only people who already have " +
+              "a relationship with you or asked to be called, never a purchased, rented, " +
+              "scraped or otherwise acquired list, and stop calling anyone who asks. " +
+              "Only the account owner can accept the pledge; nobody at Calevate can " +
+              "accept it for you, even while helping you with your account. Breaking it " +
+              "lets us suspend your outbound calling under clause 10.",
             "Telling your own telecom access provider, in writing and before the calls " +
               "start, that these calls are placed by an automated dialler and what they " +
               "are for. The rules put that notice on the sender of the calls, which is " +
@@ -562,7 +556,7 @@ export const TERMS_OF_SERVICE: LegalDocument = {
           items: [
             "you are in breach of the Acceptable Use Policy;",
             "a regulator, an access provider or a court instructs us to;",
-            "a registration you rely on lapses, is suspended or is revoked;",
+            "your verification lapses or is withdrawn, or you break the outbound pledge;",
             "there is a security risk, a live risk to the people being called, or a " +
               "runaway cost;",
             "an invoice is overdue and we have told you.",
@@ -608,18 +602,13 @@ export const TERMS_OF_SERVICE: LegalDocument = {
         {
           kind: "callout",
           tone: "note",
-          title: "Your telephone number is yours, and ending this does not touch it",
+          title: "What happens to your telephone numbers",
           text:
-            "The connection was taken in your name on your own operator account and it " +
-            "stays there: there is nothing for us to hand back, port or release, because " +
-            "we never held it. What ends on our side is the access: we stop using the " +
-            "operator credentials you issued us and delete our copy of them, and we " +
-            "revoke the API keys and webhook signing secrets issued for your account. " +
-            "The link between your Principal Entity registration and our Telemarketer " +
-            "registration lives on the access provider's platform and is yours to " +
-            "remove — ask and we will run that step for you, as we do at onboarding. " +
-            "Until it is removed, nothing can be dialled under it through us anyway, " +
-            "because your account is closed.",
+            "A number you rented through Calevate is released when your account closes, " +
+            "and its monthly charge stops from then; a released number cannot be " +
+            "recovered. A number you hold with your own operator stays yours: we stop " +
+            "using it, and we revoke the API keys and webhook signing secrets issued for " +
+            "your account.",
         },
       ],
     },
@@ -712,8 +701,8 @@ export const TERMS_OF_SERVICE: LegalDocument = {
               text:
                 "That cap does not apply to your obligation to pay fees, or to your " +
                 "liability under clause 14.2, which is uncapped. A penalty, a claim or a " +
-                "regulatory cost arising from your list, your consent, your registration " +
-                "or your header is yours in full: the cap exists to keep a supplier's " +
+                "regulatory cost arising from your list, your consent, your calls " +
+                "or your numbers is yours in full: the cap exists to keep a supplier's " +
                 "exposure proportionate to a risk it chose and can see, and that risk is " +
                 "not one of them.",
             },
@@ -742,12 +731,10 @@ export const TERMS_OF_SERVICE: LegalDocument = {
                 "costs arising from: a breach by you of the Acceptable Use Policy; calls " +
                 "placed to people for whom you had no lawful basis; content you supplied " +
                 "for an agent to say or answer from; a failure by you to give a notice or " +
-                "obtain a consent that the law required of you as Data Fiduciary or " +
-                "Principal Entity; use of a telephone connection you were not the " +
-                "subscriber of record for; use of a header or a template registered to " +
-                "somebody else, or registered for one class of message and used for " +
-                "another; and any claim that your content infringes a third party's " +
-                "rights.",
+                "obtain a consent that the law required of you as Data Fiduciary or as " +
+                "the sender of the call; a breach of the outbound pledge; use of a " +
+                "telephone number not held in your business's name; and any claim that " +
+                "your content infringes a third party's rights.",
             },
             {
               kind: "para",
@@ -809,8 +796,7 @@ export const TERMS_OF_SERVICE: LegalDocument = {
               "A transfer of that kind changes who your counterparty is and nothing " +
               "else in these terms, and your rights under them are unaffected.",
             "No partnership: nothing here makes either party the other's agent, partner " +
-              "or employee, except that we act as your registered Telemarketer, which is " +
-              "the specific relationship the telecom framework defines.",
+              "or employee.",
             "Notices: to you at the email on your account; to us by email to " +
               "{{SUPPORT_EMAIL}}. A notice terminating this agreement is given the same " +
               "way, and no notice under these terms has to be posted — we do not " +

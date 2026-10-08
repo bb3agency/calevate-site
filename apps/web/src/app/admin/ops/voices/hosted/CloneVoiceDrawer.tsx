@@ -67,7 +67,8 @@ export function CloneVoiceDrawer({ onClose }: { onClose: () => void }) {
             )}
           </NoticeBox>
           <p className="text-sm text-ink-muted">
-            It is added but not offered. Listen to its preview on the Clear list, then switch
+            It is added but not offered. A clone is a Studio-tier voice, so it can be offered as
+            Clear only while Clear is sold on the Studio tier. Listen to its preview, then switch
             on &ldquo;Offered to clients&rdquo;.
           </p>
           <button type="button" className={PRIMARY_BUTTON} onClick={onClose}>
@@ -84,7 +85,7 @@ export function CloneVoiceDrawer({ onClose }: { onClose: () => void }) {
       dirty={dirty}
       onClose={onClose}
       title="Clone a voice"
-      description="One clean recording of one speaker becomes a Clear voice. Clients never clone; they choose from voices you enable."
+      description="One clean recording of one speaker becomes a Studio-tier voice of ours. Cloning needs ThinnestAI Pro or above. Clients never clone; they choose from voices you enable."
       width="lg"
       formId={formId}
       footer={

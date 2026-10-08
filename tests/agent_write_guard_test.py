@@ -191,9 +191,9 @@ async def test_the_assistant_refuses_to_change_a_deleted_agent_before_it_offers(
     )
 
 
-async def test_knowledge_cannot_be_attached_to_a_deleted_agent() -> None:
-    """The agent arrives in the BODY here, so the route-level guard cannot see it. All
-    three knowledge doors go through `insert_source_version`, which is where it is asked."""
+async def test_knowledge_belongs_to_the_client_and_outlives_a_deleted_agent() -> None:
+    """Knowledge names no agent since D-689 — it is the client's, shared by every agent — so
+    archiving the client's only agent does not stop them adding to it."""
     from apps.api.kb import service as kb_service
 
     reset_engine_cache()
@@ -202,15 +202,13 @@ async def test_knowledge_cannot_be_attached_to_a_deleted_agent() -> None:
     await _archive(tenant_id, agent_id)
 
     async with tenant_session(tenant_id) as session:
-        with pytest.raises(ProblemError) as raised:
-            await kb_service.submit_source(
-                session,
-                tenant_id=tenant_id,
-                agent_id=agent_id,
-                name="Saturday hours",
-                body="We open at 9am on Saturdays.",
-                kind="text",
-                uri=None,
-                submitted_by=None,
-            )
-    assert raised.value.code == "agent_archived"
+        created = await kb_service.submit_source(
+            session,
+            tenant_id=tenant_id,
+            name="Saturday hours",
+            body="We open at 9am on Saturdays.",
+            kind="text",
+            uri=None,
+            submitted_by=None,
+        )
+    assert created["status"] == "pending_approval"

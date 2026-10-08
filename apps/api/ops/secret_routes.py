@@ -85,6 +85,7 @@ from apps.api.ops.secret_service import (
     rewrap_tenant_credentials,
     set_secret,
 )
+from apps.api.reliability.service import enqueue_outbox_once
 
 router = APIRouter(prefix="/v1/ops/secrets", tags=["ops"])
 #: The carrier pair is env-only, so it has no `{key}` on the router above to test under.
@@ -370,6 +371,12 @@ async def probe_carrier(
     )
 
 
+#: The credential Studio voices speak on, and the ARQ job that pushes a rotation of it to
+#: the voice platform (`apps/workers/settings.FUNCTIONS`; `check_job_wiring` holds the name).
+STUDIO_VOICE_SECRET = "cartesia_api_key"
+PUSH_STUDIO_VOICE_KEY_JOB = "push_studio_voice_key"
+
+
 @router.put(
     "/{key}",
     response_model=SecretOut,
@@ -442,6 +449,16 @@ async def set_secret_route(
         config_key=key,
         actor_id=str(principal.user_id),
     )
+    if key == STUDIO_VOICE_SECRET:
+        # The voice platform holds its own copy of our Cartesia key for Studio voices
+        # (D-688): the rotation reaches it through the outbox, in this transaction, once per
+        # stored version (`apps/workers/studio_voice_key.py`).
+        await enqueue_outbox_once(
+            session,
+            job=PUSH_STUDIO_VOICE_KEY_JOB,
+            payload={"version": record.version},
+            dedupe_key=f"studio-voice-key:{record.version}",
+        )
     tasks.add_task(propagate)
     return _out(record, testable=_testable(key))
 

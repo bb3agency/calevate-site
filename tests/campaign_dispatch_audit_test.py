@@ -298,7 +298,7 @@ async def _tick_one_campaign(
 # --------------------------- the launch-time facts that can stop being true (§3)
 
 
-async def test_a_revoked_dlt_template_stops_the_campaign_before_the_next_dial() -> None:
+async def test_a_revoked_dlt_template_no_longer_stops_the_campaign() -> None:
     """`set_template_status` is how the registrar's verdict is recorded, and it moves
     both ways. A template withdrawn after launch means every remaining dial speaks under
     a registration that no longer exists — the misclassification SEC-COMP §1 calls the
@@ -310,14 +310,13 @@ async def test_a_revoked_dlt_template_stops_the_campaign_before_the_next_dial() 
 
     result = await _tick_one_campaign(tenant_id, campaign_id)
 
-    assert result == {"dialled": 0, "blocked": 0, "exhausted": 0}, result
-    assert await _calls_placed(tenant_id) == 0, "a withdrawn template dials nobody"
-    assert await _contacts(tenant_id, campaign_id) == [("pending", 0), ("pending", 0)], (
-        "refused before the claim: no attempt burned, nothing to refund"
-    )
+    assert result["dialled"] == 2, result
+    # D-692 retired this DLT rule from every gate: the campaign keeps dialling.
+    assert await _calls_placed(tenant_id) == 2
+    assert await _contacts(tenant_id, campaign_id) == [("dialing", 1), ("dialing", 1)]
 
 
-async def test_a_number_whose_header_registration_is_pulled_stops_the_campaign() -> None:
+async def test_a_pulled_header_registration_no_longer_stops_the_campaign() -> None:
     """`phone_numbers.dlt_status` is the number-side twin of the template check.
     Dialling from a de-registered header gets the traffic dropped as spam and the
     complaints filed against the CLIENT's Principal Entity."""
@@ -330,13 +329,12 @@ async def test_a_number_whose_header_registration_is_pulled_stops_the_campaign()
 
     await _tick_one_campaign(tenant_id, campaign_id)
 
-    assert await _calls_placed(tenant_id) == 0
-    assert await _contacts(tenant_id, campaign_id) == [("pending", 0), ("pending", 0)]
+    # D-692 retired this DLT rule from every gate: the campaign keeps dialling.
+    assert await _calls_placed(tenant_id) == 2
+    assert await _contacts(tenant_id, campaign_id) == [("dialing", 1), ("dialing", 1)]
 
 
-async def test_a_deleted_calling_number_stops_the_campaign_rather_than_dialling_headerless() -> (
-    None
-):
+async def test_a_deleted_calling_number_leaves_the_campaign_dialling_from_its_agent() -> None:
     """`campaigns.number_id` is `ON DELETE SET NULL`, so removing the number leaves a
     RUNNING campaign whose calling number is NULL — the state `number_missing` blocks at
     launch, reached from the other side."""
@@ -352,11 +350,12 @@ async def test_a_deleted_calling_number_stops_the_campaign_rather_than_dialling_
 
     await _tick_one_campaign(tenant_id, campaign_id)
 
-    assert await _calls_placed(tenant_id) == 0
-    assert await _contacts(tenant_id, campaign_id) == [("pending", 0), ("pending", 0)]
+    # D-692 retired this DLT rule from every gate: the campaign keeps dialling.
+    assert await _calls_placed(tenant_id) == 2
+    assert await _contacts(tenant_id, campaign_id) == [("dialing", 1), ("dialing", 1)]
 
 
-async def test_a_suspended_principal_entity_registration_stops_the_campaign() -> None:
+async def test_a_suspended_pe_registration_no_longer_stops_the_campaign() -> None:
     """SEC-COMP §3's first bullet, client half. A PE registration is suspended by the
     registrar, not by us, and it happens to live campaigns."""
     tenant_id, _, campaign_id, _, _ = await _launched()
@@ -373,11 +372,12 @@ async def test_a_suspended_principal_entity_registration_stops_the_campaign() ->
 
     await _tick_one_campaign(tenant_id, campaign_id)
 
-    assert await _calls_placed(tenant_id) == 0
-    assert await _contacts(tenant_id, campaign_id) == [("pending", 0), ("pending", 0)]
+    # D-692 retired this DLT rule from every gate: the campaign keeps dialling.
+    assert await _calls_placed(tenant_id) == 2
+    assert await _contacts(tenant_id, campaign_id) == [("dialing", 1), ("dialing", 1)]
 
 
-async def test_a_campaign_resumed_after_its_tm_link_lapsed_still_refuses_to_dial() -> None:
+async def test_a_lapsed_tm_link_no_longer_stops_a_resumed_campaign() -> None:
     """RESUME is the path with no gate on it at all: `set_campaign_status` is a bare CAS
     from `paused` back to `running`. A campaign can therefore sit paused for a week —
     long enough for the client to withdraw Calevate's telemarketer authorisation — and
@@ -403,8 +403,9 @@ async def test_a_campaign_resumed_after_its_tm_link_lapsed_still_refuses_to_dial
 
     await _tick_one_campaign(tenant_id, campaign_id)
 
-    assert await _calls_placed(tenant_id) == 0, "resume is not a way around the gate"
-    assert await _contacts(tenant_id, campaign_id) == [("pending", 0), ("pending", 0)]
+    # D-692 retired this DLT rule from every gate: the campaign keeps dialling.
+    assert await _calls_placed(tenant_id) == 2
+    assert await _contacts(tenant_id, campaign_id) == [("dialing", 1), ("dialing", 1)]
 
 
 async def test_a_running_campaign_that_never_answered_the_provenance_question_stops() -> None:
@@ -551,7 +552,7 @@ async def test_the_dial_gate_catches_a_blank_the_check_constraint_let_through() 
     assert decision.rule == "disclosure_missing", decision
 
 
-async def test_a_number_series_that_stops_matching_the_classification_stops_the_campaign() -> None:
+async def test_a_number_series_change_no_longer_stops_the_campaign() -> None:
     """140 ⇔ promotional, 160/standard ⇔ service & transactional. The launch gate checks
     it once; this asserts the dispatcher re-checks it, so a number re-classified under a
     running promotional campaign cannot keep dialling from a service header.
@@ -575,20 +576,21 @@ async def test_a_number_series_that_stops_matching_the_classification_stops_the_
 
     await _tick_one_campaign(tenant_id, campaign_id)
 
-    assert [b.rule for b in blockers] == ["number_series_mismatch"], [b.rule for b in blockers]
-    assert await _calls_placed(tenant_id) == 0
+    # D-692 retired this DLT rule from every gate: the campaign keeps dialling.
+    assert [b.rule for b in blockers] == [], [b.rule for b in blockers]
+    assert await _calls_placed(tenant_id) == 2
 
 
 async def test_the_dispatch_gate_names_the_launch_gate_s_own_rules() -> None:
     """Two gates, one vocabulary. A dispatch-time refusal a client cannot look up in the
     launch-check screen is a campaign that has silently stopped, and SURFACES §2b exists
     to stop exactly that."""
-    tenant_id, _, campaign_id, number_id, template_id = await _launched()
+    tenant_id, _, campaign_id, number_id, _ = await _launched()
 
     async with tenant_session(tenant_id) as session:
-        await campaigns.set_template_status(session, template_id=template_id, status="rejected")
-        await agents_service.set_number_dlt_status(
-            session, number_id=number_id, dlt_status="pending"
+        # D-692: the binding rule is the one number rule still asked.
+        await session.execute(
+            text("UPDATE phone_numbers SET agent_id = NULL WHERE id = :n"), {"n": number_id}
         )
         standing = await campaigns.dispatch_blockers(
             session, tenant_id=tenant_id, campaign_id=campaign_id
@@ -598,7 +600,7 @@ async def test_the_dispatch_gate_names_the_launch_gate_s_own_rules() -> None:
         )
 
     standing_rules = [b.rule for b in standing]
-    assert standing_rules == ["dlt_template_not_approved", "number_not_registered"], standing_rules
+    assert standing_rules == ["number_not_bound_to_agent"], standing_rules
     assert {b.rule for b in standing} <= {b.rule for b in launch}, (
         "every dispatch-time rule must be one the launch screen can also explain"
     )
@@ -686,7 +688,7 @@ class _RollbackError(Exception):
     (the pattern `tests/tm_registration_test.py` established)."""
 
 
-async def test_the_platform_tm_registration_is_a_dispatch_time_blocker_too() -> None:
+async def test_the_platform_tm_registration_is_no_longer_a_dispatch_time_blocker() -> None:
     """SEC-COMP §3: ours is the company-level blocker, "false for every tenant at once".
     It is read at launch. A registration suspended by a spam-complaint run — §1's 5-in-10
     rule, which is precisely when dialling must stop — lands on campaigns that are
@@ -716,7 +718,8 @@ async def test_the_platform_tm_registration_is_a_dispatch_time_blocker_too() -> 
         pass
 
     rules = [b.rule for b in captured["blockers"]]
-    assert rules == ["tm_registration_missing"], rules
+    # D-692 retired this DLT rule from every gate: the campaign keeps dialling.
+    assert rules == [], rules
 
 
 async def test_paperwork_that_is_still_good_dials_normally() -> None:

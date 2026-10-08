@@ -140,6 +140,27 @@ def available_transfer(engine: VoiceEngine | None = None) -> TransferCapability:
     return TransferCapability(provider, None)
 
 
+#: Engines whose in-call hand-over is a live transfer only on some carriers' numbers, and the
+#: sentence the hand-over screen shows about it. ThinnestAI transfers on numbers it rents and
+#: on Plivo or Telnyx numbers; on any other it falls back to flagging the conversation, and its
+#: agent says somebody will follow up (thinnest-findings/mirror/snapshots/2026-10-08/pages/
+#: channels/voice.md:483-492). Client copy, so no vendor is named (D-679).
+CARRIER_LIMITED_TRANSFER_NOTES: Final[dict[str, str]] = {
+    "thinnest": (
+        "A caller is put through live on numbers rented through Calevate. On a number "
+        "brought from another phone company that cannot transfer, the voice platform marks "
+        "the request instead and tells the caller somebody will follow up."
+    ),
+}
+
+
+def transfer_platform_note(engine: VoiceEngine) -> str | None:
+    """What the hand-over screen should say about where live transfer works, or None."""
+    if not engine.capabilities.in_call_handoff:
+        return None
+    return CARRIER_LIMITED_TRANSFER_NOTES.get(engine.name)
+
+
 def transfer_blocked_reason(engine: VoiceEngine) -> str | None:
     """Can THIS engine hand a caller to a person at all, by any mechanism? None if it can.
 
@@ -170,4 +191,5 @@ __all__ = [
     "TransferCapability",
     "available_transfer",
     "transfer_blocked_reason",
+    "transfer_platform_note",
 ]

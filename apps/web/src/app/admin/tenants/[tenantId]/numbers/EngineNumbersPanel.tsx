@@ -3,17 +3,25 @@
 import { ProblemNotice, Skeleton, formatPhone } from "@/components/ui";
 import { useTenantEngineNumbers } from "@/lib/api/numbers";
 
+import { RecordEngineNumber } from "./RecordEngineNumber";
+
 /**
  * The numbers held in the voice platform's own console, for a platform that rents numbers
  * and points them at agents only there (ThinnestAI, D-678).
  *
- * On such a platform this console cannot buy a number or say which agent answers it: the
- * platform refuses both by name. So this panel shows what the platform holds that this
- * client's agents answer or that nobody answers yet, which of this client's agents the
- * platform knows and by what id, and the console steps — instead of a buy button that would
+ * Renting happens in that console; recording and attaching happen here (D-691). So this panel
+ * shows what the platform holds that this client's agents answer or that nobody answers
+ * yet, offers "Record this number" on each one not yet recorded, names this client's
+ * agents the platform knows, and the console steps — instead of a buy button that would
  * refuse. Renders nothing on a platform whose numbers are recorded and routed here.
  */
-export function EngineNumbersPanel({ tenantId }: { tenantId: string }) {
+export function EngineNumbersPanel({
+  tenantId,
+  canWrite,
+}: {
+  tenantId: string;
+  canWrite: boolean;
+}) {
   const engine = useTenantEngineNumbers(tenantId);
 
   if (engine.isLoading) return <Skeleton rows={2} />;
@@ -34,9 +42,9 @@ export function EngineNumbersPanel({ tenantId }: { tenantId: string }) {
           Numbers on {platform}
         </h2>
         <p className="mt-1 text-sm text-ink-muted">
-          This deployment&apos;s calls run on {platform}. Numbers are rented and pointed at
-          agents in the {platform} console, not here — the list below is what {platform}{" "}
-          holds right now.
+          This deployment&apos;s calls run on {platform}. Numbers are rented in the {platform}{" "}
+          console; record each one here for this client, then choose its agent below — the
+          list is what {platform} holds right now.
         </p>
       </div>
 
@@ -60,6 +68,18 @@ export function EngineNumbersPanel({ tenantId }: { tenantId: string }) {
                     ? "Nobody answers it yet"
                     : "Answered by an agent outside this client"}
               </span>
+              {number.number_id ? (
+                <span className="w-full text-xs text-ink-muted">Recorded for this client.</span>
+              ) : (
+                <div className="w-full">
+                  <RecordEngineNumber
+                    tenantId={tenantId}
+                    e164={number.e164}
+                    agents={data.agents}
+                    canWrite={canWrite}
+                  />
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -98,7 +118,7 @@ export function EngineNumbersPanel({ tenantId }: { tenantId: string }) {
       </div>
 
       <div>
-        <h3 className="text-sm font-semibold text-ink">Rent a number and attach it</h3>
+        <h3 className="text-sm font-semibold text-ink">Rent a number and record it</h3>
         <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-ink-muted">
           {data.steps.map((step) => (
             <li key={step}>{step}</li>

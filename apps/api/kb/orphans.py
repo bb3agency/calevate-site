@@ -145,8 +145,15 @@ class KbOrphanReport:
         return self.unrecorded + self.unclaimed + self.stranded
 
 
-async def _claims(session: AsyncSession, *, engine: str) -> dict[str, tuple[UUID, UUID]]:
+async def _claims(session: AsyncSession, *, engine: str) -> dict[str, tuple[UUID, UUID | None]]:
     """`handle -> (tenant_id, source_id)` for every claim on this engine.
+
+    TWO KINDS OF CLAIM. A published source holds one vendor object PER AGENT since D-689
+    (`engine_kb_routes`, one row per source and agent), so a source fanned out to three
+    agents is three accounted objects here. And on an engine that keeps business facts out
+    of the prompt each vendor agent holds a facts document (`agents/engine_facts.py`),
+    claimed on `engine_agent_routes.facts_kb_ref` with no source behind it — without it every
+    facts document on such an account read as `unclaimed`.
 
     A GLOBAL read, and the only place in this repository that takes one of these. It is
     what `engine_kb_routes`' RLS exemption was granted for (migration `f1c9e0a73b46`): the
@@ -161,7 +168,19 @@ async def _claims(session: AsyncSession, *, engine: str) -> dict[str, tuple[UUID
         ),
         {"engine": engine},
     )
-    return {str(handle): (UUID(str(tid)), UUID(str(sid))) for handle, tid, sid in rows}
+    claims: dict[str, tuple[UUID, UUID | None]] = {
+        str(handle): (UUID(str(tid)), UUID(str(sid))) for handle, tid, sid in rows
+    }
+    facts = await session.execute(
+        text(
+            "SELECT facts_kb_ref, tenant_id FROM engine_agent_routes "
+            "WHERE engine = :engine AND facts_kb_ref IS NOT NULL"
+        ),
+        {"engine": engine},
+    )
+    for handle, tid in facts:
+        claims.setdefault(str(handle), (UUID(str(tid)), None))
+    return claims
 
 
 def _too_new(created_at: datetime | None, *, now: datetime) -> bool:

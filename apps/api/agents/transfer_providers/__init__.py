@@ -25,6 +25,7 @@ from apps.api.agents.transfer_providers.registry import (
     TransferCapability,
     available_transfer,
     transfer_blocked_reason,
+    transfer_platform_note,
 )
 
 __all__ = [
@@ -44,4 +45,5 @@ __all__ = [
     "TransferStarted",
     "available_transfer",
     "transfer_blocked_reason",
+    "transfer_platform_note",
 ]

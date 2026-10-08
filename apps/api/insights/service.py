@@ -511,7 +511,6 @@ async def teach_gap(
     worker (D-658); taught from a view-as session it waits in the admin queue.
     """
     row = await _load_gap(session, gap_id)
-    agent_id: UUID = row.agent_id  # type: ignore[attr-defined]
     topic_label: str = row.topic_label  # type: ignore[attr-defined]
     tenant_id = principal.tenant_id
     kb_source_id: UUID | None = None
@@ -524,7 +523,6 @@ async def teach_gap(
         created = await kb.submit_source(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name=f"{_KB_DRAFT_PREFIX} {topic_label}",
             body=payload.answer,
             submitted_by=principal.user_id,

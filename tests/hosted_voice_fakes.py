@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from apps.api.agents.hosted_voices import hosted_voice_id
+from apps.api.core.errors import ProblemError
 from apps.api.db.session import admin_session
 from apps.api.engine.catalogue import (
     CatalogueModel,
@@ -28,8 +29,7 @@ from apps.api.engine.catalogue import (
 )
 from apps.api.engine.fake import FakeEngine
 from apps.api.engine.thinnest import THINNEST_CAPABILITIES
-from calevate_shared.engine import AgentConfig, EngineAgentRef
-from calevate_shared.engine_scope import scoped_handle
+from calevate_shared.engine import AgentConfig, AgentSnapshot, EngineAgentRef
 from sqlalchemy import text
 
 PRANA = CatalogueModel(
@@ -51,8 +51,8 @@ OFF_KEY = OwnVoiceKeyState(enabled=False, scope=None, complete=False, using="non
 
 
 class HostingEngine(FakeEngine):
-    """A `HostsVoices` + `HoldsCatalogue` engine named `thinnest`, recording what it was sent.
-    Agent refs it mints are scoped to the config's workspace, as the real adapter's are."""
+    """A `HostsVoices` + `HoldsCatalogue` engine named `thinnest`, recording what it was sent,
+    with each agent's own-voice-key switch held as the vendor would hold it."""
 
     def __init__(
         self,
@@ -77,11 +77,17 @@ class HostingEngine(FakeEngine):
         self.deleted: list[str] = []
         self.clones: dict[str, VoiceClone] = {}
         self.moved = 0
-        self.installed: list[tuple[str, str, str | None]] = []
-        self.enabled: list[str] = []
-        self.created_workspaces: list[str] = []
-        self.previews: list[tuple[str, str]] = []
-        self.own_keys_listed: list[str] = []
+        self.installed: list[tuple[str, str | None]] = []
+        self.enabled = 0
+        self.disabled = 0
+        self.previews: list[str] = []
+        self.own_keys_listed = 0
+        #: Each agent's `byok`, as ours: True on our voice key. Unset agents read as None.
+        self.own_voice_key: dict[str, bool] = {}
+        #: Refs whose switch the vendor refuses to change (a failed PATCH).
+        self.refuse_switch: set[str] = set()
+        #: Refs whose switch reads back unchanged however it is set.
+        self.stuck_switch: set[str] = set()
 
     async def read_catalogue(self) -> EngineCatalogue:
         self.reads += 1
@@ -93,11 +99,30 @@ class HostingEngine(FakeEngine):
     async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef:
         self.sent.append(cfg)
         ref = await super().create_agent(cfg)
-        return scoped_handle(ref, cfg.engine_workspace)
+        if cfg.engine_own_voice_key is not None:
+            self.own_voice_key[ref] = cfg.engine_own_voice_key
+        return ref
 
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None:
         self.sent.append(cfg)
         await super().update_agent(ref, cfg)
+        if cfg.engine_own_voice_key is not None:
+            self.own_voice_key[ref] = cfg.engine_own_voice_key
+
+    async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
+        snapshot = await super().get_agent(ref)
+        return snapshot.model_copy(update={"engine_own_voice_key": self.own_voice_key.get(ref)})
+
+    async def agent_own_voice_key(self, ref: str) -> bool | None:
+        return self.own_voice_key.get(ref)
+
+    async def set_agent_own_voice_key(self, ref: str, *, on: bool) -> None:
+        if ref in self.refuse_switch:
+            raise ProblemError(
+                kind="dependency", code="engine_rejected", title="refused", detail="refused"
+            )
+        if ref not in self.stuck_switch:
+            self.own_voice_key[ref] = on
 
     async def delete_agent(self, ref: EngineAgentRef) -> None:
         self.deleted.append(ref)
@@ -105,14 +130,14 @@ class HostingEngine(FakeEngine):
     async def list_hosted_voices(self) -> HostedVoiceListing:
         return HostedVoiceListing(voices=self.hosted)
 
-    async def list_own_key_voices(self, *, workspace: str) -> HostedVoiceListing:
-        self.own_keys_listed.append(workspace)
+    async def list_own_key_voices(self) -> HostedVoiceListing:
+        self.own_keys_listed += 1
         return HostedVoiceListing(voices=self.own_key, provider=self.own_key_provider)
 
     async def preview_own_key_voice(
-        self, *, workspace: str, voice_id: str, text: str | None, language: str | None
+        self, *, voice_id: str, text: str | None, language: str | None
     ) -> PreviewAudio:
-        self.previews.append((workspace, voice_id))
+        self.previews.append(voice_id)
         return PreviewAudio(data=MP3, content_type="audio/mpeg")
 
     async def create_voice_clone(self, sample: VoiceCloneSample) -> VoiceClone:
@@ -135,21 +160,26 @@ class HostingEngine(FakeEngine):
         self.clones = {k: v for k, v in self.clones.items() if v.clone_id != clone_id}
         return self.moved
 
-    async def own_key_state(self, *, workspace: str | None) -> OwnVoiceKeyState:
+    async def own_key_state(self) -> OwnVoiceKeyState:
         return self.key_state
 
     async def install_own_voice_key(
-        self, *, workspace: str, provider: str, api_key: str, model: str | None
+        self, *, provider: str, api_key: str, model: str | None
     ) -> None:
-        self.installed.append((workspace, provider, model))
+        self.installed.append((provider, model))
+        self.key_state = self.key_state.model_copy(update={"voice_provider": provider})
 
-    async def enable_own_voice_key(self, *, workspace: str) -> OwnVoiceKeyState:
-        self.enabled.append(workspace)
+    async def enable_own_voice_key(self) -> OwnVoiceKeyState:
+        self.enabled += 1
+        self.key_state = READY_KEY.model_copy(
+            update={"voice_provider": self.key_state.voice_provider}
+        )
         return self.key_state
 
-    async def create_workspace(self, *, name: str, external_id: str) -> str:
-        self.created_workspaces.append(external_id)
-        return "org_created"
+    async def disable_own_voice_key(self) -> OwnVoiceKeyState:
+        self.disabled += 1
+        self.key_state = self.key_state.model_copy(update={"enabled": False, "using": "none"})
+        return self.key_state
 
 
 #: The smallest bytes our sniff reads as MP3 (an ID3 header).
@@ -190,6 +220,7 @@ class CatalogueRows:
         preview: bool = False,
         accent: str | None = "hi",
         vendor_id: str | None = None,
+        band: str | None = "premium",
     ) -> str:
         vendor = vendor_id or f"t{uuid.uuid4().hex[:12]}"
         voice_id = hosted_voice_id(source, vendor)
@@ -200,9 +231,10 @@ class CatalogueRows:
                     "INSERT INTO platform_voice_catalog (voice_id, engine_voice_id, label, "
                     "tts_model, provider, languages, is_custom, synced_at, curation_state, "
                     "origin, withdrawn_at, engine_clone_id, accent, preview_object_key, "
-                    "preview_content_type, preview_source) VALUES (:id, :vendor, :label, "
+                    "preview_content_type, preview_source, vendor_band) "
+                    "VALUES (:id, :vendor, :label, "
                     ":source, :provider, ARRAY['te-IN','hi-IN','en-IN'], :custom, now(), "
-                    ":state, :origin, :withdrawn, :clone, :accent, :key, :ctype, :psource)"
+                    ":state, :origin, :withdrawn, :clone, :accent, :key, :ctype, :psource, :band)"
                 ),
                 {
                     "id": voice_id,
@@ -219,6 +251,8 @@ class CatalogueRows:
                     "key": f"voice-previews/{voice_id}" if preview else None,
                     "ctype": "audio/mpeg" if preview else None,
                     "psource": "upload" if preview else None,
+                    # An own-key voice has no engine band.
+                    "band": band if source == "engine" else None,
                 },
             )
         return voice_id

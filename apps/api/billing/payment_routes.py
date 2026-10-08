@@ -73,13 +73,18 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
-from apps.api.agents.hosted_voices import rungs_awaiting_setup
+from apps.api.agents.hosted_voices import rungs_awaiting_setup, studio_voices_ready
 from apps.api.billing.credit_packs import (
     CreditPack,
     pack_by_id,
     pack_talk_time_minutes,
 )
-from apps.api.billing.engine_minutes import CLIENT_RUNG_OF_RATE_KEY
+from apps.api.billing.engine_minutes import (
+    BAND_SOLD_ENGINES,
+    BYOK_VOICE_RATE_KEY,
+    attested_rate_keys,
+    client_rungs,
+)
 from apps.api.billing.list_rates import card_at, card_with_rates, pending_cards
 from apps.api.billing.payments import (
     CREDIT_EVENTS,
@@ -575,20 +580,31 @@ _NOT_YET_OPENED_NOTICE: Final = (
 )
 
 
-def voice_tier_not_offered(engine: str) -> tuple[VoiceTier, str] | None:
+def voice_tier_not_offered(engine: str, *, studio_ready: bool) -> tuple[VoiceTier, str] | None:
     """The rung no agent can be put on under `engine`, with the sentence a page shows.
 
     On an engine that sells its own voices by band, the rungs those bands are sold as are the
-    ones on offer (`engine_minutes.CLIENT_RUNG_OF_RATE_KEY`), less a rung whose voices wait
-    on a setup step (ThinnestAI's Studio rung until its workspace is set up, D-687).
+    ones on offer (`engine_minutes.client_rungs`), less a rung whose voices wait on a setup
+    step: ThinnestAI's Studio rung until our voice key is on in the workspace and its minute
+    is attested (`studio_ready`, D-688).
     Everywhere else the cheaper rung is unpriced.
     """
-    sold = CLIENT_RUNG_OF_RATE_KEY.get(engine)
+    sold = client_rungs(engine)
     if sold is not None:
-        waiting = rungs_awaiting_setup(engine)
+        waiting = rungs_awaiting_setup(engine, studio_ready=studio_ready)
         held = [tier for tier in VOICE_TIERS if tier not in set(sold.values()) or tier in waiting]
         return (held[0], _NOT_YET_OPENED_NOTICE) if held else None
     return VALUE_VOICE_TIER, _UNPRICED_VOICE_NOTICE
+
+
+async def _studio_on_sale(session: AsyncSession, *, engine: str, at: datetime) -> bool:
+    """On an engine whose voices are sold by band: are Studio voices switched on and their
+    minute attested? False elsewhere, where the answer is not asked."""
+    if engine not in BAND_SOLD_ENGINES:
+        return False
+    if BYOK_VOICE_RATE_KEY not in await attested_rate_keys(session, engine=engine, at=at):
+        return False
+    return await studio_voices_ready(session)
 
 
 async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
@@ -617,7 +633,10 @@ async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
     scheduled = await pending_cards(session, at=now)
     packs = [_pack_out(pack) for pack in in_force]
     from_sarvam = min(pack.clear_inr_per_min for pack in packs)
-    not_offered = voice_tier_not_offered(get_settings().engine)
+    engine = get_settings().engine
+    not_offered = voice_tier_not_offered(
+        engine, studio_ready=await _studio_on_sale(session, engine=engine, at=now)
+    )
     return CreditPacksOut(
         list_rate_inr_per_min=packs[0].clear_inr_per_min,
         from_inr_per_min=from_sarvam,

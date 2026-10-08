@@ -70,12 +70,11 @@ QUESTION = "what does a consultation cost"
 
 
 async def _tenant_knowing() -> uuid.UUID:
-    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         submitted = await kb_service.submit_source(
             session,
             tenant_id=tenant_id,
-            agent_id=agent_id,
             name="Fees",
             body="A consultation costs 500 rupees and is payable at reception.",
         )

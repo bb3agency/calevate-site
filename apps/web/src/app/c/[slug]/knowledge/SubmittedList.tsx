@@ -40,13 +40,11 @@ const STATUS_COPY: Record<string, StatusCopy> = {
  */
 export function FactRow({
   source,
-  agentName,
   open,
   onToggle,
   chunks,
 }: {
   source: Source;
-  agentName: string | null;
   open: boolean;
   onToggle: () => void;
   /** The preview read, shared by the list: only the open row's chunks are fetched. */
@@ -67,13 +65,6 @@ export function FactRow({
             <span className="tabular-nums">
               {formatCount(source.chunks)} {source.chunks === 1 ? "answer" : "answers"}
             </span>
-            {/* WHICH agent this teaches, or nothing — never a guess while the agent list
-                is loading or has failed. */}
-            {agentName && (
-              <span title={agentName} className="truncate">
-                {agentName}
-              </span>
-            )}
             {source.published_at && (
               <span className="whitespace-nowrap">Published {formatIST(source.published_at)}</span>
             )}

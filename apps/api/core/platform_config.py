@@ -525,13 +525,13 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "each agent's per-minute rate is stamped when it is published, so live agents keep "
         "the rate they were published with until they are re-published",
     ),
-    # Which ThinnestAI customer workspace Studio agents live in (D-687). Read at publish to
-    # decide where the vendor agent is created; an agent already published stays where it is
-    # until it is re-published, which re-creates it in the new one.
-    "thinnest_studio_workspace_id": AppliesRule(
+    # Which ThinnestAI voice band is sold as Clear (D-688). The picker and the rate card
+    # follow it at once; an agent already published keeps the rate key of the band its voice
+    # was published on until it is re-published on a voice of the new band.
+    "thinnest_clear_voice_band": AppliesRule(
         NEEDS_REPUBLISH,
-        "a Studio agent stays in the workspace it was published in until it is re-published, "
-        "which re-creates it in the new one",
+        "an agent already published keeps billing at the band it was published on until it "
+        "is re-published on a voice of the new band",
     ),
     # Read inside every ThinnestAI dial's intent transaction (`agents/service.dispatch_call`)
     # and once per dispatch tick for the outbound pool, like `carrier_concurrency`.
@@ -735,10 +735,13 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "meta_page_access_tokens": AppliesRule(LIVE),
     "razorpay_webhook_secret": AppliesRule(LIVE),
     "razorpay_key_secret": AppliesRule(LIVE),
-    # Both read inline by `kyc_providers.available_provider()` on every start and every
+    # All read inline by `kyc_providers.available_provider()` on every start and every
     # webhook — no adapter is cached — so a rotation applies to the next delivery.
     "kyc_verification_provider": AppliesRule(LIVE),
     "kyc_verification_webhook_secret": AppliesRule(LIVE),
+    "kyc_verification_client_id": AppliesRule(LIVE),
+    "kyc_verification_client_secret": AppliesRule(LIVE),
+    "kyc_verification_environment": AppliesRule(LIVE),
     # Google OAuth client for Calendar actions. Read inline by `actions/calendar.py` on
     # each token exchange (no cached client), so a rotation is live on the next connect or
     # refresh.

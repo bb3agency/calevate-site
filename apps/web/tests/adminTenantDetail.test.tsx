@@ -138,7 +138,6 @@ function margin(over: Partial<Margin> = {}): Margin {
 function source(over: Partial<KbSource> = {}): KbSource {
   return {
     id: "0192f0aa-7777-7000-8000-0000000000dd",
-    agent_id: "0192f0aa-7777-7000-8000-0000000000ee",
     name: "Clinic price list",
     kind: "text",
     status: "pending_approval",

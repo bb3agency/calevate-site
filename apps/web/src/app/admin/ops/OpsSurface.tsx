@@ -7,6 +7,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
 import { AuditChainPanel } from "./AuditChainPanel";
+import { BusinessDetailsPanel } from "./BusinessDetailsPanel";
 import { EngineDriftPanel } from "./EngineDriftPanel";
 import { KnowledgeDriftPanel } from "./KnowledgeDriftPanel";
 import { LoadShedPanel } from "./LoadShedPanel";
@@ -331,6 +332,12 @@ export function OpsSurface() {
             <KnowledgeDriftPanel drift={kbDrift} />
           </div>
         </Card>
+      </div>
+
+      {/* The voice platform's number application, read live (D-691). Renders nothing where
+          numbers are not the platform's. */}
+      <div id="business-details" className="scroll-mt-4">
+        <BusinessDetailsPanel />
       </div>
     </div>
   );

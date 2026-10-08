@@ -41,10 +41,12 @@ export function useKbChunks(session: Session, sourceId: string | null) {
 export function useSubmitKnowledge(session: Session) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ agentId, name, body }: { agentId: string; name: string; body: string }) =>
+    // No agent id: knowledge belongs to the business and every agent answers from it
+    // (D-689). The server ignores one if sent, so sending it would only suggest otherwise.
+    mutationFn: ({ name, body }: { name: string; body: string }) =>
       apiRequest<KbSubmitResult>(session, "/v1/kb/sources", {
         method: "POST",
-        body: { agent_id: agentId, name, body, kind: "text" },
+        body: { name, body, kind: "text" },
       }),
     // A submission does not publish — it goes for review — so this does NOT invalidate the
     // delivery answer. Refetching it here would ask the server a question whose answer
@@ -119,7 +121,7 @@ export type DeliveryList = Schemas["DeliveryListOut"];
 export type DeliveryState = AgentDelivery["state"];
 
 /**
- * Whether each agent's published knowledge has reached the phone.
+ * Whether the business's published knowledge has reached each of its agents.
  *
  * POLLED ON THE SAME CLOCK AS THE SOURCES LIST ABOVE, and for a related reason rather than
  * by copying the number. `preparing` resolves when `workers/kb_gloss.py` next sweeps — it
@@ -227,16 +229,13 @@ export function useUploadDocument(session: Session) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({
-      agentId,
       file,
       onProgress,
     }: {
-      agentId: string;
       file: File;
       onProgress?: (progress: UploadProgress) => void;
     }) => {
       const form = new FormData();
-      form.set("agent_id", agentId);
       form.set("file", file);
       return apiUpload<KbUpload>(session, "/v1/kb/uploads", form, { onProgress });
     },
@@ -247,10 +246,10 @@ export function useUploadDocument(session: Session) {
 export function useAddLink(session: Session) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ agentId, url }: { agentId: string; url: string }) =>
+    mutationFn: ({ url }: { url: string }) =>
       apiRequest<KbUpload>(session, "/v1/kb/links", {
         method: "POST",
-        body: { agent_id: agentId, url },
+        body: { url },
       }),
     onSuccess: () => invalidateKnowledge(client, session),
   });

@@ -1064,8 +1064,10 @@ async def tenant_overview(
     connection checkout + `set_config` 0.90 ms, the four counts 0.55 ms, `holds` 0.95 ms,
     `capped` 0.45 ms. `holds` being the largest term was the finding: each blocker opens
     by reading the account's plan tier, and **for a `managed` account those two reads are
-    the whole call** — both return `None` for any tier outside `SELF_SERVE_TIERS` before
-    touching a compliance table. Two round trips per account to re-read a column this loop
+    the whole call** — both returned `None` for any tier outside `SELF_SERVE_TIERS` before
+    touching a compliance table. (D-692 made `kyc_blocker` tier-blind; the directory keeps
+    the self-serve line for its holds badge, and managed clients' KYC reviews are listed
+    by `GET /v1/admin/kyc/reviews`.) Two round trips per account to re-read a column this loop
     is already holding. It is skipped below for the tiers that cannot be held; measured
     994.3 ms → 701.7 ms over 312 managed accounts.
 

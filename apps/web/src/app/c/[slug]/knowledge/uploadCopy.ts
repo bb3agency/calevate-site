@@ -82,7 +82,7 @@ export function uploadState(upload: KbUpload): UploadState {
   if (upload.is_live) {
     return {
       label: "In use",
-      meaning: "Your agent is using this now, on every call.",
+      meaning: "Your agents are using this now, on every call.",
       tone: LIVE_TONE,
       working: false,
       awaitingConfirmation: false,
@@ -94,7 +94,7 @@ export function uploadState(upload: KbUpload): UploadState {
   if (upload.ingest_status === "error") {
     return {
       label: "Could not be added",
-      meaning: `We could not add this ${thing} to your agent.`,
+      meaning: `We could not add this ${thing} to your knowledge.`,
       tone: STOP_TONE,
       working: false,
       awaitingConfirmation: false,
@@ -145,8 +145,8 @@ export function uploadState(upload: KbUpload): UploadState {
       label: "Check what we read",
       meaning: isMachineRead(upload)
         ? "We read the words off your photo. Read them through and confirm they are right — " +
-          "then your agent can start using them."
-        : "We have read this. Have a look and confirm it, and your agent can start using it.",
+          "then your agents can start using them."
+        : "We have read this. Have a look and confirm it, and your agents can start using it.",
       tone: WAIT_TONE,
       working: false,
       awaitingConfirmation: true,
@@ -166,8 +166,8 @@ export function uploadState(upload: KbUpload): UploadState {
   }
   if (upload.ingest_status === "processing") {
     return {
-      label: "Going to your agent",
-      meaning: "Your agent is being given this now. It takes a minute or two.",
+      label: "Going to your agents",
+      meaning: "Your agents are being given this now. It takes a minute or two.",
       tone: WORK_TONE,
       working: true,
       awaitingConfirmation: false,
@@ -179,7 +179,7 @@ export function uploadState(upload: KbUpload): UploadState {
   if (upload.review_state === "approved") {
     return {
       label: "Approved, not in use yet",
-      meaning: "Nothing is needed from you. Your agent starts using it once we have sent it over.",
+      meaning: "Nothing is needed from you. Your agents start using it once we have sent it over.",
       tone: WORK_TONE,
       working: false,
       awaitingConfirmation: false,
@@ -187,7 +187,7 @@ export function uploadState(upload: KbUpload): UploadState {
   }
   return {
     label: "Waiting for review",
-    meaning: `Your account manager reads this ${thing} before your agent starts using it.`,
+    meaning: `Your account manager reads this ${thing} before your agents start using it.`,
     tone: WAIT_TONE,
     working: false,
     awaitingConfirmation: false,

@@ -27,6 +27,7 @@ import TenantProfilePage from "@/app/admin/tenants/[tenantId]/profile/page";
 import TenantAgentsPage from "@/app/admin/tenants/[tenantId]/agents/page";
 import TenantMembersPage from "@/app/admin/tenants/[tenantId]/members/page";
 import HeldAccountsPage from "@/app/admin/holds/page";
+import KycReviewsPage from "@/app/admin/kyc-reviews/page";
 import NewClientPage from "@/app/admin/new/page";
 import GlobalDncPage from "@/app/admin/ops/dnc/page";
 import OpsAlertsPage from "@/app/admin/ops/alerts/page";
@@ -80,6 +81,7 @@ import TeamPage from "@/app/c/[slug]/settings/team/page";
 import BillingPage from "@/app/c/[slug]/billing/page";
 import AgreementsPage from "@/app/c/[slug]/agreements/page";
 import VerificationPage from "@/app/c/[slug]/verification/page";
+import VerifyBusinessPage from "@/app/c/[slug]/verify-business/page";
 import InvitePage from "@/app/invite/page";
 import LegalDocumentRoute from "@/app/legal/[slug]/page";
 import LegalIndexPage from "@/app/legal/page";
@@ -1437,6 +1439,62 @@ const KYC_RECORD = {
   verified_at: null,
 };
 
+/** The same record with D-692's fields, for the screens that read them. */
+const KYC_RECORD_D692 = {
+  ...KYC_RECORD,
+  status: "not_started",
+  self_verification_available: true,
+  kyc_path: null,
+  legal_business_name: "Sri Clinic Pvt Ltd",
+  gst_registered: true,
+  gstin: "36AABCT1234C1Z5",
+  owner_id_type: null,
+  owner_id_masked: null,
+  name_match: null,
+  digilocker_required: false,
+  digilocker_required_reason: null,
+  digilocker_outstanding: false,
+  documents: [
+    {
+      id: "doc-1",
+      slot: "business",
+      kind: "gst",
+      filename: "gst.pdf",
+      content_type: "application/pdf",
+      size_bytes: 1200,
+      uploaded_at: "2026-02-01T06:00:00Z",
+      held: true,
+    },
+  ],
+};
+
+const ADMIN_KYC = {
+  ...KYC_RECORD_D692,
+  tenant_id: "t1",
+  status: "submitted",
+  kyc_path: "manual",
+  owner_name: "A Reddy",
+  owner_id_type: "pan",
+  owner_id_masked: "XXXXX1234X",
+  verified_name: null,
+  verification_provider: null,
+  verification_reference: null,
+  digilocker_required_at: null,
+  digilocker_verified_at: null,
+  pledge_accepted_version: null,
+  pledge_accepted_at: null,
+  pledge_current_version: 1,
+};
+
+const PLEDGE = {
+  version: 1,
+  pledge_text: "No cold calls.",
+  text_sha256: "0".repeat(64),
+  accepted_version: null,
+  accepted_at: null,
+  is_current: false,
+};
+
 /** The admin tenant screens all hang off one tenant read plus the panels around it. */
 /** One dated agreement, populated so the commercials screen renders every panel. */
 const PLAN_ROW = {
@@ -1995,7 +2053,6 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/kb/sources": [
         {
           id: "src-1",
-          agent_id: "agent-1",
           name: "Clinic hours",
           kind: "text",
           status: "pending_approval",
@@ -2602,7 +2659,6 @@ const CLIENT_SCREENS: Screen[] = [
         {
           id: "0192f0aa-7777-7000-8000-000000000001",
           source_id: "0192f0aa-8888-7000-8000-000000000001",
-          agent_id: "agent-1",
           name: "Price list.pdf",
           source_kind: "pdf",
           ingest_status: "processed",
@@ -2619,7 +2675,6 @@ const CLIENT_SCREENS: Screen[] = [
         {
           id: "0192f0aa-7777-7000-8000-000000000002",
           source_id: "0192f0aa-8888-7000-8000-000000000002",
-          agent_id: "agent-1",
           name: "Rates board",
           source_kind: "image",
           ingest_status: "received",
@@ -2637,7 +2692,6 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/kb/sources": [
         {
           id: "kb-1",
-          agent_id: "agent-1",
           title: "Clinic timings",
           status: "live",
           tier: "T1",
@@ -2816,6 +2870,16 @@ const CLIENT_SCREENS: Screen[] = [
         verified_at: "2026-08-01T04:00:00Z",
         is_active: false,
       },
+    },
+  },
+  {
+    file: "c/[slug]/verify-business/page.tsx",
+    realm: "client",
+    element: () => <VerifyBusinessPage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/compliance/kyc": KYC_RECORD_D692,
+      "/v1/compliance/outbound-pledge": PLEDGE,
     },
   },
   {
@@ -3088,6 +3152,25 @@ const ADMIN_SCREENS: Screen[] = [
     },
   },
   {
+    file: "admin/kyc-reviews/page.tsx",
+    realm: "admin",
+    element: () => <KycReviewsPage />,
+    routes: {
+      "/v1/admin/kyc/reviews": [
+        {
+          tenant_id: "t1",
+          name: "Sri Clinic",
+          slug: "sri-clinic",
+          status: "submitted",
+          kyc_path: "manual",
+          owner_id_type: "pan",
+          digilocker_required: false,
+          submitted_at: "2026-02-01T06:00:00Z",
+        },
+      ],
+    },
+  },
+  {
     file: "admin/holds/page.tsx",
     realm: "admin",
     element: () => <HeldAccountsPage />,
@@ -3170,6 +3253,18 @@ const ADMIN_SCREENS: Screen[] = [
     routes: {
       "/v1/admin/me": ADMIN_ME,
       "/v1/ops/platform": PLATFORM,
+      // The voice platform's business details (D-691), in the state that renders the most:
+      // a rejected application with its review note.
+      "/v1/admin/numbers/engine/business-details": {
+        available: true,
+        platform: "ThinnestAI",
+        status: "rejected",
+        business_name: "Sunrise Clinic Private Limited",
+        can_rent: false,
+        submitted_at: "2026-10-08T09:41:12Z",
+        review_note: "The name on the certificate does not match.",
+        lapsed: true,
+      },
     },
   },
   {
@@ -3500,8 +3595,11 @@ const ADMIN_SCREENS: Screen[] = [
         voices: [],
         cached: 0,
         offered: 0,
-        studio_workspace_id: null,
+        studio_ready: false,
+        clear_band: null,
         note: "Voices on this platform come from Calevate's own catalogue.",
+        bands: {},
+        plan_note: null,
       },
       "/v1/ops/voices?scope=decided": {
         source: "engine",
@@ -3689,8 +3787,9 @@ const ADMIN_SCREENS: Screen[] = [
         steps: ["Open Phone Numbers.", "Set Inbound to the agent."],
         notes: ["Releasing a rented number is permanent."],
         numbers: [
-          { e164: "+918012345678", provider: "ThinnestAI", engine_owned: true, agent_id: "a1", agent_name: "Front desk", unassigned: false },
-          { e164: "+918012345679", provider: "ThinnestAI", engine_owned: true, agent_id: null, agent_name: null, unassigned: true },
+          { e164: "+918012345678", provider: "ThinnestAI", engine_owned: true, agent_id: "a1", agent_name: "Front desk", unassigned: false, number_id: "num-1" },
+          // Not recorded yet: renders "Record this number" (D-691).
+          { e164: "+918012345679", provider: "ThinnestAI", engine_owned: true, agent_id: null, agent_name: null, unassigned: true, number_id: null },
         ],
         other_numbers: 1,
         agents: [{ agent_id: "a1", name: "Front desk", engine_agent_ref: "ag_123", answers_a_number: true }],
@@ -3913,7 +4012,7 @@ const ADMIN_SCREENS: Screen[] = [
     file: "admin/tenants/[tenantId]/kyc/page.tsx",
     realm: "admin",
     element: () => <TenantKycPage params={tenant} />,
-    routes: TENANT_ROUTES,
+    routes: { ...TENANT_ROUTES, "/v1/admin/tenants/t1/kyc": ADMIN_KYC },
   },
   {
     file: "admin/tenants/[tenantId]/invoice/page.tsx",

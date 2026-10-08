@@ -619,11 +619,12 @@ async def _plan_propose_knowledge(
     live = _goes_live(actor)
     return Plan(
         object_id=str(parsed.agent_id),
-        title="Add this to your agent's knowledge",
+        title="Add this to your business knowledge",
         summary=(
-            f"Save “{name}” to this agent's knowledge. "
+            f"Save “{name}” to your business knowledge, which every one of your agents "
+            "answers from. "
             + (
-                "Once you confirm, it goes to your agent without review. "
+                "Once you confirm, it goes to your agents without review. "
                 if live
                 else "It goes to review first and the agent cannot use it until it is approved. "
             )
@@ -687,7 +688,6 @@ async def _execute_propose_knowledge(
         session,
         tenant_id=actor.tenant_id,
         actor_id=actor.user_id,
-        agent_id=parsed.agent_id,
         name=parsed.name,
         body=parsed.body,
         auto_approve=_goes_live(actor),
@@ -695,7 +695,7 @@ async def _execute_propose_knowledge(
     return Executed(
         applied=True,
         detail=(
-            "That knowledge is saved and is being sent to your agent."
+            "That knowledge is saved and is being sent to your agents."
             if created["status"] == "approved"
             else "That knowledge is saved and waiting for review. The agent starts using "
             "it once it is approved."
@@ -839,15 +839,20 @@ PROPOSE_KNOWLEDGE: Final = WriteTool(
     where="under Knowledge",
     schema=action_schema(
         "propose_knowledge",
-        "Propose adding a fact to one agent's knowledge, so it can answer that question in "
-        "future. Only for something the person has just told you about their own business "
-        "— never invent a price, a policy or an opening time, and never repeat something a "
-        "caller said. Confirming adds it to the agent's knowledge without review; the "
-        "agent starts using it once it has been published to the agent." + PROPOSES_ONLY,
+        "Propose adding a fact to the business's knowledge, which every one of its agents "
+        "answers from, so it can answer that question in future. Only for something the "
+        "person has just told you about their own business — never invent a price, a "
+        "policy or an opening time, and never repeat something a caller said. Confirming "
+        "adds it without review; the agents start using it once it has been published."
+        + PROPOSES_ONLY,
         {
             "agent_id": {
                 "type": "string",
-                "description": "The agent's id, taken from the SCREEN STATE. Never invented.",
+                "description": (
+                    "The agent the person is looking at, taken from the SCREEN STATE. "
+                    "Never invented. It names the knowledge gap being answered; the "
+                    "knowledge itself is shared by every agent."
+                ),
             },
             "name": {
                 "type": "string",
