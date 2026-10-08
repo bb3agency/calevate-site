@@ -315,7 +315,7 @@ function DeleteCloneDialog({ voice, onClose }: { voice: HostedVoice; onClose: ()
                 description:
                   (result.moved_agents === 0
                     ? "No agent was on it. "
-                    : `${formatCount(result.moved_agents)} ${result.moved_agents === 1 ? "agent was" : "agents were"} moved to a standard voice. `) +
+                    : `${formatCount(result.moved_agents)} ${result.moved_agents === 1 ? "agent was" : "agents were"} moved to the voice platform's default voice. `) +
                   result.next_step,
               });
               onClose();
@@ -326,7 +326,7 @@ function DeleteCloneDialog({ voice, onClose }: { voice: HostedVoice; onClose: ()
     >
       <p>
         This deletes the voice on the voice platform and cannot be undone. Every agent on it is
-        moved to a standard voice.
+        moved to the voice platform&rsquo;s default voice.
       </p>
       {inUse ? (
         <NoticeBox tone="warn" title="Live agents are speaking this voice">

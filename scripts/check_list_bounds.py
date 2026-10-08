@@ -204,6 +204,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/admin/me": BoundedByConstruction(
         by="`permissions` is the role's permission set — at most `len(get_args(Permission))`."
     ),
+    "GET /v1/billing/wallet": BoundedByConstruction(
+        by="`minutes_left` is one row per voice rung (`billing/rates.VoiceTier`, two members), "
+        "the only list on the summary."
+    ),
     "GET /v1/billing/wallet/topups": BoundedByConstruction(
         by=(
             "`billing/wallet.ATTEMPT_LIMIT`, applied inside `read_attempts`. It takes no "
@@ -672,6 +676,10 @@ def _returns_a_list(route: APIRoute) -> bool:
         if candidate in seen:
             return False
         seen.add(candidate)
+        # A model that names a class defined below it is left with unresolved field types
+        # until something rebuilds it, so the answer would depend on which test ran first.
+        if not candidate.__pydantic_complete__:
+            candidate.model_rebuild()
         for field in candidate.model_fields.values():
             annotation = field.annotation
             args = typing.get_args(annotation)

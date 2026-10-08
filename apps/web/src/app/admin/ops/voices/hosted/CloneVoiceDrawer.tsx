@@ -13,6 +13,7 @@ import {
   PRIMARY_BUTTON,
   ToggleSwitch,
 } from "@/components/ui";
+import { LANGUAGE_CHOICES } from "@/lib/agentState";
 import { MAX_SAMPLE_BYTES, useCloneVoice } from "@/lib/api/opsHostedVoices";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
@@ -20,12 +21,10 @@ import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 const SAMPLE_ACCEPT = "audio/wav,audio/x-wav,audio/mpeg,audio/mp4,audio/x-m4a,audio/webm,.wav,.mp3,.m4a,.webm";
 
 /** This product's languages, as the tags the clone route takes. */
-const LANGUAGES = [
+const LANGUAGES: readonly { value: string; label: string }[] = [
   { value: "", label: "Not specified" },
-  { value: "te-IN", label: "Telugu" },
-  { value: "hi-IN", label: "Hindi" },
-  { value: "en-IN", label: "English (India)" },
-] as const;
+  ...LANGUAGE_CHOICES,
+];
 
 const NAME_MAX = 40;
 const DESCRIPTION_MAX = 200;
@@ -47,7 +46,7 @@ export function CloneVoiceDrawer({ onClose }: { onClose: () => void }) {
   const [sample, setSample] = useState<File | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [language, setLanguage] = useState("te-IN");
+  const [language, setLanguage] = useState<string>(LANGUAGE_CHOICES[0]?.value ?? "");
   const [removeNoise, setRemoveNoise] = useState(true);
   const [ownVoice, setOwnVoice] = useState(false);
   const [noImpersonation, setNoImpersonation] = useState(false);
