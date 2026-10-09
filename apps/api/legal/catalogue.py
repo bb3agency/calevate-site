@@ -400,6 +400,14 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "identifier) and that Google learns of the sign-in. NOT MATERIAL: an option "
                 "a person chooses; nothing changes for an account that does not use it.",
             ),
+            Revision(
+                "20",
+                False,
+                "'Information from your Google account': what each Google feature uses, and "
+                "that our use follows Google's API Services User Data Policy including "
+                "Limited Use (required for OAuth app verification). NOT MATERIAL: it narrows "
+                "how we may use data the notice already described.",
+            ),
         ),
         effective_date="2026-09-02",
     ),

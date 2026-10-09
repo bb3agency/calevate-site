@@ -354,6 +354,23 @@ export const PRIVACY_POLICY: LegalDocument = {
                     "a form anyone here can read.",
                 },
                 {
+                  term: "Information from your Google account",
+                  detail:
+                    "We use what Google gives us only for the feature you chose it for. " +
+                    "\"Continue with Google\" gives us your name, email address and account " +
+                    "identifier, to sign you in. Connecting Google Calendar lets your agent " +
+                    "see when you are free and add the appointments callers book. " +
+                    "Connecting Google Sheets lets us read and add rows only in the " +
+                    "spreadsheets you pick in Google's file picker. We do not sell this " +
+                    "information, use it for advertising, or use it to train AI models, and " +
+                    "people here read it only with your permission, for security, or where " +
+                    "the law requires. Calevate's use and transfer of information received " +
+                    "from Google APIs adheres to the Google API Services User Data Policy, " +
+                    "including the Limited Use requirements. You can disconnect Google at " +
+                    "any time from Integrations, or remove Calevate in your Google account " +
+                    "settings.",
+                },
+                {
                   term: "Your business's own details",
                   detail:
                     "The organisation name, the URL slug, the billing email, the GSTIN " +

@@ -297,6 +297,14 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:6c498fc129e6f34f178edb16f1285617012f4af99094a1e09f47b5bb7b27896b",
       },
+      // Google's Limited Use statement and what each Google feature uses (OAuth app
+      // verification). NOT MATERIAL: it narrows how we may use data we already described.
+      {
+        revision: "20",
+        material: false,
+        contentHash:
+          "sha256:2830baec1a2a90641a62572cc10611206a2b43a9b5ea5b606c5a7ef91b2f3f64",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
