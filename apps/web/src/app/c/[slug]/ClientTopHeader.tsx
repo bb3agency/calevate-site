@@ -36,19 +36,19 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
     // `SHELL_RAIL_CLASS`. Padding is unchanged and was never the defect.
     <header className="sticky top-0 z-10 flex h-[72px] shrink-0 items-center border-b border-line bg-surface px-4 lg:px-8">
       <div className={`${SHELL_RAIL_CLASS} flex items-center justify-between gap-3`}>
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
             onClick={onMenuToggle}
             aria-label="Open navigation"
-            className="press flex h-9 w-9 items-center justify-center rounded-md text-ink-muted hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5"
+            className="press flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5"
           >
             <Menu className="h-5 w-5" />
           </button>
-          <h1 className="text-xl font-bold tracking-tight text-ink lg:text-2xl">{title}</h1>
+          <h1 className="truncate text-xl font-bold tracking-tight text-ink lg:text-2xl">{title}</h1>
         </div>
 
-        <div className="flex items-center gap-2 lg:gap-3">
+        <div className="flex shrink-0 items-center gap-2 lg:gap-3">
           {/* Calls in progress now, from the existing 20-second call poll. Renders
               nothing unless at least one call is live. */}
           <LiveCallsPill slug={slug} />

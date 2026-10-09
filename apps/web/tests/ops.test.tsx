@@ -5,7 +5,13 @@ import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import OpsConfigPage from "@/app/admin/ops/config/page";
 import OpsPage from "@/app/admin/ops/page";
 import { ENGINE_MINUTE_PRICES_PATH } from "@/lib/api/engineMinutePricing";
-import { OPS_CONFIG_SECTIONS, SELF_SERVE_PRICE_META, placed } from "./fixtures/opsConfig";
+import {
+  OPS_CONFIG_SECTIONS,
+  SELF_SERVE_PRICE_META,
+  control,
+  option as labelled,
+  placed,
+} from "./fixtures/opsConfig";
 import {
   OUTBOX_REPLAY_CONFIRMATION,
   platformConfirmation,
@@ -469,6 +475,7 @@ function configList(over: Partial<ConfigList> = {}): ConfigList {
         source: "env",
         editable: false,
         kind: "string",
+        control: control("text"),
         default: null,
         has_default: false,
         ...placed("infrastructure", "storage", "Storage bucket"),
@@ -2354,9 +2361,8 @@ describe("the platform configuration panel", () => {
     expect(screen.getByText("calevate-prod")).toBeTruthy();
     // …and the refusal names the variable, so they know where to go instead.
     expect(container.textContent).toContain("OBJECT_STORE_BUCKET");
-    expect(container.textContent).toContain(
-      "The environment always wins over the console",
-    );
+    expect(container.textContent).toContain("Locked by the server");
+    expect(container.textContent).toContain("set in the server's environment");
   });
 
   it("sends the confirmation bound to the key it is changing", async () => {
@@ -2383,14 +2389,14 @@ describe("the platform configuration panel", () => {
       target: { value: "Q3 self-serve price change" },
     });
 
-    const save = screen.getByRole("button", { name: /^Save$/ });
-    // Dead until the key itself has been typed — the same shape as the switches above.
+    const save = screen.getByRole("button", { name: /^Save change$/ });
+    // A price is high risk: dead until the new value itself has been typed back.
     expect((save as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.change(screen.getByPlaceholderText("SELF_SERVE_INR_PER_MIN"), {
-      target: { value: "SELF_SERVE_INR_PER_MIN" },
+    fireEvent.change(screen.getByPlaceholderText("7.25"), {
+      target: { value: "7.25" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Save change$/ }));
 
     await waitFor(() => {
       expect(calls.some((c) => c.method === "PUT")).toBe(true);
@@ -2436,9 +2442,9 @@ describe("the platform configuration panel", () => {
 
     await screen.findByText("self_serve_inr_per_min");
     fireEvent.click(screen.getByRole("button", { name: /Change/ }));
-    fireEvent.change(screen.getByPlaceholderText("SELF_SERVE_INR_PER_MIN"), {
-      target: { value: "SELF_SERVE_INR_PER_MIN" },
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Use the default" }));
+    // High risk: the default being put back is typed, like any other new value.
+    fireEvent.change(screen.getByPlaceholderText("6.00"), { target: { value: "6.00" } });
     fireEvent.click(screen.getByRole("button", { name: /Revert to default/ }));
 
     await waitFor(() => {
@@ -2509,6 +2515,7 @@ describe("the platform configuration panel", () => {
               value: 16,
               default: 16,
               kind: "integer",
+              control: control("number", { unit: "connections" }),
               applies: "on_restart",
               caveat: "the SQLAlchemy engine is built once per process",
             }),
@@ -2521,7 +2528,7 @@ describe("the platform configuration panel", () => {
     // A field that quietly does nothing for six hours is §8's defect wearing a delay.
     // The collapsed row now carries this as the timing badge; the fuller sentence still
     // appears once the change form is opened.
-    expect(container.textContent).toContain("Takes effect after a restart");
+    expect(container.textContent).toContain("Applies after a restart");
   });
 
   /**
@@ -2583,9 +2590,10 @@ describe("the platform configuration panel", () => {
             default: "gpt-4o-mini",
             kind: "enum",
             options: [
-              { value: "gpt-4o-mini", provider: "azure_openai", unavailable_reason: null },
-              { value: "gpt-4.1-mini", provider: "azure_openai", unavailable_reason: null },
+              labelled("gpt-4o-mini", "GPT-4o mini", { provider: "azure_openai" }),
+              labelled("gpt-4.1-mini", "GPT-4.1 mini", { provider: "azure_openai" }),
             ],
+            control: control("select"),
             ...placed("language-models", "azure", "Model behind the Azure deployment"),
           }),
           configField({
@@ -2594,6 +2602,7 @@ describe("the platform configuration panel", () => {
             value: true,
             default: true,
             kind: "boolean",
+            control: control("switch"),
             ...placed("security", "access", "Sign-in enabled"),
           }),
         ],
@@ -2643,11 +2652,16 @@ describe("the platform configuration panel", () => {
    * are now the validator's whole set, served with each model's offer state.
    */
   it("offers every model the server accepts and pre-selects the value in force", async () => {
-    const option = (value: string, provider: string, unavailable: string | null = null) => ({
-      value,
-      provider,
-      unavailable_reason: unavailable,
-    });
+    const MODEL_LABELS: Record<string, string> = {
+      "gpt-4o-mini": "GPT-4o mini",
+      "gpt-4.1-mini": "GPT-4.1 mini",
+      "gpt-5.4-mini": "GPT-5.4 mini",
+      "gemini-2.5-flash": "Gemini 2.5 Flash",
+      "gemini-2.5-flash-lite": "Gemini 2.5 Flash Lite",
+      "gemini-3.5-flash": "Gemini 3.5 Flash",
+    };
+    const option = (value: string, provider: string, unavailable: string | null = null) =>
+      labelled(value, MODEL_LABELS[value], { provider, unavailable_reason: unavailable });
     openSection("language-models");
     renderAdminPage(
       <OpsConfigPage />,
@@ -2668,6 +2682,7 @@ describe("the platform configuration panel", () => {
                 option("gemini-2.5-flash-lite", "google"),
                 option("gemini-3.5-flash", "google", "cannot switch thinking off"),
               ],
+              control: control("select"),
               ...placed("language-models", "tiers", "Standard tier model"),
             }),
           ],
@@ -2683,9 +2698,10 @@ describe("the platform configuration panel", () => {
     // Pre-selected: the value in force, not the first option.
     expect(select.value).toBe("gemini-2.5-flash-lite");
     const texts = Array.from(select.options).map((o) => o.textContent ?? "");
-    expect(texts).toContain("gemini-2.5-flash-lite — Google Gemini · built-in default");
-    expect(texts.some((t) => t.startsWith("gemini-2.5-flash —"))).toBe(true);
-    expect(texts).toContain("gemini-3.5-flash — Google Gemini · unavailable to clients");
+    // Names, not ids: the operator reads "Gemini 2.5 Flash Lite", with its provider.
+    expect(texts).toContain("Gemini 2.5 Flash Lite · Google Gemini · default");
+    expect(texts.some((t) => t.startsWith("Gemini 2.5 Flash ·"))).toBe(true);
+    expect(texts).toContain("Gemini 3.5 Flash · Google Gemini · not available to clients yet");
     expect(screen.queryByText("Clients cannot be given this model yet")).toBeNull();
 
     // Choosing an unavailable model is allowed and says what it means for clients.
@@ -2707,11 +2723,13 @@ describe("the platform configuration panel", () => {
               value: "pipecat",
               default: "fake",
               kind: "enum",
-              options: ["fake", "cartesia", "pipecat", "thinnest"].map((value) => ({
-                value,
-                provider: null,
-                unavailable_reason: null,
-              })),
+              options: [
+                labelled("thinnest", "ThinnestAI"),
+                labelled("pipecat", "Our own runtime"),
+                labelled("cartesia", "Cartesia"),
+                labelled("fake", "Test engine"),
+              ],
+              control: control("select", { risk: "high", risk_reason: "Every call moves." }),
               ...placed("voice-engine", "engine", "Active voice engine"),
             }),
             configField({
@@ -2721,6 +2739,7 @@ describe("the platform configuration panel", () => {
               default: false,
               kind: "boolean",
               engine_scope: "Used only when the voice engine is ThinnestAI.",
+              control: control("switch"),
               used_by_current_engine: false,
               ...placed("voice-engine", "thinnest", "ThinnestAI runs on our own keys (BYOK)"),
             }),
@@ -2735,7 +2754,7 @@ describe("the platform configuration panel", () => {
     expect(disclosure?.open).toBe(false);
     // The closed state carries the fact: how many, and which engine is in force.
     expect(disclosure?.textContent).toContain("1 setting only another engine reads");
-    expect(disclosure?.textContent).toContain("The engine in force is pipecat");
+    expect(disclosure?.textContent).toContain("The engine in force is Our own runtime");
     // Still there, still editable: an operator prepares an engine switch here.
     expect(within(disclosure as HTMLElement).getByText("thinnest_byok_enabled")).toBeTruthy();
   });
@@ -2754,6 +2773,7 @@ describe("the platform configuration panel", () => {
               value: "calevate-prod",
               default: "calevate-prod",
               kind: "string",
+              control: control("text"),
               ...placed("infrastructure", "storage", "Storage bucket"),
             }),
           ],
@@ -2770,7 +2790,7 @@ describe("the platform configuration panel", () => {
     expect(screen.getByRole("status").textContent).toContain("1 setting in 1 section");
 
     fireEvent.change(search, { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: "Differs from default" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edited from default" }));
     expect(screen.getByText("self_serve_inr_per_min")).toBeTruthy();
     expect(screen.queryByText("object_store_bucket")).toBeNull();
 

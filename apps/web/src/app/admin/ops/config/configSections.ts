@@ -1,6 +1,6 @@
 import type { ConfigField, ConfigList, ConfigSection } from "@/lib/api/opsConfig";
 
-import { display } from "./configField";
+import { displayValue } from "./configControl";
 
 /**
  * Where each platform setting is shown, and how the screen finds one.
@@ -141,7 +141,8 @@ export function matchesFilter(
     field.env_var,
     field.description,
     sectionLabel,
-    display(field.value),
+    displayValue(field, field.value),
+    field.value === null ? "" : String(field.value),
   ]
     .join(" ")
     .toLowerCase();

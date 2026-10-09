@@ -848,8 +848,8 @@ CONSOLE_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="integrations_status",
         description=(
-            "The account's lead sources, its outbound connections (webhooks, Google "
-            "Sheets) and any deliveries that failed recently, with where to set them up."
+            "The account's lead sources, its outbound connections (webhooks and "
+            "spreadsheets) and any deliveries that failed recently, with where to set them up."
         ),
         parameters=_object({}),
         permission="org:read",

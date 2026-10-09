@@ -44,6 +44,12 @@ class TrialNumberCandidate:
     rented: bool
     #: An agent answers it today. A trial call sets nothing to answer it.
     answered: bool
+    #: The name the voice platform's console gives the number, or None.
+    label: str | None = None
+    #: The name of the Calevate agent that answers it, or that it is lent to for calling
+    #: out; None when nobody does, or the agent is not one of ours.
+    answering_agent: str | None = None
+    calling_agent: str | None = None
 
 
 def _digits(value: str) -> str:
@@ -67,20 +73,51 @@ async def _recorded_digits() -> set[str]:
     return recorded
 
 
-async def trial_number_candidates() -> list[TrialNumberCandidate]:
-    """Numbers the developer workspace holds that no client has recorded."""
+async def _agent_names(refs: set[str]) -> dict[str, str]:
+    """Our agents' names for these engine handles, across every tenant, each read in that
+    tenant's own session. A handle no tenant knows is simply absent."""
+    from apps.api.campaigns.engine_numbers import live_tenants
+
+    names: dict[str, str] = {}
+    if not refs:
+        return names
+    for tenant_id in await live_tenants():
+        async with tenant_session(tenant_id) as scoped:
+            rows = await scoped.execute(
+                text(
+                    "SELECT engine_agent_ref, name FROM agents WHERE engine_agent_ref = ANY(:refs)"
+                ),
+                {"refs": sorted(refs)},
+            )
+            names.update({str(ref): str(name) for ref, name in rows})
+    return names
+
+
+async def trial_number_candidates(*, with_names: bool = False) -> list[TrialNumberCandidate]:
+    """Numbers the developer workspace holds that no client has recorded. `with_names`
+    also reads each number's agents' names, for the operator choosing among them."""
     from apps.api.campaigns.engine_numbers import vendor_numbers
 
     held = await vendor_numbers(None)
     recorded = await _recorded_digits()
+    free = [number for number in held if _digits(number.e164) not in recorded]
+    refs = {
+        ref
+        for number in free
+        for ref in (number.answering_agent_ref, number.calling_agent_ref)
+        if ref is not None
+    }
+    names = await _agent_names(refs) if with_names else {}
     return [
         TrialNumberCandidate(
             e164=number.e164,
             rented=bool(number.engine_owned),
             answered=number.answering_agent_ref is not None,
+            label=number.label,
+            answering_agent=names.get(number.answering_agent_ref or ""),
+            calling_agent=names.get(number.calling_agent_ref or ""),
         )
-        for number in held
-        if _digits(number.e164) not in recorded
+        for number in free
     ]
 
 
@@ -122,6 +159,12 @@ class TrialNumberCandidateOut(BaseModel):
     e164: str
     rented: bool
     answered: bool
+    #: The name ThinnestAI's console gives the number, or null.
+    label: str | None
+    #: Our agent that answers it, or that it is lent to for calling out, by name; null when
+    #: nobody is, or the agent is not one of ours.
+    answering_agent: str | None
+    calling_agent: str | None
 
 
 class TrialNumberOut(BaseModel):
@@ -132,6 +175,9 @@ class TrialNumberOut(BaseModel):
     #: Whether the developer workspace still holds the current number unrecorded. Null
     #: when nothing is set.
     current_held: bool | None
+    #: False when the engine in force is not ThinnestAI: no number is read, and none may be
+    #: chosen (`assert_trial_number_selectable`).
+    engine_uses_it: bool
     #: What may be chosen: platform-held numbers no client has recorded.
     candidates: list[TrialNumberCandidateOut]
 
@@ -145,13 +191,22 @@ class TrialNumberOut(BaseModel):
 async def read_trial_number(principal: TrialNumberReader) -> TrialNumberOut:
     del principal
     current = get_settings().trial_caller_number
-    candidates = await trial_number_candidates() if get_settings().engine == "thinnest" else []
+    engine_uses_it = get_settings().engine == "thinnest"
+    candidates = await trial_number_candidates(with_names=True) if engine_uses_it else []
     held = None if current is None else any(_digits(c.e164) == _digits(current) for c in candidates)
     return TrialNumberOut(
         current=current,
         current_held=held,
+        engine_uses_it=engine_uses_it,
         candidates=[
-            TrialNumberCandidateOut(e164=c.e164, rented=c.rented, answered=c.answered)
+            TrialNumberCandidateOut(
+                e164=c.e164,
+                rented=c.rented,
+                answered=c.answered,
+                label=c.label,
+                answering_agent=c.answering_agent,
+                calling_agent=c.calling_agent,
+            )
             for c in candidates
         ],
     )

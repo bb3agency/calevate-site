@@ -59,7 +59,7 @@ class SignupIn(BaseModel):
     # reserved-ness and collision server-side (there is no operator here to catch it),
     # and immutable once set.
     slug: str | None = Field(default=None, min_length=3, max_length=40)
-    vertical_template: str = Field(default="clinic", max_length=40)
+    vertical_template: str = Field(default="custom", max_length=40)
     language: OfferedLanguage = "te-IN"
     billing_email: EmailStr | None = None
     # `managed` is deliberately not in this Literal: it is the invoiced motion, the one
@@ -92,8 +92,8 @@ class SignupOut(BaseModel):
     description=(
         "The caller holds a first-party session and no organization yet. Creates the "
         "organization, its receptionist agent, its extraction schema and its retention "
-        "policies, and makes the caller its owner. The wallet starts empty, so the "
-        "compliance gate refuses outbound calls until it is topped up."
+        "policies, makes the caller its owner and starts the self-serve free trial "
+        "(test calls only until the first payment)."
     ),
 )
 async def signup(payload: SignupIn, request: Request, user_id: Identity) -> SignupOut:
@@ -114,7 +114,9 @@ async def signup(payload: SignupIn, request: Request, user_id: Identity) -> Sign
     # to go and confirm their address should not first be told their slug is taken.
     await assert_email_verified(user_id)
 
-    if payload.vertical_template not in VERTICAL_TEMPLATES:
+    # `custom` is a business that fits none of the templates; it starts from the neutral
+    # fields in `scripts/seed.CUSTOM_EXTRACTION_FIELDS`, as the operator wizard does.
+    if payload.vertical_template not in {*VERTICAL_TEMPLATES, "custom"}:
         # `create_organization` falls back to the clinic template for an unknown
         # vertical, which is right for an operator who typed something odd and wrong
         # for a self-serve user who picked from a list: they would get a clinic's
@@ -128,7 +130,7 @@ async def signup(payload: SignupIn, request: Request, user_id: Identity) -> Sign
                 {
                     "field": "vertical_template",
                     "rule": "enum",
-                    "message": f"one of: {', '.join(sorted(VERTICAL_TEMPLATES))}",
+                    "message": f"one of: {', '.join(sorted({*VERTICAL_TEMPLATES, 'custom'}))}",
                 }
             ],
         )
@@ -160,9 +162,10 @@ async def signup(payload: SignupIn, request: Request, user_id: Identity) -> Sign
         agent_id=created["agent_id"],
         extraction_schema_id=created["extraction_schema_id"],
         next_steps=[
-            "Add credit to your wallet — outbound calling is blocked until you do.",
-            "Complete KYC so a calling number can be provisioned.",
-            "Review your agent's questions and publish it.",
+            "Your free trial has started: tell us about your business, then place test "
+            "calls to your own phone from the dashboard.",
+            "When you are ready to go live, add credit. Then verify your business and "
+            "choose your phone number.",
         ],
     )
 

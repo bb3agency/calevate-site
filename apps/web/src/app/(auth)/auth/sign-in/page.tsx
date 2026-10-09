@@ -21,14 +21,17 @@ import Link from "next/link";
 import { Providers } from "@/app/providers";
 import { AuthCard, AuthHeading, AuthPageFrame } from "@/components/authPage";
 import { AuthShowcase } from "@/components/authn/authShowcase";
+import { GoogleSignIn } from "@/components/authn/googleSignIn";
 import { SignInForm } from "@/components/authn/signInForm";
 import { SignedOutToast } from "@/components/authn/signedOutToast";
 import {
+  CLIENT_CONSOLE_PATH,
   CLIENT_FORGOT_PATH,
   clientAuthn,
   clientSignedInDestination,
 } from "@/lib/authn/clientAuthn";
 import { ClientGuestOnly } from "@/lib/authn/clientSession";
+import { nextFromLocation } from "@/lib/authn/nextPath";
 
 export default function ClientSignInPage() {
   return (
@@ -43,9 +46,10 @@ export default function ClientSignInPage() {
               heading={
                 <AuthHeading
                   title="Sign in to Calevate"
-                  lead="Welcome back. Use the email address your workspace invited."
+                  lead="Welcome back. Use your Google account or the email address you signed up with."
                 />
               }
+              alternatives={<GoogleSignIn next={nextFromLocation(CLIENT_CONSOLE_PATH)} />}
               onSignedIn={() => {
                 // Through `clientConsoleUrl` (inside the destination helper) because this
                 // screen is served on three hostnames and the apex refuses `/c/`.

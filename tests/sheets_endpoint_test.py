@@ -45,6 +45,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from apps.api.actions import credentials as creds
 from apps.api.admin import service as admin_service
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
@@ -64,7 +65,7 @@ from apps.api.integrations.routes import (
     list_endpoints,
 )
 from apps.api.main import app
-from apps.workers import outbound_webhooks, sheets_sync
+from apps.workers import outbound_webhooks
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from apps.workers.sheets_sync import (
     ConsoleSheetsTransport,
@@ -147,6 +148,19 @@ def _sheets_absent(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "app_env", "prod")
     monkeypatch.setattr(settings, "google_sheets_provider", None)
+
+
+async def _connected(session: Any, tenant_id: UUID) -> UUID:
+    """The account's own Google Sheets connection (D-703), created in the caller's session."""
+    record = await creds.create_credential(
+        session,
+        tenant_id=tenant_id,
+        kind="google_sheets",
+        label="Google Sheets",
+        secret="1//test-refresh-token",
+        non_secret={"scope": "https://www.googleapis.com/auth/drive.file"},
+    )
+    return UUID(str(record.id))
 
 
 async def _endpoint_rows(tenant_id: UUID) -> list[tuple[Any, ...]]:
@@ -321,7 +335,11 @@ async def test_a_deployment_with_no_sheets_provider_refuses_to_create_one(
     with pytest.raises(ProblemError) as excinfo:
         async with tenant_session(tenant_id) as session:
             await create_sheets_endpoint(
-                CreateSheetEndpointIn(spreadsheet=SHEET_URL, events=["lead.created"]),
+                CreateSheetEndpointIn(
+                    credential_id=uuid.uuid4(),
+                    spreadsheet=SHEET_URL,
+                    events=["lead.created"],
+                ),
                 session,
                 _request(),
                 _principal(tenant_id),
@@ -348,7 +366,11 @@ async def test_the_refusal_never_names_the_provider_or_the_environment(
     with pytest.raises(ProblemError) as excinfo:
         async with tenant_session(tenant_id) as session:
             await create_sheets_endpoint(
-                CreateSheetEndpointIn(spreadsheet=SHEET_URL, events=["lead.created"]),
+                CreateSheetEndpointIn(
+                    credential_id=uuid.uuid4(),
+                    spreadsheet=SHEET_URL,
+                    events=["lead.created"],
+                ),
                 session,
                 _request(),
                 _principal(tenant_id),
@@ -371,6 +393,7 @@ async def test_a_client_can_configure_a_sheet_where_delivery_exists(
     async with tenant_session(tenant_id) as session:
         created = await create_sheets_endpoint(
             CreateSheetEndpointIn(
+                credential_id=await _connected(session, tenant_id),
                 spreadsheet=SHEET_URL,
                 events=["lead.created", "call.completed"],
                 worksheet="Enquiries",
@@ -391,31 +414,34 @@ async def test_a_client_can_configure_a_sheet_where_delivery_exists(
     _id, kind, url, secret_ref, events, mapping, active = rows[0]
     assert kind == "google_sheets"
     assert url == SHEET_ID, "stored canonical — a #gid fragment must not read as a tab"
-    assert secret_ref is None
+    assert secret_ref is not None, "the account's own Google Sheets connection is attached"
     assert list(events) == ["lead.created", "call.completed"]
     assert mapping == {"worksheet": "Enquiries"}
     assert active is True
 
 
-async def test_the_route_reports_that_no_credential_is_attached_yet(
+async def test_the_route_reports_the_connection_it_attached(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The honest state, stated at the moment of configuring rather than discovered
-    from an empty spreadsheet. A client cannot supply a secrets-manager reference —
-    only an operator can — so every endpoint this route creates comes back with
-    `credential_attached: false`, computed from what was written to `secret_ref` rather
+    from an empty spreadsheet: the account's own Google Sheets connection is attached, and
+    `credential_attached` is computed from what was written to `secret_ref` rather
     than hardcoded, so the day the route can attach one the answer changes with it."""
     _sheets_enabled(monkeypatch)
     tenant_id = await _tenant()
 
     async with tenant_session(tenant_id) as session:
         created = await create_sheets_endpoint(
-            CreateSheetEndpointIn(spreadsheet=SHEET_ID, events=["lead.created"]),
+            CreateSheetEndpointIn(
+                credential_id=await _connected(session, tenant_id),
+                spreadsheet=SHEET_ID,
+                events=["lead.created"],
+            ),
             session,
             _request(),
             _principal(tenant_id),
         )
-    assert created.credential_attached is False
+    assert created.credential_attached is True
 
 
 async def test_the_default_worksheet_is_the_one_the_worker_would_use(
@@ -426,7 +452,11 @@ async def test_the_default_worksheet_is_the_one_the_worker_would_use(
 
     async with tenant_session(tenant_id) as session:
         created = await create_sheets_endpoint(
-            CreateSheetEndpointIn(spreadsheet=SHEET_ID, events=["lead.created"]),
+            CreateSheetEndpointIn(
+                credential_id=await _connected(session, tenant_id),
+                spreadsheet=SHEET_ID,
+                events=["lead.created"],
+            ),
             session,
             _request(),
             _principal(tenant_id),
@@ -434,7 +464,12 @@ async def test_the_default_worksheet_is_the_one_the_worker_would_use(
         # A tab name that is only whitespace is the same as not naming one — storing it
         # would leave a config row whose mapping disagrees with the tab we append to.
         blank = await create_sheets_endpoint(
-            CreateSheetEndpointIn(spreadsheet=SHEET_ID, events=["lead.created"], worksheet="   "),
+            CreateSheetEndpointIn(
+                credential_id=await _connected(session, tenant_id),
+                spreadsheet=SHEET_ID,
+                events=["lead.created"],
+                worksheet="   ",
+            ),
             session,
             _request(),
             _principal(tenant_id),
@@ -459,7 +494,11 @@ async def test_a_url_that_is_not_a_spreadsheet_is_refused(
         with pytest.raises(ProblemError) as excinfo:
             async with tenant_session(tenant_id) as session:
                 await create_sheets_endpoint(
-                    CreateSheetEndpointIn(spreadsheet=candidate, events=["lead.created"]),
+                    CreateSheetEndpointIn(
+                        credential_id=await _connected(session, tenant_id),
+                        spreadsheet=candidate,
+                        events=["lead.created"],
+                    ),
                     session,
                     _request(),
                     _principal(tenant_id),
@@ -491,7 +530,9 @@ async def test_an_event_with_no_column_order_is_refused_at_configuration_time(
         async with tenant_session(tenant_id) as session:
             await create_sheets_endpoint(
                 CreateSheetEndpointIn(
-                    spreadsheet=SHEET_ID, events=["lead.created", "campaign.completed"]
+                    credential_id=await _connected(session, tenant_id),
+                    spreadsheet=SHEET_ID,
+                    events=["lead.created", "campaign.completed"],
                 ),
                 session,
                 _request(),
@@ -522,7 +563,11 @@ async def test_the_route_neither_accepts_nor_returns_a_credential(
 
     async with tenant_session(tenant_id) as session:
         created = await create_sheets_endpoint(
-            CreateSheetEndpointIn(spreadsheet=SHEET_ID, events=["lead.created"]),
+            CreateSheetEndpointIn(
+                credential_id=await _connected(session, tenant_id),
+                spreadsheet=SHEET_ID,
+                events=["lead.created"],
+            ),
             session,
             _request(),
             _principal(tenant_id),
@@ -542,7 +587,11 @@ async def test_what_the_route_creates_is_a_real_subscriber(
 
     async with tenant_session(tenant_id) as session:
         await create_sheets_endpoint(
-            CreateSheetEndpointIn(spreadsheet=SHEET_ID, events=["lead.created"]),
+            CreateSheetEndpointIn(
+                credential_id=await _connected(session, tenant_id),
+                spreadsheet=SHEET_ID,
+                events=["lead.created"],
+            ),
             session,
             _request(),
             _principal(tenant_id),
@@ -588,7 +637,11 @@ async def test_the_client_can_turn_off_what_they_configured(
 
     async with tenant_session(tenant_id) as session:
         created = await create_sheets_endpoint(
-            CreateSheetEndpointIn(spreadsheet=SHEET_ID, events=["lead.created"]),
+            CreateSheetEndpointIn(
+                credential_id=await _connected(session, tenant_id),
+                spreadsheet=SHEET_ID,
+                events=["lead.created"],
+            ),
             session,
             _request(),
             _principal(tenant_id),
@@ -611,10 +664,8 @@ async def test_the_row_the_route_writes_is_the_row_the_worker_reads(
     """The seam between the two halves of this feature, exercised rather than assumed.
 
     A create route that stored a shape the delivery worker could not parse would look
-    perfect from either side alone. So: configure through the route, deliver through
-    the worker, and assert the refusal is the CREDENTIAL one — which means the
-    spreadsheet reference, the worksheet and the column order all resolved, and the one
-    thing missing is the one thing a client cannot supply.
+    perfect from either side alone. So: configure through the route (with the account's
+    own connection attached) and deliver through the worker, end to end.
     """
     _sheets_enabled(monkeypatch)
     fired: list[str] = []
@@ -623,7 +674,11 @@ async def test_the_row_the_route_writes_is_the_row_the_worker_reads(
 
     async with tenant_session(tenant_id) as session:
         created = await create_sheets_endpoint(
-            CreateSheetEndpointIn(spreadsheet=SHEET_URL, events=["lead.created"]),
+            CreateSheetEndpointIn(
+                credential_id=await _connected(session, tenant_id),
+                spreadsheet=SHEET_URL,
+                events=["lead.created"],
+            ),
             session,
             _request(),
             _principal(tenant_id),
@@ -640,13 +695,13 @@ async def test_the_row_the_route_writes_is_the_row_the_worker_reads(
             "delivery_id": str(delivery_id),
         },
     )
-    assert outcome == f"rejected {sheets_sync.NO_CREDENTIAL_REF_REASON}"
-    assert fired == ["outbound_webhook_exhausted"], "un-deliverable is never silent"
+    assert outcome == "delivered via sheets"
+    assert fired == []
 
     async with tenant_session(tenant_id) as session:
         visible = await list_deliveries(session, limit=50, _=None)  # type: ignore[arg-type]
     mine = [row for row in visible if row.id == delivery_id]
-    assert [row.status for row in mine] == ["failed"], "and the client can see it"
+    assert [row.status for row in mine] == ["delivered"], "and the client can see it"
 
 
 async def test_the_listed_sheet_says_a_credential_is_attached_without_disclosing_it() -> None:
@@ -700,7 +755,11 @@ async def test_another_tenants_endpoints_are_zero_rows_on_this_screen(
 
     async with tenant_session(owner) as session:
         created = await create_sheets_endpoint(
-            CreateSheetEndpointIn(spreadsheet=SHEET_ID, events=["lead.created"]),
+            CreateSheetEndpointIn(
+                credential_id=await _connected(session, owner),
+                spreadsheet=SHEET_ID,
+                events=["lead.created"],
+            ),
             session,
             _request(),
             _principal(owner),
@@ -728,15 +787,20 @@ async def test_the_session_not_the_principal_decides_whose_endpoint_this_is(
     victim = await _tenant()
     attacker = await _tenant()
 
-    with pytest.raises(DBAPIError) as excinfo:
+    # The connection lookup runs under the session too, so the forged principal is
+    # refused before the INSERT; either refusal leaves both accounts untouched.
+    with pytest.raises((DBAPIError, ProblemError)):
         async with tenant_session(attacker) as session:
             await create_sheets_endpoint(
-                CreateSheetEndpointIn(spreadsheet=SHEET_ID, events=["lead.created"]),
+                CreateSheetEndpointIn(
+                    credential_id=await _connected(session, attacker),
+                    spreadsheet=SHEET_ID,
+                    events=["lead.created"],
+                ),
                 session,
                 _request(),
                 _principal(victim),
             )
-    assert "row-level security" in str(excinfo.value).lower(), str(excinfo.value)
     assert await _endpoint_rows(victim) == []
     assert await _endpoint_rows(attacker) == []
 
@@ -813,7 +877,11 @@ async def test_the_capability_is_true_exactly_where_the_create_route_succeeds(
 
     async with tenant_session(tenant_id) as session:
         created = await create_sheets_endpoint(
-            CreateSheetEndpointIn(spreadsheet=SHEET_URL, events=["lead.created"]),
+            CreateSheetEndpointIn(
+                credential_id=await _connected(session, tenant_id),
+                spreadsheet=SHEET_URL,
+                events=["lead.created"],
+            ),
             session,
             _request(),
             _principal(tenant_id),
@@ -839,7 +907,11 @@ async def test_the_capability_is_false_exactly_where_the_create_route_refuses(
     with pytest.raises(ProblemError) as excinfo:
         async with tenant_session(tenant_id) as session:
             await create_sheets_endpoint(
-                CreateSheetEndpointIn(spreadsheet=SHEET_URL, events=["lead.created"]),
+                CreateSheetEndpointIn(
+                    credential_id=uuid.uuid4(),
+                    spreadsheet=SHEET_URL,
+                    events=["lead.created"],
+                ),
                 session,
                 _request(),
                 _principal(tenant_id),
@@ -867,7 +939,11 @@ async def test_a_client_that_believes_sheets_are_available_is_still_refused(
     with pytest.raises(ProblemError) as excinfo:
         async with tenant_session(tenant_id) as session:
             await create_sheets_endpoint(
-                CreateSheetEndpointIn(spreadsheet=SHEET_URL, events=["lead.created"]),
+                CreateSheetEndpointIn(
+                    credential_id=uuid.uuid4(),
+                    spreadsheet=SHEET_URL,
+                    events=["lead.created"],
+                ),
                 session,
                 _request(),
                 _principal(tenant_id),

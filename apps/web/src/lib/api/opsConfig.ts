@@ -60,6 +60,32 @@ export type ConfigField = Schemas["ConfigFieldOut"];
 /** One value a closed setting accepts; a model option also carries its offer state. */
 export type ConfigOption = Schemas["ConfigOptionOut"];
 
+/**
+ * How the console edits one setting: the control kind, bounds, unit, format and risk the
+ * server derives from the field (`apps/api/ops/config_controls.py`). Read by
+ * `admin/ops/config/configControl.ts`.
+ */
+export type ConfigControl = Schemas["ConfigControlOut"];
+
+/** Our own ThinnestAI workspace, read live, for the developer-workspace picker. */
+export type ThinnestWorkspace = Schemas["ThinnestWorkspaceOut"];
+
+export const THINNEST_WORKSPACE_SOURCE_PATH = "/v1/ops/config-sources/thinnest-workspace";
+
+/**
+ * The live read behind the developer-workspace picker. Fetched only while the picker is
+ * open: it calls ThinnestAI, and a screen of settings should not call a vendor on load.
+ * No automatic retry: a refusal is shown with a Retry button the operator presses.
+ */
+export function useThinnestWorkspace(enabled: boolean): UseQueryResult<ThinnestWorkspace> {
+  return useQuery({
+    queryKey: ["ops", "config-sources", "thinnest-workspace"],
+    queryFn: () => apiRequest<ThinnestWorkspace>(adminSession(), THINNEST_WORKSPACE_SOURCE_PATH),
+    enabled,
+    retry: false,
+  });
+}
+
 /** One section of the screen, in the order the server serves them (`ops/config_catalog`). */
 export type ConfigSection = Schemas["ConfigSectionOut"];
 
@@ -155,7 +181,11 @@ export function useSetConfig() {
     // the SERVING PROCESS reports for other keys too — the config version moves, and
     // `stale` can flip — and a console that spliced one field into a list it already
     // held would show a fresh row inside a stale page.
-    onSuccess: () => void client.invalidateQueries({ queryKey: OPS_CONFIG_QUERY_KEY }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: OPS_CONFIG_QUERY_KEY });
+      // The pickers' own reads say which choice is in force (`current`, `matches_setting`).
+      void client.invalidateQueries({ queryKey: ["ops"] });
+    },
     // A REFUSED write re-reads too, and that is the point of the branch rather than
     // tidiness: the screen's next job is to say what the value is NOW, and the only
     // authority for that is the server. Scoped to a lost update — a validation refusal
@@ -182,7 +212,10 @@ export function useRevertConfig() {
         confirmAction: revertConfirmation(key),
         ifMatch,
       }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: OPS_CONFIG_QUERY_KEY }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: OPS_CONFIG_QUERY_KEY });
+      void client.invalidateQueries({ queryKey: ["ops"] });
+    },
     onError: (error: Error) => {
       if (isLostUpdate(error)) void client.invalidateQueries({ queryKey: OPS_CONFIG_QUERY_KEY });
     },

@@ -598,16 +598,14 @@ describe("the rate card an operator is about to date", () => {
     // filling it arms the save. A thin margin blocks nothing.
     fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
     fireEvent.change(screen.getByLabelText(/New value/), {
-      target: { value: "5.00" },
+      target: { value: "5.50" },
     });
     fireEvent.change(screen.getByPlaceholderText(/Q3 price change/), {
       target: { value: "re-dating the card" },
     });
-    fireEvent.change(screen.getByPlaceholderText("SELF_SERVE_INR_PER_MIN"), {
-      target: { value: "SELF_SERVE_INR_PER_MIN" },
-    });
+    fireEvent.change(screen.getByPlaceholderText("5.50"), { target: { value: "5.50" } });
     expect(
-      (screen.getByRole("button", { name: /^Save$/ }) as HTMLButtonElement)
+      (screen.getByRole("button", { name: /^Save change$/ }) as HTMLButtonElement)
         .disabled,
     ).toBe(false);
   });
@@ -636,10 +634,8 @@ describe("the rate card an operator is about to date", () => {
     fireEvent.change(screen.getByPlaceholderText(/Q3 price change/), {
       target: { value: "cutting the rate" },
     });
-    fireEvent.change(screen.getByPlaceholderText("SELF_SERVE_INR_PER_MIN"), {
-      target: { value: "SELF_SERVE_INR_PER_MIN" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    fireEvent.change(screen.getByPlaceholderText("4.00"), { target: { value: "4.00" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save change$/ }));
 
     await screen.findByText(/The rate card was refused — nothing was saved/);
     // BOTH causes, split back into the sentences the server wrote — each names the pack,

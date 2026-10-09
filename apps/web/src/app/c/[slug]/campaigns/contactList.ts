@@ -239,7 +239,7 @@ function refusalFor(ready: ContactPayload[]): string | null {
 
 /** The sample file: a header, two contacts in the non-dialable demo range, one variable. */
 export const SAMPLE_CSV = [
-  "phone,name,appointment_time",
+  "phone,name,booking_time",
   "+919900000001,Priya,Tuesday 4pm",
   "+919900000002,Ravi,Wednesday 11am",
 ].join("\r\n");

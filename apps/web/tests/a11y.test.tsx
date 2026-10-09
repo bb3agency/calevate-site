@@ -6,6 +6,7 @@ import type { Margin } from "@/lib/api/admin";
 import type { CallDetail } from "@/lib/api/client";
 import AdminLayout from "@/app/admin/layout";
 import AcceptInvitationPage from "@/app/(auth)/auth/accept-invitation/page";
+import GoogleCallbackPage from "@/app/(auth)/auth/google/callback/page";
 import ClientAccountPage from "@/app/(auth)/auth/account/page";
 import AdminBootstrapPage from "@/app/(auth)/auth/admin/bootstrap/page";
 import AdminForgotPasswordPage from "@/app/(auth)/auth/admin/forgot-password/page";
@@ -37,7 +38,7 @@ import EngineLatencyPage from "@/app/admin/ops/engine-latency/page";
 import VoicesPage from "@/app/admin/ops/voices/page";
 import OperatorsPage from "@/app/admin/operators/page";
 import OpsConfigPage from "@/app/admin/ops/config/page";
-import { OPS_CONFIG_SECTIONS } from "./fixtures/opsConfig";
+import { OPS_CONFIG_SECTIONS, SELF_SERVE_PRICE_META, control } from "./fixtures/opsConfig";
 import OpsPage from "@/app/admin/ops/page";
 import AdminClientsPage from "@/app/admin/page";
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
@@ -1211,6 +1212,7 @@ const OPS_CONFIG = {
       has_default: true,
       kind: "decimal",
       options: [],
+      control: SELF_SERVE_PRICE_META.control,
       editable: true,
       applies: "live",
       caveat: null,
@@ -1234,6 +1236,7 @@ const OPS_CONFIG = {
       has_default: false,
       kind: "string",
       options: [],
+      control: control("text"),
       editable: false,
       applies: "live",
       caveat: null,
@@ -4653,6 +4656,13 @@ const AUTHN_SCREENS: Screen[] = [
     realm: "admin",
     element: () =>
       withLinkToken("/auth/admin/bootstrap", <AdminBootstrapPage />),
+    routes: {},
+  },
+  {
+    // Scanned with no code in the URL: the "cancelled" panel, which makes no request.
+    file: "(auth)/auth/google/callback/page.tsx",
+    realm: "admin",
+    element: () => <GoogleCallbackPage />,
     routes: {},
   },
   {

@@ -219,7 +219,6 @@ async def test_a_credential_shaped_key_is_not_managed() -> None:
         "sarvam_api_key",
         "smtp_password",
         "razorpay_webhook_secret",
-        "google_sheets_service_account_json",
         "meta_page_access_tokens",
         "sentry_dsn",
         "backup_heartbeat_url",

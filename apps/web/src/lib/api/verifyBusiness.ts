@@ -14,7 +14,8 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { apiRequest, apiUpload, type Session } from "./client";
+import { apiRequest, apiUpload, type Session, type UploadProgress } from "./client";
+import { openProtectedFile } from "./protectedFile";
 import { KYC_PATH, type KycRecord } from "./kyc";
 import type { components } from "./schema";
 
@@ -97,15 +98,33 @@ export function useSaveBusinessDetails(session: Session) {
 export function useUploadKycDocument(session: Session) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ slot, kind, file }: { slot: "business" | "owner_id"; kind: string; file: File }) => {
+    mutationFn: ({
+      slot,
+      kind,
+      file,
+      onProgress,
+    }: {
+      slot: "business" | "owner_id";
+      kind: string;
+      file: File;
+      onProgress?: (progress: UploadProgress) => void;
+    }) => {
       const form = new FormData();
       form.set("slot", slot);
       form.set("kind", kind);
       form.set("file", file);
-      return apiUpload<KycDocument>(session, `${KYC_PATH}/documents`, form);
+      return apiUpload<KycDocument>(session, `${KYC_PATH}/documents`, form, { onProgress });
     },
     onSuccess: () => invalidate(client, session),
   });
+}
+
+/**
+ * Open the business certificate on file in a new tab: decrypted by the server, audited per
+ * view, shown from memory. Call it straight from the click (see `openProtectedFile`).
+ */
+export function openOwnCertificate(session: Session, documentId: string): Promise<void> {
+  return openProtectedFile(session, `${KYC_PATH}/documents/${documentId}`);
 }
 
 export function useSubmitForReview(session: Session) {

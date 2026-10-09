@@ -1071,6 +1071,10 @@ _UNMODELLED_SUCCESS: dict[str, str] = {
         "the decrypted bytes of one KYC file (PDF, JPEG or PNG) as an attachment, not JSON — "
         "there is no model to declare (D-692). Admin realm, audited per view."
     ),
+    "GET /v1/compliance/kyc/documents/{document_id}": (
+        "the client's own business certificate, decrypted, as an attachment: bytes, not "
+        "JSON. Business slot only, audited per view."
+    ),
     "GET /healthz": (
         "the probe contract (BACKEND-PATTERNS §6): a status word to everybody and a "
         "`checks`/`fields[]` detail that only an `ops:manage` holder sees. Its shape is "

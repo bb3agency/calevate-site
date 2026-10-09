@@ -19,7 +19,8 @@ import { examplesFor, type VerticalExamples } from "@/lib/verticalExamples";
 const VERTICALS = ["clinic", "real_estate", "insurance", "education", "custom"] as const;
 
 /** Words that belong to a clinic and to nothing else we sell to. */
-const CLINICAL = /doctor|patient|dentist|dental|consultation|walk-in|clinic|prescription/i;
+const CLINICAL =
+  /doctor|patient|dentist|dental|consultation|walk-in|clinic|hospital|prescription|appointment/i;
 
 describe("every vertical gets its own examples", () => {
   it.each(VERTICALS)("%s fills every field", (vertical) => {

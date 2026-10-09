@@ -198,6 +198,8 @@ class SheetsConfig(BaseModel):
 
     operation: Literal["record", "lookup"]
     spreadsheet_id: str = Field(pattern=SPREADSHEET_ID_PATTERN)
+    #: The name the owner saw in Google's picker, shown back to them; never sent to Google.
+    spreadsheet_name: str | None = Field(default=None, max_length=200)
     worksheet: str = Field(min_length=1, max_length=100)
     columns: list[SheetColumn] = Field(default_factory=list, max_length=20)
     match_header: str | None = Field(default=None, max_length=100)
@@ -299,6 +301,7 @@ class CallerLookupConfig(BaseModel):
 
     module: Literal["Leads", "Contacts"] = "Leads"
     spreadsheet_id: str | None = Field(default=None, pattern=SPREADSHEET_ID_PATTERN)
+    spreadsheet_name: str | None = Field(default=None, max_length=200)
     worksheet: str | None = Field(default=None, max_length=100)
     match_header: str | None = Field(default=None, max_length=100)
     return_headers: list[str] = Field(default_factory=list, max_length=10)

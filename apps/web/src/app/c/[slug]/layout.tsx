@@ -74,7 +74,7 @@ export default function ClientRealmLayout({
                 tabIndex={-1}
                 className="flex h-full w-full items-center justify-center"
               >
-                <div className="w-96">
+                <div className="w-full max-w-96 px-4">
                   <Skeleton rows={8} />
                 </div>
               </main>

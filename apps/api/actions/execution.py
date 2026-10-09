@@ -35,7 +35,7 @@ import json
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Final
 from urllib.parse import urlencode
 from uuid import UUID
@@ -306,7 +306,7 @@ async def _dispatch(
     if tool.kind == "calendar":
         return await _run_calendar(session, tool=tool, values=values, client=client, call=call)
     if tool.kind == "sheets":
-        return await _run_sheets(tool=tool, values=values, client=client, call=call)
+        return await _run_sheets(session, tool=tool, values=values, client=client, call=call)
     if tool.kind == "payment_link":
         return await _run_payment_link(session, tool=tool, values=values, client=client, call=call)
     if tool.kind == "crm":
@@ -373,6 +373,14 @@ async def _access_token(
     extras = {"api_domain": body.get("api_domain") or cred.non_secret.get("api_domain")}
     _ACCESS[key] = (token, now + max(ttl - _ACCESS_SKEW_S, 0.0), extras)
     return token, extras
+
+
+async def access_token_for(
+    cred: ResolvedCredential, *, credential_id: UUID, client: httpx.AsyncClient
+) -> str | None:
+    """A live access token for a stored OAuth connection, or None when it has lapsed."""
+    access = await _access_token(cred, credential_id=credential_id, client=client)
+    return access[0] if access is not None else None
 
 
 # --------------------------------------------------------------- custom API ----
@@ -647,7 +655,7 @@ async def _run_calendar(
     summary = (
         _stringify(values.get(config.summary_param))
         if config.summary_param and values.get(config.summary_param)
-        else "Appointment"
+        else "Booking"
     )
     description = "Booked on a phone call by your Calevate agent."
     if call.caller_e164:
@@ -688,13 +696,29 @@ def _header_index(headers: list[str], name: str) -> int | None:
     return None
 
 
+async def _sheets_token(
+    session: AsyncSession, tool: LoadedTool, client: httpx.AsyncClient
+) -> str | ExecutionResult:
+    """The client's own Google Sheets access token, or the refusal the agent speaks."""
+    cred = await _credential(session, tool)
+    if cred is None or cred.kind != "google_sheets":
+        return _refused("no_credential")
+    token = await access_token_for(cred, credential_id=tool.credential_id, client=client)  # type: ignore[arg-type]
+    return token if token is not None else _refused("auth_failed")
+
+
 async def _run_sheets(
-    *, tool: LoadedTool, values: dict[str, Any], client: httpx.AsyncClient, call: CallFacts
+    session: AsyncSession,
+    *,
+    tool: LoadedTool,
+    values: dict[str, Any],
+    client: httpx.AsyncClient,
+    call: CallFacts,
 ) -> ExecutionResult:
     config = SheetsConfig.model_validate(tool.config)
-    token = await gsheets.bearer(client)
-    if token is None:
-        return _refused("sheets_not_configured")
+    token = await _sheets_token(session, tool, client)
+    if not isinstance(token, str):
+        return token
     if config.operation == "lookup":
         return await _sheet_lookup(
             spreadsheet_id=config.spreadsheet_id,
@@ -843,7 +867,7 @@ def _amount(raw: Any) -> Decimal | None:
         amount = Decimal(cleaned.strip())
     except InvalidOperation:
         return None
-    return amount.quantize(Decimal("0.01")) if amount.is_finite() else None
+    return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if amount.is_finite() else None
 
 
 async def _run_payment_link(
@@ -1008,9 +1032,9 @@ async def _run_caller_lookup(
     if not call.caller_e164:
         return _refused("no_caller_number")
     if tool.provider == "sheet":
-        token = await gsheets.bearer(client)
-        if token is None:
-            return _refused("sheets_not_configured")
+        token = await _sheets_token(session, tool, client)
+        if not isinstance(token, str):
+            return token
         return await _sheet_lookup(
             spreadsheet_id=config.spreadsheet_id or "",
             worksheet=config.worksheet or "",

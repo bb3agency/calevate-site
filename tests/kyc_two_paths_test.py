@@ -619,6 +619,85 @@ async def test_the_upload_route_encrypts_and_replaces_and_the_client_reads_metad
     )
 
 
+async def test_the_client_opens_its_own_certificate_and_no_other_file(s3: FakeS3) -> None:
+    org = await _tenant()
+    tenant_id = UUID(str(org["id"]))
+    headers = await _headers(org)
+    stranger = await _headers(await _tenant())
+    async with _client() as http:
+        for slot, kind, name, body in (
+            ("business", "udyam", "udyam.pdf", PDF_BYTES),
+            ("owner_id", "pan_card", "pan.png", PNG_BYTES),
+        ):
+            uploaded = await http.post(
+                f"{KYC}/documents",
+                headers=headers,
+                data={"slot": slot, "kind": kind},
+                files={"file": (name, body, "application/octet-stream")},
+            )
+            assert uploaded.status_code == 201, uploaded.text
+        documents = {
+            d["slot"]: d["id"] for d in (await http.get(KYC, headers=headers)).json()["documents"]
+        }
+        opened = await http.get(f"{KYC}/documents/{documents['business']}", headers=headers)
+        # The owner's ID is never handed back, and another account's session reaches
+        # nothing: RLS leaves it zero rows, which answers exactly like a wrong id.
+        owner_id = await http.get(f"{KYC}/documents/{documents['owner_id']}", headers=headers)
+        other_tenant = await http.get(f"{KYC}/documents/{documents['business']}", headers=stranger)
+        unknown = await http.get(f"{KYC}/documents/{uuid.uuid4()}", headers=headers)
+    assert opened.status_code == 200, opened.text
+    assert opened.content == PDF_BYTES
+    assert opened.headers["cache-control"] == "no-store"
+    assert (owner_id.status_code, other_tenant.status_code, unknown.status_code) == (404, 404, 404)
+    async with tenant_session(tenant_id) as session:
+        viewed = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT object_id FROM audit_log WHERE tenant_id = :tid "
+                        "AND action = 'kyc.document_viewed'"
+                    ),
+                    {"tid": tenant_id},
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert viewed == [documents["business"]]
+
+
+async def test_a_verified_business_keeps_its_certificate_and_cannot_replace_it(
+    s3: FakeS3,
+) -> None:
+    org = await _tenant()
+    tenant_id = UUID(str(org["id"]))
+    headers = await _headers(org)
+    async with _client() as http:
+        first = await http.post(
+            f"{KYC}/documents",
+            headers=headers,
+            data={"slot": "business", "kind": "udyam"},
+            files={"file": ("udyam.pdf", PDF_BYTES, "application/pdf")},
+        )
+        assert first.status_code == 201, first.text
+        await _verify_kyc_only(tenant_id)
+        replace = await http.post(
+            f"{KYC}/documents",
+            headers=headers,
+            data={"slot": "business", "kind": "udyam"},
+            files={"file": ("udyam-new.pdf", PDF_BYTES, "application/pdf")},
+        )
+        read = await http.get(KYC, headers=headers)
+        opened = await http.get(f"{KYC}/documents/{first.json()['id']}", headers=headers)
+    assert replace.json()["type"].endswith("kyc_documents_locked")
+    assert replace.json()["detail"] == (
+        "Your business is verified, so the certificate can no longer be changed."
+    )
+    assert [(d["filename"], d["held"]) for d in read.json()["documents"]] == [("udyam.pdf", True)]
+    assert opened.status_code == 200
+    assert opened.content == PDF_BYTES
+
+
 async def test_an_operator_cannot_upload_a_clients_documents() -> None:
     from apps.api.compliance.kyc_routes import upload_document
     from apps.api.core.context import Principal

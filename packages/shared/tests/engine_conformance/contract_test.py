@@ -137,7 +137,14 @@ def _agent_config(
         webhook_url="https://hooks.calevate.tech/v1/engine/fake",
         handoff=handoff,
         action_tools=action_tools,
+        # ThinnestAI creates an agent only in the client's own workspace (D-693) and
+        # refuses before any request without one; production resolves it per tenant.
+        engine_workspace=CONFORMANCE_WORKSPACE if engine.name == "thinnest" else None,
     )
+
+
+#: A customer workspace id in ThinnestAI's `org_…` shape, for the adapter that needs one.
+CONFORMANCE_WORKSPACE = "org_conformance"
 
 
 #: One during-call action, as a publish carries it (D-615). Deliberately the SIMPLEST tool

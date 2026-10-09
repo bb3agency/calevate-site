@@ -105,7 +105,7 @@ export const CLASSIFICATIONS: {
     label: "Transactional",
     hint: (
       <>
-        Order and appointment updates —{" "}
+        Order and booking updates —{" "}
         <Term id="series160" /> or standard
       </>
     ),

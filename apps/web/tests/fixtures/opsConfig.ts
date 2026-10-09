@@ -1,4 +1,4 @@
-import type { ConfigField, ConfigSection } from "@/lib/api/opsConfig";
+import type { ConfigControl, ConfigField, ConfigSection } from "@/lib/api/opsConfig";
 
 /**
  * THE SECTIONS `GET /v1/ops/config` SERVES, in its order (`apps/api/ops/config_catalog.py`).
@@ -79,14 +79,24 @@ export const SELF_SERVE_PRICE_META: Pick<
   | "subsection"
   | "engine_scope"
   | "used_by_current_engine"
+  | "control"
 > = {
   nullable: false,
-  label: "Self-serve price per minute (INR)",
+  label: "Self-serve price per minute",
   description: "The self-serve list price per calling minute.",
   section: "billing",
   subsection: "prices",
   engine_scope: null,
   used_by_current_engine: true,
+  control: control("money_inr", {
+    unit: "per minute",
+    minimum: "0",
+    minimum_exclusive: true,
+    maximum: "10000",
+    step: "0.01",
+    risk: "high",
+    risk_reason: "Every self-serve client is charged this price.",
+  }),
 };
 
 /** Placement and wording for another key, in one call. */
@@ -96,4 +106,34 @@ export function placed(
   label: string,
 ): Pick<ConfigField, "section" | "subsection" | "label"> {
   return { section, subsection, label };
+}
+
+/**
+ * A served `control` (`apps/api/ops/config_controls.py`): the kind, and whatever a test
+ * needs to differ from an unbounded, standard-risk control.
+ */
+export function control(kind: string, over: Partial<ConfigControl> = {}): ConfigControl {
+  return {
+    kind,
+    unit: null,
+    minimum: null,
+    minimum_exclusive: false,
+    maximum: null,
+    step: null,
+    min_length: null,
+    max_length: null,
+    pattern: null,
+    placeholder: null,
+    help: null,
+    source: null,
+    multiple: false,
+    risk: "standard",
+    risk_reason: null,
+    ...over,
+  };
+}
+
+/** One option as the server serves it, labelled. */
+export function option(value: string, label: string = value, over: Partial<{ hint: string | null; provider: string | null; unavailable_reason: string | null }> = {}) {
+  return { value, label, hint: null, provider: null, unavailable_reason: null, ...over };
 }

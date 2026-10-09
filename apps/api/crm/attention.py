@@ -216,8 +216,8 @@ def block_remedy(rule: str) -> str:
 # error code on it and no next step.
 SHEET_FAILURE_REMEDIES: dict[str, str] = {
     "sheet_not_shared": (
-        "We do not have permission to write to your spreadsheet. Open it, click Share, "
-        "and give Editor access to the Calevate address your account manager gave you."
+        "Your Google account has not given Calevate this spreadsheet. On the Integrations "
+        "page, choose the spreadsheet again in Google's file picker."
     ),
     "spreadsheet_not_found": (
         "That spreadsheet no longer exists, or it was moved to a different account. "
@@ -228,18 +228,12 @@ SHEET_FAILURE_REMEDIES: dict[str, str] = {
         "it back, or set the endpoint up again with the tab you are using now."
     ),
     "no_credential_ref": (
-        "Your Google Sheets connection is not finished on our side yet — nothing for "
-        "you to do. Contact support if leads are not appearing within a day."
-    ),
-    "credential_ref_unknown": (
-        "Your Google Sheets connection is not finished on our side yet — nothing for "
-        "you to do. Contact support if leads are not appearing within a day."
-    ),
-    "google_credential_unresolvable": (
-        "Our connection to Google needs attention — nothing for you to do. We have been alerted."
+        "This sheet has no Google account connected. Connect Google Sheets on the "
+        "Integrations page, then set this sheet up again."
     ),
     "google_auth_failed": (
-        "Our connection to Google needs attention — nothing for you to do. We have been alerted."
+        "Your Google account stopped letting Calevate write to your sheets. Disconnect "
+        "Google Sheets on the Integrations page and connect it again."
     ),
     "google_rate_limited": (
         "Google was busy and would not take the row. We will keep trying; no action "
@@ -283,8 +277,8 @@ def _sheet_failure_detail(reason: str | None) -> str:
             "for you to do. We have been alerted."
         )
     return (
-        "We could not write the row to your spreadsheet. Check that it is still shared "
-        "with us, or contact support."
+        "We could not write the row to your spreadsheet. Check that Google Sheets is still "
+        "connected on the Integrations page, or contact support."
     )
 
 

@@ -811,7 +811,7 @@ async def tenant_spend(
         # one reader of the AI ledger. It is `_NOT_AI_UNITS`-excluded from `period` by
         # design — see `AbsorbedAiSpendOut` — so this is where the copilot spend a client
         # generated becomes visible on the money board an operator opens.
-        ai = await read_ai_quota(scoped, tenant_id=tenant_id, month=period.month)
+        ai = await read_ai_quota(scoped, tenant_id=tenant_id, month=period.month, include_free=True)
         rental = await rental_revenue_inr(scoped, tenant_id=tenant_id, month=period.month)
         # D-482 L-1: a direct-admin read of one client's money board joins the audit
         # trail, coalesced per (admin, tenant) per minute.

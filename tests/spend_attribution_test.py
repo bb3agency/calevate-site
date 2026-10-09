@@ -593,7 +593,7 @@ async def test_absorbed_ai_cost_surfaces_on_the_admin_board_with_zero_calls() ->
     # ...and it equals the AI ledger's own reader to the paisa — one computation, not a
     # second spelling.
     async with tenant_session(tenant_id) as session:
-        quota = await read_ai_quota(session, tenant_id=tenant_id)
+        quota = await read_ai_quota(session, tenant_id=tenant_id, include_free=True)
     assert Decimal(body["ai_assist"]["used_inr"]) == to_paise(quota.used_inr)
     assert to_paise(cost) == to_paise(quota.used_inr), "the writer and the reader agree"
 

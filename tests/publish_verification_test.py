@@ -636,7 +636,7 @@ async def test_two_concurrent_publishes_create_exactly_one_vendor_agent() -> Non
             return await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
 
     with _engine(FreshRefEngine()) as engine:
-        refs = await asyncio.gather(once(), once())
+        outcomes = await asyncio.gather(once(), once(), return_exceptions=True)
 
     assert isinstance(engine, RecordingEngine)
     creates = [ref for name, ref in engine.calls if name == "create_agent"]
@@ -644,8 +644,15 @@ async def test_two_concurrent_publishes_create_exactly_one_vendor_agent() -> Non
         f"two publishes created {len(creates)} vendor agents; "
         f"{len(creates) - 1} of them are orphans nobody can address or delete"
     )
-    assert refs[0] == refs[1] == creates[0]
-    assert engine.names().count("update_agent") == 1, "the second publish must UPDATE, not create"
+    # The second publish either waited and UPDATED the same agent, or met the tenant's
+    # knowledge lock held by the first and was refused as retryable (D-693) — never a
+    # second create.
+    refs = [o for o in outcomes if isinstance(o, str)]
+    refused = [o for o in outcomes if isinstance(o, ProblemError)]
+    assert len(refs) + len(refused) == 2, outcomes
+    assert refs and all(ref == creates[0] for ref in refs)
+    assert all(r.code == "kb_publish_in_progress" for r in refused), refused
+    assert engine.names().count("update_agent") == len(refs) - 1
 
     _, _, _, stored = await _verify_row(tenant_id, agent_id)
     assert stored == creates[0]

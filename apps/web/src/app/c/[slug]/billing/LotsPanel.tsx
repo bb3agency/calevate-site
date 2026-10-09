@@ -2,7 +2,7 @@
 
 import { Layers } from "lucide-react";
 
-import { Card, NOTICE_TONES, formatINR, formatIST, formatRupeeRate } from "@/components/ui";
+import { Card, NOTICE_TONES, ScrollRegion, formatINR, formatIST, formatRupeeRate } from "@/components/ui";
 
 import { formatWhole, isVoiceTier, lotRate, type WalletLots } from "./lots";
 
@@ -71,7 +71,8 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
             Each purchase keeps the per-minute rates it was bought at, and your calls are
             charged against the oldest one first.
           </p>
-          <table className="mt-3 w-full border-collapse text-sm">
+          <ScrollRegion label="Your credit, purchase by purchase" className="scroll-shadow-x mt-3">
+          <table className="w-full border-collapse text-sm">
             <caption className="sr-only">
               Your credit, in the order it will be spent — {lots.lots.length}{" "}
               {lots.lots.length === 1 ? "purchase" : "purchases"}
@@ -117,6 +118,7 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
               ))}
             </tbody>
           </table>
+          </ScrollRegion>
         </>
       )}
     </Card>

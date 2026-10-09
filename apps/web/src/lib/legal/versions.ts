@@ -289,6 +289,14 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:dded3c6a96adf51add128fb3b68362d90258c2c61888a80f44021dd6c401230e",
       },
+      // D-703: a person may sign in with Google; what Google tells us and that Google
+      // learns of the sign-in. NOT MATERIAL: an option, nothing changes for anyone else.
+      {
+        revision: "19",
+        material: false,
+        contentHash:
+          "sha256:6c498fc129e6f34f178edb16f1285617012f4af99094a1e09f47b5bb7b27896b",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -721,6 +729,14 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: false,
         contentHash:
           "sha256:d0a735cd00ff2ddb75153bd1d045d68757942312daaf619dfe039000c521537f",
+      },
+      // D-703: Sheets through the client's own Google account and only the sheets it picks.
+      // NOT MATERIAL: the client's own processor, with narrower access than before.
+      {
+        revision: "19",
+        material: false,
+        contentHash:
+          "sha256:2aefcc7f92c580d5860d5c8d19e4b37bbacb7c4f9f326a463836de7507bb2773",
       },
     ],
     effectiveDate: "2026-09-02",

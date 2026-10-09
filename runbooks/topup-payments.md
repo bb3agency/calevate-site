@@ -20,6 +20,11 @@ with an admin page to contest or accept; a daily reconciliation against Razorpay
 test/live mode guard. Number rental is still charged from wallet credit. There are no
 invoices or payment links for clients: everyone is prepaid.
 
+`PROVIDER_CREATES_ORDERS` is `True` in `apps/api/billing/payments.py`: that is a claim about
+the code (the order adapter exists). Whether THIS deployment can open a checkout is
+`payment_capability().creates_orders`, which stays false until `RAZORPAY_KEY_SECRET` is set
+in Part A.
+
 ---
 
 ## PART A — GOING LIVE, IN ORDER (founder)
@@ -111,7 +116,7 @@ Dashboard → Accounts & Settings → **Webhooks** → **+ Add New Webhook**
   UPI integration guide says to raise a request to activate them
   (`payments/recurring-payments/upi/integrate.md`). Raise the request from the dashboard
   support page anyway and do not switch auto-recharge on for clients until a test mandate
-  confirms (A7 step 5) — OPERATIONS §2 gate 44I. RuPay recurring is a beta enabled on
+  confirms (A7 step 5) — OPERATIONS §2 gate 44i. RuPay recurring is a beta enabled on
   request (`payments/recurring-payments/cards/faqs.md`); it is not needed. UPI Autopay registers through UPI Intent on mobile and a
   QR code on desktop; UPI Collect is deprecated for new mandates from 28 Feb 2026.
 

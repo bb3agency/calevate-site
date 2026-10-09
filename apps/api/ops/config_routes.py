@@ -134,6 +134,7 @@ from apps.api.core.settings import (
 from apps.api.core.stepup import StepUpGate
 from apps.api.engine import get_engine
 from apps.api.ops.config_catalog import SECTIONS, meta_for
+from apps.api.ops.config_controls import choices_for, control_for
 from apps.api.ops.config_service import (
     WriteResult,
     clear_value,
@@ -231,11 +232,52 @@ class ConfigOptionOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     value: str
+    #: The words the console shows for this value (`ops/config_controls.choices_for`).
+    label: str
+    #: One short line under the option, or null.
+    hint: str | None
     #: Our provider vocabulary (`azure_openai` | `openai` | `google`) for a model; else null.
     provider: str | None
     #: Why clients cannot be offered this model today, in the operator's words; null when
     #: they can, and always null for a setting that is not a model.
     unavailable_reason: str | None
+
+
+class ConfigControlOut(BaseModel):
+    """How the console edits one setting, derived from its `Settings` field
+    (`ops/config_controls.control_for`). It guides input only: the PUT validates against the
+    field itself, and a value the control would allow but the field refuses is refused."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: switch | segmented | select | multi_select | entity_picker | number | money_inr |
+    #: duration | percent | phone_in | phone | url | email | text
+    kind: str
+    #: What a number counts, in words ("seconds", "calls a day", "per minute"); else null.
+    unit: str | None
+    #: Bounds as decimal strings, never floats (hard rule 7). Null when unbounded.
+    minimum: str | None
+    #: True when the minimum itself is refused (`gt`).
+    minimum_exclusive: bool
+    maximum: str | None
+    step: str | None
+    min_length: int | None
+    max_length: int | None
+    #: The field's own pattern, for checking the format as it is typed.
+    pattern: str | None
+    placeholder: str | None
+    #: One line under the input saying what a valid value looks like.
+    help: str | None
+    #: For `entity_picker`: which live read lists the choices
+    #: (`trial_numbers` | `thinnest_workspace` | `tenants`).
+    source: str | None
+    #: The value is a comma-separated list of choices.
+    multiple: bool
+    #: `high`: the console asks for the new value to be typed back. `standard`: one click.
+    #: The server's step-up confirmation and audit write are identical for both.
+    risk: str
+    #: Why this setting is `high` risk, in one sentence; null for `standard`.
+    risk_reason: str | None
 
 
 class ConfigSubsectionOut(BaseModel):
@@ -299,6 +341,8 @@ class ConfigFieldOut(BaseModel):
     options: list[ConfigOptionOut]
     #: Whether `null` ("not set") is accepted.
     nullable: bool
+    #: How to edit it: the control the console draws, its bounds, unit and risk.
+    control: ConfigControlOut
     #: The plain name an operator reads, acronyms spelled correctly (`ops/config_catalog`).
     label: str
     #: One line saying what the setting does.
@@ -476,20 +520,46 @@ def _engine_in_force() -> EngineInForce:
 
 
 def _options(field: ConfigField) -> list[ConfigOptionOut]:
-    """The field's options; for a language-model field, each with its offer state.
+    """The field's choices with their labels; for a language-model field, each with its
+    offer state.
 
-    A model field is recognised by every option being a catalogue model id, so a new
-    model-typed setting is covered with no list here to extend.
+    For a closed field these are exactly the validator's set. A string field the code reads
+    as a closed set (a provider name) and the healer's playbook list get their choices from
+    `ops/config_controls.choices_for`. A model field is recognised by every option being a
+    catalogue model id, so a new model-typed setting is covered with no list here to extend.
     """
     models = bool(field.options) and all(option in LLM_MODEL_NAMES for option in field.options)
     return [
         ConfigOptionOut(
-            value=option,
-            provider=leg_for_model(option).provider if models else None,
-            unavailable_reason=unofferable_reason(option) if models else None,
+            value=choice.value,
+            label=choice.label,
+            hint=choice.hint,
+            provider=leg_for_model(choice.value).provider if models else None,
+            unavailable_reason=unofferable_reason(choice.value) if models else None,
         )
-        for option in field.options
+        for choice in choices_for(field)
     ]
+
+
+def _control(field: ConfigField) -> ConfigControlOut:
+    control = control_for(field)
+    return ConfigControlOut(
+        kind=control.kind,
+        unit=control.unit,
+        minimum=control.minimum,
+        minimum_exclusive=control.minimum_exclusive,
+        maximum=control.maximum,
+        step=control.step,
+        min_length=control.min_length,
+        max_length=control.max_length,
+        pattern=control.pattern,
+        placeholder=control.placeholder,
+        help=control.help,
+        source=control.source,
+        multiple=control.multiple,
+        risk=control.risk,
+        risk_reason=control.risk_reason,
+    )
 
 
 def _out(field: ConfigField, engine: EngineInForce) -> ConfigFieldOut:
@@ -507,6 +577,7 @@ def _out(field: ConfigField, engine: EngineInForce) -> ConfigFieldOut:
         kind=field.kind,
         options=_options(field),
         nullable=field.nullable,
+        control=_control(field),
         label=meta.label,
         description=meta.description,
         section=meta.section,

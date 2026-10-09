@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, ShieldAlert } from "lucide-react";
 
+import { FileDrop, FileSummary } from "@/components/fileDrop";
+
 import { PageHeader } from "@/components/console/pageHeader";
 import {
   Card,
@@ -14,12 +16,15 @@ import {
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON,
+  SECONDARY_BUTTON_SM,
   Skeleton,
+  formatIST,
 } from "@/components/ui";
 import { useActAccess, useWriteAccess, type WriteAccess } from "@/lib/api/hooks";
 import { ENTITY_TYPES, useKycRecord, type KycRecord } from "@/lib/api/kyc";
 import { useClientSession } from "@/lib/api/session";
-import type { Session } from "@/lib/api/client";
+import type { Session, UploadProgress } from "@/lib/api/client";
+import { ViewerBlockedError } from "@/lib/api/protectedFile";
 import {
   ACCEPT_ATTRIBUTE,
   BUSINESS_DOCUMENT_KINDS,
@@ -28,6 +33,7 @@ import {
   OWNER_ID_KIND,
   fileProblem,
   forgetPendingRun,
+  openOwnCertificate,
   outboundSteps,
   panProblem,
   readPendingRun,
@@ -186,7 +192,7 @@ function VerifyCards({ session, record, access }: { session: Session; record: Ky
       )}
       {!locked && <RestrictionNote reason={access.write.reason ?? access.upload.reason} />}
       {!locked && <DetailsCard session={session} record={record} access={access.write} />}
-      {!locked && <BusinessDocumentCard session={session} record={record} access={access.upload} />}
+      {(!locked || business) && <BusinessDocumentCard session={session} record={record} access={access.upload} />}
       {locked && !record.digilocker_outstanding && (
         <Card title="Your verification">
           <p className="text-sm text-ink">
@@ -318,40 +324,50 @@ function DetailsCard({ session, record, access }: { session: Session; record: Ky
   );
 }
 
-function FilePicker({
+/** What a KYC upload takes, as `fileProblem` and the server check it. */
+const KYC_FILE_HINT = "PDF, JPEG or PNG, up to 5 MB.";
+
+/**
+ * A KYC file control: the kit's `FileDrop` with this page's rules (`fileProblem`, the
+ * preview of the server's), sending on pick with real progress.
+ */
+function KycFileDrop({
   label,
-  onPick,
   disabled,
+  onPick,
 }: {
   label: string;
-  onPick: (file: File) => void;
   disabled: boolean;
+  onPick: (file: File, onProgress: (progress: UploadProgress) => void) => Promise<unknown>;
 }) {
-  const [problem, setProblem] = useState<string | null>(null);
+  const [sending, setSending] = useState<{ file: File; percent: number | null } | null>(null);
   return (
-    <label className="block">
-      <span className={FIELD_LABEL}>{label}</span>
-      <input
-        type="file"
-        accept={ACCEPT_ATTRIBUTE}
-        disabled={disabled}
-        className="mt-1 block text-sm"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (!file) return;
-          const why = fileProblem(file);
-          setProblem(why);
-          if (!why) onPick(file);
-        }}
-      />
-      <span className={FIELD_HINT}>PDF, JPEG or PNG, up to 5 MB.</span>
-      {problem && (
-        <span role="alert" className="mt-1 block text-sm text-danger">
-          {problem}
-        </span>
-      )}
-    </label>
+    <FileDrop
+      label={label}
+      hint={KYC_FILE_HINT}
+      accept={ACCEPT_ATTRIBUTE}
+      validate={fileProblem}
+      disabled={disabled || sending !== null}
+      sending={sending}
+      onFiles={([file]) => {
+        setSending({ file, percent: 0 });
+        // Cleared on both outcomes: a bar left at 100% under a refusal says the file arrived.
+        void onPick(file, ({ loaded, total }) =>
+          setSending({ file, percent: total ? Math.min(100, Math.round((loaded / total) * 100)) : null }),
+        )
+          .catch(() => undefined)
+          .finally(() => setSending(null));
+      }}
+    />
   );
+}
+
+/** The review state, in the client's words, for the certificate on file. */
+function certificateStatus(record: KycRecord): string {
+  if (record.is_verified) return "Verified";
+  if (record.status === "submitted" || record.status === "in_review") return "With our review team";
+  if (record.status === "rejected") return "Not accepted — see the note above";
+  return "Not sent for review yet";
 }
 
 function BusinessDocumentCard({
@@ -369,16 +385,71 @@ function BusinessDocumentCard({
     ? (["gst"] as const)
     : (["incorporation", "udyam"] as const);
   const [kind, setKind] = useState<string>(options[0]);
+  const [opening, setOpening] = useState(false);
+  const [openError, setOpenError] = useState<unknown>(null);
+  // The server's own lock: replaceable until the review starts, and never once verified.
+  const inReview = record.status === "submitted" || record.status === "in_review";
+  const replaceable = !record.is_verified && !inReview;
+
   return (
     <Card title="2. Business certificate">
-      <p className="text-sm text-ink">
-        {record.gst_registered === null
-          ? "Save the business details first, so we know which certificate to ask for."
-          : record.gst_registered
-            ? "Upload the GST registration certificate."
-            : "Upload the Certificate of Incorporation, or the Udyam registration certificate."}
-      </p>
-      {record.gst_registered !== null && (
+      {current ? (
+        <FileSummary
+          name={current.filename}
+          type={current.content_type}
+          size={current.size_bytes}
+          meta={
+            <>
+              {lookup(BUSINESS_DOCUMENT_KINDS, current.kind) ?? "Certificate"} · uploaded {formatIST(current.uploaded_at)}
+              <span className="mt-1 block font-medium text-ink">{certificateStatus(record)}</span>
+            </>
+          }
+          action={
+            current.held && (
+              <button
+                type="button"
+                className={SECONDARY_BUTTON_SM}
+                disabled={opening}
+                onClick={() => {
+                  setOpenError(null);
+                  setOpening(true);
+                  openOwnCertificate(session, current.id)
+                    .catch(setOpenError)
+                    .finally(() => setOpening(false));
+                }}
+              >
+                {opening ? "Opening…" : "View"}
+              </button>
+            )
+          }
+        />
+      ) : (
+        <p className="text-sm text-ink">
+          {record.gst_registered === null
+            ? "Save the business details first, so we know which certificate to ask for."
+            : record.gst_registered
+              ? "Upload the GST registration certificate."
+              : "Upload the Certificate of Incorporation, or the Udyam registration certificate."}
+        </p>
+      )}
+      {openError instanceof ViewerBlockedError ? (
+        <p role="alert" className="mt-2 text-sm text-danger">
+          {openError.message}
+        </p>
+      ) : (
+        openError != null && (
+          <div className="mt-2">
+            <ProblemNotice error={openError} />
+          </div>
+        )
+      )}
+      {record.is_verified && current && (
+        <p className={FIELD_HINT}>Your business is verified, so the certificate can no longer be changed.</p>
+      )}
+      {inReview && current && (
+        <p className={FIELD_HINT}>It is with our review team, so it cannot be changed until the review is done.</p>
+      )}
+      {replaceable && record.gst_registered !== null && (
         <div className="mt-3 space-y-3">
           {!record.gst_registered && (
             <label className="block">
@@ -392,12 +463,13 @@ function BusinessDocumentCard({
               </select>
             </label>
           )}
-          <FilePicker
+          <KycFileDrop
             disabled={!access.allowed || upload.isPending}
-            label={current ? `On file: ${current.filename}. Replace it` : "Choose the certificate"}
-            onPick={(file) => upload.mutate({ slot: "business", kind: record.gst_registered ? "gst" : kind, file })}
+            label={current ? "Replace the certificate" : "Choose the certificate"}
+            onPick={(file, onProgress) =>
+              upload.mutateAsync({ slot: "business", kind: record.gst_registered ? "gst" : kind, file, onProgress })
+            }
           />
-          {upload.isPending && <p className="text-sm text-ink-muted">Uploading…</p>}
           <ProblemNotice error={upload.error} />
         </div>
       )}
@@ -419,10 +491,11 @@ function ManualPath({ session, record, access }: { session: Session; record: Kyc
         with the Income Tax Department. We cannot accept an Aadhaar card here.
         {record.self_verification_available && " To use your Aadhaar, verify with DigiLocker instead."}
       </p>
-      <FilePicker
+      {owner && <FileSummary name={owner.filename} type={owner.content_type} size={owner.size_bytes} />}
+      <KycFileDrop
         disabled={!access.upload.allowed || upload.isPending}
-        label={owner ? `On file: ${owner.filename}. Replace it` : "Choose the PAN card"}
-        onPick={(file) => upload.mutate({ slot: "owner_id", kind: OWNER_ID_KIND, file })}
+        label={owner ? "Replace the PAN card" : "Choose the PAN card"}
+        onPick={(file, onProgress) => upload.mutateAsync({ slot: "owner_id", kind: OWNER_ID_KIND, file, onProgress })}
       />
       <ProblemNotice error={upload.error} />
       <label className="block">

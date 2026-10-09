@@ -185,3 +185,28 @@ describe("DigiLocker asked for and unavailable", () => {
     expect(screen.queryByText(/upload the owner's ID for our review instead/)).toBeNull();
   });
 });
+
+describe("the business certificate on file", () => {
+  it("stays on the page with its details and a View action, and can be replaced before review", async () => {
+    await renderClientPage(<VerifyBusinessPage />, routes(OWNER, READY_FOR_OWNER));
+    expect(await screen.findByText("gst.pdf")).toBeTruthy();
+    expect(screen.getByText(/PDF · 1000 bytes/)).toBeTruthy();
+    expect(screen.getByText("Not sent for review yet")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "View" })).toBeTruthy();
+    expect(screen.getByLabelText("Replace the certificate")).toBeTruthy();
+  });
+
+  it("is shown read-only once the business is verified", async () => {
+    await renderClientPage(
+      <VerifyBusinessPage />,
+      routes(OWNER, { ...READY_FOR_OWNER, status: "verified", is_verified: true, recorded: true }),
+    );
+    expect(await screen.findByText("gst.pdf")).toBeTruthy();
+    expect(screen.getByText("Verified")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "View" })).toBeTruthy();
+    expect(
+      screen.getByText("Your business is verified, so the certificate can no longer be changed."),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText(/replace the certificate/i)).toBeNull();
+  });
+});

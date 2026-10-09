@@ -93,6 +93,43 @@ class PublicRoute:
 #: The complete unauthenticated surface of `apps/api`. Adding a row is the reviewable act
 #: this check exists to force; nothing may be exempt without one.
 UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
+    # --- D-703 self-serve accounts and Google sign-in -------------------------------------
+    "GET /v1/auth/client/sign-in-options": PublicRoute(
+        why=(
+            "Two booleans (is Google sign-in on, is signing up open) that the sign-in and "
+            "signup pages render from; the same facts the pages themselves reveal."
+        )
+    ),
+    "POST /v1/auth/client/signup/start": PublicRoute(
+        why=(
+            "Creates an account for a stranger by design. Answers the same for any address, "
+            "is held to SIGNUP_BUDGET per address and the auth rate limit per caller, and "
+            "only mails the address itself."
+        ),
+        credential="enforce_same_origin",
+    ),
+    "POST /v1/auth/client/signup/complete": PublicRoute(
+        why=(
+            "The emailed six-digit code is the credential: OTP_BUDGET per address plus the "
+            "per-challenge attempt ceiling, as for every code in `authn/otp.py`."
+        ),
+        credential="enforce_same_origin",
+    ),
+    "POST /v1/auth/client/google/start": PublicRoute(
+        why=(
+            "Hands back Google's consent URL and sets the browser-binding cookie; nothing "
+            "is read or written about any person."
+        ),
+        credential="enforce_same_origin",
+    ),
+    "POST /v1/auth/client/google/complete": PublicRoute(
+        why=(
+            "Google's authorization code, exchanged with our client secret and PKCE "
+            "verifier, plus the signed state bound to this browser's cookie, is the "
+            "credential (`authn/google.py`)."
+        ),
+        credential="enforce_same_origin",
+    ),
     "GET /healthz": PublicRoute(
         why=(
             "Liveness word and status code only. `core/health` gates every detail behind "

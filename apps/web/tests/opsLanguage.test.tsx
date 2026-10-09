@@ -37,8 +37,8 @@ describe("ops plain-language maps", () => {
       expect(copy.label).not.toBe(applies);
       expect(copy.help.length).toBeGreaterThan(0);
     }
-    expect(timingCopy("live").label).toBe("Takes effect right away");
-    expect(timingCopy("on_restart").label).toBe("Takes effect after a restart");
+    expect(timingCopy("live").label).toBe("Applies immediately");
+    expect(timingCopy("on_restart").label).toBe("Applies after a restart");
   });
 
   it("falls back visibly for an unrecognised timing rather than blank", () => {
@@ -53,9 +53,9 @@ describe("ops plain-language maps", () => {
   });
 
   it("names provenance in operator terms", () => {
-    expect(provenanceCopy("db").label).toBe("Set here");
-    expect(provenanceCopy("env").label).toBe("Set at deploy time");
-    expect(provenanceCopy("default").label).toBe("Using the built-in default");
+    expect(provenanceCopy("db").label).toBe("Changed here");
+    expect(provenanceCopy("env").label).toBe("Locked by the server");
+    expect(provenanceCopy("default").label).toBe("Default");
   });
 
   it("separates a rejected credential from an unreachable vendor", () => {
@@ -184,6 +184,6 @@ describe("MonoValue and TimingBadge", () => {
 
   it("renders the timing label as a badge", () => {
     render(<TimingBadge applies="live" />);
-    expect(screen.getByText("Takes effect right away")).toBeTruthy();
+    expect(screen.getByText("Applies immediately")).toBeTruthy();
   });
 });

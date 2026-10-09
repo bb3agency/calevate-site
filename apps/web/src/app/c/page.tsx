@@ -35,7 +35,7 @@ import { AuthPageFrame } from "@/components/authPage";
 import { AuthProblemNotice } from "@/components/authn/fields";
 import { Card, Skeleton } from "@/components/ui";
 import { useUnscopedMe } from "@/lib/api/hooks";
-import { apiRequest } from "@/lib/api/client";
+import { ApiProblem, apiRequest } from "@/lib/api/client";
 import { BUSINESS_PROFILE_PATH, type BusinessProfile } from "@/lib/api/businessProfile";
 import { clientRealmSession } from "@/lib/authn/realmSessions";
 import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
@@ -88,7 +88,15 @@ function Resolve() {
     window.location.replace(firstVisit ? `/c/${slug}/setup` : `/c/${slug}`);
   }, [slug, decided, firstVisit]);
 
-  if (me.error != null) {
+  // A signed-in person with no workspace yet (a new self-serve account, D-703) goes to
+  // create one rather than reading a refusal.
+  const noWorkspace =
+    me.error instanceof ApiProblem && me.error.status === 403 && me.error.code === "forbidden";
+  useEffect(() => {
+    if (noWorkspace) window.location.replace("/signup");
+  }, [noWorkspace]);
+
+  if (me.error != null && !noWorkspace) {
     return (
       <Card>
         <div className="space-y-3">

@@ -78,7 +78,7 @@ export function AddKnowledgeForm({
           onChange={(e) => onBody(e.target.value)}
           aria-label="What the agent should say"
           placeholder={
-            "Write it the way you would tell a new receptionist.\n\n" +
+            "Write it the way you would tell a new member of your team.\n\n" +
             "Leave a blank line between topics."
           }
           className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint"

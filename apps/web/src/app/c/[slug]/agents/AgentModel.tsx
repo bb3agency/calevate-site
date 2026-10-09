@@ -7,12 +7,10 @@ import { BrainCircuit, RotateCcw, Save } from "lucide-react";
 import {
   Disclosure,
   FIELD_HINT,
-  NoticeBox,
   PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
-  formatRupeeRate,
 } from "@/components/ui";
 import { ModelPicker, type ModelChoice } from "@/components/llmModelPicker";
 import { isDeleted } from "@/lib/agentState";
@@ -32,7 +30,6 @@ import {
   type LlmTier,
 } from "@/lib/api/llmModels";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
-import { compareRates } from "@/lib/llmRates";
 import { lookup } from "@/lib/lookup";
 
 /**
@@ -71,7 +68,7 @@ export function AgentModel({ agent, slug }: { agent: AgentWithLlm; slug: string 
       icon={<BrainCircuit className="h-4 w-4" />}
     >
       <div className="space-y-5">
-        <Inheritance view={view} catalogue={catalogue.data} slug={slug} />
+        <Inheritance view={view} slug={slug} />
 
         {catalogue.error != null && (
           <ProblemNotice error={catalogue.error} onRetry={() => void catalogue.refetch()} />
@@ -93,65 +90,34 @@ export function AgentModel({ agent, slug }: { agent: AgentWithLlm; slug: string 
   );
 }
 
-/** What each source means, in the client's words. A wire string chooses between them. */
-const SOURCE_COPY: Record<LlmModelSource, { title: string; body: string }> = {
-  agent: {
-    title: "This agent has its own model",
-    body: "It ignores your organisation default until you put it back on it.",
-  },
-  organization: {
-    title: "Using your organisation default",
-    body: "Every agent that has not been given its own model runs on it.",
-  },
-  platform: {
-    title: "Using the Calevate default",
-    body: "Neither this agent nor your organisation has picked a model, so it runs on the one we use by default.",
-  },
+/** Where this agent's tier comes from, in one line. A wire string chooses between them. */
+const SOURCE_LINE: Record<LlmModelSource, string> = {
+  agent: "This agent has its own model, and ignores your organisation default.",
+  organization: "This agent follows your organisation default.",
+  platform: "This agent follows Calevate's default, because neither it nor your organisation has picked one.",
 };
 
-/** Where this agent's tier came from, and what it costs — the FACT first, the control under it. */
-function Inheritance({
-  view,
-  catalogue,
-  slug,
-}: {
-  view: AgentLlmView;
-  catalogue: ClientLlmDefaults | undefined;
-  slug: string;
-}) {
+/**
+ * Where the tier came from, as one line: the tier and its price are on the rows below, so
+ * this does not repeat them.
+ */
+function Inheritance({ view, slug }: { view: AgentLlmView; slug: string }) {
   const { href } = useClientRealm();
-  const copy = lookup(SOURCE_COPY, view.source);
-  const surcharge = catalogue ? agentInForceSurcharge(view, catalogue) : null;
-
   return (
-    <NoticeBox
-      tone="neutral"
-      icon={<BrainCircuit aria-hidden className="h-5 w-5" />}
-      title={`${copy?.title ?? "The model in use"}: ${view.label}`}
-    >
-      <p className="mt-1">
-        {copy?.body}
-        {surcharge === null ? null : compareRates(surcharge, "0") === "same" ? (
-          <> It adds nothing to what you are charged for a minute.</>
-        ) : (
-          <>
-            {" "}
-            It adds {formatRupeeRate(surcharge)} to every minute this agent is charged for,
-            on top of your plan&apos;s own rate.
-          </>
-        )}
-      </p>
+    <p className="text-sm text-ink-muted">
+      {lookup(SOURCE_LINE, view.source) ?? `This agent runs on ${view.label}.`}
       {view.source === "organization" || view.source === "platform" ? (
-        <p className="mt-2">
+        <>
+          {" "}
           <Link
             href={href(`/c/${slug}/settings/models`)}
             className="font-medium underline underline-offset-2"
           >
             Change it for every agent
           </Link>
-        </p>
+        </>
       ) : null}
-    </NoticeBox>
+    </p>
   );
 }
 
@@ -181,28 +147,28 @@ function ModelForm({
   const baselineSurcharge = agentInForceSurcharge(view, catalogue);
   const organizationTier = tierOption(catalogue.available, catalogue.effective_tier);
 
-  const choices: ModelChoice[] = [
-    {
-      value: null,
-      label: "Follow my organisation",
-      detail: `Today that is ${catalogue.effective_tier_label}. If you change your organisation default, this agent follows.`,
-      surcharge: catalogue.in_force_surcharge_inr_per_minute,
-      badge: view.chosen === null ? "in use" : undefined,
-      baseline: view.chosen === null,
-    },
-    ...catalogue.available.map<ModelChoice>((option) => ({
-      value: option.tier,
-      label: option.label,
-      detail:
-        option.tier === organizationTier?.tier
-          ? `${option.description} Your organisation default.`
-          : option.description,
-      surcharge: option.client_surcharge_inr_per_minute,
-      badge: view.chosen === option.tier ? "in use" : undefined,
-      baseline: view.chosen === option.tier,
-      unavailable: tierUnavailableReason(option),
-    })),
-  ];
+  // One row per tier. The organisation's tier IS "follow my organisation" (`null`);
+  // pinning that same tier is the box under it, never a second look-alike row.
+  const inForce = view.chosen ?? catalogue.effective_tier;
+  const tiers = catalogue.available.map<ModelChoice>((option) => ({
+    value: option.tier,
+    label: option.label,
+    detail: option.description,
+    surcharge: option.client_surcharge_inr_per_minute,
+    baseline: option.tier === inForce,
+    unavailable: tierUnavailableReason(option),
+  }));
+  const choices: ModelChoice[] = organizationTier
+    ? tiers
+    : [
+        {
+          value: null,
+          label: "Follow my organisation",
+          detail: "If you change your organisation default, this agent follows.",
+          surcharge: catalogue.in_force_surcharge_inr_per_minute,
+        },
+        ...tiers,
+      ];
 
   return (
     <form
@@ -229,6 +195,15 @@ function ModelForm({
         // Narrowed through the server's own rows rather than asserted.
         onChange={(next) => setPicked({ tier: tierOption(catalogue.available, next)?.tier ?? null })}
         audience="client"
+        followDefault={
+          organizationTier
+            ? {
+                value: organizationTier.tier,
+                badge: "Organisation default",
+                keepLabel: `Keep ${organizationTier.label} even if the organisation default changes`,
+              }
+            : undefined
+        }
       />
 
       <div className="flex flex-wrap items-center gap-3">

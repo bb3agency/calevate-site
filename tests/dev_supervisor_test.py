@@ -40,8 +40,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: The kinds whose body carries a six-digit code, and the kinds whose body carries a
 #: single-use link. Derived from `_SUBJECTS` below rather than retyped, so a new kind
 #: fails this file instead of being silently unprinted by the supervisor.
-_OTP_KINDS = {"otp_login_challenge", "otp_step_up", "otp_email_verify"}
-_LINK_KINDS = {"password_reset", "invite_password", "admin_bootstrap"}
+_OTP_KINDS = {"otp_login_challenge", "otp_step_up", "otp_email_verify", "otp_signup"}
+_LINK_KINDS = {
+    "password_reset",
+    "invite_password",
+    "admin_bootstrap",
+    "signup_existing_account",
+}
 
 
 def _make_dev_recipe() -> str:

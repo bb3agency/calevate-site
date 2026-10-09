@@ -88,13 +88,15 @@ _KIND_PROVIDERS: dict[str, frozenset[str | None]] = {
 }
 
 #: The saved-credential kind each (action kind, provider) must use; absent means the action
-#: takes no credential of its own (a sheet is reached by the shared service account).
+#: takes no credential of its own.
 _CREDENTIAL_KIND: dict[tuple[str, str | None], str] = {
     ("custom_api", None): "custom_api",
     ("whatsapp", "aisensy"): "aisensy",
     ("whatsapp", "meta_cloud"): "meta_cloud",
     ("whatsapp", "interakt"): "interakt",
     ("calendar", "google"): "google_calendar",
+    ("sheets", None): "google_sheets",
+    ("caller_lookup", "sheet"): "google_sheets",
     ("payment_link", "razorpay"): "razorpay",
     ("crm", "zoho"): "zoho_crm",
     ("crm", "hubspot"): "hubspot",
@@ -163,9 +165,9 @@ def _parse_config(kind: str, config: dict[str, Any]) -> ActionConfig:
             kind="validation",
             code="action_config_invalid",
             title="That action is not configured correctly",
-            detail="One or more fields are invalid.",
+            detail="Some of the settings for this action need another look.",
             fields=validation_fields(exc),
-            remediation="Check the fields for this integration and try again.",
+            remediation="Check the highlighted settings and save again.",
         ) from exc
 
 
@@ -207,7 +209,7 @@ def _validate(
                 "An action name must be 3 to 40 characters: lowercase letters, digits and "
                 "underscores, starting with a letter."
             ),
-            remediation="For example: send_price_list or book_appointment.",
+            remediation="For example: send_price_list or book_a_slot.",
         )
     if len(description.strip()) < MIN_DESCRIPTION_CHARS:
         raise ProblemError(

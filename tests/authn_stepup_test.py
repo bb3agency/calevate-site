@@ -477,7 +477,12 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # refund (`billing/payment_routes.py::issue_tenant_refund`, bound to the payment), and
     # accepting or contesting a chargeback (`billing/payment_admin_routes.py`, bound to the
     # dispute). Accepting refunds the customer and is irreversible at Razorpay.
-    assert sites == 48, f"found {sites} step-up call sites, expected 48; the census went stale"
+    # THE FORTY-NINTH TO FIFTY-FIRST are the healer's operator controls (D-701,
+    # `healer/routes.py`): resolving an incident gives back every line it held, and putting
+    # an incident on the public status page, or posting one by hand, says something in
+    # public that every client and caller can read. Resolving is bound to the incident;
+    # the two status writes share `status_confirmation`, bound to the incident or to none.
+    assert sites == 51, f"found {sites} step-up call sites, expected 51; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

@@ -35,11 +35,10 @@ import logging
 import time
 import uuid
 from typing import Any
-from urllib.parse import parse_qs, unquote
+from urllib.parse import unquote
 from uuid import UUID
 
 import httpx
-import jwt
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.core.logging import JsonFormatter, configure_logging
@@ -48,17 +47,11 @@ from apps.api.crm import attention
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.integrations import service
-from apps.workers import google_oauth, google_sheets, outbound_webhooks, sheets_sync
-from apps.workers.google_oauth import parse_service_account
+from apps.workers import google_sheets, outbound_webhooks, sheets_sync
 from apps.workers.google_sheets import (
     AUTH_FAILED_REASON,
-    CREDENTIAL_REF_PREFIX,
-    CREDENTIAL_REF_UNKNOWN_REASON,
-    CREDENTIAL_UNRESOLVABLE_REASON,
-    DEPLOYMENT_CREDENTIAL_NAME,
     PROBE_FAILED_REASON,
     RATE_LIMITED_REASON,
-    SCOPE,
     SHEET_NOT_SHARED_REASON,
     SPREADSHEET_NOT_FOUND_REASON,
     UNAVAILABLE_REASON,
@@ -66,53 +59,29 @@ from apps.workers.google_sheets import (
     GoogleSheetsTransport,
     a1_sheet,
     column_letter,
-    credential_name,
 )
 from apps.workers.sheets_sync import AppendStatus, SheetAppend
 from arq import Retry
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from sqlalchemy import text
 
 SHEET_ID = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
 SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit#gid=0"
-# The ONE reference this deployment can resolve. Anything else is an operator error and
-# is refused rather than quietly served by "the only key we have".
-CREDENTIAL_REF = f"{CREDENTIAL_REF_PREFIX}{DEPLOYMENT_CREDENTIAL_NAME}"
-
-SERVICE_ACCOUNT_EMAIL = "calevate-sheets@calevate-test.iam.gserviceaccount.com"
+# The endpoint's Google Sheets connection: an `integration_credentials` id (D-703).
+CREDENTIAL_REF = str(uuid7())
+ACCESS_TOKEN = "ya29.test-token"
 
 
-# --------------------------------------------------------------------------------
-# A key, and a Google
-# --------------------------------------------------------------------------------
+class TokenSource:
+    """The client's connection, as the transport sees it: something that hands back an
+    access token, or None when the connection has lapsed. Counts how often it is asked."""
 
+    def __init__(self, token: str | None = ACCESS_TOKEN) -> None:
+        self.token = token
+        self.calls = 0
 
-def _key_pair() -> tuple[str, Any]:
-    """A throwaway RSA key. 2048 bits because that is what Google issues, and because a
-    test that signed with something Google would reject would prove nothing."""
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    ).decode()
-    return pem, key.public_key()
-
-
-_PRIVATE_PEM, _PUBLIC_KEY = _key_pair()
-
-
-def _credential_json(**over: Any) -> str:
-    payload: dict[str, Any] = {
-        "type": "service_account",
-        "client_email": SERVICE_ACCOUNT_EMAIL,
-        "private_key": _PRIVATE_PEM,
-        "private_key_id": "kid-1",
-        "token_uri": google_oauth.TOKEN_URL,
-    }
-    payload.update(over)
-    return json.dumps(payload)
+    async def __call__(self, _http: Any) -> str | None:
+        self.calls += 1
+        return self.token
 
 
 class FakeGoogle:
@@ -124,24 +93,19 @@ class FakeGoogle:
     """
 
     def __init__(self) -> None:
-        self.token_requests: list[dict[str, list[str]]] = []
         self.appends: list[httpx.Request] = []
         self.header_writes: list[httpx.Request] = []
         self.reads: list[str] = []
         self.row_one: list[str] = []
         self.delivery_column: list[str] = []
-        self.token_status = 200
         self.append_status = 200
         self.read_status = 200
         self.write_status = 200
 
     def handler(self, request: httpx.Request) -> httpx.Response:
-        if request.url.host == "oauth2.googleapis.com":
-            self.token_requests.append(parse_qs(request.content.decode()))
-            if self.token_status != 200:
-                return httpx.Response(self.token_status, json={"error": "invalid_grant"})
-            return httpx.Response(200, json={"access_token": "ya29.test-token", "expires_in": 3599})
-
+        assert request.headers.get("authorization") == f"Bearer {ACCESS_TOKEN}", (
+            "every Sheets call carries the client's own access token"
+        )
         path = unquote(str(request.url.path))
         if request.method == "POST" and path.endswith(":append"):
             self.appends.append(request)
@@ -207,9 +171,11 @@ def _request(**over: Any) -> SheetAppend:
     return SheetAppend(**fields)
 
 
-async def _append(fake: FakeGoogle, request: SheetAppend | None = None) -> Any:
+async def _append(
+    fake: FakeGoogle, request: SheetAppend | None = None, source: TokenSource | None = None
+) -> Any:
     async with fake.client() as client:
-        transport = GoogleSheetsTransport(_credential_json(), client=client)
+        transport = GoogleSheetsTransport(source or TokenSource(), client=client)
         return await transport.append(request or _request())
 
 
@@ -218,85 +184,25 @@ async def _append(fake: FakeGoogle, request: SheetAppend | None = None) -> Any:
 # --------------------------------------------------------------------------------
 
 
-async def test_the_assertion_is_signed_with_our_key_and_scoped_to_sheets() -> None:
+async def test_each_append_asks_the_clients_connection_for_its_token() -> None:
     fake = FakeGoogle()
-    await _append(fake)
-
-    form = fake.token_requests[0]
-    assert form["grant_type"] == [google_oauth.JWT_BEARER_GRANT], (
-        "RFC 7523's JWT-bearer grant is what Google's server-to-server flow is"
-    )
-    claims = jwt.decode(
-        form["assertion"][0],
-        _PUBLIC_KEY,
-        algorithms=["RS256"],
-        audience=google_oauth.TOKEN_URL,
-    )
-    assert claims["iss"] == SERVICE_ACCOUNT_EMAIL
-    assert claims["scope"] == SCOPE
-    # `aud` is the TOKEN endpoint, not the Sheets API: a captured assertion must not be
-    # replayable against anything but the exchange it was minted for.
-    assert claims["aud"] == google_oauth.TOKEN_URL
-    assert 0 < claims["exp"] - claims["iat"] <= 3600, "Google caps the assertion at one hour"
-    header = jwt.get_unverified_header(form["assertion"][0])
-    assert header["alg"] == "RS256"
-    assert header["kid"] == "kid-1"
-
-
-async def test_the_token_is_minted_once_and_reused() -> None:
-    """One token an hour, not one a lead. The quota that matters is per-minute, and a
-    signature plus a round-trip per row would spend it on authentication."""
-    fake = FakeGoogle()
+    source = TokenSource()
     async with fake.client() as client:
-        transport = GoogleSheetsTransport(_credential_json(), client=client)
+        transport = GoogleSheetsTransport(source, client=client)
         for _ in range(3):
             assert (await transport.append(_request())).appended is True
-    assert len(fake.token_requests) == 1
+    assert source.calls == 3
     assert len(fake.appends) == 3
 
 
-async def test_a_refused_token_exchange_is_transient_not_a_verdict() -> None:
+async def test_a_lapsed_connection_is_transient_and_writes_nothing() -> None:
+    """A revoked Google connection and a blip at Google's token endpoint look the same
+    here; transient, so the shared ladder tries twice more and then alerts."""
     fake = FakeGoogle()
-    fake.token_status = 400
-    result = await _append(fake)
+    result = await _append(fake, source=TokenSource(token=None))
     assert result.status is AppendStatus.TRANSPORT_FAILED
     assert result.reason == AUTH_FAILED_REASON
     assert fake.appends == [], "nothing may be written with no token"
-
-
-async def test_a_malformed_key_refuses_permanently_without_calling_google() -> None:
-    async with FakeGoogle().client() as client:
-        transport = GoogleSheetsTransport("{not json", client=client)
-        result = await transport.append(_request())
-    assert result.status is AppendStatus.REJECTED
-    assert result.reason == CREDENTIAL_UNRESOLVABLE_REASON
-
-
-async def test_an_endpoint_naming_an_unknown_credential_is_refused() -> None:
-    """`secret_ref` is written by an operator. A resolver that fell back to the only key
-    it holds would make a typo indistinguishable from a correct configuration."""
-    fake = FakeGoogle()
-    result = await _append(fake, _request(credential_ref="sm://google-sheets/other-tenant"))
-    assert result.status is AppendStatus.REJECTED
-    assert result.reason == CREDENTIAL_REF_UNKNOWN_REASON
-    assert fake.token_requests == []
-
-
-def test_a_credential_reference_cannot_escape_its_namespace() -> None:
-    """The value comes off a database row. The namespace is what stops a row naming key
-    material that has nothing to do with Google Sheets."""
-    assert credential_name(CREDENTIAL_REF) == DEPLOYMENT_CREDENTIAL_NAME
-    assert credential_name("sm://clerk/admin") is None
-    assert credential_name("sm://google-sheets/") is None
-    assert credential_name("sm://google-sheets/a/b") is None
-    assert credential_name(f"x{CREDENTIAL_REF}") is None
-
-
-def test_a_key_without_the_fields_the_flow_needs_is_not_a_key() -> None:
-    assert parse_service_account(_credential_json()) is not None
-    assert parse_service_account(json.dumps({"client_email": "a@b.c"})) is None
-    assert parse_service_account(json.dumps({"private_key": "x"})) is None
-    assert parse_service_account("[]") is None
 
 
 # --------------------------------------------------------------------------------
@@ -374,7 +280,7 @@ async def test_a_sheet_the_client_already_uses_keeps_its_own_first_row() -> None
 async def test_the_header_is_checked_once_per_process_not_once_per_lead() -> None:
     fake = FakeGoogle()
     async with fake.client() as client:
-        transport = GoogleSheetsTransport(_credential_json(), client=client)
+        transport = GoogleSheetsTransport(TokenSource(), client=client)
         for _ in range(3):
             await transport.append(_request())
     assert len(fake.header_writes) == 1
@@ -449,7 +355,7 @@ async def _probe_against_a_warm_sheet(read_status: int) -> tuple[Any, FakeGoogle
     """
     fake = FakeGoogle()
     async with fake.client() as client:
-        transport = GoogleSheetsTransport(_credential_json(), client=client)
+        transport = GoogleSheetsTransport(TokenSource(), client=client)
         await transport.append(_request())
         fake.read_status = read_status
         result = await transport.append(_request(dedupe_probe=True))
@@ -515,7 +421,7 @@ async def test_a_network_failure_is_transient_and_names_only_the_exception_type(
         raise httpx.ConnectError("refused")
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(_boom)) as client:
-        transport = GoogleSheetsTransport(_credential_json(), client=client)
+        transport = GoogleSheetsTransport(TokenSource(), client=client)
         result = await transport.append(_request())
     assert result.status is AppendStatus.TRANSPORT_FAILED
     assert result.reason == "ConnectError", "the type, never the message — it may quote a URL"
@@ -551,7 +457,6 @@ async def test_no_cell_credential_or_token_is_ever_logged(
         SHEET_ID,  # the document id is a capability
         CREDENTIAL_REF,  # so is the credential reference
         "ya29.test-token",  # and so, very much, is the token
-        _PRIVATE_PEM.splitlines()[1],
         service.SHEET_DELIVERY_HEADER,  # a header value is the client's own wording
     ):
         assert forbidden not in rendered, f"{forbidden!r} reached a log line"
@@ -628,7 +533,7 @@ def _install(monkeypatch: pytest.MonkeyPatch, fake: FakeGoogle, client: httpx.As
     monkeypatch.setattr(
         sheets_sync,
         "get_sheets_transport",
-        lambda: GoogleSheetsTransport(_credential_json(), client=client),
+        lambda _source=None: GoogleSheetsTransport(TokenSource(), client=client),
     )
 
 
@@ -685,7 +590,7 @@ async def test_a_sheet_a_client_never_shared_lands_on_their_own_queue(
     items = source_page.items
     assert (len(items), source_page.total) == (1, 1)
     assert "spreadsheet" in items[0].title
-    assert "Share" in items[0].detail and "Editor" in items[0].detail
+    assert "file picker" in items[0].detail
     assert items[0].rule == SHEET_NOT_SHARED_REASON
     assert "2xx" not in items[0].detail, "that is webhook advice; this client has no server"
     assert items[0].href == "/integrations"
@@ -729,6 +634,7 @@ async def test_a_retried_job_probes_the_sheet_before_writing(
         # Attempt 1 reaches Google, then the process dies before the delivery row commits.
         await sheets_sync.append_event(
             endpoint={"url": SHEET_ID, "secret": CREDENTIAL_REF, "mapping": {}},
+            tenant_id=tenant_id,
             event="lead.created",
             data=payload["data"],
             delivery_id=delivery_id,
@@ -804,32 +710,58 @@ async def test_a_neighbour_tenant_sees_no_row_of_this_failure(
 
 
 # --------------------------------------------------------------------------------
-# 9. The deployment gate: a provider with no key is not a transport
+# 9. The deployment gate: no Google app and Picker, no transport
 # --------------------------------------------------------------------------------
 
 
-async def test_the_provider_selects_the_real_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+def _google_app(monkeypatch: pytest.MonkeyPatch, *, configured: bool) -> None:
     settings = get_settings()
-    monkeypatch.setattr(settings, "google_sheets_provider", sheets_sync.SERVICE_ACCOUNT_PROVIDER)
-    monkeypatch.setattr(settings, "google_sheets_service_account_json", _credential_json())
-    assert isinstance(sheets_sync.get_sheets_transport(), GoogleSheetsTransport)
+    monkeypatch.setattr(settings, "app_env", "prod")
+    monkeypatch.setattr(settings, "google_sheets_provider", None)
+    for name, value in (
+        ("google_oauth_client_id", "client-id.apps.googleusercontent.com"),
+        ("google_oauth_client_secret", "test-client-secret"),
+        ("google_oauth_redirect_uri", "https://app.example.test/oauth/callback/google"),
+        ("google_picker_api_key", "test-picker-key"),
+        ("google_cloud_project_number", "123456789012"),
+    ):
+        monkeypatch.setattr(settings, name, value if configured else None)
+
+
+async def test_the_clients_own_account_is_the_real_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _google_app(monkeypatch, configured=True)
+    assert isinstance(sheets_sync.get_sheets_transport(TokenSource()), GoogleSheetsTransport)
     assert sheets_sync.sheets_delivery_available() is True
 
 
-async def test_the_provider_without_a_key_offers_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Naming a provider with no credential behind it must not make the API start
-    offering Google Sheets endpoints. `sheets_delivery_available()` IS that gate, and it
-    is the same selector the worker calls — one answer, so the config screen and the
-    spreadsheet cannot disagree."""
-    settings = get_settings()
-    monkeypatch.setattr(settings, "google_sheets_provider", sheets_sync.SERVICE_ACCOUNT_PROVIDER)
-    monkeypatch.setattr(settings, "google_sheets_service_account_json", None)
-    transport = sheets_sync.get_sheets_transport()
+async def test_without_the_google_app_nothing_is_offered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`sheets_delivery_available()` is the same selector the worker calls, so the config
+    screen and the spreadsheet cannot disagree."""
+    _google_app(monkeypatch, configured=False)
+    transport = sheets_sync.get_sheets_transport(TokenSource())
     assert isinstance(transport, sheets_sync.UnconfiguredSheetsTransport)
     assert sheets_sync.sheets_delivery_available() is False
     result = await transport.append(_request())
     assert result.status is AppendStatus.REJECTED
     assert result.reason == sheets_sync.NO_CREDENTIALS_REASON
+
+
+async def test_an_endpoint_without_a_connection_is_refused_on_its_own_screen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _google_app(monkeypatch, configured=True)
+    result = await sheets_sync.append_event(
+        endpoint={"url": SHEET_ID, "secret": None, "mapping": None},
+        tenant_id=uuid7(),
+        event="lead.created",
+        data={},
+        delivery_id=uuid7(),
+    )
+    assert result.delivered is False
+    assert result.error == sheets_sync.NO_CREDENTIAL_REF_REASON
+    assert result.transient is False
 
 
 def test_every_sheets_refusal_has_a_sentence_for_the_client() -> None:
@@ -842,8 +774,6 @@ def test_every_sheets_refusal_has_a_sentence_for_the_client() -> None:
         sheets_sync.DEV_SINK_OUTSIDE_LOCAL_REASON,
         google_sheets.APPEND_DEADLINE_REASON,
         google_sheets.AUTH_FAILED_REASON,
-        google_sheets.CREDENTIAL_REF_UNKNOWN_REASON,
-        google_sheets.CREDENTIAL_UNRESOLVABLE_REASON,
         google_sheets.PROBE_FAILED_REASON,
         google_sheets.RATE_LIMITED_REASON,
         google_sheets.SHEET_NOT_SHARED_REASON,
@@ -888,7 +818,7 @@ async def test_a_google_that_never_finishes_answering_is_cut_off_not_waited_on(
 
     started = time.monotonic()
     async with httpx.AsyncClient(transport=httpx.MockTransport(never_answers)) as client:
-        result = await GoogleSheetsTransport(_credential_json(), client=client).append(_request())
+        result = await GoogleSheetsTransport(TokenSource(), client=client).append(_request())
     elapsed = time.monotonic() - started
 
     assert elapsed < 5.0, f"the append waited {elapsed:.1f}s on a 0.25s budget"

@@ -217,7 +217,7 @@ export const SIDEBAR_IDENTITY_ROW_CLASS =
  * `pt-1`, not `pt-4`: the gap above the first nav item is set by the brand block's own
  * `pb-3` directly above it. Paying for it twice is what made the header block look empty.
  */
-export const sidebarNavClass = "custom-scrollbar relative flex-1 overflow-y-auto px-3 pt-1 pb-4";
+export const sidebarNavClass = "custom-scrollbar relative flex-1 overflow-y-auto overscroll-contain px-3 pt-1 pb-4";
 
 /**
  * The brand block at the top of both panels — the mark, the two lines of text, the

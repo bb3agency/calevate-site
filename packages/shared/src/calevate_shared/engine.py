@@ -1372,6 +1372,11 @@ LlmTier = Literal["standard", "plus", "pro"]
 #: half — and the same Google key and attested price the default above waits on.
 DOCUMENT_OCR_MODEL: Final[LlmModelName] = "gemini-2.5-flash"
 
+#: The in-app assistant's default models by task (D-694): the fast one answers and looks
+#: things up, the planning one takes multi-step requests. Live settings default to these.
+COPILOT_FAST_MODEL_DEFAULT: Final[GoogleDirectModel] = "gemini-2.5-flash-lite"
+COPILOT_PLANNING_MODEL_DEFAULT: Final[GoogleDirectModel] = "gemini-2.5-flash"
+
 
 @dataclass(frozen=True, slots=True)
 class LlmPrice:
@@ -4169,6 +4174,11 @@ class ProvisionedNumber(BaseModel):
     #: api-reference/phone-numbers/get-phone-number.md:405-418). Excluded from dumps so every
     #: other engine's serialised number is unchanged.
     calling_agent_ref: str | None = Field(default=None, exclude=True)
+    #: The name the engine's own console gives this number (ThinnestAI's `label`, null for a
+    #: brought number in a listing, snapshots/2026-10-08/pages/api-reference/phone-numbers/
+    #: list-phone-numbers.md). Shown to the operator choosing among numbers; excluded from
+    #: dumps like `calling_agent_ref`.
+    label: str | None = Field(default=None, exclude=True)
 
 
 class KBSourceRef(BaseModel):

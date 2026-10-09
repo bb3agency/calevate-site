@@ -80,6 +80,19 @@ class BoundedByConstruction:
 
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
+    # --- D-701 the auto-healer --------------------------------------------------------------
+    "GET /v1/ops/healer": BoundedByConstruction(
+        by="one row per playbook in `healer.playbooks.PLAYBOOKS`, a fixed registry in code."
+    ),
+    "GET /v1/public/status": BoundedByConstruction(
+        by=(
+            "a fixed set of components, and incident history capped by "
+            "`healer.status.HISTORY_LIMIT` in the query's LIMIT."
+        )
+    ),
+    "POST /v1/healer/incidents/{incident_id}/restore": BoundedByConstruction(
+        by="the callers to ring back, capped by `healer.routes.CALL_BACKS_MAX` in the LIMIT."
+    ),
     # --- D-697 the shared free-trial number -------------------------------------------------
     "GET /v1/ops/trial-number": BoundedByConstruction(
         by=(

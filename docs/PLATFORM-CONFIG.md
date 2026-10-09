@@ -195,6 +195,12 @@ recorded against no client (OPERATIONS §2 gate T-22; unset, the client's Trial 
 test calls are not available yet); `trial_daily_call_cap` (default 10) is how many test calls
 one trial account may place per IST day; `trial_call_max_seconds` (default 180, 60..1200) is
 the per-call `maxCallSeconds` each test call carries (THINNEST-INTEGRATION §3c).
+D-703 adds, all live: `self_serve_trial_days` (default 7) and `self_serve_trial_free_minutes`
+(default 15), the trial a business gets the moment it signs itself up; under Integrations,
+Google, `google_signin_redirect_uri` (`https://app.calevate.tech/auth/google/callback`,
+OPERATIONS gate G-1), `google_cloud_project_number` and the secret `google_picker_api_key`
+(gate G-2). `google_sheets_service_account_json` is deleted: Sheets now writes with each
+client's own Google account.
 `ENGINE_INTAKE_KEK` is env-only, in `ENV_ONLY_REASONS`. No BYOK provider key is stored
 under a ThinnestAI setting: full (`scope: all`) BYOK is not on sale (D-681), and the Studio
 rung's voice-only BYOK sends our Cartesia key to ThinnestAI's developer workspace, which the
@@ -435,6 +441,36 @@ spend-cap recompute and audit-chain verify:
    with no entry. A closed setting's `options` are exactly the values its validator
    accepts, and a language-model option carries its offer state from
    `agents/llm_models.unofferable_reason`.
+
+   **Each setting is edited with a control derived from its field (D-704).** Every field
+   carries a `control` (`apps/api/ops/config_controls.py`): `kind` (switch, segmented,
+   select, multi_select, entity_picker, number, money_inr, duration, percent, phone_in,
+   phone, url, email, text), bounds as decimal strings, `step`, `unit`, the field's own
+   `pattern` and lengths, a `placeholder` and `help` line, the `source` of an entity
+   picker, and `risk` (`high` / `standard`) with its reason. Options carry a human `label`
+   and `hint`. Only what the annotation cannot say lives in
+   `config_catalog.CONTROL_HINTS` and `HIGH_RISK`; a plain string becomes a text box only
+   when `config_controls.FREE_TEXT` gives the reason, and
+   `tests/ops_config_controls_test.py` fails on any setting that would otherwise fall
+   through. The control guides input; the PUT still validates against the `Settings`
+   field and nothing else.
+
+   Entity pickers read their choices live and never fall back to a text box when the read
+   fails: the shared trial number (`GET /v1/ops/trial-number`, ThinnestAI's numbers in
+   our developer workspace minus those recorded to clients, with each number's label and
+   the agent that answers it), our developer workspace (`GET
+   /v1/ops/config-sources/thinnest-workspace`, ThinnestAI's `GET /workspace`), the
+   clients in the shadow comparison (`GET /v1/admin/tenants`) and the pausable healer
+   playbooks.
+
+   The change drawer shows the value in force, the typed control, inline checks from the
+   control and the server's own field errors, a before → after preview, when the change
+   applies, and the reason (presets plus free text; it is the audit entry). A `high` risk
+   setting asks for the new value to be typed back; any other is saved with one press
+   after the preview. Both send the same `X-Confirm-Action` and `If-Match`. The row shows
+   the label, a one-line description, the value in human form, "Default" / "Changed by
+   <name> on <date>" / "Locked by the server", and when a change applies; the key, the
+   environment variable and the raw value are under "Technical details".
 3. **Secrets** — key, last-4, version, who, when. Set (write-only), test, rotate.
 4. **Key management** — KEK version, how many DEKs are wrapped under each, and the rewrap
    action with its progress.

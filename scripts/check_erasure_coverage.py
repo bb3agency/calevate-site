@@ -282,12 +282,6 @@ ERASURE_EXEMPT: dict[str, str] = {
         "`agent_handoff_members`, which copies from it: a member of the client's staff, not "
         "a caller, whose number ends with the ENGAGEMENT."
     ),
-    "heal_fallback_phones": (
-        "The phone the client's own team answers while their agent is held by the healer "
-        "(D-701), set by the account owner: the same data principal and position as "
-        "`business_contacts`, a member of the client's staff rather than a caller, whose "
-        "number ends with the ENGAGEMENT."
-    ),
     "admin_copilot_conversation_turns": (
         "What a CALEVATE OPERATOR typed to the admin console assistant, redacted on write. "
         "It is platform-scoped (no tenant_id, RLS-exempt for that reason) and holds our "
@@ -435,6 +429,12 @@ ERASURE_EXEMPT: dict[str, str] = {
 #: reaches fails, and so does one that duplicates `ERASURE_EXEMPT`.
 ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
     "execute_deletion_request": {
+        "heal_fallback_phones": (
+            "The phone the client's own team answers while the healer holds their agent "
+            "(D-701), set by the account owner: a member of the client's staff, not a "
+            "caller. A caller's deletion request has nothing to erase here; the number "
+            "ends with the engagement, which `execute_tenant_erasure` covers."
+        ),
         "copilot_memories": (
             "THE TABLE THAT EXPOSED THE UNION BUG, so its reason is written out. A "
             "copilot memory is a distilled note about the client's own BUSINESS, written "

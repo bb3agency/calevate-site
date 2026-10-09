@@ -342,10 +342,16 @@ export const PRIVACY_POLICY: LegalDocument = {
                   term: "Identity and sign-in",
                   detail:
                     "Your name, work email address and (if you give one) your phone " +
-                    "number, together with your role in the account. Sign-in is ours " +
-                    "end to end — there is no third-party sign-in provider, so your " +
-                    "account identity is not shared with one. We store your password " +
-                    "only as an Argon2id hash and never in a form anyone here can read.",
+                    "number, together with your role in the account. Your Calevate session " +
+                    "is ours end to end. If you choose \"Continue with Google\", Google " +
+                    "tells us your name, email address, whether Google has verified that " +
+                    "address, and a fixed identifier for your Google account, which we keep " +
+                    "to recognise you next time; Google learns that you signed in to " +
+                    "Calevate, under Google's own privacy policy. We receive no Google " +
+                    "password and no access to anything else in your Google account unless " +
+                    "you separately connect Google Calendar or Google Sheets. If you choose " +
+                    "a password instead, we store it only as an Argon2id hash and never in " +
+                    "a form anyone here can read.",
                 },
                 {
                   term: "Your business's own details",

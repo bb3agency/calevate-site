@@ -57,9 +57,9 @@ from apps.workers.sheets_sync import (
 from arq import Retry
 from sqlalchemy import text
 
-# A secrets-manager REFERENCE, which is all `secret_ref` may ever hold (DATA-MODEL §6).
-# It is not a credential and cannot be turned into one — that is the point of the column.
-CREDENTIAL_REF = "sm://calevate/local/tenants/test/google-service-account"
+# The id of the client's own Google connection, which is all `secret_ref` holds for a sheet
+# (D-703). It is not a credential: the token is unsealed from that connection at send time.
+CREDENTIAL_REF = "0199a0b0-0000-7000-8000-0000000005e7"
 
 # A real-shaped Google spreadsheet id (44 url-safe chars). Names a document nobody owns.
 SHEET_ID = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
@@ -145,7 +145,7 @@ class _Recorder:
 
 def _use(monkeypatch: pytest.MonkeyPatch, transport: _Recorder | None = None) -> _Recorder:
     sink = transport or _Recorder()
-    monkeypatch.setattr(sheets_sync, "get_sheets_transport", lambda: sink)
+    monkeypatch.setattr(sheets_sync, "get_sheets_transport", lambda *_: sink)
     return sink
 
 

@@ -227,7 +227,7 @@ async function ready(): Promise<void> {
 /** The drop zone's real control — found the way assistive technology finds it. */
 function filePicker(): HTMLInputElement {
   return screen.getByLabelText(
-    /choose a file, or drag one here/i,
+    /your document or photo/i,
   ) as HTMLInputElement;
 }
 

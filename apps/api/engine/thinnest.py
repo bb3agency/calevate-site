@@ -1640,6 +1640,7 @@ class ThinnestEngine:
                     provider=_str(row.get("provider")),
                     engine_number_ref=scoped_handle(raw, workspace),
                     engine_owned=row.get("source") == "rented",
+                    label=_str(row.get("label")),
                     answering_agent_ref=_scoped(_str(row.get("agent")), workspace),
                     calling_agent_ref=_scoped(_str(row.get("callingAgent")), workspace),
                 )

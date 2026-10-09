@@ -57,6 +57,9 @@ INTEGRATION_KINDS = (
     "razorpay",
     "zoho_crm",
     "hubspot",
+    # D-703: the client's own Google connection for Sheets, scope `drive.file`: it reaches
+    # only the spreadsheets they pick in Google's Picker.
+    "google_sheets",
 )
 
 # The three top-level action types the founder's spec names. The WhatsApp BSP variant and

@@ -10,7 +10,6 @@ import { ModelPricingPanel } from "@/app/admin/ops/ModelPricingPanel";
 import { NumberPricePanel } from "@/app/admin/ops/NumberPricePanel";
 import { RateCardPanel } from "@/app/admin/ops/RateCardPanel";
 import { TtsPlanFeePanel } from "@/app/admin/ops/TtsPlanFeePanel";
-import { TrialNumberPanel } from "@/app/admin/ops/TrialNumberPanel";
 import { WithheldPanel } from "@/app/admin/withheld";
 import { MonoValue } from "@/app/admin/ops/opsLanguage";
 import { NoticeBox } from "@/components/ui";
@@ -40,8 +39,6 @@ const PANELS: Record<string, (access: Access, config: ConfigList) => ReactNode> 
   // A model becomes available on a confirmed price, so prices sit with the models.
   model_pricing: (access) => <ModelPricingPanel access={access} />,
   dashboard_data_use: (access) => <DashboardDataUsePanel access={access} />,
-  // The shared free-trial number: only platform-held numbers no client has recorded.
-  trial_number: (access) => <TrialNumberPanel access={access} />,
   server_only_keys: (_access, config) => <EnvOnlyKeys keys={config.bootstrap} />,
 };
 

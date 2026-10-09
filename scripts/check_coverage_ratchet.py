@@ -407,6 +407,10 @@ AREAS: tuple[Area, ...] = (
             # and the settling arm is reached only when a caller has been suppressed since
             # the promise was made, which is the branch nobody exercises by accident.
             "apps/workers/callbacks.py",
+            # D-694/D-697: the single-lead dial moved into a function the button and the
+            # assistant share, and the free trial's test call reaches the same chokepoint.
+            "apps/api/crm/lead_dial.py",
+            "apps/api/agents/trial_calls.py",
         ),
         why=(
             "the chokepoint `dispatch_call` and every surface that reaches it — the three "
@@ -1015,6 +1019,13 @@ def _ledger_model_files() -> dict[str, str]:
 #: direction — hard rule 7 is where sloppiness gets expensive.
 _NON_MONEY_NUMERIC_SUFFIXES: Final = ("_ms", "_seconds", "_s", "_bytes", "_pct", "_ratio")
 
+#: Whole column names, per module, that are NUMERIC and not money but carry no suffix that
+#: says so. Keyed by file so the same name elsewhere still counts as money.
+_NON_MONEY_NUMERIC_COLUMNS: Final[dict[str, frozenset[str]]] = {
+    # An agent's 0-100 health score and its rolling baseline (D-701).
+    "apps/api/healer/models.py": frozenset({"score", "baseline"}),
+}
+
 _NUMERIC_COLUMN = re.compile(r"^\s*(\w+)\s*:\s*Mapped\[[^\]]*\]\s*=\s*mapped_column\(\s*$")
 
 
@@ -1055,6 +1066,7 @@ def _money_files() -> dict[str, str]:
             if "Numeric(" not in source:
                 continue
             names = _numeric_column_names(source)
+            named = _NON_MONEY_NUMERIC_COLUMNS.get(_rel(path), frozenset())
             # ONE CONDITION, AND THE ORDER OF ITS CLAUSES IS THE FAIL-SAFE. A file is
             # exempt only when it HAS numeric columns, every one of them was
             # attributable to a name, and every one of those names carries a
@@ -1065,7 +1077,9 @@ def _money_files() -> dict[str, str]:
             if (
                 names
                 and all(name for name in names)
-                and all(name.endswith(_NON_MONEY_NUMERIC_SUFFIXES) for name in names)
+                and all(
+                    name.endswith(_NON_MONEY_NUMERIC_SUFFIXES) or name in named for name in names
+                )
             ):
                 continue
             found[_rel(path)] = "declares NUMERIC money columns (hard rule 7)"

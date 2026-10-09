@@ -3,6 +3,7 @@
 import { useId, useMemo, useState, type DragEvent } from "react";
 import { ClipboardPaste, Download, FileUp, Plus, Search, Trash2, X } from "lucide-react";
 
+import { FileDrop } from "@/components/fileDrop";
 import { Pagination } from "@/components/interior/pagination";
 import {
   FIELD,
@@ -26,6 +27,8 @@ import {
 } from "./contactList";
 
 const PAGE = 50;
+/** What the reader below parses: delimited text, never a spreadsheet binary. */
+const CSV_ACCEPT = ".csv,.tsv,.txt,text/csv";
 type Panel = "none" | "paste" | "add";
 
 /**
@@ -127,7 +130,7 @@ export function ContactEditor({
         >
           <input
             type="file"
-            accept=".csv,.tsv,.txt,text/csv"
+            accept={CSV_ACCEPT}
             className="sr-only"
             aria-label="Import a CSV file"
             onChange={(e) => {
@@ -239,19 +242,17 @@ export function ContactEditor({
       )}
 
       {entries.length === 0 ? (
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={onDrop}
-          className={`rounded-card border border-dashed px-4 py-8 text-center text-sm transition-colors duration-(--duration-fast) ${
-            dragging ? "border-brand bg-brand-soft text-ink" : "border-line text-ink-muted"
-          }`}
-        >
-          Drop a CSV file here, or use Import CSV. A column called phone is all it needs.
-        </div>
+        <FileDrop
+          label="Your contacts file"
+          hint="A CSV with a column called phone is all it needs. Up to 4 MB."
+          accept={CSV_ACCEPT}
+          validate={(file) =>
+            file.size > MAX_FILE_BYTES
+              ? "That file is larger than 4 MB. Split it, and add the rest from the campaign afterwards."
+              : null
+          }
+          onFiles={([file]) => void readFile(file)}
+        />
       ) : (
         <div
           onDragOver={(e) => {

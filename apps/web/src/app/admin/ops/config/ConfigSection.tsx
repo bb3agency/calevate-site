@@ -5,7 +5,7 @@ import { SettingRows } from "@/components/console/settingRow";
 import type { ConfigField, ConfigList, ConfigSection } from "@/lib/api/opsConfig";
 
 import { ConfigRow } from "./ConfigRow";
-import { display } from "./configField";
+import { displayValue } from "./configControl";
 import { ConfigPanel } from "./configPanels";
 import { fieldsIn, groupFields, type FieldGroup } from "./configSections";
 
@@ -48,7 +48,7 @@ export function ConfigSectionBody({
           subtitle={
             <>
               {unused.length === 1 ? "1 setting" : `${unused.length} settings`} only another
-              engine reads. The engine in force is {engine ? display(engine.value) : "unknown"}.
+              engine reads. The engine in force is {engine ? displayValue(engine, engine.value) : "unknown"}.
             </>
           }
         >

@@ -1,15 +1,13 @@
 """Google Sheets actions: write the call into the client's sheet, or answer from it (D-700).
 
-THE SAME IDENTITY AS THE LEAD-DELIVERY SHEETS (D-23), deliberately. The client shares their
-spreadsheet with our service account's address (Share → paste → Editor) and the agent reads
-and writes that one document; we hold no per-client Google token for it. The brief asked for
-OAuth here, and `apps/workers/google_sheets.py` records why D-23 chose the share instead:
-`spreadsheets` is a SENSITIVE scope that authorises a person's whole Drive, while a share
-grants exactly one document and is revoked in the Sheets UI the client already knows. The
-narrow OAuth alternative, `drive.file`, reaches an existing sheet only when the client picks
-it through Google's Picker (developers.google.com/workspace/drive/api/guides/
-api-specific-auth, read 9 Oct 2026). One way to reach a client's sheet, not two; D-700 records
-the choice for the founder to overturn.
+THE CLIENT'S OWN GOOGLE ACCOUNT, scope `drive.file` (D-703, founder 9 Oct 2026, replacing
+D-700's shared service account). The owner connects Google Sheets on the same Google account
+they sign in with and picks each spreadsheet in Google's Picker; `drive.file` then reaches
+exactly those files and nothing else in their Drive, and it is a NON-SENSITIVE scope
+(developers.google.com/workspace/drive/api/guides/api-specific-auth, read 10 Oct 2026). The
+full `spreadsheets` scope is never asked for: it is sensitive and reaches every sheet the
+person owns. The access token comes from the action's `google_sheets` connection
+(`execution.access_token_for`).
 
 VERIFIED-VENDOR-DOCS, read 9 Oct 2026 (developers.google.com/workspace/sheets/api/reference/
 rest/v4/spreadsheets.values/…):
@@ -30,13 +28,11 @@ from __future__ import annotations
 from typing import Final
 from urllib.parse import quote
 
-import httpx
-
+from apps.api.actions import oauth
 from apps.api.actions.schema import PreparedRequest
 from apps.api.core.settings import get_settings
-from apps.workers.google_oauth import ServiceAccount, access_token, parse_service_account
-from apps.workers.google_sheets import SCOPE, SHEETS_BASE, a1_sheet, column_letter
-from apps.workers.sheets_sync import SERVICE_ACCOUNT_PROVIDER, VALUE_INPUT_OPTION
+from apps.workers.google_sheets import SHEETS_BASE, a1_sheet, column_letter
+from apps.workers.sheets_sync import VALUE_INPUT_OPTION
 
 #: The column of OUR call reference, the key a second write on the same call updates by.
 CALL_COLUMN_HEADER: Final = "Calevate call"
@@ -46,26 +42,15 @@ CALL_COLUMN_HEADER: Final = "Calevate call"
 LOOKUP_MAX_ROWS: Final = 5000
 
 
-def service_account() -> ServiceAccount | None:
-    """The deployment's Google identity, or None when sheets are not configured."""
+def picker_configured() -> bool:
+    """Whether a client can connect Google Sheets here: the OAuth app, plus the browser key
+    and project number Google's Picker needs to show their files."""
     settings = get_settings()
-    if (settings.google_sheets_provider or "").strip().lower() != SERVICE_ACCOUNT_PROVIDER:
-        return None
-    raw = (settings.google_sheets_service_account_json or "").strip()
-    return parse_service_account(raw) if raw else None
-
-
-def robot_email() -> str | None:
-    """The address a client shares their sheet with."""
-    account = service_account()
-    return account.client_email if account is not None else None
-
-
-async def bearer(http: httpx.AsyncClient) -> str | None:
-    account = service_account()
-    if account is None:
-        return None
-    return await access_token(http, account, scope=SCOPE)
+    return bool(
+        oauth.configured("google_sheets")
+        and settings.google_picker_api_key
+        and settings.google_cloud_project_number
+    )
 
 
 def _url(spreadsheet_id: str, a1: str, suffix: str = "") -> str:
@@ -149,14 +134,12 @@ __all__ = [
     "LOOKUP_MAX_ROWS",
     "a1_sheet",
     "append_row",
-    "bearer",
     "cell",
     "column_letter",
     "digits_tail",
     "find_row",
+    "picker_configured",
     "read_range",
-    "robot_email",
     "rows_of",
-    "service_account",
     "write_cells",
 ]

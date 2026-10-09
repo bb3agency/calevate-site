@@ -637,9 +637,16 @@ _USAGE_SQL = (
 
 
 async def read_ai_quota(
-    session: AsyncSession, *, tenant_id: UUID, month: str | None = None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    month: str | None = None,
+    include_free: bool = False,
 ) -> AiQuota:
     """This tenant's dashboard-AI month, from the two ledgers that hold it.
+
+    `include_free` counts the free assistant's rows too. The client's allowance never does;
+    the admin money board does, because those rupees are still ours to absorb.
 
     `tenant_id` is in the predicate as well as in RLS for the reason `usage_summary`
     gives: the answer should depend on the argument rather than on which session it was
@@ -659,7 +666,7 @@ async def read_ai_quota(
                 "tid": tenant_id,
                 "units": list(AI_ASSIST_UNIT_TYPES),
                 "kb_features": list(KB_INGESTION_FEATURES),
-                "free_features": list(FREE_ASSIST_FEATURES),
+                "free_features": [] if include_free else list(FREE_ASSIST_FEATURES),
                 **_month_bounds(period),
             },
         )

@@ -135,6 +135,7 @@ async def _deliver_to_endpoint(
         # here and not into `service.deliver`.
         return await sheets_sync.append_event(
             endpoint=endpoint,
+            tenant_id=tenant_id,
             event=event,
             data=data,
             delivery_id=delivery_id,

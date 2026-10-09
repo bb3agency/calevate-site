@@ -265,8 +265,18 @@ class TestWiring:
         (the worker's Bearer token, tenant parsed from the ref). Neither takes a tenant id
         or a phone number: the caller's number is the platform's or our record of the call,
         and only an action live on that agent in our database runs, under the tenant's RLS.
-        Both end in the one executor (`actions/in_call.run_in_call_action`)."""
-        assert len(exempt) <= 52, sorted(exempt)
+        Both end in the one executor (`actions/in_call.run_in_call_action`).
+
+        RAISED 52 -> 58. One is `GET /v1/public/status` (D-701), the public status page: a
+        credential-less read, like the rate card, of incidents an operator chose to publish,
+        with nothing about any one client in it. The other five are D-703's self-serve
+        client account and Google sign-in (`/v1/auth/client/sign-in-options`,
+        `signup/start`, `signup/complete`, `google/start`, `google/complete`), which are how
+        a person becomes authenticated and so cannot require it. They are client realm only
+        by decision (operators stay on email and a second factor), so they do not pair.
+        Each is behind the same-origin check and its own throttle; the two Google halves are
+        bound by a `__Host-` cookie, PKCE and a signed state."""
+        assert len(exempt) <= 58, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

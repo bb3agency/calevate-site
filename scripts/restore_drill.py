@@ -906,6 +906,8 @@ class RestoreDrill:
                 "'meter_carrier_cdr_missing', "
                 "'the drill seeds no CDR, which is the production shape today', "
                 "'attach the carrier CDR and re-settle')",
+                "INSERT INTO heal_actions (id, playbook, step, outcome, tenant_id, agent_id) "
+                f"VALUES ('{_uuid7()}', 'drill_playbook', 'act', 'ok', '{tenant}', '{agent}')",
                 "INSERT INTO consent_ledger (id, tenant_id, phone_e164, purpose, status) "
                 f"VALUES ('{_uuid7()}', '{tenant}', '+9{prefix}000000', 'recording', 'granted')",
                 "INSERT INTO credit_ledger (id, tenant_id, delta, reason, balance_after) "

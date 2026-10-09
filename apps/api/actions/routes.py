@@ -39,7 +39,8 @@ from apps.api.actions.calendar import (
     calendar_unavailable,
 )
 from apps.api.actions.crm import zoho_api_domain
-from apps.api.actions.execution import CallFacts, execute_action
+from apps.api.actions.execution import CallFacts, access_token_for, execute_action
+from apps.api.authn.subjects import load_subject
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
@@ -47,6 +48,7 @@ from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
+from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.integrations.egress_guard import egress_client
 from apps.api.reliability.engine_actions import sync_client_actions_now
@@ -361,14 +363,14 @@ class OAuthCallbackIn(Strict):
     accounts_server: str | None = Field(default=None, max_length=256)
 
 
-OAuthKindPath = Literal["google_calendar", "zoho_crm", "hubspot"]
+OAuthKindPath = Literal["google_calendar", "google_sheets", "zoho_crm", "hubspot"]
 
 
 @router.get(
     "/integrations/oauth/{kind}/connect",
     response_model=ConnectOut,
     openapi_extra=permission_meta("org:manage"),
-    summary="Begin connecting Google Calendar, Zoho CRM or HubSpot — returns the consent URL",
+    summary="Begin connecting a Google, Zoho CRM or HubSpot account — returns the consent URL",
 )
 async def oauth_connect(
     kind: OAuthKindPath, principal: Principal = Depends(requires("org:manage"))
@@ -377,7 +379,12 @@ async def oauth_connect(
     assert principal.user_id is not None
     oauth.require_configured(kind)
     state = oauth.mint_state(kind, tenant_id=tenant_id, user_id=principal.user_id)
-    return ConnectOut(authorize_url=oauth.authorize_url(kind, state=state))
+    hint = None
+    if kind in oauth.GOOGLE_KINDS:
+        # The owner's own sign-in address, so Google offers the account they use with us.
+        subject = await load_subject("client", principal.user_id)
+        hint = subject.email if subject is not None else None
+    return ConnectOut(authorize_url=oauth.authorize_url(kind, state=state, login_hint=hint))
 
 
 async def complete_oauth(
@@ -424,6 +431,14 @@ async def complete_oauth(
                 detail=f"The {label} authorization could not be completed.",
                 remediation="Try connecting again.",
             )
+        if kind == "google_sheets":
+            raise ProblemError(
+                kind="dependency",
+                code="sheets_oauth_failed",
+                title=f"{label} did not accept the connection",
+                detail=f"The {label} authorization could not be completed.",
+                remediation="Try connecting again.",
+            )
         # The CRMs refuse a code for ordinary reasons (it expired, it was used twice); a
         # refusal the client retries, not a page.
         raise ProblemError(
@@ -438,7 +453,10 @@ async def complete_oauth(
     if not refresh_token:
         raise ProblemError(
             kind="business_rule",
-            code=f"{'calendar' if kind == 'google_calendar' else kind}_no_refresh_token",
+            code={
+                "google_calendar": "calendar_no_refresh_token",
+                "google_sheets": "sheets_no_refresh_token",
+            }.get(kind, f"{kind}_no_refresh_token"),
             title=f"{label} returned no long-lived connection",
             detail="The connection did not include a refresh token.",
             remediation=(
@@ -500,10 +518,10 @@ class ConnectionsStatusOut(Strict):
     """Which connections this deployment can offer, for the Connections screen."""
 
     google_calendar: bool
+    #: Connecting Google Sheets needs the OAuth app AND the Picker's key and project number.
+    google_sheets: bool
     zoho_crm: bool
     hubspot: bool
-    #: The address a client shares their Google Sheet with; None when sheets are off.
-    sheets_share_with: str | None
 
 
 @router.get(
@@ -517,7 +535,64 @@ async def connections_status(_: Principal = Depends(requires("org:read"))) -> Co
         google_calendar=oauth.configured("google_calendar"),
         zoho_crm=oauth.configured("zoho_crm"),
         hubspot=oauth.configured("hubspot"),
-        sheets_share_with=gsheets.robot_email(),
+        google_sheets=gsheets.picker_configured(),
+    )
+
+
+class SheetsPickerOut(Strict):
+    """What Google's Picker needs in the browser to show this owner their spreadsheets.
+
+    The access token is short-lived and carries only `drive.file`, which is what the
+    Picker uses to share the picked file with Calevate; it is minted from the account's
+    own connection and shown only to the owner who connected it.
+    """
+
+    developer_key: str
+    app_id: str
+    access_token: str
+
+
+@router.post(
+    "/integrations/google-sheets/{credential_id}/picker",
+    response_model=SheetsPickerOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Open Google's file picker on the connected Google account",
+)
+async def sheets_picker(
+    credential_id: UUID,
+    session: Session,
+    principal: Principal = Depends(requires("org:manage")),
+) -> SheetsPickerOut:
+    tenant_id = _owner_only(principal)
+    settings = get_settings()
+    # Ownership before configuration, so a neighbour's id is a 404 on every deployment.
+    kind = await creds.credential_kind(session, credential_id=credential_id)
+    if kind != "google_sheets":
+        raise ProblemError.not_found("Connect Google Sheets first.")
+    if not gsheets.picker_configured():
+        raise oauth.unavailable("google_sheets")
+    try:
+        resolved = await creds.resolve_credential(
+            session, tenant_id=tenant_id, credential_id=credential_id
+        )
+    except creds.CredentialUnusableError:
+        resolved = None
+    token = None
+    if resolved is not None:
+        async with egress_client(timeout=10.0) as http:
+            token = await access_token_for(resolved, credential_id=credential_id, client=http)
+    if token is None:
+        raise ProblemError(
+            kind="business_rule",
+            code="sheets_connection_lapsed",
+            title="Google Sheets needs reconnecting",
+            detail="Your Google account no longer lets Calevate open its file picker.",
+            remediation="Disconnect Google Sheets and connect it again.",
+        )
+    return SheetsPickerOut(
+        developer_key=settings.google_picker_api_key or "",
+        app_id=settings.google_cloud_project_number or "",
+        access_token=token,
     )
 
 

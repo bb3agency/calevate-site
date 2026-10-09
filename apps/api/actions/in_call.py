@@ -101,7 +101,7 @@ _OK_SAY: Final[dict[str, str]] = {
         "say the amount in 'amount_inr' in rupees. Never read the link aloud."
     ),
     "booked": (
-        "The appointment is booked. Read the time in 'say' back to the caller exactly as "
+        "The booking is made. Read the time in 'say' back to the caller exactly as "
         "written, and confirm it."
     ),
     "checked": (

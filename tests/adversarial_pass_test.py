@@ -326,6 +326,71 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             {"i": action_id, "t": tenant_id, "u": user_id, "j": job_id},
         )
         ids["action_id"] = str(action_id)
+
+        # The business certificate on file. Its download hands back DECRYPTED bytes, so the
+        # row has to be invisible to a neighbour before the object is ever read.
+        document_id = uuid.uuid4()
+        await s.execute(
+            text(
+                "INSERT INTO kyc_documents (id, tenant_id, slot, kind, object_key, filename, "
+                "content_type, size_bytes, sha256, uploaded_by_user_id, payload_nonce, "
+                "dek_wrapped, dek_nonce, kek_version, created_at, updated_at) VALUES (:i, :t, "
+                "'business', 'gst', :key, 'gst.pdf', 'application/pdf', 10, :sha, :u, "
+                "'\\x00'::bytea, '\\x00'::bytea, '\\x00'::bytea, 1, now(), now())"
+            ),
+            {
+                "i": document_id,
+                "t": tenant_id,
+                "key": f"kyc-documents/{tenant_id}/{document_id}.pdf",
+                "sha": "0" * 64,
+                "u": user_id,
+            },
+        )
+        ids["document_id"] = str(document_id)
+
+        # A scheduled assistant routine (D-694): editing, running or deleting a neighbour's
+        # would act on their account on a schedule they never set.
+        routine_id = uuid.uuid4()
+        await s.execute(
+            text(
+                "INSERT INTO copilot_routines (id, tenant_id, user_id, name, instruction, days, "
+                "at_minute, enabled, next_run_at, created_at, updated_at) VALUES (:i, :t, :u, "
+                "'Adversarial routine', 'tidy leads', 127, 540, false, NULL, now(), now())"
+            ),
+            {"i": routine_id, "t": tenant_id, "u": user_id},
+        )
+        ids["routine_id"] = str(routine_id)
+
+        # The healer's client-facing incident and a suggested change (D-701). Restoring a
+        # neighbour's line or applying their proposal would change how their calls are
+        # answered. The platform incident row they hang off carries no tenant policy.
+        heal_id = uuid.uuid4()
+        await s.execute(
+            text(
+                "INSERT INTO heal_incidents (id, dedupe_key, playbook, trigger_code, scope, "
+                "tenant_id, agent_id) VALUES (:i, :k, 'agent_line', 'agent_line_broken', "
+                "'agent', :t, :a)"
+            ),
+            {"i": heal_id, "k": f"adversarial:{heal_id}", "t": tenant_id, "a": agent_id},
+        )
+        incident_id = uuid.uuid4()
+        await s.execute(
+            text(
+                "INSERT INTO heal_client_incidents (id, tenant_id, incident_id, agent_id, kind) "
+                "VALUES (:i, :t, :h, :a, 'line_protected')"
+            ),
+            {"i": incident_id, "t": tenant_id, "h": heal_id, "a": agent_id},
+        )
+        ids["incident_id"] = str(incident_id)
+        proposal_id = uuid.uuid4()
+        await s.execute(
+            text(
+                "INSERT INTO heal_proposals (id, tenant_id, agent_id, incident_id, kind) "
+                "VALUES (:i, :t, :a, :h, 'review_knowledge')"
+            ),
+            {"i": proposal_id, "t": tenant_id, "a": agent_id, "h": heal_id},
+        )
+        ids["proposal_id"] = str(proposal_id)
     return ids
 
 
@@ -548,6 +613,20 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/copilot/jobs/{job_id}", {}, {}),
     ("POST", "/v1/copilot/jobs/{job_id}/cancel", {}, {}),
     ("GET", "/v1/copilot/jobs/{job_id}/events", {}, {}),
+    ("GET", "/v1/copilot/approvals/{action_id}/preview", {}, {}),
+    ("PATCH", "/v1/copilot/routines/{routine_id}", {"enabled": False}, {}),
+    ("DELETE", "/v1/copilot/routines/{routine_id}", {}, {}),
+    ("POST", "/v1/copilot/routines/{routine_id}/run", {}, {}),
+    ("GET", "/v1/copilot/routines/{routine_id}/runs", {}, {}),
+    # D-703: the picker hands back an access token to the connected Google account.
+    ("POST", "/v1/integrations/google-sheets/{credential_id}/picker", {}, {}),
+    # D-701: the healer's client controls.
+    ("POST", "/v1/healer/incidents/{incident_id}/restore", {}, {}),
+    ("POST", "/v1/healer/proposals/{proposal_id}/apply", {}, {}),
+    ("POST", "/v1/healer/proposals/{proposal_id}/dismiss", {}, {}),
+    # The client's own business certificate, decrypted. RLS on `kyc_documents` must leave
+    # a neighbour zero rows before the object store is touched.
+    ("GET", "/v1/compliance/kyc/documents/{document_id}", {}, {}),
 )
 
 

@@ -32,7 +32,17 @@ export type CredentialTest = Schemas["CredentialTestOut"];
 export type ActionRun = Schemas["InvocationOut"];
 
 /** The accounts a client connects by signing in to them, not by pasting a key. */
-export type OAuthKind = "google_calendar" | "zoho_crm" | "hubspot";
+export type OAuthKind = "google_calendar" | "google_sheets" | "zoho_crm" | "hubspot";
+export type SheetsPicker = Schemas["SheetsPickerOut"];
+
+/** A short-lived token and key for Google's file picker on the owner's own connection. */
+export function openSheetsPicker(session: Session, credentialId: string): Promise<SheetsPicker> {
+  return apiRequest<SheetsPicker>(
+    session,
+    `/v1/integrations/google-sheets/${encodeURIComponent(credentialId)}/picker`,
+    { method: "POST" },
+  );
+}
 
 export const actionKeys = {
   agent: (org: string, agentId: string) => ["actions", org, agentId] as const,
@@ -267,6 +277,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
   custom: "Other (your own API)",
   google: "Google Calendar",
   google_calendar: "Google Calendar",
+  google_sheets: "Google Sheets",
   zoho: "Zoho CRM",
   zoho_crm: "Zoho CRM",
   hubspot: "HubSpot",
@@ -294,7 +305,7 @@ export const RUN_STATUS_LABELS: Record<string, string> = {
   blocked: "Number may not be contacted",
   slot_taken: "Slot already taken",
   timeout: "Took too long",
-  sheet_not_shared: "Sheet not shared with us",
+  sheet_not_shared: "Sheet not chosen for Calevate",
   trial_payment_links: "Not on a free trial",
   amount_outside_rules: "Amount outside your limits",
 };

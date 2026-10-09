@@ -222,7 +222,7 @@ export function CopilotDock({
         className={`${
           placement === "header"
             ? "flex h-9 w-9 items-center justify-center rounded-md touch:h-11 touch:w-11"
-            : "fixed bottom-4 right-4 z-[70] flex h-11 w-11 items-center justify-center rounded-full border border-line shadow-raised"
+            : "fixed bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] right-4 z-[70] flex h-11 w-11 items-center justify-center rounded-full border border-line shadow-raised"
         } text-white press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${
           realm === "admin"
             ? "bg-slate-900 hover:bg-slate-700 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-slate-400"

@@ -49,7 +49,7 @@ from apps.api.compliance.kyc_documents import (
     open_document,
 )
 from apps.api.compliance.kyc_review import decide_kyc_review, review_audit_summary
-from apps.api.compliance.kyc_routes import KycDocumentOut, documents_out
+from apps.api.compliance.kyc_routes import DOCUMENT_SUFFIX, KycDocumentOut, documents_out
 from apps.api.compliance.outbound_pledge import PLEDGE_VERSION, read_pledge
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
@@ -299,14 +299,11 @@ async def download_kyc_document(
         media_type=row.content_type,
         headers={
             "Content-Disposition": f'attachment; filename="kyc-{row.slot}-{row.id}.'
-            f'{_SUFFIX.get(row.content_type, "bin")}"',
+            f'{DOCUMENT_SUFFIX.get(row.content_type, "bin")}"',
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
         },
     )
-
-
-_SUFFIX = {"application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png"}
 
 
 class KycReviewIn(BaseModel):

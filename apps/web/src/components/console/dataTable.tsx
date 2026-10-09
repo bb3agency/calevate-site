@@ -194,7 +194,7 @@ export function DataTable<T>({
       {/* `relative`: absolutely positioned descendants (visually hidden header text, a
           row's stretched link) must take this scroller as their containing block, or they
           escape its clipping and widen the page. */}
-      <ScrollRegion label={label} className="relative">
+      <ScrollRegion label={label} className="scroll-shadow-x relative">
         <table className="w-full border-collapse text-left text-sm">
           <caption className="sr-only">{label}</caption>
           <thead>

@@ -769,14 +769,15 @@ async def test_a_sheets_append_never_reaches_a_transport_carrying_a_spoken_numbe
             return sheets_sync.AppendResult(sheets_sync.AppendStatus.APPENDED)
 
     original = sheets_sync.get_sheets_transport
-    sheets_sync.get_sheets_transport = lambda: Recorder()
+    sheets_sync.get_sheets_transport = lambda *_: Recorder()
     try:
         result = await sheets_sync.append_event(
             endpoint={
                 "url": "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789/edit",
-                "secret": "sm://google/sheets",
+                "secret": str(uuid.uuid4()),
                 "mapping": {},
             },
+            tenant_id=uuid.uuid4(),
             event="call.completed",
             data={
                 "call_id": "c-1",

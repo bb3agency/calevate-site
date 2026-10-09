@@ -41,6 +41,13 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
     AdminScreen(
         "/admin/spend", "Money board", None, "Which client is costing what.", "billing:read"
     ),
+    AdminScreen(
+        "/admin/payments",
+        "Payments",
+        None,
+        "Payment set-up, disputes, reconciliation and recent payments.",
+        "org:read",
+    ),
     AdminScreen("/admin/holds", "Held accounts", None, "Accounts held on a gate.", "org:read"),
     AdminScreen(
         "/admin/kyc-reviews",
@@ -98,6 +105,13 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
         "ops:manage",
     ),
     AdminScreen("/admin/ops/alerts", "Alerts", "Platform", "Raised alarms.", "ops:manage"),
+    AdminScreen(
+        "/admin/ops/healer",
+        "Auto-healer",
+        "Platform",
+        "What the auto-healer repaired, is holding, or needs a person for.",
+        "ops:manage",
+    ),
     AdminScreen(
         "/admin/ops/engine-latency",
         "Voice response time",

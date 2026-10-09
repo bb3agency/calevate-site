@@ -146,6 +146,8 @@ VENDOR_OF: dict[str, str | None] = {
     # `google_oauth_client_secret` the Sheets and Calendar legs.
     "gemini": "Google",
     "google_oauth": "Google",
+    # D-703: the browser key for Google's file picker, on the client's own Google account.
+    "google_picker": "Google",
     # The platform's CRM OAuth apps (D-700): each client connects its own Zoho or HubSpot.
     "zoho_oauth": "Zoho",
     "zoho_accounts": "Zoho",

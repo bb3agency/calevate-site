@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { selectChoices } from "@/app/admin/ops/config/configField";
 import {
   differsFromDefault,
   filterAcrossSections,
@@ -14,8 +13,9 @@ import type { ConfigField, ConfigList } from "@/lib/api/opsConfig";
 import { OPS_CONFIG_SECTIONS, SELF_SERVE_PRICE_META, placed } from "./fixtures/opsConfig";
 
 /**
- * The arithmetic behind the platform configuration screen, without a render: what a
- * select offers, where a setting is placed, and what search finds.
+ * The arithmetic behind the platform configuration screen, without a render: where a
+ * setting is placed, and what search finds. How a value is shown and edited is
+ * `opsConfigControl.test.ts`.
  */
 
 function field(over: Partial<ConfigField> = {}): ConfigField {
@@ -51,49 +51,6 @@ function list(fields: ConfigField[]): ConfigList {
     config_changed_at: null,
   };
 }
-
-const opt = (value: string) => ({ value, provider: null, unavailable_reason: null });
-
-describe("selectChoices", () => {
-  it("offers exactly the served options, in order, with the default marked", () => {
-    const choices = selectChoices(
-      field({ kind: "enum", value: "b", default: "b", options: [opt("a"), opt("b")] }),
-    );
-    expect(choices.map((c) => c.value)).toEqual(["a", "b"]);
-    expect(choices[1].text).toBe("b — built-in default");
-  });
-
-  it("offers 'Not set' when the setting accepts null", () => {
-    const choices = selectChoices(
-      field({ kind: "enum", nullable: true, value: null, default: null, options: [opt("a")] }),
-    );
-    expect(choices[0]).toEqual({ value: "", text: "Not set", unavailable: null });
-  });
-
-  it("never shows a value other than the one in force, even if a server omits it", () => {
-    const choices = selectChoices(
-      field({ kind: "enum", value: "legacy", default: "a", options: [opt("a")] }),
-    );
-    expect(choices[0]).toEqual({ value: "legacy", text: "legacy (in force now)", unavailable: null });
-  });
-
-  it("names a model's provider and carries its unavailable reason", () => {
-    const [choice] = selectChoices(
-      field({
-        kind: "enum",
-        value: "gemini-2.5-flash-lite",
-        default: "gemini-2.5-flash-lite",
-        options: [
-          { value: "gemini-2.5-flash-lite", provider: "google", unavailable_reason: "no key" },
-        ],
-      }),
-    );
-    expect(choice.text).toBe(
-      "gemini-2.5-flash-lite — Google Gemini · built-in default · unavailable to clients",
-    );
-    expect(choice.unavailable).toBe("no key");
-  });
-});
 
 describe("placement", () => {
   it("adds credentials after the served sections, and a fallback when none were served", () => {

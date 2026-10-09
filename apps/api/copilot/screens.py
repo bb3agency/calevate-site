@@ -351,6 +351,14 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         aliases=("notifications", "emails", "reminders", "warnings"),
     ),
     Screen(
+        route="/c/{slug}/settings/line-protection",
+        name="Line protection",
+        group=SETTINGS_GROUP,
+        summary="What happens to callers if an agent cannot take calls, the backup phone "
+        "calls go to, and anything that went wrong with a line lately.",
+        aliases=("backup number", "forward calls", "fallback phone", "line down", "outage"),
+    ),
+    Screen(
         route="/c/{slug}/settings/models",
         name="AI model",
         group=SETTINGS_GROUP,

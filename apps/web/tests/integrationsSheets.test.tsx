@@ -1,9 +1,35 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
 
 import { problem, renderClientPage, type Routes } from "./harness";
+
+// Google's picker runs in Google's own iframe; here it answers as if the owner chose a file.
+vi.mock("@/lib/googlePicker", () => ({
+  pickSpreadsheet: vi.fn(async () => ({
+    id: "1AbCdEfGhIjKlMnOpQrStUvWxYz",
+    name: "Leads 2026",
+    url: "",
+  })),
+}));
+
+const CONNECTION_ID = "0192f0aa-4444-7000-8000-000000000001";
+const SHEETS_CONNECTION = {
+  id: CONNECTION_ID,
+  kind: "google_sheets",
+  label: "Google Sheets",
+  last_four: "oken",
+  created_at: "2026-10-10T09:00:00Z",
+};
+const PICKER_PATH = `/v1/integrations/google-sheets/${CONNECTION_ID}/picker`;
+const PICKER = { developer_key: "key", app_id: "123456789012", access_token: "ya29.test" };
+
+/** Open the picker and let it hand back the owner's choice. */
+async function pickSheet(): Promise<void> {
+  fireEvent.click(await screen.findByRole("button", { name: "Choose a spreadsheet" }));
+  await screen.findByText("Leads 2026");
+}
 
 /**
  * The two integration endpoints that shipped with no caller: the event CATALOGUE and the
@@ -103,12 +129,13 @@ async function choose(destination: "webhook" | "sheet"): Promise<HTMLElement> {
 function render(over: Partial<Routes> = {}) {
   return renderClientPage(<IntegrationsPage />, {
     "/v1/me": OWNER,
-    "/v1/integrations/credentials": [],
+    "/v1/integrations/credentials": [SHEETS_CONNECTION],
+    [PICKER_PATH]: PICKER,
     "/v1/integrations/connections/status": {
       google_calendar: false,
+      google_sheets: true,
       zoho_crm: false,
       hubspot: false,
-      sheets_share_with: null,
     },
     "/v1/integrations/endpoints": [],
     "/v1/integrations/deliveries": [],
@@ -304,7 +331,7 @@ describe("the Sheets capability", () => {
     // GONE, not disabled. A dead control costs a support ticket to learn what the
     // sentence above already says.
     expect(screen.queryByRole("button", { name: "Add sheet" })).toBeNull();
-    expect(screen.queryByLabelText("Which sheet?")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Choose a spreadsheet" })).toBeNull();
     expect(screen.queryByLabelText("Which tab? (optional)")).toBeNull();
     // Not an error: `role="alert"` is the rose ProblemNotice, and a founder/ops decision
     // is not a fault. "Try again" is not the remediation for a capability that does not
@@ -343,7 +370,7 @@ describe("the Sheets capability", () => {
     });
 
     await choose("sheet");
-    expect(await screen.findByLabelText("Which sheet?")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Choose a spreadsheet" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add sheet" })).toBeTruthy();
     expect(
       screen.queryByText(
@@ -363,18 +390,12 @@ describe("registering a Google Sheet", () => {
         worksheet: "Leads",
         events: ["lead.created"],
         active: true,
-        credential_attached: false,
+        credential_attached: true,
       },
     });
 
     await choose("sheet");
-    const sheet = await screen.findByLabelText("Which sheet?");
-    fireEvent.change(sheet, {
-      target: {
-        value:
-          "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/edit",
-      },
-    });
+    await pickSheet();
     fireEvent.click(screen.getByRole("button", { name: "Add sheet" }));
 
     await waitFor(() =>
@@ -382,8 +403,8 @@ describe("registering a Google Sheet", () => {
     );
     const sent = JSON.parse(calls.find((c) => c.path === SHEETS_PATH)!.body!);
     expect(sent).toEqual({
-      spreadsheet:
-        "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/edit",
+      spreadsheet: "1AbCdEfGhIjKlMnOpQrStUvWxYz",
+      credential_id: CONNECTION_ID,
       events: ["lead.created"],
       // An untouched optional tab is null, not "": the server would strip a blank anyway,
       // and sending null says what we mean.
@@ -391,14 +412,7 @@ describe("registering a Google Sheet", () => {
     });
 
     await screen.findByText("Sheet added");
-    // `credential_attached: false` is the honest state of every endpoint this route can
-    // create — a client cannot supply the Google credential — and the screen says so
-    // rather than implying the sheet is live.
-    await waitFor(() =>
-      expect(document.body.textContent).toContain(
-        "We haven't connected to Google yet",
-      ),
-    );
+    expect(document.body.textContent).toContain("New events will be added to the");
   });
 
   it("renders a refusal the capability did not warn about, in the server's own words", async () => {
@@ -419,10 +433,7 @@ describe("registering a Google Sheet", () => {
     });
 
     await choose("sheet");
-    const sheet = await screen.findByLabelText("Which sheet?");
-    fireEvent.change(sheet, {
-      target: { value: "1AbCdEfGhIjKlMnOpQrStUvWxYz" },
-    });
+    await pickSheet();
     fireEvent.click(screen.getByRole("button", { name: "Add sheet" }));
 
     await screen.findByText(
@@ -460,8 +471,7 @@ describe("registering a Google Sheet", () => {
     });
 
     await choose("sheet");
-    const sheet = await screen.findByLabelText("Which sheet?");
-    fireEvent.change(sheet, { target: { value: "my spreadsheet" } });
+    await pickSheet();
     fireEvent.click(screen.getByRole("button", { name: "Add sheet" }));
 
     await screen.findByText("That is not a Google Sheets link or document id.");
@@ -478,7 +488,7 @@ describe("registering a Google Sheet", () => {
     await choose("webhook");
     expect(screen.getByLabelText("Where should we send them?")).toBeTruthy();
     await choose("sheet");
-    expect(await screen.findByLabelText("Which sheet?")).toBeTruthy();
+    expect(await screen.findByText("Which spreadsheet?")).toBeTruthy();
     expect(screen.getByLabelText("Which tab? (optional)")).toBeTruthy();
   });
 });

@@ -9,6 +9,7 @@ import {
   ProblemNotice,
 } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
+import { type ChosenSheet, SheetChooser } from "@/components/sheetChooser";
 import { ApiProblem, type Session } from "@/lib/api/client";
 import type { WriteAccess } from "@/lib/api/hooks";
 import {
@@ -64,11 +65,9 @@ export function SheetsUnavailable({
  * last.
  *
  * THE REFUSAL IS STILL THE INTERESTING PART. `create_sheets_endpoint` checks
- * `sheets_delivery_available()` before it writes anything, and on a deployment with no
- * Google service account it refuses with `sheets_delivery_unavailable`. That is a
- * FOUNDER/OPS decision — the route's own argument is that a checkbox for a transport that
- * cannot deliver recreates the "silently never delivers" defect the sheets work removed —
- * and it is the state EVERY deployment is in today.
+ * `sheets_delivery_available()` before it writes anything, and on a deployment whose Google
+ * app is not set up it refuses with `sheets_delivery_unavailable`: a checkbox for a
+ * transport that cannot deliver would recreate the "silently never delivers" defect.
  *
  * Three ways to render it were on the table:
  *
@@ -103,7 +102,7 @@ export function SheetsForm({
   write: WriteAccess;
 }) {
   const create = useCreateSheetsEndpoint(session);
-  const [spreadsheet, setSpreadsheet] = useState("");
+  const [sheet, setSheet] = useState<ChosenSheet | null>(null);
   const valid = useFormValidation();
   const [worksheet, setWorksheet] = useState("");
   const [events, setEvents] = useState<OutboundEvent[]>(["lead.created"]);
@@ -136,8 +135,8 @@ export function SheetsForm({
   return (
     <div className="space-y-3">
       <p className="text-xs text-ink-faint">
-        We append a row per event. Share the sheet with the Google account we give you —
-        until we connect it on our side, deliveries appear as failures in the log.
+        We add a row for each event, written by your own Google account into the spreadsheet
+        you choose.
       </p>
       {create.error && (
         <div className="mt-3">
@@ -146,13 +145,9 @@ export function SheetsForm({
       )}
       {create.data && (
         <div className="mt-3">
-          <NoticeBox tone={create.data.credential_attached ? "ok" : "warn"} title="Sheet added">
+          <NoticeBox tone="ok" title="Sheet added">
             <p className="mt-1">
-              Writing to sheet <code>{create.data.spreadsheet_id}</code>, tab{" "}
-              <strong>{create.data.worksheet}</strong>.{" "}
-              {create.data.credential_attached
-                ? "The Google connection is ready, so the next event lands in it."
-                : "We haven't connected to Google yet, so deliveries will be recorded as failures until we connect it — that is us, not you."}
+              New events will be added to the <strong>{create.data.worksheet}</strong> tab.
             </p>
           </NoticeBox>
         </div>
@@ -161,15 +156,17 @@ export function SheetsForm({
         className="mt-3 space-y-3"
         noValidate
         onSubmit={valid.onSubmit(() => {
+          if (!sheet) return;
           create.mutate(
             {
-              spreadsheet,
+              spreadsheet: sheet.spreadsheetId,
+              credential_id: sheet.credentialId,
               events,
               // An empty tab name is not a tab name. The server strips it to the same
               // effect; sending null says what we mean.
               worksheet: worksheet.trim() === "" ? null : worksheet.trim(),
             },
-            { onSuccess: () => setSpreadsheet("") },
+            { onSuccess: () => setSheet(null) },
           );
         })}
       >
@@ -177,22 +174,13 @@ export function SheetsForm({
             field and a sentence of guidance makes the whole paragraph the field's
             accessible name, which is what a screen reader then announces on focus. The
             visible label stays one short phrase; the guidance is a sibling. */}
-        <label className="block">
-          <span className={FIELD_LABEL}>Which sheet?</span>
-          <input
-            {...valid.field("spreadsheet", "Paste the sheet address, or its id.")}
-            required
-            value={spreadsheet}
-            disabled={!write.allowed}
-            onChange={(e) => setSpreadsheet(e.target.value)}
-            placeholder="https://docs.google.com/spreadsheets/d/…"
-            className={INPUT}
-          />
-        </label>
-        {valid.error("spreadsheet")}
-        <p className="-mt-2 text-xs text-ink-faint">
-          Paste the address bar while the sheet is open, or just the document id.
-        </p>
+        <SheetChooser
+          session={session}
+          value={sheet}
+          onChange={setSheet}
+          disabled={!write.allowed}
+          label="Which spreadsheet?"
+        />
         <label className="block">
           <span className={FIELD_LABEL}>Which tab? (optional)</span>
           <input
@@ -216,7 +204,7 @@ export function SheetsForm({
         />
         <button
           type="submit"
-          disabled={!write.allowed || create.isPending || !spreadsheet || events.length === 0}
+          disabled={!write.allowed || create.isPending || !sheet || events.length === 0}
           className={SUBMIT}
         >
           {create.isPending ? "Adding…" : "Add sheet"}

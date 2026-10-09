@@ -81,6 +81,11 @@ GLOBALLY_VISIBLE = (
 #: Adding an entry is the point: it is a sentence somebody has to be able to write. If the
 #: honest sentence is "it isn't, but it usually passes", the fix is to scope the query.
 UNSCOPED_COUNT_REASONS: dict[tuple[str, str], str] = {
+    ("platform_line_count_test.py", "engine_agent_routes"): (
+        "the scoped count is asserted `== 0` for a fresh tenant id that owns no rows, the "
+        "fail-closed direction another suite cannot move, and the platform count only as a "
+        "floor over it; what the test pins is that the tenant setting comes back."
+    ),
     ("admin_security_test.py", "organizations"): (
         "asserted as `orgs >= 1` — a floor. Other suites can only make it larger, and "
         "the property is that the admin realm can enumerate clients at all. The "

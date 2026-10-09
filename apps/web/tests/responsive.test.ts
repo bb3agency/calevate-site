@@ -273,7 +273,10 @@ describe("card padding leaves a phone something to read", () => {
    */
   it("Card defaults to 16px of padding on a phone", () => {
     const ui = read(join(SRC, "components", "ui.tsx"));
-    expect(ui, "Card's default body padding is no longer responsive").toContain('bodyClassName ?? "p-4 sm:p-6"');
+    // The default card's fallback, after the compact density's own (16px) arms.
+    expect(ui, "Card's default body padding is no longer responsive").toMatch(
+      /bodyClassName \?\?[^\n]*"p-4 sm:p-6"/,
+    );
   });
 
   it("no bodyClassName sets more than 16px of horizontal padding on a phone", () => {
@@ -365,7 +368,7 @@ describe("every scroll container can be reached from a keyboard", () => {
       "waiving it. (The screen's delivery-log table IS a `ScrollRegion`.)",
     "app/c/[slug]/agents/[agentId]/script/ScriptToolbar.tsx":
       "The compiled-prompt `<pre>` (moved here from ScriptBuilder.tsx with the drawer that " +
-      "holds it, D-657) scrolls VERTICALLY (`max-h-[60vh]` + `whitespace-pre-" +
+      "holds it, D-657) scrolls VERTICALLY (`max-h-[60dvh]` + `whitespace-pre-" +
       "wrap`, so it never scrolls sideways), which `ScrollRegion` does not model — it " +
       "hardcodes `overflow-x-auto`. It carries the same `role=region` + `aria-label` + " +
       "`tabIndex={0}` inline, exactly as the integrations delivered-payload `<pre>` does, " +
@@ -474,5 +477,88 @@ describe("a navigation link's tap target", () => {
         `${flat.join("\n  ")}\n` +
         `Add \`inline-block py-1\` to the anchor's own className.`,
     ).toEqual([]);
+  });
+});
+
+
+describe("the second mobile pass", () => {
+  /**
+   * `100vh` is the LARGEST viewport on a phone — the height with the browser's bars
+   * collapsed — so a panel capped at `80vh` overflows the visible screen while the URL bar
+   * shows, and its last row sits under it. `dvh` tracks the bars; `svh` (the smallest) is
+   * for offsets that must never cause a shift.
+   */
+  it("sizes against the dynamic or small viewport, never the legacy vh", () => {
+    const legacy: string[] = [];
+    for (const file of FILES) {
+      blankComments(read(file).split("\n")).forEach((line, i) => {
+        if (/\[[^\]]*\d+vh[^\]]*\]|\bh-screen\b|\bmin-h-screen\b|\bmax-h-screen\b/.test(line)) {
+          legacy.push(`${rel(file)}:${i + 1} — ${line.trim()}`);
+        }
+      });
+    }
+    expect(legacy, `use dvh (or svh for an offset):\n  ${legacy.join("\n  ")}`).toEqual([]);
+  });
+
+  /**
+   * `sr-only` on a `<table>` does not hide its width: a table ignores the 1px box, so a
+   * chart's text alternative widened the page on a phone. The class goes on a wrapper.
+   */
+  it("never puts sr-only on a table itself", () => {
+    const offenders = FILES.flatMap((file) =>
+      read(file)
+        .split("\n")
+        .flatMap((line, i) => (/<table[^>]*className="[^"]*\bsr-only\b/.test(line) ? [`${rel(file)}:${i + 1}`] : [])),
+    );
+    expect(offenders, "wrap the table in <div className=\"sr-only\"> instead").toEqual([]);
+  });
+
+  /**
+   * A modal on a phone is a bottom sheet that scrolls inside itself (`MODAL_SCRIM` /
+   * `MODAL_PANEL` / `MODAL_ACTIONS` in components/ui.tsx). A hand-rolled centred card
+   * with no max-height runs off a short or landscape screen with its buttons out of reach.
+   */
+  const MODAL_NOT_YET_ON_KIT: Record<string, string> = {
+    "components/authn/adminIdleTimeoutModal.tsx": "owned by the auth work in flight; migrate with it",
+    "components/authn/stepUpPrompt.tsx": "owned by the auth work in flight; migrate with it",
+  };
+
+  it("every modal scrim is the kit's", () => {
+    const handRolled: string[] = [];
+    for (const file of FILES) {
+      const key = rel(file).replace(/^src\//, "");
+      if (Object.hasOwn(MODAL_NOT_YET_ON_KIT, key) || key === "components/ui.tsx") continue;
+      read(file)
+        .split("\n")
+        .forEach((line, i) => {
+          if (/fixed inset-0[^"]*bg-black\/40|bg-black\/40[^"]*fixed inset-0/.test(line)) {
+            handRolled.push(`${rel(file)}:${i + 1}`);
+          }
+        });
+    }
+    expect(handRolled, `use MODAL_SCRIM / MODAL_PANEL from components/ui.tsx:\n  ${handRolled.join("\n  ")}`).toEqual([]);
+    for (const key of Object.keys(MODAL_NOT_YET_ON_KIT)) {
+      expect(FILES.some((file) => rel(file) === `src/${key}`), `stale exemption ${key}`).toBe(true);
+    }
+  });
+
+  /**
+   * The browser's own file input ("Choose file · No file chosen") is unstyled, gives no
+   * size or kind before the pick, and refuses nothing a drop brings. `FileDrop` is the one
+   * control; these are the places that are not it, and why.
+   */
+  const FILE_INPUT_OUTSIDE_KIT: Record<string, string> = {
+    "components/fileDrop.tsx": "the kit control itself",
+    "app/c/[slug]/campaigns/ContactEditor.tsx":
+      "the toolbar's compact Import CSV button beside Paste and Add; its empty state is a FileDrop",
+    "app/admin/ops/voices/hosted/CloneVoiceDrawer.tsx": "ops console, owned by its own work in flight",
+    "app/admin/ops/voices/hosted/HostedVoiceList.tsx": "ops console, owned by its own work in flight",
+  };
+
+  it("hands every file to FileDrop", () => {
+    const raw = FILES.filter((file) => /type="file"/.test(read(file)))
+      .map((file) => rel(file).replace(/^src\//, ""))
+      .filter((key) => !Object.hasOwn(FILE_INPUT_OUTSIDE_KIT, key));
+    expect(raw, "use <FileDrop> from components/fileDrop.tsx").toEqual([]);
   });
 });

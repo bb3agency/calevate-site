@@ -358,7 +358,6 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/admin/tenants/*/agents/*/publish", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/agents/*/apply", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/agents/*/undo", "costly", _m("POST")),
-    Rule("/v1/admin/tenants/*/agents/*/intake/draft", "costly", _m("POST")),
     Rule("/v1/ops/secrets/*/test", "costly", _m("POST")),
     Rule("/v1/ops/secrets/kek/rewrap", "costly", _m("POST")),
     Rule("/v1/ops/carrier/probe", "costly", _m("POST")),

@@ -41,6 +41,7 @@ from apps.api.billing.payment_routes import router as topup_router
 from apps.api.billing.payment_routes import webhook_router
 from apps.api.billing.service import get_balance
 from apps.api.compliance.service import credits_exhausted
+from apps.api.compliance.trial_access import restricting_trial
 from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.core.settings import get_settings
@@ -212,17 +213,18 @@ async def test_signup_creates_a_tenant_that_could_take_a_call() -> None:
     assert membership == "owner"
 
 
-async def test_a_new_self_serve_wallet_is_empty_so_the_gate_refuses_to_dial() -> None:
-    """R-11 in one assertion: signup does not hand anyone a dialer. The compliance
-    gate already refuses a self-serve tenant with an exhausted wallet — this proves
-    the tier signup writes is the one the gate reads."""
+async def test_a_new_self_serve_account_is_on_a_test_calls_only_trial() -> None:
+    """R-11: signup does not hand anyone a dialer. Since D-703 a self-serve business starts
+    on its free trial at once, and an unpaid trial may place only test calls (D-697): the
+    trial gate the dial and launch paths ask is what holds that."""
     token, _ = await _signed_up_user()
     async with _client() as http:
         response = await http.post("/v1/auth/signup", headers=_headers(token), json=_signup_body())
     tenant_id = uuid.UUID(response.json()["tenant_id"])
 
     async with tenant_session(tenant_id) as session:
-        assert await credits_exhausted(session, tenant_id=tenant_id) is True
+        assert await restricting_trial(session, tenant_id=tenant_id) is not None
+        assert (await get_balance(session, tenant_id=tenant_id)).amount_inr == Decimal("0")
 
 
 async def test_a_reserved_slug_is_refused() -> None:

@@ -152,7 +152,7 @@ export function CommandPalette({
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[10vh] sm:px-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[10svh] sm:px-4">
       {/* The scrim closes on click; it is not a control a keyboard needs (Escape is). */}
       <div aria-hidden onClick={onClose} className="absolute inset-0 bg-ink/40 dark:bg-black/65" />
       <div
@@ -161,7 +161,7 @@ export function CommandPalette({
         aria-modal="true"
         aria-label={label}
         tabIndex={-1}
-        className="relative flex max-h-[80vh] w-full max-w-[560px] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-[0_1px_2px_rgba(28,25,23,0.07),0_28px_56px_-24px_rgba(24,22,20,0.5)] focus-visible:outline-none"
+        className="relative flex max-h-[80dvh] w-full max-w-[560px] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-[0_1px_2px_rgba(28,25,23,0.07),0_28px_56px_-24px_rgba(24,22,20,0.5)] focus-visible:outline-none"
       >
         <div className="flex h-12 shrink-0 items-center gap-2.5 border-b border-line px-4 touch:h-14">
           <Search aria-hidden className="h-4 w-4 shrink-0 text-ink-faint" />

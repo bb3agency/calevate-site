@@ -2,7 +2,16 @@
 
 import { useRef } from "react";
 
-import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, formatCount, formatINR } from "./ui";
+import {
+  MODAL_ACTIONS,
+  MODAL_PANEL,
+  MODAL_SCRIM,
+  PRIMARY_BUTTON,
+  ProblemNotice,
+  SECONDARY_BUTTON,
+  formatCount,
+  formatINR,
+} from "./ui";
 import type { AiQuota } from "@/lib/api/aiQuota";
 import { useFocusTrap } from "@/lib/focusTrap";
 
@@ -75,7 +84,7 @@ export function AcceptChargeDialog({
   useFocusTrap(panel, true, onCancel, "container");
 
   return (
-    <div className="scrim-enter fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className={MODAL_SCRIM}>
       <div
         ref={panel}
         role="dialog"
@@ -83,7 +92,7 @@ export function AcceptChargeDialog({
         aria-labelledby="ai-extra-title"
         aria-describedby="ai-extra-body"
         tabIndex={-1}
-        className="dialog-enter w-full max-w-md rounded-card border border-line bg-surface p-6 shadow-overlay outline-none"
+        className={MODAL_PANEL}
       >
         <h2 id="ai-extra-title" className="text-[17px] font-semibold text-ink">
           Add more AI help this month
@@ -114,7 +123,7 @@ export function AcceptChargeDialog({
           </div>
         )}
 
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
+        <div className={MODAL_ACTIONS}>
           <button type="button" className={SECONDARY_BUTTON} onClick={onCancel} disabled={pending}>
             Not now
           </button>

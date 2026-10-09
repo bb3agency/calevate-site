@@ -54,7 +54,12 @@ import type { KeyKind } from "../agents/actions/params";
 import { beginOAuthReturn, takeOAuthReturn, OAUTH_RETURN_KEY } from "./oauthReturn";
 
 const SIGN_IN: { kind: OAuthKind; label: string; what: string }[] = [
-  { kind: "google_calendar", label: "Google Calendar", what: "Find free times and book appointments." },
+  { kind: "google_calendar", label: "Google Calendar", what: "Find free times and book them for callers." },
+  {
+    kind: "google_sheets",
+    label: "Google Sheets",
+    what: "Write calls and leads into the spreadsheets you choose, and look callers up.",
+  },
   { kind: "zoho_crm", label: "Zoho CRM", what: "Save callers as leads and greet them by name." },
   { kind: "hubspot", label: "HubSpot", what: "Save callers as contacts and greet them by name." },
 ];
@@ -127,7 +132,7 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
         account owner can connect or remove one.
       </p>
 
-      <ul className="grid gap-2 sm:grid-cols-3">
+      <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {SIGN_IN.map((s) => {
           const available = status.data?.[s.kind] === true;
           return (
@@ -156,9 +161,8 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
       ) : null}
 
       <p className={FIELD_HINT}>
-        {status.data?.sheets_share_with
-          ? `Google Sheets: share your sheet with ${status.data.sheets_share_with} as an Editor — no sign-in needed.`
-          : "Google Sheets is not available on your account yet."}
+        Google Calendar and Google Sheets ask for permission on the Google account you choose,
+        one at a time. Calevate can open only the spreadsheets you pick.
       </p>
 
       {creds.isPending ? (

@@ -83,6 +83,8 @@ def _auth(token: str) -> dict[str, str]:
 
 
 async def _create_tenant(token: str, **body: Any) -> Any:
+    # An account is created together with its owner's invitation (D-695).
+    body.setdefault("owner", {"email": f"owner-{uuid.uuid4().hex[:8]}@clinic.example"})
     async with _client() as http:
         return await http.post(TENANTS, headers=_auth(token), json=body)
 

@@ -84,28 +84,28 @@ type TimingCopy = { label: string; help: string; tone: NoticeTone };
 
 const TIMING: Record<ConfigApplies, TimingCopy> = {
   live: {
-    label: "Takes effect right away",
-    help: "Your change is live across the platform within a few seconds. There's nothing else to do.",
+    label: "Applies immediately",
+    help: "Every part of the platform uses the new value within a few seconds. There's nothing else to do.",
     tone: "ok",
   },
   needs_republish: {
-    label: "Takes effect after you republish",
-    help: "New work uses your change straight away, but anything already set up keeps the old value until you republish it.",
+    label: "Applies after agents are republished",
+    help: "New work uses your change straight away, but what is already live keeps the old value until it is published again.",
     tone: "warn",
   },
   on_restart: {
-    label: "Takes effect after a restart",
-    help: "The platform reads this value once when it starts, so your change applies the next time the service restarts.",
+    label: "Applies after a restart",
+    help: "The platform reads this value once when it starts, so the old value stays in force until every server restarts.",
     tone: "warn",
   },
   env_only: {
-    label: "Locked to the deployment",
-    help: "This value is fixed when the platform is deployed and can't be changed from here. It has to be changed on the server, followed by a restart.",
+    label: "Can only be changed on the server",
+    help: "A value saved here would never be read: it is set in the server's environment, followed by a restart.",
     tone: "neutral",
   },
   unclassified: {
     label: "Timing not known",
-    help: "This build doesn't say when a change to this setting takes effect. Check it after saving, or ask your engineer before relying on it.",
+    help: "This release doesn't record when a change to this setting takes effect, so it is not offered here.",
     tone: "neutral",
   },
 };
@@ -126,25 +126,44 @@ export function timingCopy(applies: string): TimingCopy {
   );
 }
 
-/** A small inline badge stating when a change takes effect. */
-export function TimingBadge({ applies }: { applies: string }) {
-  const copy = timingCopy(applies);
-  const toneClass: Record<NoticeTone, string> = {
-    ok: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-    warn: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
-    stop: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
-    neutral: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-  };
+const BADGE_TONES: Record<NoticeTone, string> = {
+  ok: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+  warn: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
+  stop: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+  neutral: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+};
+
+/**
+ * A small rounded label in one of the four notice tones: the ops console's one badge, so
+ * a setting's state, its timing and its source read alike. Wraps rather than overflowing
+ * at 320px.
+ */
+export function ToneBadge({
+  tone,
+  icon,
+  children,
+}: {
+  tone: NoticeTone;
+  icon?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <span
       className={clsx(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-        toneClass[copy.tone],
+        "inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium [overflow-wrap:anywhere]",
+        BADGE_TONES[tone],
       )}
     >
-      {copy.label}
+      {icon}
+      {children}
     </span>
   );
+}
+
+/** A small inline badge stating when a change takes effect. */
+export function TimingBadge({ applies }: { applies: string }) {
+  const copy = timingCopy(applies);
+  return <ToneBadge tone={copy.tone}>{copy.label}</ToneBadge>;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -162,16 +181,16 @@ type ProvenanceCopy = { label: string; help: string };
 
 const PROVENANCE: Record<ConfigSource, ProvenanceCopy> = {
   db: {
-    label: "Set here",
+    label: "Changed here",
     help: "This value was set from this screen.",
   },
   env: {
-    label: "Set at deploy time",
-    help: "This value is fixed by the server's deployment settings, which override this screen. Changing it here has no effect until that's removed.",
+    label: "Locked by the server",
+    help: "This value is set in the server's environment, which always wins over this screen, so it can only be changed there.",
   },
   default: {
-    label: "Using the built-in default",
-    help: "No one has changed this, so it's using the value built into this release.",
+    label: "Default",
+    help: "No one has changed this, so it uses the value this release ships with.",
   },
 };
 
@@ -181,17 +200,6 @@ export function provenanceCopy(source: string): ProvenanceCopy {
       label: "Source not known",
       help: `This build reports a source ("${source}") this screen doesn't recognise.`,
     }
-  );
-}
-
-/** A neutral badge naming where a setting's value came from. */
-export function ProvenanceBadge({ source }: { source: string }) {
-  const copy = provenanceCopy(source);
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-      {source === "env" && <Lock className="h-3 w-3" aria-hidden />}
-      {copy.label}
-    </span>
   );
 }
 

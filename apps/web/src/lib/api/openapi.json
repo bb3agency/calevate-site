@@ -7525,6 +7525,168 @@
         "title": "ConcludeExperimentOut",
         "type": "object"
       },
+      "ConfigControlOut": {
+        "additionalProperties": false,
+        "description": "How the console edits one setting, derived from its `Settings` field\n(`ops/config_controls.control_for`). It guides input only: the PUT validates against the\nfield itself, and a value the control would allow but the field refuses is refused.",
+        "properties": {
+          "help": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Help"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "max_length": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Length"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum"
+          },
+          "min_length": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Length"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum"
+          },
+          "minimum_exclusive": {
+            "title": "Minimum Exclusive",
+            "type": "boolean"
+          },
+          "multiple": {
+            "title": "Multiple",
+            "type": "boolean"
+          },
+          "pattern": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pattern"
+          },
+          "placeholder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placeholder"
+          },
+          "risk": {
+            "title": "Risk",
+            "type": "string"
+          },
+          "risk_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Reason"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          }
+        },
+        "required": [
+          "kind",
+          "unit",
+          "minimum",
+          "minimum_exclusive",
+          "maximum",
+          "step",
+          "min_length",
+          "max_length",
+          "pattern",
+          "placeholder",
+          "help",
+          "source",
+          "multiple",
+          "risk",
+          "risk_reason"
+        ],
+        "title": "ConfigControlOut",
+        "type": "object"
+      },
       "ConfigFieldOut": {
         "additionalProperties": false,
         "description": "One managed key, as the console renders it.\n\nNO FIELD HERE CARRIES A DEFAULT, and that is load-bearing rather than tidy. A\nPydantic field with a default is OPTIONAL in the generated TypeScript, so the\nconsole would have to write `field.editable ?? true` \u2014 and the fallback for\n\"we do not know whether this is editable\" would be \"offer the form\". Every fact the\nconsole must trust is required on the wire; `null` is used where the answer\ngenuinely has no value, which is a different thing from absent.",
@@ -7543,6 +7705,9 @@
               }
             ],
             "title": "Caveat"
+          },
+          "control": {
+            "$ref": "#/components/schemas/ConfigControlOut"
           },
           "default": {
             "anyOf": [
@@ -7698,6 +7863,7 @@
           "kind",
           "options",
           "nullable",
+          "control",
           "label",
           "description",
           "section",
@@ -7719,6 +7885,21 @@
         "additionalProperties": false,
         "description": "One value a closed setting accepts.\n\nFor a language-model setting, `provider` and `unavailable_reason` come from the offer\nseam (`agents/llm_models.unofferable_reason`), so the console shows whether clients can\nactually be given the model without re-deriving it. The value stays selectable either\nway: the validator accepts it, and pointing a tier at a model before its key or price\nlands is a legitimate order of work.",
         "properties": {
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
           "provider": {
             "anyOf": [
               {
@@ -7748,6 +7929,8 @@
         },
         "required": [
           "value",
+          "label",
+          "hint",
           "provider",
           "unavailable_reason"
         ],
@@ -7997,20 +8180,13 @@
             "title": "Google Calendar",
             "type": "boolean"
           },
+          "google_sheets": {
+            "title": "Google Sheets",
+            "type": "boolean"
+          },
           "hubspot": {
             "title": "Hubspot",
             "type": "boolean"
-          },
-          "sheets_share_with": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sheets Share With"
           },
           "zoho_crm": {
             "title": "Zoho Crm",
@@ -8019,9 +8195,9 @@
         },
         "required": [
           "google_calendar",
+          "google_sheets",
           "zoho_crm",
-          "hubspot",
-          "sheets_share_with"
+          "hubspot"
         ],
         "title": "ConnectionsStatusOut",
         "type": "object"
@@ -9699,6 +9875,11 @@
       "CreateSheetEndpointIn": {
         "additionalProperties": false,
         "properties": {
+          "credential_id": {
+            "format": "uuid",
+            "title": "Credential Id",
+            "type": "string"
+          },
           "events": {
             "items": {
               "enum": [
@@ -9736,6 +9917,7 @@
         },
         "required": [
           "spreadsheet",
+          "credential_id",
           "events"
         ],
         "title": "CreateSheetEndpointIn",
@@ -14414,6 +14596,118 @@
           "malformed"
         ],
         "title": "GlobalSuppressOut",
+        "type": "object"
+      },
+      "GoogleCompleteIn": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "invitation_token": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 16,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invitation Token"
+          },
+          "state": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "state"
+        ],
+        "title": "GoogleCompleteIn",
+        "type": "object"
+      },
+      "GoogleCompleteOut": {
+        "additionalProperties": false,
+        "properties": {
+          "account_created": {
+            "title": "Account Created",
+            "type": "boolean"
+          },
+          "invitation_mismatch": {
+            "title": "Invitation Mismatch",
+            "type": "boolean"
+          },
+          "joined_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Joined Slug"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          }
+        },
+        "required": [
+          "next",
+          "account_created",
+          "joined_slug",
+          "invitation_mismatch"
+        ],
+        "title": "GoogleCompleteOut",
+        "type": "object"
+      },
+      "GoogleStartIn": {
+        "additionalProperties": false,
+        "properties": {
+          "next": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          }
+        },
+        "title": "GoogleStartIn",
+        "type": "object"
+      },
+      "GoogleStartOut": {
+        "additionalProperties": false,
+        "properties": {
+          "authorize_url": {
+            "title": "Authorize Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorize_url"
+        ],
+        "title": "GoogleStartOut",
         "type": "object"
       },
       "GrantIn": {
@@ -27237,6 +27531,106 @@
         "title": "SheetEndpointOut",
         "type": "object"
       },
+      "SheetsPickerOut": {
+        "additionalProperties": false,
+        "description": "What Google's Picker needs in the browser to show this owner their spreadsheets.\n\nThe access token is short-lived and carries only `drive.file`, which is what the\nPicker uses to share the picked file with Calevate; it is minted from the account's\nown connection and shown only to the owner who connected it.",
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "app_id": {
+            "title": "App Id",
+            "type": "string"
+          },
+          "developer_key": {
+            "title": "Developer Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "developer_key",
+          "app_id",
+          "access_token"
+        ],
+        "title": "SheetsPickerOut",
+        "type": "object"
+      },
+      "SignInOptionsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "google": {
+            "title": "Google",
+            "type": "boolean"
+          },
+          "self_serve_signup": {
+            "title": "Self Serve Signup",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "google",
+          "self_serve_signup"
+        ],
+        "title": "SignInOptionsOut",
+        "type": "object"
+      },
+      "SignupCompleteIn": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 6,
+            "minLength": 6,
+            "pattern": "^\\d{6}$",
+            "title": "Code",
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "password": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "code",
+          "password"
+        ],
+        "title": "SignupCompleteIn",
+        "type": "object"
+      },
+      "SignupCompleteOut": {
+        "additionalProperties": false,
+        "properties": {
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_id"
+        ],
+        "title": "SignupCompleteOut",
+        "type": "object"
+      },
       "SignupIn": {
         "additionalProperties": false,
         "properties": {
@@ -27291,7 +27685,7 @@
             "title": "Slug"
           },
           "vertical_template": {
-            "default": "clinic",
+            "default": "custom",
             "maxLength": 40,
             "title": "Vertical Template",
             "type": "string"
@@ -27361,6 +27755,21 @@
           "next_steps"
         ],
         "title": "SignupOut",
+        "type": "object"
+      },
+      "SignupStartIn": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "SignupStartIn",
         "type": "object"
       },
       "SourceOut": {
@@ -30496,6 +30905,37 @@
         "title": "TestWebhookIn",
         "type": "object"
       },
+      "ThinnestWorkspaceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "matches_setting": {
+            "title": "Matches Setting",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "name",
+          "matches_setting"
+        ],
+        "title": "ThinnestWorkspaceOut",
+        "type": "object"
+      },
       "TierMinutesOut": {
         "additionalProperties": false,
         "description": "One voice quality's runway, as the client's own screen reads it.\n\nTHE CLIENT READS `label` AND NEVER `voice_tier`. \"Clear\" and \"Studio\" are the product\nnames; `voice_tier` is the token the ledger, the lot splits and a support conversation\nabout a row are conducted in, and it crosses the wire because the browser keys and\norders by it \u2014 never because a screen should print it. Since 19 Sep 2026 the two\ndiffer only in case, which is deliberate: the token stopped being a vendor's name.",
@@ -31358,9 +31798,42 @@
             "title": "Answered",
             "type": "boolean"
           },
+          "answering_agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answering Agent"
+          },
+          "calling_agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calling Agent"
+          },
           "e164": {
             "title": "E164",
             "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
           },
           "rented": {
             "title": "Rented",
@@ -31370,7 +31843,10 @@
         "required": [
           "e164",
           "rented",
-          "answered"
+          "answered",
+          "label",
+          "answering_agent",
+          "calling_agent"
         ],
         "title": "TrialNumberCandidateOut",
         "type": "object"
@@ -31406,11 +31882,16 @@
               }
             ],
             "title": "Current Held"
+          },
+          "engine_uses_it": {
+            "title": "Engine Uses It",
+            "type": "boolean"
           }
         },
         "required": [
           "current",
           "current_held",
+          "engine_uses_it",
           "candidates"
         ],
         "title": "TrialNumberOut",
@@ -43880,6 +44361,80 @@
         ]
       }
     },
+    "/v1/auth/client/google/complete": {
+      "post": {
+        "operationId": "google_complete_v1_auth_client_google_complete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleCompleteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleCompleteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Finish signing in with Google and start a session",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/google/start": {
+      "post": {
+        "operationId": "google_start_v1_auth_client_google_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleStartIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleStartOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Begin signing in with Google",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
     "/v1/auth/client/invitations/accept": {
       "post": {
         "description": "THE invitation-redemption endpoint. There is no other (D-177).\n\nIt needs no prior account, because there is no vendor to have made one: it takes the\npassword in the same call, and takes the address from the invitation rather than\ncomparing two. The Clerk-era `POST /v1/invitations/accept` is deleted, and\n`/invite?token=` answers `410 Gone` naming the page that replaced it.",
@@ -44285,9 +44840,103 @@
         ]
       }
     },
+    "/v1/auth/client/sign-in-options": {
+      "get": {
+        "operationId": "sign_in_options_v1_auth_client_sign_in_options_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInOptionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Which ways to sign in and sign up this deployment offers",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/signup/complete": {
+      "post": {
+        "operationId": "signup_complete_v1_auth_client_signup_complete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupCompleteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupCompleteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Enter the emailed code and choose a password to create the account",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/signup/start": {
+      "post": {
+        "operationId": "signup_start_v1_auth_client_signup_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupStartIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Email a code to create an account (answers the same for any address)",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
     "/v1/auth/signup": {
       "post": {
-        "description": "The caller holds a first-party session and no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, and makes the caller its owner. The wallet starts empty, so the compliance gate refuses outbound calls until it is topped up.",
+        "description": "The caller holds a first-party session and no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, makes the caller its owner and starts the self-serve free trial (test calls only until the first payment).",
         "operationId": "signup_v1_auth_signup_post",
         "requestBody": {
           "content": {
@@ -47013,6 +47662,43 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/compliance/kyc/documents/{document_id}": {
+      "get": {
+        "description": "The business certificate on file, decrypted, so the account can see what it sent at any time. Only the `business` slot: the owner's ID is never handed back, and is deleted once a reviewer decides. Every view is audited.",
+        "operationId": "download_own_certificate_v1_compliance_kyc_documents__document_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {}
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Open this business's own certificate",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
     "/v1/compliance/kyc/submit": {
       "post": {
         "description": "The manual path: needs the business details, the business certificate and the owner's PAN card on file. Send the full PAN; only a masked form is kept. `owner_id_type: aadhaar` is refused (D-696): Aadhaar is accepted only through DigiLocker.",
@@ -49155,7 +49841,7 @@
     },
     "/v1/integrations/endpoints/sheets": {
       "post": {
-        "description": "Deliver events to a Google Sheet. Accepts the sheet's URL or document id and the events to subscribe to. Refused with `sheets_delivery_unavailable` on accounts where Google Sheets delivery is not enabled, so an endpoint is never created that cannot receive rows. The Google credential is attached by Calevate, never sent here: until it is, `credential_attached` is false and attempts appear as failures on your delivery screen.",
+        "description": "Deliver events to a Google Sheet, written by the account's own Google Sheets connection. Accepts the spreadsheet picked in Google's file picker (its id or URL), the connection, and the events to subscribe to. Refused with `sheets_delivery_unavailable` where Google Sheets delivery is not enabled.",
         "operationId": "create_sheets_endpoint_v1_integrations_endpoints_sheets_post",
         "requestBody": {
           "content": {
@@ -49255,6 +49941,46 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/integrations/google-sheets/{credential_id}/picker": {
+      "post": {
+        "operationId": "sheets_picker_v1_integrations_google_sheets__credential_id__picker_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Credential Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SheetsPickerOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Open Google's file picker on the connected Google account",
+        "tags": [
+          "actions"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/integrations/oauth/{kind}/callback": {
       "post": {
         "operationId": "oauth_callback_v1_integrations_oauth__kind__callback_post",
@@ -49266,6 +49992,7 @@
             "schema": {
               "enum": [
                 "google_calendar",
+                "google_sheets",
                 "zoho_crm",
                 "hubspot"
               ],
@@ -49320,6 +50047,7 @@
             "schema": {
               "enum": [
                 "google_calendar",
+                "google_sheets",
                 "zoho_crm",
                 "hubspot"
               ],
@@ -49346,7 +50074,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Begin connecting Google Calendar, Zoho CRM or HubSpot \u2014 returns the consent URL",
+        "summary": "Begin connecting a Google, Zoho CRM or HubSpot account \u2014 returns the consent URL",
         "tags": [
           "actions"
         ],
@@ -52555,6 +53283,35 @@
           }
         },
         "summary": "Every managed platform setting, with its value, source and provenance",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      }
+    },
+    "/v1/ops/config-sources/thinnest-workspace": {
+      "get": {
+        "description": "Calls ThinnestAI's `GET /workspace` without a workspace header, which answers with the workspace the API key belongs to. Refused with the vendor's problem when no ThinnestAI key is installed or ThinnestAI cannot be reached.",
+        "operationId": "read_thinnest_workspace_v1_ops_config_sources_thinnest_workspace_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThinnestWorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Our own ThinnestAI workspace, read live from ThinnestAI",
         "tags": [
           "ops"
         ],

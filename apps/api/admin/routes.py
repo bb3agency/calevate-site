@@ -1268,9 +1268,9 @@ class OwnerStatusOut(BaseModel):
 )
 async def get_owner_status(
     tenant_id: UUID,
+    request: Request,
     principal: Principal = Depends(requires("org:read", realm="admin")),
 ) -> OwnerStatusOut:
-    del principal  # the dependency IS the authorization
     async with tenant_session(tenant_id) as scoped:
         exists = (
             await scoped.execute(
@@ -1280,6 +1280,10 @@ async def get_owner_status(
         if exists is None:
             raise ProblemError.not_found("Organization")
         status = await onboarding.owner_status(scoped)
+        # D-482 L-1: whether anybody has joined is read from the client's own rows.
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
     return OwnerStatusOut(owner_present=status.owner_present, invite_pending=status.invite_pending)
 
 

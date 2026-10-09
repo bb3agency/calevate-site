@@ -159,7 +159,9 @@ function DailyBars({ days }: { days: SpendDay[] }) {
   return (
     <div>
       {/* The text alternative: the bars tie each amount to its day by position alone. */}
-      <table className="sr-only">
+      {/* `sr-only` on a wrapper, not the table: a table ignores the 1px box and widens the page on a phone. */}
+      <div className="sr-only">
+      <table>
         <caption>Spending by day (IST)</caption>
         <thead>
           <tr>
@@ -176,6 +178,7 @@ function DailyBars({ days }: { days: SpendDay[] }) {
           ))}
         </tbody>
       </table>
+      </div>
       <div aria-hidden className="flex h-32 items-end gap-[2px] border-b border-line">
         {days.map((day, index) => {
           const percent = barPercent(values[index] ?? ZERO, max);

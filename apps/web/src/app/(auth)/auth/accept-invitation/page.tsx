@@ -27,6 +27,7 @@ import Link from "next/link";
 
 import { Providers } from "@/app/providers";
 import { AuthPageFrame } from "@/components/authPage";
+import { GoogleSignIn } from "@/components/authn/googleSignIn";
 import { MissingLinkCode, SetPasswordForm } from "@/components/authn/setPasswordForm";
 import { Card, NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
@@ -49,8 +50,15 @@ export default function AcceptInvitationPage() {
             realm="client"
             submitLabel="Accept and create my account"
             askForName
-            intro={
+            intro={(token) => (
               <>
+                <div className="mb-2">
+                  <GoogleSignIn
+                    invitationToken={token}
+                    label="Accept with Google"
+                    divider="or choose a password"
+                  />
+                </div>
                 <p>
                   Choosing a password here creates your Calevate account and adds you to
                   the business that invited you, in one step.
@@ -62,7 +70,7 @@ export default function AcceptInvitationPage() {
                   else.
                 </p>
               </>
-            }
+            )}
             onSubmit={({ token, password, name }) => acceptInvitation({ token, password, name })}
             renderSuccess={(result) => <Joined result={result} />}
             renderMissingToken={

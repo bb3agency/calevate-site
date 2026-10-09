@@ -88,22 +88,6 @@ UNQUANTIZED_ON_PURPOSE: dict[str, set[str]] = {
         # record of a decision, not a figure any screen renders.
         "str(result.amount_inr)",
     },
-    "apps/api/billing/payment_routes.py": {
-        # NOT a display at all — this is the `payload_hash` that fingerprints a Razorpay
-        # redelivery for `claim_inbox_event`, and quantizing it would be actively wrong.
-        # The hash's whole job is that "a different amount under the same payment id is
-        # not the same payment"; rounding two distinct amounts to one paisa figure would
-        # let a corrected webhook be swallowed as a replay of the original. Precision
-        # here is an idempotency property, not a presentation one.
-        "str(payment.amount_inr)",
-        # The refund webhook branch (D-468) fingerprints its redelivery the same way and
-        # for the same reason: a `refund.processed` replay must dedupe, but a corrected
-        # refund amount under the same refund id must NOT be swallowed as one. Same
-        # idempotency property, same `payload_hash`, so the raw amount is deliberate here
-        # too. (The response body one line down quantizes with `to_paise` — this is only
-        # the hash.)
-        "str(refund.amount_inr)",
-    },
 }
 
 

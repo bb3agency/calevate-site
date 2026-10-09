@@ -21,7 +21,7 @@ export function AuthShowcase() {
           your team asked for.
         </p>
       </div>
-      <div role="img" aria-label="A live call with a clinic's agent, and the lead it captured" className="flex flex-col gap-3">
+      <div role="img" aria-label="A live call with a business's agent, and the lead it captured" className="flex flex-col gap-3">
         <CallCard turns={2} />
         <LeadCapturedCard className="ml-8" />
       </div>

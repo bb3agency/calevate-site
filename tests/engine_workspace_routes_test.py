@@ -82,7 +82,11 @@ async def test_a_client_walks_status_search_buy_and_release_without_a_vendor_nam
         offered = page.json()
         assert offered["next_cursor"] == "20"
         assert {n["inr_per_month"] for n in offered["numbers"]} == {str(price)}
-        assert "349" not in json.dumps(offered), "the vendor's price never reaches a client"
+        # The numbers themselves are random digits, so only the non-number fields are read.
+        priced = [
+            {k: v for k, v in n.items() if k not in ("number", "e164")} for n in offered["numbers"]
+        ]
+        assert "349" not in json.dumps(priced), "the vendor's price never reaches a client"
         _white_label(offered)
 
         key = f"key-{uuid.uuid4().hex}"

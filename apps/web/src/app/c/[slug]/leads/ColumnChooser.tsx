@@ -84,7 +84,7 @@ export function ColumnChooser({
       {/* Anchored under the trigger's right edge, so it grows from there rather than from
           its own centre. Opening is a click, not a keystroke loop, so a short entry helps
           place it; reduced motion keeps the fade and drops the scale. */}
-      <div className="absolute right-0 z-20 mt-1 w-64 origin-top-right rounded-card border border-line bg-surface p-3 shadow-raised transition-[opacity,scale] duration-(--duration-fast) ease-out starting:scale-[0.97] starting:opacity-0 motion-reduce:starting:scale-100">
+      <div className="absolute right-0 z-20 mt-1 w-64 max-w-[calc(100vw-2rem)] origin-top-right rounded-card border border-line bg-surface p-3 shadow-raised transition-[opacity,scale] duration-(--duration-fast) ease-out starting:scale-[0.97] starting:opacity-0 motion-reduce:starting:scale-100">
         <fieldset>
           <legend className="mb-2 text-xs font-semibold text-ink">
             Columns shown here and in the CSV

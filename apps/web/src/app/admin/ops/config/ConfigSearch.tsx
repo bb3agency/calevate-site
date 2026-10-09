@@ -12,7 +12,7 @@ type Access = { allowed: boolean; reason: string | null };
 
 /**
  * Find a setting across every section: words typed match its name, key, variable,
- * description, section or value, and "Differs from default" narrows to what somebody
+ * description, section or value, and "Edited from default" narrows to what somebody
  * changed. While a filter is on, the screen shows the matches instead of one section.
  */
 export function ConfigSearchBar({
@@ -34,7 +34,7 @@ export function ConfigSearchBar({
           type="search"
           value={filter.query}
           onChange={(event) => onChange({ ...filter, query: event.target.value })}
-          placeholder="Search settings, e.g. tier, carrier, GST"
+          placeholder="Search settings, e.g. trial, carrier, GST"
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
@@ -44,7 +44,7 @@ export function ConfigSearchBar({
         />
       </label>
       <FilterChip
-        label="Differs from default"
+        label="Edited from default"
         active={filter.changedOnly}
         onClick={() => onChange({ ...filter, changedOnly: !filter.changedOnly })}
       />

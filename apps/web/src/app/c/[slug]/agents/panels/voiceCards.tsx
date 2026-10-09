@@ -181,19 +181,14 @@ function VoiceCard({
           </span>
           {blocked && (
             <span id={reasonId} className="mt-1 block text-xs font-medium text-warn">
-              Unavailable
-              <span className="sr-only">
-                {" — "}
-                {voice.unavailable_reason ?? "this voice is not available here."}
-              </span>
+              {voice.unavailable_reason ?? "This voice is not available here."}
             </span>
           )}
         </span>
       </label>
-      {blocked && (
-        <InfoTip label={`${voice.label} unavailable`} align="end" className="-mr-1 -mt-1">
-          <p>{voice.unavailable_reason ?? "This voice is not available here."}</p>
-          {voice.note && <p>{voice.note}</p>}
+      {blocked && voice.note && (
+        <InfoTip label={`About ${voice.label}`} align="end" className="-mr-1 -mt-1">
+          <p>{voice.note}</p>
         </InfoTip>
       )}
     </div>

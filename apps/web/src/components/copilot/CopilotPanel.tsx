@@ -635,7 +635,7 @@ export function CopilotPanel({
               setQuestion("");
             }
           }}
-          placeholder="e.g. fill in the opening hours for a clinic that shuts on Sunday"
+          placeholder="e.g. fill in our opening hours: we are closed on Sunday"
           className={FIELD}
         />
         <div className="mt-2 flex justify-end">

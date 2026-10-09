@@ -145,6 +145,15 @@ class AcceptedInvitation:
     session: IssuedSession
 
 
+@dataclass(frozen=True, slots=True)
+class JoinedWorkspace:
+    """A membership created for somebody who is already signed in."""
+
+    tenant_id: UUID
+    slug: str
+    role: str
+
+
 def _invalid() -> ProblemError:
     """Unknown, used, expired — one answer, keeping the wording the Clerk-era path used so
     the two flows are indistinguishable to somebody probing tokens."""
@@ -283,6 +292,58 @@ async def accept_with_password(
     )
 
 
+async def accept_for_verified_address(
+    *, token: str, user_id: UUID, verified_email: str, ip: str | None
+) -> JoinedWorkspace | None:
+    """Redeem an invitation for a person who just proved `verified_email` another way (D-703).
+
+    The Google sign-in path: Google has said the address is verified and `google.finish`
+    has already signed the person in, so no password is set here. The invitation must be
+    addressed to that same address; a mismatch returns None and leaves the invitation
+    unused, so the person who was really invited can still redeem it.
+    """
+    token_hash = sha256(token.encode()).hexdigest()
+    async with invite_session(token_hash) as lookup:
+        row = (
+            await lookup.execute(
+                text(
+                    "SELECT tenant_id, email FROM invitations WHERE token_hash = :hash "
+                    "AND used_at IS NULL AND expires_at > now()"
+                ),
+                {"hash": token_hash},
+            )
+        ).first()
+    if row is None:
+        raise _invalid()
+    if str(row[1]).strip().casefold() != verified_email.strip().casefold():
+        log.info("auth_invitation_address_mismatch", extra={"user_id": str(user_id)})
+        return None
+    tenant_id = UUID(str(row[0]))
+    async with tenant_session(tenant_id) as scoped:
+        await admin_service.accept_invitation(scoped, raw_token=token, user_id=user_id)
+        role = (
+            await scoped.execute(
+                text("SELECT role FROM memberships WHERE user_id = :u"), {"u": user_id}
+            )
+        ).scalar()
+        slug = (
+            await scoped.execute(
+                text("SELECT slug FROM organizations WHERE id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+        await write_audit(
+            scoped,
+            action="auth.invitation_accepted",
+            actor_type="user",
+            tenant_id=tenant_id,
+            object_type="membership",
+            object_id=str(user_id),
+            ip=ip,
+            summary={"method": "google"},
+        )
+    return JoinedWorkspace(tenant_id=tenant_id, slug=str(slug), role=str(role or "owner"))
+
+
 async def _find_or_create_user(
     *, email: str, name: str | None, at: datetime, phone: str | None = None
 ) -> tuple[UUID, bool]:
@@ -372,4 +433,10 @@ async def _find_or_create_user(
     return user_id, True
 
 
-__all__ = ["INVITE_REALM", "AcceptedInvitation", "accept_with_password"]
+__all__ = [
+    "INVITE_REALM",
+    "AcceptedInvitation",
+    "JoinedWorkspace",
+    "accept_for_verified_address",
+    "accept_with_password",
+]

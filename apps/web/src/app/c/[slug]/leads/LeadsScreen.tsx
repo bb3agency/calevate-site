@@ -24,6 +24,7 @@ import {
   type LeadStatus,
 } from "@/lib/api/leads";
 import { lookup } from "@/lib/lookup";
+import { examplesFor } from "@/lib/verticalExamples";
 
 import { BulkActionBar, EMPTY_SELECTION, type BulkSelection } from "./BulkActionBar";
 import { DialerPicker } from "./DialerPicker";
@@ -190,6 +191,7 @@ export function LeadsScreen() {
   return (
     <div className="space-y-4 pb-12">
       <LeadsToolbar
+        askExample={examplesFor(me.data?.organization?.vertical_template).leadSearch}
         search={f.search}
         onSearch={f.setSearch}
         ask={f.ask}

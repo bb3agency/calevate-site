@@ -72,7 +72,6 @@
 
 import { CheckCircle2 } from "lucide-react";
 
-import { InfoTip } from "@/components/console/infoTip";
 import { formatRupeeRate } from "@/components/ui";
 import { providerLabel } from "@/lib/api/llmModels";
 import { compareRates, rateDifference } from "@/lib/llmRates";
@@ -184,6 +183,14 @@ function surchargeLabel(surcharge: string | null): string {
     : `+${formatRupeeRate(surcharge)} / min`;
 }
 
+/** The server's reason fragment ("it isn't switched on…") as a sentence a client reads. */
+function asSentence(reason: string): string {
+  const text = reason.trim();
+  if (text === "") return text;
+  const capital = text.charAt(0).toUpperCase() + text.slice(1);
+  return /[.!?]$/.test(capital) ? capital : `${capital}.`;
+}
+
 export function ModelPicker({
   name,
   legend,
@@ -194,6 +201,7 @@ export function ModelPicker({
   disabled,
   onChange,
   audience = "operator",
+  followDefault,
 }: {
   /** Scopes the radio group, so an agent screen and a settings screen never share one. */
   name: string;
@@ -211,21 +219,31 @@ export function ModelPicker({
   disabled?: boolean;
   onChange: (next: string | null) => void;
   /**
-   * Who reads the rows. `"client"` folds each refusal to one word with the server's
-   * sentence behind an ⓘ — an owner scanning prices needs to know a row is out, not the
-   * same reason five times over. The default renders exactly as before.
+   * Who reads the rows. `"client"` shows an unavailable row's reason as a plain sentence
+   * and no price, since it cannot be bought. `"operator"` keeps both.
    */
   audience?: "client" | "operator";
+  /**
+   * The row that stands for "follow the level above". Choosing it sends `null`, so the
+   * list never carries a second, look-alike row for inheriting. A box under it pins the
+   * tier instead (sends `value`), for an owner who wants it kept if the default changes.
+   * Choosing it stays possible when its tier is unavailable: following is always allowed.
+   */
+  followDefault?: { value: string; badge: string; keepLabel: string };
 }) {
+  const shown = followDefault && value === null ? followDefault.value : value;
   const row = (choice: ModelChoice) => {
-    const checked = choice.value === value;
+    const isDefault = followDefault !== undefined && choice.value === followDefault.value;
+    const checked = choice.value === shown;
     const comparison = choice.baseline
       ? null
       : priceComparison(choice.surcharge, baselineSurcharge);
     // `!= null` covers both `null` and an absent property, and nothing else: an
     // empty string would be a reason the server sent and is not a state to swallow.
-    const blocked = choice.unavailable != null;
-    return (
+    const unavailable = choice.unavailable != null;
+    const blocked = unavailable && !isDefault;
+    const priced = !(unavailable && audience === "client");
+    const label = (
       <label
         key={choice.value ?? "__inherit__"}
         /*
@@ -258,7 +276,7 @@ export function ModelPicker({
           className="sr-only"
           checked={checked}
           disabled={disabled || blocked}
-          onChange={() => onChange(choice.value)}
+          onChange={() => onChange(isDefault ? null : choice.value)}
         />
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-2">
@@ -268,9 +286,9 @@ export function ModelPicker({
               <span aria-hidden className="h-4 w-4 shrink-0 rounded-full border border-line" />
             )}
             <span className="text-sm font-semibold text-ink">{choice.label}</span>
-            {choice.badge && (
+            {(isDefault ? followDefault?.badge : choice.badge) && (
               <span className="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-ink-muted">
-                {choice.badge}
+                {isDefault ? followDefault?.badge : choice.badge}
               </span>
             )}
           </span>
@@ -284,19 +302,14 @@ export function ModelPicker({
               rather than muted: it is the difference between "this costs more" and
               "this cannot be chosen at all", and a reader skimming prices must not
               have to work out which rows are real. */}
-          {blocked && audience === "operator" && (
+          {unavailable && audience === "operator" && (
             <span className="mt-0.5 block pl-6 text-xs font-medium text-amber-700 dark:text-amber-400">
               Cannot be chosen — {choice.unavailable}
             </span>
           )}
-          {blocked && audience === "client" && (
-            <span className="mt-0.5 flex items-center gap-0.5 pl-6 text-xs font-medium text-warn">
-              <span>
-                Unavailable<span className="sr-only"> — {choice.unavailable}</span>
-              </span>
-              <InfoTip label={`${choice.label} unavailable`}>
-                <p>{choice.unavailable}</p>
-              </InfoTip>
+          {unavailable && audience === "client" && (
+            <span className="mt-0.5 block pl-6 text-xs font-medium text-warn">
+              {asSentence(choice.unavailable ?? "")}
             </span>
           )}
         </span>
@@ -305,17 +318,36 @@ export function ModelPicker({
             API does not carry the field. An absent figure is said as absent, never
             as free — "No extra charge" is reserved for a surcharge we HAVE and
             which is zero. */}
-        <span className="shrink-0 text-right">
-          <span className="block text-sm font-semibold tabular-nums text-ink">
-            {surchargeLabel(choice.surcharge)}
-          </span>
-          {(choice.baseline || comparison !== null) && (
-            <span className="mt-0.5 block text-xs text-ink-faint">
-              {choice.baseline ? "the model running now" : comparison}
+        {/* A row that cannot be chosen carries its reason, not a price for something the
+            client cannot buy. */}
+        {priced && (
+          <span className="shrink-0 text-right">
+            <span className="block text-sm font-semibold tabular-nums text-ink">
+              {surchargeLabel(choice.surcharge)}
             </span>
-          )}
-        </span>
+            {(choice.baseline || comparison !== null) && (
+              <span className="mt-0.5 block text-xs text-ink-faint">
+                {choice.baseline ? "the model running now" : comparison}
+              </span>
+            )}
+          </span>
+        )}
       </label>
+    );
+    if (!isDefault || !followDefault || !checked) return label;
+    return (
+      <div key={choice.value ?? "__inherit__"} className="space-y-1.5">
+        {label}
+        <label className="flex items-center gap-2 pl-3 text-xs text-ink-muted touch:min-h-11">
+          <input
+            type="checkbox"
+            checked={value === followDefault.value}
+            disabled={disabled || unavailable}
+            onChange={(event) => onChange(event.target.checked ? followDefault.value : null)}
+          />
+          {followDefault.keepLabel}
+        </label>
+      </div>
     );
   };
 

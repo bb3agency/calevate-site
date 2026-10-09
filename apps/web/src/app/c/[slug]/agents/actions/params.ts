@@ -50,6 +50,7 @@ export type CredKind =
   | "interakt"
   | "custom_api"
   | "google_calendar"
+  | "google_sheets"
   | "razorpay"
   | "zoho_crm"
   | "hubspot";
@@ -68,7 +69,7 @@ export function credentialKindFor(kind: Kind, provider: Provider): CredKind | nu
   if (kind === "custom_api") return "custom_api";
   if (kind === "calendar") return "google_calendar";
   if (kind === "payment_link") return "razorpay";
-  if (kind === "sheets") return null;
+  if (kind === "sheets") return "google_sheets";
   if (kind === "whatsapp") {
     return provider === "aisensy" || provider === "meta_cloud" || provider === "interakt"
       ? provider
@@ -77,6 +78,7 @@ export function credentialKindFor(kind: Kind, provider: Provider): CredKind | nu
   if (provider === "zoho") return "zoho_crm";
   if (provider === "hubspot") return "hubspot";
   if (provider === "api") return "custom_api";
+  if (provider === "sheet") return "google_sheets";
   return null;
 }
 

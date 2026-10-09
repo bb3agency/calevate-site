@@ -39,6 +39,7 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.actions import credentials as creds
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -243,13 +244,10 @@ class CreateSheetEndpointIn(Strict):
     # NOT `HttpUrl`: a bare document id is a legitimate answer here, and "looks like a
     # URL" is not the check that matters — `service.parse_spreadsheet_ref` is, and it
     # is the same parser the delivery worker runs against the stored value.
-    #
-    # There is deliberately NO credential field. `secret_ref` holds an `sm://` pointer
-    # into OUR secrets manager, so accepting one from a request body would be a tenancy
-    # hole wearing a config field's clothes — a client could name another tenant's path.
-    # Attaching one is an operator action, and until it happens the endpoint reports
-    # `credential_attached: false` rather than looking finished.
     spreadsheet: str = Field(min_length=1, max_length=512)
+    #: The account's own Google Sheets connection (D-703) that writes the rows. Checked to
+    #: belong to this account and to be a Google Sheets connection before it is stored.
+    credential_id: UUID
     events: list[EventName] = Field(min_length=1)
     worksheet: str | None = Field(default=None, min_length=1, max_length=100)
 
@@ -263,10 +261,7 @@ class SheetEndpointOut(Strict):
     worksheet: str
     events: list[str]
     active: bool
-    # Whether a secrets-manager REFERENCE is attached — never the reference. False on
-    # everything this route creates today, and computed from what was written to
-    # `secret_ref` rather than hardcoded, so the day the route can attach one the
-    # answer changes with the row instead of with someone remembering to edit this.
+    # Whether a Google Sheets connection is attached — never its id's secret.
     credential_attached: bool
 
 
@@ -526,12 +521,10 @@ async def create_endpoint(
     # config keys, column names and internal call sites, would be served to anyone who
     # asks. What a client needs is the contract; the reasoning stays in the code.
     description=(
-        "Deliver events to a Google Sheet. Accepts the sheet's URL or document id and "
-        "the events to subscribe to. Refused with `sheets_delivery_unavailable` on "
-        "accounts where Google Sheets delivery is not enabled, so an endpoint is never "
-        "created that cannot receive rows. The Google credential is attached by "
-        "Calevate, never sent here: until it is, `credential_attached` is false and "
-        "attempts appear as failures on your delivery screen."
+        "Deliver events to a Google Sheet, written by the account's own Google Sheets "
+        "connection. Accepts the spreadsheet picked in Google's file picker (its id or "
+        "URL), the connection, and the events to subscribe to. Refused with "
+        "`sheets_delivery_unavailable` where Google Sheets delivery is not enabled."
     ),
 )
 async def create_sheets_endpoint(
@@ -558,14 +551,10 @@ async def create_sheets_endpoint(
     forensic row, same retry ladder, same delivery screen. The checkbox is offered only
     where it is true.
 
-    **What is still missing is stated, not hidden.** A client cannot supply the Google
-    credential: `secret_ref` is an `sm://` pointer into our secrets manager, and
-    accepting one from a request body would let a client name another tenant's path.
-    So every endpoint this route creates comes back `credential_attached: false`, and
-    until an operator attaches one `append_event` refuses each delivery with
-    `no_credential_ref` — recorded `failed` on the client's own delivery screen and
-    alerted, which is loud on purpose. Noisy beats silent: the alternative is a
-    spreadsheet that simply stays empty.
+    **Whose Google account writes the rows (D-703).** The account's own Google Sheets
+    connection, `drive.file` scope, reaching only the spreadsheet picked in Google's
+    Picker. The connection must belong to this account and be of that kind; its id is
+    stored in `secret_ref` and resolved inside this tenant at delivery time.
 
     **Created ACTIVE, deliberately.** There is no route to activate an endpoint (only
     `DELETE`, which deactivates), so an endpoint created inactive would be a dead row
@@ -631,10 +620,24 @@ async def create_sheets_endpoint(
             ],
         )
 
+    try:
+        connection = await creds.resolve_credential(
+            session, tenant_id=principal.tenant_id, credential_id=payload.credential_id
+        )
+    except creds.CredentialUnusableError:
+        # Not this account's connection, or one no key opens: either way, not usable here.
+        connection = None
+    if connection is None or connection.kind != "google_sheets":
+        raise ProblemError(
+            kind="validation",
+            code="sheets_connection_required",
+            title="Connect Google Sheets first",
+            detail="Leads are written by your own Google account, which is not connected.",
+            remediation="Connect Google Sheets on the Integrations page, then pick the sheet.",
+            fields=[{"field": "credential_id", "rule": "connection", "message": "Not connected"}],
+        )
     endpoint_id = uuid7()
-    # No credential, and no way for this route to supply one — see the docstring. The
-    # NULL is the honest state and it is what `credential_attached` reports.
-    credential_ref: str | None = None
+    credential_ref: str | None = str(payload.credential_id)
     await session.execute(
         text(
             "INSERT INTO outbound_webhooks (id, tenant_id, kind, url, secret_ref, events, "

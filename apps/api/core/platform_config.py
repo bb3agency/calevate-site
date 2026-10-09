@@ -151,7 +151,7 @@ _PII_ONLY_REDACT_KEYS: frozenset[str] = frozenset(
 #:   dsn          `SENTRY_DSN` embeds a project key in a URL.
 #:   credential   the naming a future field is likely to use.
 #:   private_key  likewise, and it is the one nobody would forgive.
-#:   _json        `GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON` is a signing key in a JSON blob.
+#:   _json        a signing key in a JSON blob (service-account keys).
 #:   heartbeat    `BACKUP_HEARTBEAT_URL` is a credential and says so in its own comment:
 #:                anyone holding it can silence the backup alarm by pinging it. It is
 #:                named specifically because nothing about its SHAPE gives it away.
@@ -561,6 +561,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "trial_caller_number": AppliesRule(LIVE),
     "trial_daily_call_cap": AppliesRule(LIVE),
     "trial_call_max_seconds": AppliesRule(LIVE),
+    "self_serve_trial_days": AppliesRule(LIVE),  # tenancy/signup, per signup
+    "self_serve_trial_free_minutes": AppliesRule(LIVE),
     # Where ThinnestAI's in-call actions call us. Written into each action at publish
     # (`reliability/engine_actions.py`); the drift check repairs a live agent's actions on
     # its next pass, and a republish does it at once.
@@ -756,7 +758,6 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # the call sites rather than inferred from the neighbours.
     "whatsapp_cloud_access_token": AppliesRule(LIVE),
     "backup_heartbeat_url": AppliesRule(LIVE),
-    "google_sheets_service_account_json": AppliesRule(LIVE),
     "meta_page_access_tokens": AppliesRule(LIVE),
     "razorpay_webhook_secret": AppliesRule(LIVE),
     "razorpay_key_secret": AppliesRule(LIVE),
@@ -773,6 +774,11 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "google_oauth_client_id": AppliesRule(LIVE),
     "google_oauth_client_secret": AppliesRule(LIVE),
     "google_oauth_redirect_uri": AppliesRule(LIVE),
+    # D-703. Read inline by `authn/google.py` on every sign-in start and finish, and by the
+    # Picker config route on every request; nothing caches them.
+    "google_signin_redirect_uri": AppliesRule(LIVE),
+    "google_picker_api_key": AppliesRule(LIVE),
+    "google_cloud_project_number": AppliesRule(LIVE),
     # The CRM OAuth apps (D-700). Read inline by `actions/oauth.py` on every connect and
     # every token refresh; nothing caches a client.
     "zoho_oauth_client_id": AppliesRule(LIVE),

@@ -194,7 +194,7 @@ export function CompiledPrompt({
         aria-label="Compiled prompt"
         // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a region that scrolls must take focus, or no key can scroll it
         tabIndex={0}
-        className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-md border border-line bg-ink/[0.03] p-3 text-xs text-ink"
+        className="max-h-[60dvh] overflow-auto whitespace-pre-wrap rounded-md border border-line bg-ink/[0.03] p-3 text-xs text-ink"
       >
         {text}
       </pre>

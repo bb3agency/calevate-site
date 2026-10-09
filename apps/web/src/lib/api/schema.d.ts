@@ -3661,6 +3661,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/client/google/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finish signing in with Google and start a session */
+        post: operations["google_complete_v1_auth_client_google_complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/google/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Begin signing in with Google */
+        post: operations["google_start_v1_auth_client_google_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/client/invitations/accept": {
         parameters: {
             query?: never;
@@ -3946,6 +3980,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/client/sign-in-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which ways to sign in and sign up this deployment offers */
+        get: operations["sign_in_options_v1_auth_client_sign_in_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/signup/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enter the emailed code and choose a password to create the account */
+        post: operations["signup_complete_v1_auth_client_signup_complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/signup/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Email a code to create an account (answers the same for any address) */
+        post: operations["signup_start_v1_auth_client_signup_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/signup": {
         parameters: {
             query?: never;
@@ -3957,7 +4042,7 @@ export interface paths {
         put?: never;
         /**
          * Create a self-serve tenant for the signed-in user (D-34, FLOWS §2)
-         * @description The caller holds a first-party session and no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, and makes the caller its owner. The wallet starts empty, so the compliance gate refuses outbound calls until it is topped up.
+         * @description The caller holds a first-party session and no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, makes the caller its owner and starts the self-serve free trial (test calls only until the first payment).
          */
         post: operations["signup_v1_auth_signup_post"];
         delete?: never;
@@ -5159,6 +5244,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/compliance/kyc/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Open this business's own certificate
+         * @description The business certificate on file, decrypted, so the account can see what it sent at any time. Only the `business` slot: the owner's ID is never handed back, and is deleted once a reviewer decides. Every view is audited.
+         */
+        get: operations["download_own_certificate_v1_compliance_kyc_documents__document_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/compliance/kyc/submit": {
         parameters: {
             query?: never;
@@ -6164,7 +6269,7 @@ export interface paths {
         put?: never;
         /**
          * Register a Google Sheets endpoint — refused where Sheets delivery does not exist
-         * @description Deliver events to a Google Sheet. Accepts the sheet's URL or document id and the events to subscribe to. Refused with `sheets_delivery_unavailable` on accounts where Google Sheets delivery is not enabled, so an endpoint is never created that cannot receive rows. The Google credential is attached by Calevate, never sent here: until it is, `credential_attached` is false and attempts appear as failures on your delivery screen.
+         * @description Deliver events to a Google Sheet, written by the account's own Google Sheets connection. Accepts the spreadsheet picked in Google's file picker (its id or URL), the connection, and the events to subscribe to. Refused with `sheets_delivery_unavailable` where Google Sheets delivery is not enabled.
          */
         post: operations["create_sheets_endpoint_v1_integrations_endpoints_sheets_post"];
         delete?: never;
@@ -6213,6 +6318,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/integrations/google-sheets/{credential_id}/picker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open Google's file picker on the connected Google account */
+        post: operations["sheets_picker_v1_integrations_google_sheets__credential_id__picker_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/integrations/oauth/{kind}/callback": {
         parameters: {
             query?: never;
@@ -6237,7 +6359,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Begin connecting Google Calendar, Zoho CRM or HubSpot — returns the consent URL */
+        /** Begin connecting a Google, Zoho CRM or HubSpot account — returns the consent URL */
         get: operations["oauth_connect_v1_integrations_oauth__kind__connect_get"];
         put?: never;
         post?: never;
@@ -7453,6 +7575,26 @@ export interface paths {
          * @description Lists every `Settings` field that can be managed from the console: its current value in the serving process, where that value came from (`env` / `db` / `default`), who set it and when. A key set in the environment is reported `source: env` and `editable: false` — the environment always wins over the store, so offering to change it here would be a field that does nothing. Credentials are NOT in this list; they live encrypted in platform_secrets.
          */
         get: operations["read_config_v1_ops_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/config-sources/thinnest-workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Our own ThinnestAI workspace, read live from ThinnestAI
+         * @description Calls ThinnestAI's `GET /workspace` without a workspace header, which answers with the workspace the API key belongs to. Refused with the vendor's problem when no ThinnestAI key is installed or ThinnestAI cannot be reached.
+         */
+        get: operations["read_thinnest_workspace_v1_ops_config_sources_thinnest_workspace_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -11575,6 +11717,44 @@ export interface components {
             promoted_label: string | null;
         };
         /**
+         * ConfigControlOut
+         * @description How the console edits one setting, derived from its `Settings` field
+         *     (`ops/config_controls.control_for`). It guides input only: the PUT validates against the
+         *     field itself, and a value the control would allow but the field refuses is refused.
+         */
+        ConfigControlOut: {
+            /** Help */
+            help: string | null;
+            /** Kind */
+            kind: string;
+            /** Max Length */
+            max_length: number | null;
+            /** Maximum */
+            maximum: string | null;
+            /** Min Length */
+            min_length: number | null;
+            /** Minimum */
+            minimum: string | null;
+            /** Minimum Exclusive */
+            minimum_exclusive: boolean;
+            /** Multiple */
+            multiple: boolean;
+            /** Pattern */
+            pattern: string | null;
+            /** Placeholder */
+            placeholder: string | null;
+            /** Risk */
+            risk: string;
+            /** Risk Reason */
+            risk_reason: string | null;
+            /** Source */
+            source: string | null;
+            /** Step */
+            step: string | null;
+            /** Unit */
+            unit: string | null;
+        };
+        /**
          * ConfigFieldOut
          * @description One managed key, as the console renders it.
          *
@@ -11590,6 +11770,7 @@ export interface components {
             applies: string;
             /** Caveat */
             caveat: string | null;
+            control: components["schemas"]["ConfigControlOut"];
             /** Default */
             default: string | boolean | number | null;
             /** Description */
@@ -11642,6 +11823,10 @@ export interface components {
          *     lands is a legitimate order of work.
          */
         ConfigOptionOut: {
+            /** Hint */
+            hint: string | null;
+            /** Label */
+            label: string;
             /** Provider */
             provider: string | null;
             /** Unavailable Reason */
@@ -11739,10 +11924,10 @@ export interface components {
         ConnectionsStatusOut: {
             /** Google Calendar */
             google_calendar: boolean;
+            /** Google Sheets */
+            google_sheets: boolean;
             /** Hubspot */
             hubspot: boolean;
-            /** Sheets Share With */
-            sheets_share_with: string | null;
             /** Zoho Crm */
             zoho_crm: boolean;
         };
@@ -12487,6 +12672,11 @@ export interface components {
         };
         /** CreateSheetEndpointIn */
         CreateSheetEndpointIn: {
+            /**
+             * Credential Id
+             * Format: uuid
+             */
+            credential_id: string;
             /** Events */
             events: ("lead.created" | "lead.updated" | "call.completed" | "call.recording_ready" | "campaign.completed")[];
             /** Spreadsheet */
@@ -14513,6 +14703,36 @@ export interface components {
             already_suppressed: number;
             /** Malformed */
             malformed: number;
+        };
+        /** GoogleCompleteIn */
+        GoogleCompleteIn: {
+            /** Code */
+            code: string;
+            /** Invitation Token */
+            invitation_token?: string | null;
+            /** State */
+            state: string;
+        };
+        /** GoogleCompleteOut */
+        GoogleCompleteOut: {
+            /** Account Created */
+            account_created: boolean;
+            /** Invitation Mismatch */
+            invitation_mismatch: boolean;
+            /** Joined Slug */
+            joined_slug: string | null;
+            /** Next */
+            next: string | null;
+        };
+        /** GoogleStartIn */
+        GoogleStartIn: {
+            /** Next */
+            next?: string | null;
+        };
+        /** GoogleStartOut */
+        GoogleStartOut: {
+            /** Authorize Url */
+            authorize_url: string;
         };
         /**
          * GrantIn
@@ -19814,6 +20034,48 @@ export interface components {
             /** Worksheet */
             worksheet: string;
         };
+        /**
+         * SheetsPickerOut
+         * @description What Google's Picker needs in the browser to show this owner their spreadsheets.
+         *
+         *     The access token is short-lived and carries only `drive.file`, which is what the
+         *     Picker uses to share the picked file with Calevate; it is minted from the account's
+         *     own connection and shown only to the owner who connected it.
+         */
+        SheetsPickerOut: {
+            /** Access Token */
+            access_token: string;
+            /** App Id */
+            app_id: string;
+            /** Developer Key */
+            developer_key: string;
+        };
+        /** SignInOptionsOut */
+        SignInOptionsOut: {
+            /** Google */
+            google: boolean;
+            /** Self Serve Signup */
+            self_serve_signup: boolean;
+        };
+        /** SignupCompleteIn */
+        SignupCompleteIn: {
+            /** Code */
+            code: string;
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Name */
+            name?: string | null;
+            /** Password */
+            password: string;
+        };
+        /** SignupCompleteOut */
+        SignupCompleteOut: {
+            /** Subject Id */
+            subject_id: string;
+        };
         /** SignupIn */
         SignupIn: {
             /** Billing Email */
@@ -19836,7 +20098,7 @@ export interface components {
             slug?: string | null;
             /**
              * Vertical Template
-             * @default clinic
+             * @default custom
              */
             vertical_template: string;
         };
@@ -19869,6 +20131,14 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /** SignupStartIn */
+        SignupStartIn: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
         };
         /** SourceOut */
         SourceOut: {
@@ -21171,6 +21441,15 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** ThinnestWorkspaceOut */
+        ThinnestWorkspaceOut: {
+            /** Matches Setting */
+            matches_setting: boolean;
+            /** Name */
+            name: string | null;
+            /** Workspace Id */
+            workspace_id: string;
+        };
         /**
          * TierMinutesOut
          * @description One voice quality's runway, as the client's own screen reads it.
@@ -21538,8 +21817,14 @@ export interface components {
         TrialNumberCandidateOut: {
             /** Answered */
             answered: boolean;
+            /** Answering Agent */
+            answering_agent: string | null;
+            /** Calling Agent */
+            calling_agent: string | null;
             /** E164 */
             e164: string;
+            /** Label */
+            label: string | null;
             /** Rented */
             rented: boolean;
         };
@@ -21551,6 +21836,8 @@ export interface components {
             current: string | null;
             /** Current Held */
             current_held: boolean | null;
+            /** Engine Uses It */
+            engine_uses_it: boolean;
         };
         /**
          * TrialOut
@@ -29098,6 +29385,72 @@ export interface operations {
             };
         };
     };
+    google_complete_v1_auth_client_google_complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoogleCompleteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoogleCompleteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    google_start_v1_auth_client_google_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoogleStartIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoogleStartOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     accept_invitation_with_password_v1_auth_client_invitations_accept_post: {
         parameters: {
             query?: never;
@@ -29485,6 +29838,99 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SessionOut"];
                 };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    sign_in_options_v1_auth_client_sign_in_options_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInOptionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    signup_complete_v1_auth_client_signup_complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignupCompleteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignupCompleteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    signup_start_v1_auth_client_signup_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignupStartIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -31626,6 +32072,37 @@ export interface operations {
             };
         };
     };
+    download_own_certificate_v1_compliance_kyc_documents__document_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     submit_for_review_v1_compliance_kyc_submit_post: {
         parameters: {
             query?: never;
@@ -33388,12 +33865,43 @@ export interface operations {
             };
         };
     };
+    sheets_picker_v1_integrations_google_sheets__credential_id__picker_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SheetsPickerOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     oauth_callback_v1_integrations_oauth__kind__callback_post: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                kind: "google_calendar" | "zoho_crm" | "hubspot";
+                kind: "google_calendar" | "google_sheets" | "zoho_crm" | "hubspot";
             };
             cookie?: never;
         };
@@ -33428,7 +33936,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                kind: "google_calendar" | "zoho_crm" | "hubspot";
+                kind: "google_calendar" | "google_sheets" | "zoho_crm" | "hubspot";
             };
             cookie?: never;
         };
@@ -35648,6 +36156,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfigOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_thinnest_workspace_v1_ops_config_sources_thinnest_workspace_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThinnestWorkspaceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

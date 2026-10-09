@@ -179,7 +179,9 @@ export function HourHistogram({ hours, calls }: { hours: number[]; calls: number
       {/* Text alternative (ux-audit D1): the visual chart associates each count with its
           hour by position alone, which a screen reader cannot follow. Same
           `busiest_hours_ist` numbers, no second computation. */}
-      <table className="sr-only">
+      {/* `sr-only` on a wrapper, not the table: a table ignores the 1px box and widens the page on a phone. */}
+      <div className="sr-only">
+      <table>
         <caption>Calls by hour of day (IST)</caption>
         <thead>
           <tr>
@@ -196,6 +198,7 @@ export function HourHistogram({ hours, calls }: { hours: number[]; calls: number
           ))}
         </tbody>
       </table>
+      </div>
       <ScrollRegion label="Calls by hour of day">
         <div aria-hidden="true" className="flex min-w-[620px] items-end gap-1">
           {hours.map((count, hour) => (

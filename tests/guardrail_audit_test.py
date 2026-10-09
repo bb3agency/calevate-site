@@ -1136,6 +1136,8 @@ class TestRedactionExposure:
             # our own sentences redacted on write.
             "CopilotActionOut.summary",
             "CopilotJobProgressOut.text",
+            # The planner's sentence about a waiting approval, redacted before it leaves.
+            "CopilotApprovalPreviewOut.summary",
         }
         assert set(check_redaction_exposure.ACKNOWLEDGED_PASSTHROUGH) == {
             # D-591: the `**ids` on an alert episode, redacted at the write by the same

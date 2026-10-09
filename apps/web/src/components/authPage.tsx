@@ -53,7 +53,7 @@ export function AuthPageFrame({
                 accessible name — "Calevate". */}
             <Link
               href="/"
-              className="flex items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-app"
+              className="flex items-center rounded-md touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-app"
             >
               <BrandWordmark height={36} />
             </Link>

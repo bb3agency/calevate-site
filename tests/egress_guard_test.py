@@ -39,6 +39,7 @@ from typing import Any
 import httpcore
 import httpx
 import pytest
+from apps.api.actions import credentials as creds
 from apps.api.core.logging import JsonFormatter
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
@@ -1031,12 +1032,22 @@ async def test_a_sheets_endpoint_is_audited_by_the_same_action(
     # masker's threshold rather than the audit.
     sheet_id = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
     tenant_id, slug, token = await _make_tenant()
+    async with tenant_session(tenant_id) as session:
+        connection = await creds.create_credential(
+            session,
+            tenant_id=tenant_id,
+            kind="google_sheets",
+            label="Google Sheets",
+            secret="1//test-refresh-token",
+            non_secret={"scope": "https://www.googleapis.com/auth/drive.file"},
+        )
     with caplog.at_level(logging.INFO, logger="apps.api.compliance.audit"):
         async with _client() as http:
             created = await http.post(
                 "/v1/integrations/endpoints/sheets",
                 json={
                     "spreadsheet": f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit",
+                    "credential_id": str(connection.id),
                     "events": ["lead.created"],
                 },
                 headers=_headers(slug, token),

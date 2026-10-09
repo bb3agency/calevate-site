@@ -63,8 +63,16 @@ from apps.api.db.base import uuid7
 
 log = get_logger(__name__)
 
-OAuthKind = Literal["google_calendar", "zoho_crm", "hubspot"]
-OAUTH_KINDS: Final[tuple[OAuthKind, ...]] = ("google_calendar", "zoho_crm", "hubspot")
+OAuthKind = Literal["google_calendar", "google_sheets", "zoho_crm", "hubspot"]
+OAUTH_KINDS: Final[tuple[OAuthKind, ...]] = (
+    "google_calendar",
+    "google_sheets",
+    "zoho_crm",
+    "hubspot",
+)
+#: The two Google connections share one OAuth client and ask for their scopes separately,
+#: on the account the person signs in with (incremental authorization, D-703).
+GOOGLE_KINDS: Final = frozenset({"google_calendar", "google_sheets"})
 
 STATE_TTL: Final = timedelta(minutes=10)
 _STATE_ALGORITHM: Final = "HS256"
@@ -81,6 +89,11 @@ GOOGLE_CALENDAR_SCOPES: Final = (
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/calendar.freebusy",
 )
+#: Google Sheets: `drive.file` only, a NON-SENSITIVE scope that reaches just the files the
+#: client opens with Calevate or picks in Google's Picker (developers.google.com/workspace/
+#: drive/api/guides/api-specific-auth, read 10 Oct 2026). Never `spreadsheets`, which is
+#: sensitive and reaches every sheet the person owns.
+GOOGLE_SHEETS_SCOPES: Final = ("https://www.googleapis.com/auth/drive.file",)
 #: Zoho CRM: read and create Leads and Contacts (upsert takes CREATE, upsert-records.html),
 #: and search by phone, which needs the search scope as well.
 ZOHO_SCOPES: Final = (
@@ -124,6 +137,12 @@ _PROVIDERS: Final[dict[OAuthKind, _Provider]] = {
         "calevate:google-calendar-oauth-state",
         b"calevate:google-calendar-oauth-state:v1",
     ),
+    "google_sheets": _Provider(
+        "google_sheets",
+        "Google Sheets",
+        "calevate:google-sheets-oauth-state",
+        b"calevate:google-sheets-oauth-state:v1",
+    ),
     "zoho_crm": _Provider(
         "zoho_crm", "Zoho CRM", "calevate:zoho-crm-oauth-state", b"calevate:zoho-crm-oauth-state:v1"
     ),
@@ -135,7 +154,7 @@ _PROVIDERS: Final[dict[OAuthKind, _Provider]] = {
 
 def _client(kind: OAuthKind) -> tuple[str | None, str | None, str | None]:
     s = get_settings()
-    if kind == "google_calendar":
+    if kind in GOOGLE_KINDS:
         return s.google_oauth_client_id, s.google_oauth_client_secret, s.google_oauth_redirect_uri
     if kind == "zoho_crm":
         return s.zoho_oauth_client_id, s.zoho_oauth_client_secret, s.zoho_oauth_redirect_uri
@@ -152,6 +171,7 @@ def unavailable(kind: OAuthKind) -> ProblemError:
     half in a log line naming which setting is missing."""
     names = {
         "google_calendar": "GOOGLE_OAUTH",
+        "google_sheets": "GOOGLE_OAUTH",
         "zoho_crm": "ZOHO_OAUTH",
         "hubspot": "HUBSPOT_OAUTH",
     }[kind]
@@ -256,21 +276,30 @@ def state_refused(kind: OAuthKind) -> ProblemError:
 # --- the three legs --------------------------------------------------------------------
 
 
-def authorize_url(kind: OAuthKind, *, state: str) -> str:
-    """The consent URL a client is sent to."""
+def authorize_url(kind: OAuthKind, *, state: str, login_hint: str | None = None) -> str:
+    """The consent URL a client is sent to.
+
+    For Google, `login_hint` is the address the person signed in to Calevate with, so
+    Google offers that same account, and `include_granted_scopes` keeps whatever that
+    account already granted us: Calendar and Sheets end up on ONE Google account, asked
+    for only when each is connected.
+    """
     require_configured(kind)
     client_id, _, redirect = _client(kind)
-    if kind == "google_calendar":
+    if kind in GOOGLE_KINDS:
+        scopes = GOOGLE_CALENDAR_SCOPES if kind == "google_calendar" else GOOGLE_SHEETS_SCOPES
         params = {
             "client_id": client_id or "",
             "redirect_uri": redirect or "",
             "response_type": "code",
-            "scope": " ".join(GOOGLE_CALENDAR_SCOPES),
+            "scope": " ".join(scopes),
             "access_type": "offline",
             "prompt": "consent",
             "include_granted_scopes": "true",
             "state": state,
         }
+        if login_hint:
+            params["login_hint"] = login_hint
         return f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
     if kind == "zoho_crm":
         params = {
@@ -310,7 +339,7 @@ def zoho_accounts_server(raw: str | None) -> str | None:
 
 
 def _token_url(kind: OAuthKind, accounts_server: str | None) -> str:
-    if kind == "google_calendar":
+    if kind in GOOGLE_KINDS:
         return GOOGLE_TOKEN_URL
     if kind == "hubspot":
         return HUBSPOT_TOKEN_URL
@@ -368,7 +397,7 @@ def revoke_request(
     (HubSpot — the client uninstalls the app in HubSpot instead)."""
     if not configured(kind):
         return None
-    if kind == "google_calendar":
+    if kind in GOOGLE_KINDS:
         return PreparedRequest(
             method="POST",
             url=GOOGLE_REVOKE_URL,
@@ -397,6 +426,8 @@ def label(kind: OAuthKind) -> str:
 
 __all__ = [
     "GOOGLE_CALENDAR_SCOPES",
+    "GOOGLE_KINDS",
+    "GOOGLE_SHEETS_SCOPES",
     "HUBSPOT_SCOPES",
     "OAUTH_KINDS",
     "STATE_TTL",

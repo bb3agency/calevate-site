@@ -80,8 +80,9 @@ export interface SetPasswordFormProps<T> {
   realm: AuthnRealm;
   /** What the button says, and what the heading above the fields says. */
   submitLabel: string;
-  /** Prose above the fields — what this link is and what using it does. */
-  intro: ReactNode;
+  /** Prose above the fields — what this link is and what using it does. A function
+   * receives the link's token (the invitation page hands it to "Accept with Google"). */
+  intro: ReactNode | ((token: string) => ReactNode);
   /** Ask for a display name too. Invitation redemption only. */
   askForName?: boolean;
   /** What to render once it has worked. Given the server's own answer. */
@@ -153,7 +154,7 @@ export function SetPasswordForm<T>({
           submit.mutate();
         }}
       >
-        <div className="space-y-2 text-sm text-ink-muted">{intro}</div>
+        <div className="space-y-2 text-sm text-ink-muted">{typeof intro === "function" ? intro(token) : intro}</div>
 
         {askForName && (
           <AuthField

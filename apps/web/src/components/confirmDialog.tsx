@@ -2,7 +2,7 @@
 
 import { useRef, type ReactNode } from "react";
 
-import { DANGER_BUTTON, ProblemNotice, SECONDARY_BUTTON } from "./ui";
+import { DANGER_BUTTON, MODAL_ACTIONS, MODAL_PANEL, MODAL_SCRIM, ProblemNotice, SECONDARY_BUTTON } from "./ui";
 import { useFocusTrap } from "@/lib/focusTrap";
 
 /**
@@ -77,7 +77,7 @@ export function ConfirmDialog({
   useFocusTrap(panel, true, onCancel, "container");
 
   return (
-    <div className="scrim-enter fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className={MODAL_SCRIM}>
       <div
         ref={panel}
         role="dialog"
@@ -85,7 +85,7 @@ export function ConfirmDialog({
         aria-labelledby="confirm-title"
         aria-describedby="confirm-body"
         tabIndex={-1}
-        className="dialog-enter w-full max-w-md rounded-card border border-line bg-surface p-6 shadow-overlay outline-none"
+        className={MODAL_PANEL}
       >
         <h2 id="confirm-title" className="text-[17px] font-semibold text-ink">
           {title}
@@ -101,7 +101,7 @@ export function ConfirmDialog({
           </div>
         )}
 
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
+        <div className={MODAL_ACTIONS}>
           <button type="button" className={SECONDARY_BUTTON} onClick={onCancel} disabled={pending}>
             {cancelLabel}
           </button>

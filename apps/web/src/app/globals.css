@@ -315,6 +315,54 @@
   }
 }
 
+/*
+ * A MODAL's entry (`MODAL_PANEL` in components/ui.tsx): it rises from the bottom edge on a
+ * phone, where it is a sheet, and settles in from centre from `sm`, where it is a card —
+ * `dialog-enter`'s motion. No exit, as above. Reduced motion keeps the fade only.
+ */
+@utility modal-enter {
+  transition-property: opacity, transform;
+  transition-duration: var(--duration-base);
+  transition-timing-function: var(--ease-drawer-curve);
+
+  @starting-style {
+    transform: translateY(100%);
+  }
+
+  @media (min-width: 40rem) {
+    transition-timing-function: var(--ease-out-strong);
+
+    @starting-style {
+      opacity: 0;
+      transform: scale(0.96) translateY(4px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    @starting-style {
+      opacity: 0;
+      transform: none;
+    }
+  }
+}
+
+/*
+ * A horizontal scroller that shows there is more: an edge shadow appears on the side
+ * that has content past it and goes when that edge is reached. Pure CSS (the "scrolling
+ * shadows" technique): two covers in the surface colour scroll WITH the content
+ * (`local`) and hide the two shadows, which stay put (`scroll`), whenever the content is
+ * at that edge. On a phone a cut-off table otherwise reads as the whole table.
+ */
+@utility scroll-shadow-x {
+  background:
+    linear-gradient(to right, var(--surface) 30%, transparent) left center / 2.5rem 100% no-repeat local,
+    linear-gradient(to left, var(--surface) 30%, transparent) right center / 2.5rem 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / 0.12), transparent) left center / 0.75rem 100%
+      no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 0.12), transparent) right center / 0.75rem
+      100% no-repeat scroll;
+}
+
 @utility scrim-enter {
   transition-property: opacity;
   transition-duration: var(--duration-fast);

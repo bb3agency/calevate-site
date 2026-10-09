@@ -58,6 +58,7 @@ export const SIGNUP_VERTICALS = [
   { value: "real_estate", label: "Real estate" },
   { value: "insurance", label: "Insurance" },
   { value: "education", label: "Education" },
+  { value: "custom", label: "Something else" },
 ] as const;
 
 /** The languages a business may sign itself up in — the console's one table of language

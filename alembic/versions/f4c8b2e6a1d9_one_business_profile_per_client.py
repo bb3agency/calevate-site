@@ -65,6 +65,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from apps.api.db.migration_offline import probe_skipped_offline
+
 revision: str = "f4c8b2e6a1d9"
 down_revision: str | None = "e6c2a9d41f07"
 branch_labels: str | Sequence[str] | None = None
@@ -214,8 +216,30 @@ def upgrade() -> None:
         r"invitee_phone IS NULL OR invitee_phone ~ '^\+[1-9][0-9]{7,18}$'",
     )
 
+    if not probe_skipped_offline(
+        "offline `--sql`: moving each client's answers into business_profiles and their
+"
+        "handover members onto contacts was NOT run. The SET NOT NULL on
+"
+        "agent_handoff_members.contact_id below then fails on a database holding any, so
+"
+        "apply this revision online."
+    ):
+        _move_everything(op.get_bind())
+    op.alter_column("agent_handoff_members", "contact_id", nullable=False)
+    op.create_index(
+        "uq_agent_handoff_members_contact",
+        "agent_handoff_members",
+        ["agent_id", "contact_id"],
+        unique=True,
+    )
+
+
+# --------------------------------------------------------------------------- the move
+
+
+def _move_everything(bind: Any) -> None:
     _lift()
-    bind = op.get_bind()
     tenants = [
         row[0]
         for row in bind.execute(
@@ -236,16 +260,7 @@ def upgrade() -> None:
     _restore()
     if orphans:
         raise RuntimeError(f"{orphans} handover members could not be matched to a contact")
-    op.alter_column("agent_handoff_members", "contact_id", nullable=False)
-    op.create_index(
-        "uq_agent_handoff_members_contact",
-        "agent_handoff_members",
-        ["agent_id", "contact_id"],
-        unique=True,
-    )
 
-
-# --------------------------------------------------------------------------- the move
 
 
 def _sheet_answers(sheet: Any) -> dict[str, Any] | None:

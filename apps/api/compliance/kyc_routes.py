@@ -61,7 +61,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -86,6 +86,7 @@ from apps.api.compliance.kyc_documents import (
     delete_requested_documents,
     mask_pan,
     new_document_id,
+    open_document,
     record_document,
     seal_document,
 )
@@ -652,11 +653,18 @@ async def upload_document(
         )
     checked_slot = assert_kind_fits_slot(slot=slot, kind=kind)
     record = await read_kyc(session, tenant_id=principal.tenant_id)
-    if record.status in ("submitted", "in_review", "verified"):
+    if record.is_verified:
         raise ProblemError.business_rule(
             "kyc_documents_locked",
-            "These documents are with our review team or already verified, so they cannot "
-            "be replaced here.",
+            "Your business is verified, so the certificate can no longer be changed."
+            if checked_slot == "business"
+            else "Your business is verified, so these documents can no longer be changed.",
+            remediation="Contact support if your registration details have changed.",
+        )
+    if record.status in ("submitted", "in_review"):
+        raise ProblemError.business_rule(
+            "kyc_documents_locked",
+            "These documents are with our review team, so they cannot be replaced here.",
             remediation="Contact support if a document needs replacing.",
         )
     data = await _read_bounded(file)
@@ -711,6 +719,67 @@ async def upload_document(
         tasks.add_task(delete_requested_documents, principal.tenant_id, replaced)
     rows = await current_documents(session, tenant_id=principal.tenant_id)
     return documents_out({checked_slot: rows[checked_slot]})[0]
+
+
+#: The extension a downloaded file is named with, from the content type `accept_upload`
+#: recorded. Shared with the operator's download in `kyc_admin_routes`.
+DOCUMENT_SUFFIX = {"application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png"}
+
+
+@router.get(
+    "/documents/{document_id}",
+    response_class=Response,
+    openapi_extra=permission_meta("org:read"),
+    summary="Open this business's own certificate",
+    description=(
+        "The business certificate on file, decrypted, so the account can see what it sent "
+        "at any time. Only the `business` slot: the owner's ID is never handed back, and is "
+        "deleted once a reviewer decides. Every view is audited."
+    ),
+    responses={200: {"content": {"application/octet-stream": {}}}},
+)
+async def download_own_certificate(
+    document_id: UUID,
+    request: Request,
+    principal: KycReader,
+) -> Response:
+    """The client twin of the operator's download: decrypted in memory, never a presigned
+    URL (the stored object is ciphertext under our key), and audited inside the same
+    transaction that reads the row, so the bytes are never handed out without the audit
+    row committed."""
+    assert principal.tenant_id is not None
+    from apps.workers.storage import read_kb_object
+
+    async with tenant_session(principal.tenant_id) as scoped:
+        row = (await current_documents(scoped, tenant_id=principal.tenant_id)).get("business")
+        if row is None or row.id != document_id or not row.held:
+            raise ProblemError.not_found("Document")
+        ciphertext = await read_kb_object(row.object_key)
+        if ciphertext is None:
+            raise ProblemError.not_found("Document")
+        plaintext = open_document(
+            tenant_id=principal.tenant_id, document_id=row.id, envelope=row.envelope(ciphertext)
+        )
+        await write_audit(
+            scoped,
+            action="kyc.document_viewed",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="kyc_document",
+            object_id=str(document_id),
+            ip=client_request_ip(request),
+            summary={"slot": row.slot, "kind": row.kind},
+        )
+    return Response(
+        content=plaintext,
+        media_type=row.content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="certificate-{row.id}.'
+            f'{DOCUMENT_SUFFIX.get(row.content_type, "bin")}"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 class ManualSubmitIn(BaseModel):

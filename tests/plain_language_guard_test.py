@@ -325,7 +325,7 @@ _UNSWEPT: dict[str, int] = {
     # Words for API-shaped things said to whoever is calling the API — an operator
     # pasting a registration number, an integrator wiring a lead source. Accurate today,
     # still not the words the console should print at a business owner.
-    "apps/api/actions/service.py": 9,
+    "apps/api/actions/service.py": 8,
     "apps/api/admin/routes.py": 3,
     "apps/api/admin/service.py": 1,
     "apps/api/agents/llm_models.py": 1,

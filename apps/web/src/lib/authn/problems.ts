@@ -40,6 +40,10 @@ export const AUTHN_CODES = {
   codeExpired: "code_expired",
   crossSiteRequest: "cross_site_request",
   disabled: "first_party_auth_disabled",
+  /** D-703: Google sign-in is not switched on for this deployment. */
+  googleSignInUnavailable: "google_sign_in_unavailable",
+  /** D-703: Google did not answer while finishing a sign-in (transient). */
+  googleUnreachable: "google_unreachable",
   invalidBootstrapToken: "invalid_bootstrap_token",
   invalidCode: "invalid_code",
   invalidCredentials: "invalid_credentials",
@@ -157,6 +161,9 @@ const SIGN_IN_COPY: Record<string, string> = {
   [AUTHN_CODES.tooManyAttempts]:
     "Too many attempts. Wait a few minutes before trying again.",
   [AUTHN_CODES.rateLimited]: "Too many requests. Wait a moment and try again.",
+  [AUTHN_CODES.googleSignInUnavailable]:
+    "Signing in with Google is not switched on yet. Use your email address and password.",
+  [AUTHN_CODES.googleUnreachable]: "Google did not answer just now. Try again in a moment.",
   [AUTHN_CODES.disabled]:
     "Sign-in is switched off. Contact whoever operates this service.",
   [AUTHN_CODES.crossSiteRequest]:

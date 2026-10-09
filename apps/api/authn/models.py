@@ -200,6 +200,9 @@ OTP_PURPOSES = (
     "login_challenge",
     # Emailed to confirm a newly-claimed address.
     "email_verify",
+    # SELF-SERVE ACCOUNT CREATION (D-703). Proves the mailbox BEFORE a `users` row exists, so
+    # its `subject_id` is `throttle.pseudo_subject("client", email)`, not a user id.
+    "signup",
     # STEP-UP RE-AUTHENTICATION (C-09, D-178). Emailed when an operator who is already
     # signed in reaches a dangerous mutation whose second factor has gone stale. Its own
     # purpose rather than a reused `login_challenge`, because the purpose is inside the
@@ -311,13 +314,52 @@ class AuthOtpChallenge(PKMixin, TimestampMixin, Base):
     attempts: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
 
 
+#: Who may vouch for an identity besides our own password (D-703). Client realm only: the
+#: admin realm stays on a password and an emailed second factor.
+IDENTITY_PROVIDERS = ("google",)
+
+
+class AuthIdentity(PKMixin, TimestampMixin, Base):
+    """A Google account that signs a person in, keyed on Google's `sub`.
+
+    `sub` is "unique among all Google Accounts and never reused"; the email "could change
+    over time" and must not be the identifier (developers.google.com/identity/openid-connect/
+    openid-connect, read 10 Oct 2026). So the email is matched once, at linking, and only
+    when Google says it is verified; after that this row alone decides who signs in.
+
+    Same deny-by-default `app.auth` policy and the same unconstrained `subject_id` as
+    `AuthCredential`, for the module docstring's reasons.
+    """
+
+    __tablename__ = "auth_identities"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider", "provider_subject", name="uq_auth_identities_provider_subject"
+        ),
+        UniqueConstraint(
+            "realm", "subject_id", "provider", name="uq_auth_identities_realm_subject_provider"
+        ),
+        CheckConstraint("realm IN ('client')", name="realm_enum"),
+        CheckConstraint(f"provider IN {IDENTITY_PROVIDERS!r}", name="provider_enum"),
+        CheckConstraint("length(provider_subject) BETWEEN 1 AND 255", name="provider_subject_len"),
+    )
+
+    realm: Mapped[str] = mapped_column(Text, nullable=False)
+    subject_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Google's `sub` claim.
+    provider_subject: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 __all__ = [
     "AUTHN_REALMS",
     "EMAIL_TOKEN_PURPOSES",
+    "IDENTITY_PROVIDERS",
     "OTP_PURPOSES",
     "REVOCATION_REASONS",
     "AuthCredential",
     "AuthEmailToken",
+    "AuthIdentity",
     "AuthOtpChallenge",
     "AuthSession",
 ]

@@ -467,8 +467,9 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "the recording or the transcript.",
     location: "Global.",
     status:
-      "Client-enabled. Sheets access is granted by sharing your own document with our " +
-      "service account and revoked by un-sharing it. Lead Ads works per lead source, only " +
+      "Client-enabled. Sheets is reached through the Google account you connect, and only " +
+      "the spreadsheets you choose in Google's file picker; disconnecting it in Calevate " +
+      "or in your Google account withdraws access. Lead Ads works per lead source, only " +
       "where you have supplied the access token for your own Page. Calendar is " +
       "available once Calevate's sign-in app with Google is approved; until then every " +
       "calendar route refuses cleanly. Zoho CRM and HubSpot likewise reach only an account " +

@@ -257,18 +257,24 @@ async def _open_for_verdict(tenant_id: UUID, verdict: health.Verdict, tally: Cou
             )
     if opened:
         tally[f"opened_{playbook.key}"] += 1
-        alert(
-            "CORE_LOGIC",
-            code,
-            detail=(
-                "most of this agent's recent real calls failed or ended within ten seconds"
-                if verdict.broken
-                else "this agent's call health has been below its own baseline for "
-                f"{health.SUSTAINED_WINDOWS} windows in a row (worst: {verdict.worst_signal})"
-            ),
-            tenant_id=str(tenant_id),
-            agent_id=str(verdict.agent_id),
-        )
+        ids = {"tenant_id": str(tenant_id), "agent_id": str(verdict.agent_id)}
+        if verdict.broken:
+            alert(
+                "CORE_LOGIC",
+                "agent_line_broken",
+                detail="most of this agent's recent real calls failed or ended within ten seconds",
+                **ids,
+            )
+        else:
+            alert(
+                "CORE_LOGIC",
+                "agent_health_degraded",
+                detail=(
+                    "this agent's call health has been below its own baseline for "
+                    f"{health.SUSTAINED_WINDOWS} windows in a row (worst: {verdict.worst_signal})"
+                ),
+                **ids,
+            )
 
 
 async def _engine_failures(minutes: int) -> int:
@@ -304,7 +310,7 @@ async def _detect_outage(broken_tenants: set[UUID], tally: Counter[str]) -> None
         tally["opened_engine_outage"] += 1
         alert(
             "CORE_LOGIC",
-            ENGINE_PLATFORM_OUTAGE,
+            "engine_platform_outage",
             detail=(
                 f"{len(broken_tenants)} client(s) with broken lines and {failures} failed "
                 f"voice-platform requests in {OUTAGE_WINDOW_MIN} minutes. There is no second "
@@ -580,7 +586,13 @@ async def repair_agent_plumbing(tenant_id: UUID, agent_id: UUID) -> str:
 async def _agent_reads_back(tenant_id: UUID, agent_id: UUID) -> bool:
     try:
         drift = await engine_drift_for(tenant_id=tenant_id, agent_id=agent_id)
-    except Exception:
+    except Exception as exc:
+        # Unreadable counts as "not verified", which keeps the line held; the operator
+        # still learns why the verify step could not run.
+        log.warning(
+            "healer_verify_read_failed",
+            extra={"agent_id": str(agent_id), "error": type(exc).__name__},
+        )
         return False
     return drift.state not in ("unreachable", "unreadable") and (
         drift.truthful_answer_applied is not False

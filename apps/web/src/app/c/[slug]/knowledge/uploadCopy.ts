@@ -264,11 +264,5 @@ export const ACCEPTED_KINDS_SENTENCE =
 /** `apps/api/kb/uploads.MAX_UPLOAD_BYTES`, said the way the refusal says it. */
 export const MAX_UPLOAD_MB = 20;
 
-/** A byte count as a person reads it, so a 3.4 MB file does not render as 3565158. */
-export function fileSize(bytes: number | null | undefined): string | null {
-  if (bytes === null || bytes === undefined) return null;
-  if (bytes < 1024) return `${bytes} bytes`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${Math.round(kb)} KB`;
-  return `${(kb / 1024).toFixed(1)} MB`;
-}
+/** The kit formatter, under the name this screen already used. */
+export { formatFileSize as fileSize } from "@/components/fileDrop";

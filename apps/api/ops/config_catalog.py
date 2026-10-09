@@ -37,7 +37,6 @@ PANEL_ENGINE_MINUTE_PRICE: Final = "engine_minute_price"
 PANEL_MODEL_PRICING: Final = "model_pricing"
 PANEL_DASHBOARD_DATA_USE: Final = "dashboard_data_use"
 PANEL_SERVER_ONLY_KEYS: Final = "server_only_keys"
-PANEL_TRIAL_NUMBER: Final = "trial_number"
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,8 +103,7 @@ SECTIONS: Final[tuple[Section, ...]] = (
         "calling-limits",
         "Calling limits and pacing",
         "How fast outbound calls start and how many lines they may use at once.",
-        (Subsection("limits", "Limits"), Subsection("trial", "Free-trial test calls")),
-        panels_after=(PANEL_TRIAL_NUMBER,),
+        (Subsection("limits", "Limits"), Subsection("trial", "Free trials")),
     ),
     Section(
         "language-models",
@@ -161,8 +159,9 @@ SECTIONS: Final[tuple[Section, ...]] = (
         "Integrations",
         "Lead sources and outside services clients connect to.",
         (
-            Subsection("leads", "Lead sources and CRM"),
-            Subsection("google", "Google sign-in for calendars"),
+            Subsection("leads", "Lead sources"),
+            Subsection("crm", "CRM connections"),
+            Subsection("google", "Google: calendars, sign-in and file picker"),
         ),
     ),
     Section(
@@ -351,7 +350,7 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     "carrier_cps": _m(
         "calling-limits",
         "limits",
-        "Outbound calls started per second (CPS)",
+        "Outbound calls started per second",
         "At most this many dials start each second, matching the carrier account's limit.",
         _OWNED_RUNTIME,
     ),
@@ -373,8 +372,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "calling-limits",
         "trial",
         "Shared trial number",
-        "The platform-held number every trial test call rings from; choose it in the panel "
-        "below. Nothing answers it while trials use it.",
+        "Every free-trial test call rings from this number, one our ThinnestAI workspace has "
+        "rented. Nothing answers it while trials use it.",
         _THINNEST,
     ),
     "trial_daily_call_cap": _m(
@@ -387,9 +386,21 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     "trial_call_max_seconds": _m(
         "calling-limits",
         "trial",
-        "Longest trial test call (seconds)",
-        "Each trial test call is ended after this many seconds (60 to 1200).",
+        "Longest trial test call",
+        "Each trial test call is ended after this long, between 1 and 20 minutes.",
         _THINNEST,
+    ),
+    "self_serve_trial_days": _m(
+        "calling-limits",
+        "trial",
+        "Free trial days for self sign-up",
+        "How many days of free trial a business gets when it signs itself up.",
+    ),
+    "self_serve_trial_free_minutes": _m(
+        "calling-limits",
+        "trial",
+        "Free trial minutes for self sign-up",
+        "How many free test-call minutes a business gets when it signs itself up.",
     ),
     "thinnest_customer_plan": _m(
         "voice-engine",
@@ -402,9 +413,9 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     "thinnest_developer_workspace_id": _m(
         "voice-engine",
         "thinnest",
-        "ThinnestAI developer workspace id",
-        "Our own ThinnestAI workspace id (org_…, Settings → General in their console). It is "
-        "never treated as a client's own workspace.",
+        "ThinnestAI developer workspace",
+        "Our own ThinnestAI workspace, read from ThinnestAI so it is never typed. It is never "
+        "treated as a client's own workspace.",
         _THINNEST,
     ),
     "inbound_reserve_ratio": _m(
@@ -558,7 +569,7 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     "self_serve_inr_per_min": _m(
         "billing",
         "prices",
-        "Self-serve price per minute (INR)",
+        "Self-serve price per minute",
         "The self-serve list price per calling minute. Recording a rate card rewrites it.",
     ),
     "usd_inr_rate": _m(
@@ -583,7 +594,7 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "billing",
         "payments",
         "Razorpay mode",
-        "test or live. Must match the key id; production refuses test keys.",
+        "Test or live. It must match the key ID; production refuses test keys.",
     ),
     "auto_recharge_max_failures": _m(
         "billing",
@@ -594,7 +605,7 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     "razorpay_reconciliation_days": _m(
         "billing",
         "payments",
-        "Payment reconciliation window (days)",
+        "Payment reconciliation window",
         "How many days of Razorpay payments and refunds the daily check compares.",
     ),
     "gst_supplier_legal_name": _m(
@@ -625,14 +636,14 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     "campaign_consent_max_age_days": _m(
         "compliance",
         "checks",
-        "Maximum consent age for a campaign (days)",
+        "Maximum consent age for a campaign",
         "A campaign over a list whose consent is older than this is refused. 0 turns the "
         "age check off.",
     ),
     "pe_verification_max_age_days": _m(
         "compliance",
         "checks",
-        "How long a DLT PE verification stays valid (days)",
+        "How long a DLT PE verification stays valid",
         "After this, a principal-entity registration must be re-verified. 0 turns the check off.",
     ),
     "kyc_verification_provider": _m(
@@ -679,6 +690,20 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "google",
         "Google OAuth redirect URL",
         "Where Google returns a client after they authorise a calendar.",
+    ),
+    "google_signin_redirect_uri": _m(
+        "integrations",
+        "google",
+        "Google sign-in redirect URL",
+        "Where Google returns someone who chose Continue with Google; register it on the "
+        "same Google OAuth client.",
+    ),
+    "google_cloud_project_number": _m(
+        "integrations",
+        "google",
+        "Google Cloud project number",
+        "The project number the Google file picker uses so the sheets a client picks are "
+        "shared with Calevate.",
     ),
     "zoho_oauth_client_id": _m(
         "integrations",
@@ -762,7 +787,7 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     "maintenance_notice_lead_hours": _m(
         "notifications",
         "alerts",
-        "Maintenance notice lead time (hours)",
+        "Maintenance notice lead time",
         "How far ahead clients are told about a planned maintenance window.",
     ),
     "whatsapp_enabled": _m(
@@ -862,7 +887,7 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     "db_statement_timeout_ms": _m(
         "infrastructure",
         "database",
-        "Database statement timeout (ms)",
+        "Database statement timeout",
         "How long one query may run before it is cancelled.",
     ),
     "object_store_endpoint": _m(
@@ -903,6 +928,218 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "host:port of the origin server whose certificate expiry is checked daily.",
     ),
 }
+
+# ---- how each setting is edited -------------------------------------------------------
+#
+# `ops/config_controls.py` derives every setting's control from its `Settings` field: a
+# `bool` is a switch, a `Literal` a choice, bounds become a number's min and max, a pattern
+# becomes the format a text box checks. What follows is ONLY what the annotation cannot
+# say: the human words for an option, a unit, a value that names something which exists
+# elsewhere (a rented number, our workspace, a client), and which settings are dangerous
+# enough to need a typed confirmation. The server's validation is unchanged by any of it.
+
+
+@dataclass(frozen=True, slots=True)
+class OptionLabel:
+    value: str
+    label: str
+    #: One short line under the option, or None.
+    hint: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ControlHint:
+    #: Overrides the derived kind (see `config_controls.CONTROL_KINDS`).
+    kind: str | None = None
+    #: The unit a number is counted in, in words: "seconds", "calls", "per minute".
+    unit: str | None = None
+    #: For a `Literal` field: labels for (a subset of) its members. For a plain string
+    #: field whose code reads only a few values: THE choices, which the console offers in
+    #: place of a text box. Either way every value must be one the code acts on, which
+    #: `tests/ops_config_controls_test.py` checks against each reader's own constant.
+    options: tuple[OptionLabel, ...] = ()
+    #: Where the choices come from when they exist outside this file: an id the console
+    #: maps to a live read (`ENTITY_SOURCES`).
+    source: str | None = None
+    #: The value is a comma-separated list of choices rather than one.
+    multiple: bool = False
+    placeholder: str | None = None
+    #: One line under the input saying what a valid value looks like.
+    help: str | None = None
+
+
+#: The live reads an entity picker can be fed from, by id, and what each lists.
+ENTITY_SOURCES: Final[dict[str, str]] = {
+    "trial_numbers": "numbers our ThinnestAI developer workspace holds that no client has",
+    "thinnest_workspace": "our own ThinnestAI workspace, read from ThinnestAI",
+    "tenants": "client accounts on this platform",
+}
+
+_PROVIDER_ONLY_LOCAL = "For development only; refused outside a local machine."
+
+CONTROL_HINTS: Final[dict[str, ControlHint]] = {
+    # ---- choices among things that exist elsewhere ----------------------------------
+    "trial_caller_number": ControlHint(kind="entity_picker", source="trial_numbers"),
+    "thinnest_developer_workspace_id": ControlHint(
+        kind="entity_picker", source="thinnest_workspace"
+    ),
+    "retrieval_shadow_tenant_ids": ControlHint(
+        kind="entity_picker", source="tenants", multiple=True
+    ),
+    # Options filled from `healer/playbooks.PLAYBOOKS` by `config_controls`.
+    "healer_paused_playbooks": ControlHint(kind="multi_select", multiple=True),
+    # ---- labelled closed choices ----------------------------------------------------
+    "engine": ControlHint(
+        options=(
+            OptionLabel("thinnest", "ThinnestAI", "ThinnestAI hosts the whole call."),
+            OptionLabel("pipecat", "Our own runtime", "Our Pipecat loop on our carrier."),
+            OptionLabel("cartesia", "Cartesia", "Cartesia's hosted agents."),
+            OptionLabel("fake", "Test engine", "Places no real calls."),
+        )
+    ),
+    "carrier": ControlHint(options=(OptionLabel("vobiz", "Vobiz"), OptionLabel("plivo", "Plivo"))),
+    "thinnest_clear_voice_band": ControlHint(
+        options=(
+            OptionLabel("premium", "Premium voices", "Available on every ThinnestAI plan."),
+            OptionLabel("studio", "Studio voices", "Needs ThinnestAI Pro or above."),
+        )
+    ),
+    # Hints filled from `engine/thinnest_customers.PLAN_CUSTOMER_CAPS` by `config_controls`.
+    "thinnest_customer_plan": ControlHint(
+        options=(
+            OptionLabel("payg", "Pay as you go"),
+            OptionLabel("pro", "Pro"),
+            OptionLabel("scale", "Scale"),
+            OptionLabel("enterprise", "Enterprise"),
+        )
+    ),
+    "retrieval_provider": ControlHint(
+        options=(
+            OptionLabel("compiled-facts", "Compiled facts only", "No search store."),
+            OptionLabel("pgvector", "Postgres search", "Searches in our own database."),
+            OptionLabel("supermemory", "Supermemory", "A self-hosted Supermemory."),
+        )
+    ),
+    "retrieval_shadow_arm": ControlHint(
+        options=(
+            OptionLabel("off", "Off"),
+            OptionLabel("pgvector", "Postgres search"),
+            OptionLabel("supermemory", "Supermemory"),
+        )
+    ),
+    "razorpay_mode": ControlHint(
+        options=(
+            OptionLabel("test", "Test", "Test keys; no real money moves."),
+            OptionLabel("live", "Live", "Real payments."),
+        )
+    ),
+    "kyc_verification_environment": ControlHint(
+        options=(
+            OptionLabel("production", "Production", "Real verifications."),
+            OptionLabel("sandbox", "Sandbox", "Only with a test account."),
+        )
+    ),
+    # ---- free-text fields the code reads as a closed set ----------------------------
+    "email_provider": ControlHint(
+        kind="select",
+        options=(
+            OptionLabel("resend", "Resend"),
+            OptionLabel("smtp", "SMTP server", "Uses the SMTP settings below."),
+        ),
+    ),
+    "payment_provider": ControlHint(kind="select", options=(OptionLabel("razorpay", "Razorpay"),)),
+    "number_provider": ControlHint(
+        kind="select",
+        options=(
+            OptionLabel("vobiz", "Vobiz"),
+            OptionLabel("plivo", "Plivo"),
+            OptionLabel("exotel", "Exotel"),
+        ),
+    ),
+    "whatsapp_provider": ControlHint(
+        kind="select",
+        options=(
+            OptionLabel("meta_cloud_api", "Meta WhatsApp Cloud API"),
+            OptionLabel("console", "Console log", _PROVIDER_ONLY_LOCAL),
+        ),
+    ),
+    "google_sheets_provider": ControlHint(
+        kind="select",
+        options=(
+            OptionLabel("client_account", "Each client's own Google account"),
+            OptionLabel("console", "Console log", _PROVIDER_ONLY_LOCAL),
+        ),
+    ),
+    "meta_lead_retriever": ControlHint(
+        kind="select",
+        options=(
+            OptionLabel("graph", "Meta Graph API"),
+            OptionLabel("recorded", "Recorded examples", _PROVIDER_ONLY_LOCAL),
+        ),
+    ),
+    "kyc_verification_provider": ControlHint(
+        kind="select", options=(OptionLabel("cashfree", "Cashfree DigiLocker"),)
+    ),
+    # ---- units ----------------------------------------------------------------------
+    "self_serve_inr_per_min": ControlHint(unit="per minute"),
+    "usd_inr_rate": ControlHint(unit="per US dollar"),
+    "trial_call_max_seconds": ControlHint(kind="duration", unit="seconds"),
+    "db_statement_timeout_ms": ControlHint(kind="duration", unit="milliseconds"),
+    "maintenance_notice_lead_hours": ControlHint(unit="hours"),
+    "campaign_consent_max_age_days": ControlHint(unit="days", help="0 turns the check off."),
+    "pe_verification_max_age_days": ControlHint(unit="days", help="0 turns the check off."),
+    "self_serve_trial_days": ControlHint(unit="days"),
+    "self_serve_trial_free_minutes": ControlHint(unit="minutes"),
+    "razorpay_reconciliation_days": ControlHint(unit="days"),
+    "trial_daily_call_cap": ControlHint(unit="calls a day"),
+    "thinnest_max_concurrent_calls": ControlHint(unit="calls at once"),
+    "carrier_concurrency": ControlHint(unit="calls at once"),
+    "carrier_cps": ControlHint(unit="calls a second"),
+    "copilot_daily_message_cap": ControlHint(unit="questions a day"),
+    "copilot_daily_ktok_cap": ControlHint(unit="thousand tokens a day"),
+    "cartesia_agent_cap": ControlHint(unit="agents", help="0 switches the Studio voice off."),
+    "auto_recharge_max_failures": ControlHint(unit="failures in a row"),
+    "db_pool_size": ControlHint(unit="connections"),
+    # ---- formats --------------------------------------------------------------------
+    "pipecat_stream_base_url": ControlHint(kind="url", placeholder="wss://"),
+    "engine_actions_base_url": ControlHint(placeholder="https://api.calevate.tech"),
+    "tls_origin_address": ControlHint(placeholder="api.calevate.tech:443", help="host:port"),
+    "vobiz_callback_ips": ControlHint(help="Addresses separated by commas."),
+    "azure_openai_deployments": ControlHint(
+        placeholder="gpt-4.1-mini=my-deployment", help="model=deployment pairs, comma-separated."
+    ),
+    "google_cloud_project_number": ControlHint(help="Digits only, from the Google Cloud console."),
+    "whatsapp_cloud_graph_version": ControlHint(placeholder="v22.0"),
+    "whatsapp_template_locale": ControlHint(placeholder="en"),
+}
+
+#: Settings whose change can stop calls, move money, lock people out or change what a
+#: caller is told, with the sentence the change form shows. These ask the operator to type
+#: the new value back; every other setting is confirmed with one click. The server's own
+#: step-up check and audit write are the same for both.
+HIGH_RISK: Final[dict[str, str]] = {
+    "engine": "Every call and every agent publish moves to the engine you choose.",
+    "webhook_base_url": "Call events stop arriving if this address is wrong.",
+    "engine_actions_base_url": "In-call actions stop working if this address is wrong.",
+    "thinnest_byok_enabled": "Changes which keys ThinnestAI runs on and what each minute costs.",
+    "thinnest_clear_voice_band": "Changes which voices clients are sold as Clear.",
+    "thinnest_developer_workspace_id": "Decides which workspace is ours, not a client's.",
+    "carrier": "New calls are dialled on the carrier you choose.",
+    "vobiz_signature_required": "Turning it on before signing is set up refuses every call.",
+    "carrier_recording_enabled": "Changes whether callers are recorded and told they are.",
+    "self_serve_inr_per_min": "Every self-serve client is charged this price.",
+    "usd_inr_rate": "Dollar-priced costs are converted at this rate when no fresh rate exists.",
+    "payment_provider": "Clients pay through the provider you choose.",
+    "razorpay_mode": "Live takes real money; test takes none.",
+    "campaign_consent_max_age_days": "Decides which contact lists a campaign may call.",
+    "pe_verification_max_age_days": "Decides when a DLT registration must be re-verified.",
+    "kyc_verification_environment": "Sandbox verifications are not real identity checks.",
+    "healer_enabled": "Off stops every automatic repair.",
+    "first_party_auth_enabled": "Off locks everyone out, operators included.",
+    "self_serve_signup_enabled": "Decides whether anyone can open an account unaided.",
+    "azure_openai_resource": "A resource in another region moves where calls are processed.",
+}
+
 
 #: Words that keep a fixed spelling when a key is humanised. Lower-case key → spelling.
 _FIXED_WORDS: Final[dict[str, str]] = {
@@ -986,8 +1223,11 @@ def meta_for(key: str) -> FieldMeta:
 
 
 __all__ = [
+    "CONTROL_HINTS",
+    "ENTITY_SOURCES",
     "FIELD_META",
     "FIXED_SPELLINGS",
+    "HIGH_RISK",
     "OTHER_SECTION",
     "PANEL_DASHBOARD_DATA_USE",
     "PANEL_ENGINE_MINUTE_PRICE",
@@ -996,11 +1236,12 @@ __all__ = [
     "PANEL_NUMBER_PRICE",
     "PANEL_RATE_CARD",
     "PANEL_SERVER_ONLY_KEYS",
-    "PANEL_TRIAL_NUMBER",
     "PANEL_TTS_PLAN_FEE",
     "SECTIONS",
+    "ControlHint",
     "EngineScope",
     "FieldMeta",
+    "OptionLabel",
     "Section",
     "Subsection",
     "humanise",

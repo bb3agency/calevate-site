@@ -142,7 +142,7 @@ export function useEndpointOptions(session: Session): UseQueryResult<EndpointOpt
       return body;
     },
     // Both fields are constants of the DEPLOYMENT, not of the account: which events exist
-    // and whether a Google service account is configured change when we deploy or when an
+    // and whether the Google app is set up change when we deploy or when an
     // operator flips config, never per client action. The staleness this buys is exactly
     // why the server must keep refusing rather than trusting what we cached.
     staleTime: 30 * 60_000,
@@ -216,7 +216,7 @@ export function useCreateEndpoint(session: Session) {
 }
 
 /**
- * The refusal a deployment with no Google service account answers with.
+ * The refusal a deployment whose Google app is not set up answers with.
  *
  * `create_sheets_endpoint` checks `sheets_delivery_available()` BEFORE it writes anything,
  * and that is a FOUNDER/OPS decision (no `GOOGLE_SHEETS_PROVIDER`), not a fault: the

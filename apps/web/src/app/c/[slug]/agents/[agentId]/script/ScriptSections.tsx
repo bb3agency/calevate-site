@@ -24,6 +24,7 @@ import {
   SECONDARY_BUTTON_SM,
 } from "@/components/ui";
 import type { FaqEntry, ScriptStep } from "@/lib/api/script";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 /** The two text controls a merge field can be inserted into. */
 export type Focusable = HTMLInputElement | HTMLTextAreaElement;
@@ -283,6 +284,7 @@ export function EndCallSection({
   onChange: (rules: string[]) => void;
   trackFocus: (el: Focusable | null) => void;
 }) {
+  const eg = useVerticalExamples();
   return (
     <section>
       <span className={FIELD_LABEL}>Ending a call</span>
@@ -297,7 +299,7 @@ export function EndCallSection({
         aria-label="Extra end-call rules, one per line"
         onFocus={(e) => trackFocus(e.currentTarget)}
         onChange={(e) => onChange(e.target.value.split("\n"))}
-        placeholder={"Never promise a same-day appointment.\nAlways offer a callback if unsure."}
+        placeholder={eg.endCallRules}
       />
     </section>
   );

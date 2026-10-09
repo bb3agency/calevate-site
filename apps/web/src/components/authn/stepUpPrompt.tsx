@@ -149,7 +149,7 @@ export function StepUpPrompt() {
   // `checkingRef` and not only the `checking` state: the last digit submits the code, and
   // an Enter or a paste in the same tick would otherwise read a stale `false`.
   const checkingRef = useRef(false);
-  const confirm = useCallback(
+  const submitCode = useCallback(
     (value: string) => {
       if (checkingRef.current || value.length !== OTP_LENGTH) return;
       checkingRef.current = true;
@@ -182,9 +182,9 @@ export function StepUpPrompt() {
   const submit = useCallback(
     (event: React.FormEvent) => {
       event.preventDefault();
-      confirm(code);
+      submitCode(code);
     },
-    [code, confirm],
+    [code, submitCode],
   );
 
   // THE ONLY SUBSCRIBER LEAVING MEANS NOBODY CAN ANSWER. The shell unmounts on sign-out
@@ -254,7 +254,7 @@ export function StepUpPrompt() {
                   length={OTP_LENGTH}
                   value={code}
                   onChange={setCode}
-                  onComplete={confirm}
+                  onComplete={submitCode}
                   status={error && code === "" ? "error" : "idle"}
                   shakeKey={shakes}
                   readOnly={checking}

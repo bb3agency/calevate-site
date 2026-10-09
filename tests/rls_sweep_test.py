@@ -200,6 +200,15 @@ async def sweep() -> AsyncIterator[Sweep]:
                     "sid": source_id,
                 },
             )
+            # The healer's ledger (D-701) is RLS-exempt and append-only; one row each, for
+            # the same reason as the engine KB claim above.
+            await s.execute(
+                text(
+                    "INSERT INTO heal_actions (id, playbook, step, outcome, tenant_id, agent_id) "
+                    "VALUES (:id, 'sweep_fixture', 'act', 'ok', :tid, :aid)"
+                ),
+                {"id": uuid.uuid4(), "tid": org, "aid": agent},
+            )
 
     owner_url = Settings().alembic_database_url
     assert owner_url, "ALEMBIC_DATABASE_URL required: ground-truth counts bypass RLS"

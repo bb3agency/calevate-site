@@ -2,20 +2,13 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { BrainCircuit, Info, IndianRupee, Save, Sparkles } from "lucide-react";
+import { Info, IndianRupee, Save, Sparkles } from "lucide-react";
 
-import {
-  Disclosure,
-  FIELD_HINT,
-  ProblemNotice,
-  RestrictionNote,
-  formatRupeeRate,
-} from "@/components/ui";
+import { Disclosure, FIELD_HINT, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { ActionButton } from "@/components/actionButton";
 import { useToast } from "@/components/interior/toaster";
 import { ModelPicker, type ModelChoice } from "@/components/llmModelPicker";
 import { useWriteAccess } from "@/lib/api/hooks";
-import { compareRates } from "@/lib/llmRates";
 import {
   platformDefaultTier,
   tierOption,
@@ -46,8 +39,7 @@ export function OrganizationDefault({
   const { href } = useClientRealm();
   const session = useClientSession();
   const save = useSetOrganizationLlmDefault(session);
-  // Transient confirmation of the write; the "In force now" panel that refetches is what
-  // proves the new state.
+  // Transient confirmation of the write; the refetched list is what proves the new state.
   const { toast } = useToast();
   /**
    * `org:manage` — the owner's own permission, the one that already governs the account's
@@ -66,31 +58,28 @@ export function OrganizationDefault({
   const platformDefault = platformDefaultTier(defaults.available);
   const inForceSurchargeInr = defaults.in_force_surcharge_inr_per_minute;
 
-  const choices: ModelChoice[] = [
-    {
-      value: null,
-      label: "Use the Calevate default",
-      detail: !platformDefault
-        ? "Whatever tier we run by default, including after we change it."
-        : tierUnavailableReason(platformDefault) !== null
-          ? `Today that is ${platformDefault.label}, and it is not switched on for your account yet — your agents run our standard model until it is.`
-          : `Today that is ${platformDefault.label}. If we change it, your agents follow.`,
-      surcharge: "0",
-      badge: defaults.default_llm_tier === null ? "in use" : undefined,
-      baseline: defaults.default_llm_tier === null,
-    },
-    ...defaults.available.map<ModelChoice>((option) => ({
-      value: option.tier,
-      label: option.label,
-      detail: option.is_platform_default
-        ? `${option.description} The tier we run by default.`
-        : option.description,
-      surcharge: option.client_surcharge_inr_per_minute,
-      badge: defaults.default_llm_tier === option.tier ? "in use" : undefined,
-      baseline: defaults.default_llm_tier === option.tier,
-      unavailable: tierUnavailableReason(option),
-    })),
-  ];
+  // One row per tier. The default tier's row IS "follow Calevate's default" (`null` on the
+  // wire); pinning that same tier is the box under it, not a second row. An older API that
+  // names no default keeps the separate inherit row, since there is no row to fold it into.
+  const tiers = defaults.available.map<ModelChoice>((option) => ({
+    value: option.tier,
+    label: option.label,
+    detail: option.description,
+    surcharge: option.client_surcharge_inr_per_minute,
+    baseline: option.tier === defaults.effective_tier,
+    unavailable: tierUnavailableReason(option),
+  }));
+  const choices: ModelChoice[] = platformDefault
+    ? tiers
+    : [
+        {
+          value: null,
+          label: "Calevate's default",
+          detail: "Whatever tier we run by default, including after we change it.",
+          surcharge: "0",
+        },
+        ...tiers,
+      ];
 
   return (
     <>
@@ -106,32 +95,12 @@ export function OrganizationDefault({
           );
         }}
       >
-        <div className="border-y border-line py-3.5">
-          <p className="flex items-center gap-1.5 text-[15px] font-semibold text-ink">
-            <BrainCircuit aria-hidden className="h-4 w-4 shrink-0 text-ink-faint" />
-            {`In force now: ${defaults.effective_tier_label}`}
-          </p>
-          <p className="mt-0.5 text-[13px] text-ink-muted">
-            {defaults.default_llm_tier === null
-              ? "You have not picked a tier, so your agents run on the one Calevate uses by default."
-              : "You picked this tier for your account."}
-            {compareRates(inForceSurchargeInr, "0") === "same" ? (
-              <> It adds nothing to what you are charged for a minute.</>
-            ) : (
-              <>
-                {" "}
-                It adds {formatRupeeRate(inForceSurchargeInr)} to every minute you are
-                charged for.
-              </>
-            )}
-          </p>
-        </div>
-        {/* The tier named above is the one we INTEND to run; this says when it is not the
-            one answering yet. A warning, not help text: it changes what a call runs on. */}
+        {/* The tier marked as running is the one we INTEND to run; this says when it is not
+            the one answering yet. A warning, not help text: it changes what a call runs on. */}
         {!defaults.effective_is_available && (
           <p className="rounded-lg border border-warn-line bg-warn-soft px-3 py-2 text-sm text-ink">
-            It is not switched on for your account yet, so your calls run our standard model
-            until it is — ask your Calevate team to enable it.
+            {defaults.effective_tier_label} is not switched on for your account yet, so your
+            calls run our standard model until it is — ask your Calevate team to enable it.
           </p>
         )}
 
@@ -151,6 +120,15 @@ export function OrganizationDefault({
           // does not carry is the inherit row.
           onChange={(next) => setPicked({ tier: tierOption(defaults.available, next)?.tier ?? null })}
           audience="client"
+          followDefault={
+            platformDefault
+              ? {
+                  value: platformDefault.tier,
+                  badge: "Default",
+                  keepLabel: `Keep ${platformDefault.label} even if Calevate changes the default`,
+                }
+              : undefined
+          }
         />
 
         <div className="flex flex-wrap items-center gap-3">

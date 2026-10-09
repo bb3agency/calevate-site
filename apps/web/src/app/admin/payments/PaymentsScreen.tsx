@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { useAdminAccess } from "@/app/admin/access";
+import { FileDrop } from "@/components/fileDrop";
 import {
   Card,
   DANGER_BUTTON,
@@ -27,6 +28,10 @@ import {
   useRecentPayments,
   useRunReconciliation,
 } from "@/lib/api/adminPayments";
+
+/** `payment_admin_routes._EVIDENCE_TYPES` and `_EVIDENCE_MAX_BYTES`: what the API accepts. */
+const EVIDENCE_ACCEPT = "application/pdf,image/jpeg,image/png";
+const EVIDENCE_MAX_BYTES = 5 * 1024 * 1024;
 
 /**
  * Payments (D-699): is Razorpay set up and in which mode, what to register as the webhook,
@@ -217,15 +222,17 @@ function DisputeRow({ dispute, canAct }: { dispute: Dispute; canAct: boolean }) 
               ))}
             </select>
           </label>
-          <label className="block">
-            <span className={FIELD_LABEL}>Documents (PDF, JPEG or PNG, 5 MB each)</span>
-            <input
-              type="file"
-              multiple
-              accept="application/pdf,image/jpeg,image/png"
-              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-            />
-          </label>
+          <FileDrop
+            label="Evidence documents"
+            hint="PDF, JPEG or PNG, up to 5 MB each."
+            accept={EVIDENCE_ACCEPT}
+            maxBytes={EVIDENCE_MAX_BYTES}
+            multiple
+            disabled={contest.isPending}
+            onFiles={(picked) => setFiles((held) => [...held, ...picked])}
+            files={files}
+            onRemove={(index) => setFiles((held) => held.filter((_, i) => i !== index))}
+          />
           <div className="flex flex-wrap gap-2">
             <button
               type="button"

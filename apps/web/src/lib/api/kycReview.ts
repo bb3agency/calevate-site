@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 
 import { adminSession } from "./admin";
 import { apiRequest } from "./client";
+import { openProtectedFile } from "./protectedFile";
 import { HOLDS_QUERY_KEY } from "./holds";
 import type { components } from "./schema";
 
@@ -74,39 +75,12 @@ export function useSetDigiLockerRequirement(tenantId: string) {
 }
 
 /** The browser refused to open a tab for the document, so nothing was shown. */
-export class KycViewerBlockedError extends Error {
-  constructor() {
-    super(
-      "Your browser blocked the new tab, so the file was not opened. Allow pop-ups for this site, then press Open again.",
-    );
-    this.name = "KycViewerBlockedError";
-  }
-}
+export { ViewerBlockedError as KycViewerBlockedError } from "./protectedFile";
 
 /**
  * Open one KYC file for review. The server decrypts it and audits the view; the bytes are
  * shown from memory and never cached or saved to disk.
- *
- * The tab is opened BEFORE the fetch, in the click's own task: a `window.open` after an
- * `await` is no longer a user gesture, and pop-up blockers drop it without a word. So
- * call this straight from the click handler. A failed read closes the empty tab and throws.
  */
-export async function openKycDocument(tenantId: string, documentId: string): Promise<void> {
-  const viewer = window.open("", "_blank");
-  if (viewer === null) throw new KycViewerBlockedError();
-  // Opened without `noopener` so its location can be set below; cut the back-reference now.
-  viewer.opener = null;
-  try {
-    const blob = await apiRequest<Blob>(
-      adminSession(),
-      `/v1/admin/tenants/${tenantId}/kyc/documents/${documentId}`,
-      { responseType: "blob" },
-    );
-    const url = URL.createObjectURL(blob);
-    viewer.location.href = url;
-    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  } catch (error) {
-    viewer.close();
-    throw error;
-  }
+export function openKycDocument(tenantId: string, documentId: string): Promise<void> {
+  return openProtectedFile(adminSession(), `/v1/admin/tenants/${tenantId}/kyc/documents/${documentId}`);
 }

@@ -13,9 +13,10 @@ sheet, call their own API. Built in `apps/api/actions/`; synced to ThinnestAI by
 1. OPERATIONS gates A-1..A-3: the Google, Zoho and HubSpot apps registered and their three
    settings each saved in the ops console. Until then each connect button reads "Not
    available yet" and nothing else breaks.
-2. Google Sheets uses the lead-delivery service account (D-23): `GOOGLE_SHEETS_PROVIDER=
-   service_account` and its key. The Connections screen shows the address clients share
-   their sheet with.
+2. Google Sheets (D-703): OPERATIONS gate G-2 — the Sheets and Picker APIs enabled, the
+   `drive.file` scope added, a website-restricted picker key and the project number saved.
+   Each client then connects Google Sheets on their own Google account and picks each
+   spreadsheet in Google's picker; nothing is shared by hand.
 3. `ENGINE_ACTIONS_BASE_URL` is the API's public https address (the same one our four
    platform actions use).
 4. Run gate A-7: one client action, end to end, on a real call.

@@ -3992,6 +3992,25 @@ _CARRIER_LINES_IN_USE_SQL = text(
 )
 
 
+async def _platform_scalar(session: AsyncSession, statement: Any, params: dict[str, Any]) -> int:
+    """A platform-wide count read on a session that may be a TENANT session.
+
+    `carrier_lines_in_use()` and `dispatch_scan()` enumerate tenants from
+    `engine_agent_routes`, whose policy shows every row only while `app.tenant_id` is
+    unset; inside a tenant session they saw that one tenant, so a dial counted its own
+    account's lines against a platform-wide cap and the cap could be overrun. The setting
+    is cleared for the count and put back, inside the caller's transaction.
+    """
+    entry = (await session.execute(text("SELECT current_setting('app.tenant_id', true)"))).scalar()
+    await session.execute(text("SELECT set_config('app.tenant_id', '', true)"))
+    try:
+        return int((await session.execute(statement, params)).scalar_one())
+    finally:
+        await session.execute(
+            text("SELECT set_config('app.tenant_id', :t, true)"), {"t": entry or ""}
+        )
+
+
 async def _count_carrier_lines(session: AsyncSession, *, carrier: str | None = None) -> int:
     """Calls holding a line on `carrier` (default: the switch) right now, both directions.
 
@@ -4005,7 +4024,7 @@ async def _count_carrier_lines(session: AsyncSession, *, carrier: str | None = N
         "live": LIVE_LINE_HORIZON.total_seconds(),
         "ring": RING_LINE_HORIZON.total_seconds(),
     }
-    return int((await session.execute(_CARRIER_LINES_IN_USE_SQL, params)).scalar_one())
+    return await _platform_scalar(session, _CARRIER_LINES_IN_USE_SQL, params)
 
 
 async def carrier_lines_in_use(*, carrier: str | None = None) -> int:
@@ -4059,16 +4078,10 @@ async def _hold_engine_line(session: AsyncSession) -> None:
     await session.execute(
         text("SELECT pg_advisory_xact_lock(:key)"), {"key": CARRIER_LINES_LOCK_KEY}
     )
-    in_use = int(
-        (
-            await session.execute(
-                _ENGINE_LINES_IN_USE_SQL,
-                {
-                    "statuses": _ENGINE_LINE_STATUSES,
-                    "horizon": ENGINE_LINE_HORIZON.total_seconds(),
-                },
-            )
-        ).scalar_one()
+    in_use = await _platform_scalar(
+        session,
+        _ENGINE_LINES_IN_USE_SQL,
+        {"statuses": _ENGINE_LINE_STATUSES, "horizon": ENGINE_LINE_HORIZON.total_seconds()},
     )
     pool = outbound_line_pool()
     if in_use >= pool:

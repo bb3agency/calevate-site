@@ -316,6 +316,15 @@ async def test_an_inbound_lookup_runs_under_the_opening_line_with_no_filler(
 
     tenant_id, agent_id, ref, _secret = await _published(vendor)
     async with tenant_session(tenant_id) as session:
+        # A sheet is read through the client's own Google connection (D-703).
+        sheets = await creds.create_credential(
+            session,
+            tenant_id=tenant_id,
+            kind="google_sheets",
+            label="Google Sheets",
+            secret="1//test-refresh-token",
+            non_secret={"scope": "https://www.googleapis.com/auth/drive.file"},
+        )
         await service.create_tool(
             session,
             tenant_id=tenant_id,
@@ -326,7 +335,7 @@ async def test_an_inbound_lookup_runs_under_the_opening_line_with_no_filler(
             description="Find out who is calling from the client sheet.",
             trigger="during_call",
             pre_call_message="Let me check.",
-            credential_id=None,
+            credential_id=sheets.id,
             params=[],
             config={
                 "spreadsheet_id": "a" * 44,

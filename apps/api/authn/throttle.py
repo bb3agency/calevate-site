@@ -142,6 +142,12 @@ OTP_MAX_ATTEMPTS: Final = 5
 #: chase an email that a sixth request would not make arrive any faster.
 RESET_BUDGET: Final = Budget("reset", threshold=5, window_s=900)
 
+#: SELF-SERVE SIGNUP REQUESTS (D-703). `RESET_BUDGET`'s shape and reasons — a request from
+#: a stranger's address, counted on the existing and the new arm alike, bounding mail to
+#: one address — in its own keyspace so asking for a signup code cannot use up the
+#: owner's password resets, nor the reverse.
+SIGNUP_BUDGET: Final = Budget("signup", threshold=5, window_s=900)
+
 
 def _key(budget: Budget, realm: str, subject_id: UUID) -> str:
     return f"{KEY_PREFIX}:{budget.name}:{realm}:{subject_id}"
@@ -296,6 +302,7 @@ __all__ = [
     "OTP_MAX_ATTEMPTS",
     "PASSWORD_BUDGET",
     "RESET_BUDGET",
+    "SIGNUP_BUDGET",
     "Budget",
     "clear",
     "penalty_delay_s",

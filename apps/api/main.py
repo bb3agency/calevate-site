@@ -121,6 +121,7 @@ def _mount_routers(application: FastAPI) -> None:
         client_auth_router,
         invite_router,
     )
+    from apps.api.authn.self_serve_routes import router as self_serve_auth_router
     from apps.api.billing.ai_quota_routes import router as ai_quota_router
     from apps.api.billing.auto_recharge_routes import router as auto_recharge_router
     from apps.api.billing.cap_routes import router as caps_router
@@ -197,6 +198,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.legal.routes import router as legal_readiness_router
     from apps.api.ops.config_routes import rate_card_router as ops_rate_card_router
     from apps.api.ops.config_routes import router as ops_config_router
+    from apps.api.ops.config_sources import router as ops_config_sources_router
     from apps.api.ops.dashboard_data_use_routes import router as ops_data_use_router
     from apps.api.ops.engine_minute_routes import router as ops_engine_minute_prices_router
     from apps.api.ops.fx_routes import router as ops_fx_router
@@ -242,6 +244,8 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(admin_auth_router)
     application.include_router(client_auth_router)
     application.include_router(invite_router)
+    # D-703: self-serve account creation and Google sign-in, client realm only.
+    application.include_router(self_serve_auth_router)
     application.include_router(admin_router)
     # The ops hold queue. Its own `/v1/admin/compliance/...` prefix rather than a path
     # under `admin_router`: `/v1/admin/tenants/{tenant_id}` would swallow any literal
@@ -551,6 +555,8 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(ops_fx_router)
     # The shared free-trial number's candidates (D-697).
     application.include_router(ops_trial_number_router)
+    # The live reads behind the config screen's pickers (D-704).
+    application.include_router(ops_config_sources_router)
     # The auto-healer (D-701): the client's incidents, fallback phone and proposals, the
     # operator's playbooks and ledger, and the public status page's one read.
     application.include_router(healer_router)

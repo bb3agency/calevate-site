@@ -391,6 +391,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "MATERIAL: nothing we do on our own account changed; each flow runs only "
                 "when a client connects its own account and switches it on.",
             ),
+            # D-703.
+            Revision(
+                "19",
+                False,
+                "D-703: 'Identity and sign-in' says a person may sign in with Google, what "
+                "Google tells us (name, email, whether it is verified, a fixed account "
+                "identifier) and that Google learns of the sign-in. NOT MATERIAL: an option "
+                "a person chooses; nothing changes for an account that does not use it.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -889,6 +898,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "and that only the owner connects them. NOT MATERIAL: no company processes "
                 "data for us that did not before; each acts only for a client that "
                 "connects it.",
+            ),
+            # D-703.
+            Revision(
+                "19",
+                False,
+                "D-703: Sheets is reached through the Google account the client connects and "
+                "only the spreadsheets it picks, instead of a document shared with our "
+                "service account. NOT MATERIAL: the client's own processor, acting for it, "
+                "with narrower access than before.",
             ),
         ),
         effective_date="2026-09-02",

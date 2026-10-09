@@ -157,6 +157,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "qa_report_unreadable": "record",
     "kb_upload_unavailable": "record",
     "calendar_oauth_failed": "record",
+    "sheets_oauth_failed": "record",
+    # D-703: Google did not answer a sign-in's code exchange; the person tries again.
+    "google_unreachable": "record",
     "config_key_vanished": "record",
     # The FAKE engine's own refusals. They cannot fire in production at all — the fake is
     # the test double — and classifying them keeps the registry exhaustive rather than
@@ -875,6 +878,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # the platform refused and an incident that needs a person are each callers going
     # unanswered or a repair that has run out, and wake somebody.
     "agent_health_degraded": "attention",
+    # An operator's own status post: the incident is the record, nobody needs waking.
+    "status_post": "record",
     "agent_line_broken": "page",
     "engine_platform_outage": "page",
     "healer_needs_person": "page",

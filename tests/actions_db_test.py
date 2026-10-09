@@ -142,13 +142,9 @@ async def test_action_invocation_rls_zero_rows_across_tenants() -> None:
             tenant_id=a,
             payload={"tool_id": str(tool.id), "status": "http_200", "source": "test"},
         )
-        assert (
-            await sa.execute(text("SELECT count(*) FROM action_invocations"))
-        ).scalar_one() == 1
+        assert (await sa.execute(text("SELECT count(*) FROM action_invocations"))).scalar_one() == 1
     async with tenant_session(b) as sb:
-        assert (
-            await sb.execute(text("SELECT count(*) FROM action_invocations"))
-        ).scalar_one() == 0
+        assert (await sb.execute(text("SELECT count(*) FROM action_invocations"))).scalar_one() == 0
 
 
 @pytest.mark.asyncio

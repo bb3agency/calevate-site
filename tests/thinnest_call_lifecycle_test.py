@@ -228,17 +228,15 @@ async def _routed_tenant() -> tuple[uuid.UUID, uuid.UUID]:
 
 
 async def _in_use(tenant_id: uuid.UUID) -> int:
+    """Lines held across the platform, counted the way `_hold_engine_line` counts them."""
     async with tenant_session(tenant_id) as session:
-        return int(
-            (
-                await session.execute(
-                    agents_service._ENGINE_LINES_IN_USE_SQL,
-                    {
-                        "statuses": agents_service._ENGINE_LINE_STATUSES,
-                        "horizon": carrier_pacing.ENGINE_LINE_HORIZON.total_seconds(),
-                    },
-                )
-            ).scalar_one()
+        return await agents_service._platform_scalar(
+            session,
+            agents_service._ENGINE_LINES_IN_USE_SQL,
+            {
+                "statuses": agents_service._ENGINE_LINE_STATUSES,
+                "horizon": carrier_pacing.ENGINE_LINE_HORIZON.total_seconds(),
+            },
         )
 
 

@@ -326,7 +326,12 @@ def _reaches_write_audit(endpoint: Any, *, depth: int = 2) -> bool:
 #: EMPTY, and it should stay that way: an operator act on the platform or on a client that
 #: leaves no row is the state SEC-COMP §5 exists to forbid. An entry here is a claim that
 #: the route changes nothing anybody could later be asked to account for.
-_NOT_AN_AUDITED_MUTATION: dict[str, str] = {}
+_NOT_AN_AUDITED_MUTATION: dict[str, str] = {
+    "POST /v1/admin/copilot/actions/{action_id}/undo": (
+        "every admin assistant action is confirm-tier, so this route only ever refuses "
+        "(409 copilot_action_not_undoable, or 404) and changes nothing"
+    ),
+}
 
 
 def test_every_admin_realm_mutation_writes_an_audit_row() -> None:

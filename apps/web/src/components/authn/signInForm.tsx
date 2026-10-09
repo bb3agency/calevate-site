@@ -81,6 +81,8 @@ export interface SignInFormProps {
   heading: ReactNode;
   /** Extra copy under the form — the invitation hint, the bootstrap hint. */
   footer?: ReactNode;
+  /** Other ways in, shown above the email field: the client realm's Google button. */
+  alternatives?: ReactNode;
 }
 
 /**
@@ -100,7 +102,14 @@ function useIncompleteSignOut(): boolean {
 
 type Step = "credentials" | "code";
 
-export function SignInForm({ authn, onSignedIn, forgotPath, heading, footer }: SignInFormProps) {
+export function SignInForm({
+  authn,
+  onSignedIn,
+  forgotPath,
+  heading,
+  footer,
+  alternatives,
+}: SignInFormProps) {
   const [step, setStep] = useState<Step>("credentials");
   const signOutIncomplete = useIncompleteSignOut();
   const [email, setEmail] = useState("");
@@ -303,6 +312,7 @@ export function SignInForm({ authn, onSignedIn, forgotPath, heading, footer }: S
   return (
     <form className="space-y-5" onSubmit={onCredentials} noValidate>
       {heading}
+      {alternatives}
       <AuthField
         label="Email address"
         type="email"

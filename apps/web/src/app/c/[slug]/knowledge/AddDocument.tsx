@@ -1,7 +1,9 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
-import { Link2, Paperclip, Upload } from "lucide-react";
+import { useId, useState } from "react";
+import { Link2 } from "lucide-react";
+
+import { FileDrop } from "@/components/fileDrop";
 
 import {
   FIELD_HINT,
@@ -15,7 +17,7 @@ import { useAddLink, useUploadDocument } from "@/lib/api/kb";
 import { useClientSession } from "@/lib/api/session";
 import type { UploadProgress } from "@/lib/api/client";
 
-import { ACCEPTED_KINDS_SENTENCE, ACCEPT_ATTRIBUTE, MAX_UPLOAD_MB, fileSize } from "./uploadCopy";
+import { ACCEPTED_KINDS_SENTENCE, ACCEPT_ATTRIBUTE, MAX_UPLOAD_MB } from "./uploadCopy";
 
 /**
  * THE DOOR FOR A DOCUMENT, A PHOTOGRAPH AND A LINK — the half of this screen the founder
@@ -27,15 +29,12 @@ import { ACCEPTED_KINDS_SENTENCE, ACCEPT_ATTRIBUTE, MAX_UPLOAD_MB, fileSize } fr
  *
  * ## Three things here are decisions, not layout
  *
- * 1. **The drop zone is a `<label>` around a real `<input type="file">`.** The input is
- *    `sr-only` — visually hidden, NOT `display:none` — so it keeps its place in the tab
- *    order and opens the picker on Enter or Space, and the label gives it a big visible
- *    target for a pointer. A `<div onDrop>` with a click handler is the shape that looks
- *    identical and is unreachable from a keyboard; the drag handlers here are an
- *    ADDITION to a working control, never the control itself.
- * 2. **The accepted kinds are said before a file is chosen.** The API refuses `.doc`
- *    with a remediation naming the fix, and that refusal is worth keeping — but making a
- *    person discover the list by being refused is a choice, and this is the other one.
+ * 1. **The control is the kit's `FileDrop`** (a label around a real, focusable file
+ *    input; see its header). Only the SIZE is checked in the browser: the API refuses
+ *    `.doc` with a remediation naming the fix (Save as .docx), which a generic "that kind
+ *    of file cannot be sent" here would hide.
+ * 2. **The accepted kinds are said before a file is chosen**, in the paragraph above the
+ *    control — making a person discover the list by being refused is the other choice.
  * 3. **Progress is real bytes, not a spinner.** 20 MB over a phone uplink is minutes of
  *    apparent silence, and a form that looks frozen gets pressed twice — which here means
  *    the same price list arriving twice and being reviewed twice. `apiUpload` reports what
@@ -52,10 +51,7 @@ export function AddDocument({
   const upload = useUploadDocument(session);
   const link = useAddLink(session);
 
-  const fileInputId = useId();
   const urlInputId = useId();
-  const fileInput = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [url, setUrl] = useState("");
   // The house refusal: our sentence, in our surface, rather than Chrome's bubble in
@@ -78,7 +74,6 @@ export function AddDocument({
         onSettled: () => {
           setProgress(null);
           setSending(null);
-          if (fileInput.current) fileInput.current.value = "";
         },
       },
     );
@@ -101,77 +96,15 @@ export function AddDocument({
 
         {upload.error && <ProblemNotice error={upload.error} />}
 
-        {/* The drop zone. `htmlFor` rather than a click handler on the box: the label IS
-            the control's label, so a screen reader announces the sentence inside it when
-            the input takes focus, and the pointer target is the whole box for free. */}
-        <label
-          htmlFor={fileInputId}
-          onDragOver={(event) => {
-            event.preventDefault();
-            if (!disabled) setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(event) => {
-            event.preventDefault();
-            setDragging(false);
-            const dropped = event.dataTransfer.files[0];
-            if (dropped) send(dropped);
-          }}
-          className={`flex cursor-pointer flex-col items-center gap-2 rounded-card border border-dashed px-4 py-6 text-center transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app ${
-            dragging ? "border-brand bg-brand-soft" : "border-line bg-app"
-          } ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
-        >
-          <input
-            ref={fileInput}
-            id={fileInputId}
-            type="file"
-            className="sr-only"
-            accept={ACCEPT_ATTRIBUTE}
-            disabled={disabled}
-            onChange={(event) => {
-              const chosen = event.target.files?.[0];
-              if (chosen) send(chosen);
-            }}
-          />
-          <Upload aria-hidden className="h-5 w-5 text-ink-faint" />
-          <span className="text-sm font-medium text-ink">
-            Choose a file, or drag one here
-          </span>
-          <span className="text-xs text-ink-muted">One at a time.</span>
-        </label>
-
-        {/* THE BAR, and the sentence beside it. `role="progressbar"` with the three ARIA
-            values so a screen reader can follow it too; a bar with no accessible name is
-            an unlabelled widget axe will fail, and a person listening gets nothing. */}
-        {progress && (
-          <div className="space-y-1">
-            <p className="flex items-center gap-2 text-xs text-ink-muted">
-              <Paperclip aria-hidden className="h-3.5 w-3.5 shrink-0" />
-              <span>
-                Sending {sending?.name ?? "your file"}
-                {percent === null ? "…" : ` — ${percent}%`}
-                {fileSize(sending?.size) ? ` of ${fileSize(sending?.size)}` : ""}
-              </span>
-            </p>
-            <div
-              role="progressbar"
-              aria-label="Sending your file"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              // Absent while the browser cannot compute a total, which is what an
-              // indeterminate progressbar is: a bar drawn against a guessed total lies.
-              aria-valuenow={percent ?? undefined}
-              className="h-1.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10"
-            >
-              {/* Scaled rather than resized: progress events arrive many times a second,
-                  and a width transition re-lays-out the card on every one of them. */}
-              <div
-                className="h-full w-full origin-left rounded-full bg-brand-strong transition-transform duration-(--duration-base) ease-out"
-                style={{ transform: `scaleX(${(percent ?? 10) / 100})` }}
-              />
-            </div>
-          </div>
-        )}
+        <FileDrop
+          label="Your document or photo"
+          hint={`One at a time, up to ${MAX_UPLOAD_MB} MB.`}
+          accept={ACCEPT_ATTRIBUTE}
+          validate={sizeProblem}
+          disabled={disabled}
+          onFiles={([file]) => send(file)}
+          sending={sending ? { file: sending, percent } : null}
+        />
 
         <div className="border-t border-line pt-4">
           <form
@@ -226,4 +159,13 @@ export function AddDocument({
       </div>
     </div>
   );
+}
+
+/** The one rule the browser previews: the API's `MAX_UPLOAD_BYTES`, said its way. */
+function sizeProblem(file: File): string | null {
+  if (file.size === 0) return "That file is empty.";
+  if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+    return `That file is over ${MAX_UPLOAD_MB} MB. Split it into smaller documents, or send the price list on its own.`;
+  }
+  return null;
 }

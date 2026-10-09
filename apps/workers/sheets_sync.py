@@ -8,11 +8,10 @@ integration that silently never fires. This module removes the silence by owning
 SEAM — `SheetsTransport`, a console dev sink, the row mapping, and a set of named
 refusals — and nothing here knows what Google is.
 
-The vendor half now exists and lives behind that seam in `apps/workers/google_sheets.py`
-(`GOOGLE_SHEETS_PROVIDER=service_account`): a service account the client shares their own
-document with, minting its own OAuth2 token, calling `spreadsheets.values.append`. It is
-selected by config and imported inside `get_sheets_transport`, so a deployment with no
-Google credential never loads it and every refusal below still reads the same. No vendor
+The vendor half lives behind that seam in `apps/workers/google_sheets.py`: the CLIENT'S own
+Google account (D-703), connected once with the `drive.file` scope, writes the rows into the
+spreadsheet they picked in Google's Picker. The endpoint's `secret_ref` holds the id of that
+`google_sheets` connection, resolved inside the endpoint's own tenant at delivery time. No vendor
 SDK was added for it — `pyjwt[crypto]` and `httpx` were already in the lockfile and the
 API is three REST calls (hard rule 9: a vendor SDK on a guess is the supply-chain move,
 and this one would have been a guess).
@@ -57,15 +56,21 @@ Ids, the worksheet name and counts only.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
+from uuid import UUID
 
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.integrations import service
 
 log = get_logger(__name__)
+
+#: Mints the access token for one append (`google_sheets.TokenSource`, restated here so the
+#: seam does not import the adapter).
+TokenSource = Callable[[Any], Awaitable[str | None]]
 
 # The Sheets API's own parameter name and the ONLY value this integration may use.
 # `USER_ENTERED` makes every cell a candidate expression; `RAW` stores what we send.
@@ -85,10 +90,9 @@ PROVIDER_NOT_IMPLEMENTED_REASON = "provider_not_implemented"
 
 # The dev sink. Not a vendor — it writes to a terminal.
 CONSOLE_PROVIDER = "console"
-# The real one: `apps/workers/google_sheets.py`, a service account the client shares
-# their document with. Kept as a name here rather than imported from that module so the
-# selector below can decide WITHOUT importing an httpx/JWT stack it may not need.
-SERVICE_ACCOUNT_PROVIDER = "service_account"
+# The real one: `apps/workers/google_sheets.py`, writing with the client's own Google
+# account. Unset means this too.
+CLIENT_ACCOUNT_PROVIDER = "client_account"
 
 
 # --- the request ----------------------------------------------------------------
@@ -98,10 +102,9 @@ SERVICE_ACCOUNT_PROVIDER = "service_account"
 class SheetAppend:
     """One row, addressed. Everything an adapter needs and nothing it does not.
 
-    `credential_ref` is a secrets-manager REFERENCE (`outbound_webhooks.secret_ref`),
-    never a credential: resolving it is the adapter's job at the moment of use, so no
-    key material passes through this module, gets held in a dataclass, or reaches a
-    traceback.
+    `credential_ref` is the id of the endpoint's Google Sheets connection
+    (`outbound_webhooks.secret_ref`), never a credential: the token is minted at the
+    moment of use, so no key material is held in a dataclass or reaches a traceback.
     """
 
     spreadsheet_id: str
@@ -206,66 +209,78 @@ class UnconfiguredSheetsTransport:
         return AppendResult(AppendStatus.REJECTED, reason=self._reason)
 
 
-def get_sheets_transport() -> SheetsTransport:
+def get_sheets_transport(token_source: TokenSource | None = None) -> SheetsTransport:
     """Selected by config, exactly like `whatsapp.get_whatsapp_transport()`.
 
-    `google_sheets_provider` is the seam where a real adapter lands. Any name other
-    than the dev sink resolves to `provider_not_implemented`, on purpose: setting
-    `GOOGLE_SHEETS_PROVIDER=gspread` today must fail loudly rather than look configured.
-
-    This used to read `app_env == "local"` and nothing else, which was honest about the
-    transport but useless to everything else — "are we on a laptop" is not a statement
-    about Google Sheets, so no client-facing surface could gate on it, and the config
-    file could not record that a deployment had been given an adapter. The environment
-    is now only the FALLBACK, and it is explicit: unset means the dev sink locally and
-    a refusal everywhere else.
+    `google_sheets_provider`: `console` is the local dev sink (refused outside local);
+    unset or `client_account` is the client's own Google account, available once the
+    platform's Google app and Picker are configured (`actions.sheets.picker_configured`);
+    any other name fails loudly rather than looking configured. Unset on a laptop is the
+    dev sink, so the suite and local runs need no Google project.
     """
     settings = get_settings()
     provider = (settings.google_sheets_provider or "").strip().lower()
 
-    if provider == SERVICE_ACCOUNT_PROVIDER:
-        # Imported HERE, not at module scope: `apps.workers.google_sheets` imports this
-        # module for the Protocol and the result vocabulary, so a top-level import would
-        # be a cycle. The seam depends on nothing; the adapter depends on the seam.
-        from apps.workers.google_sheets import GoogleSheetsTransport
-
-        raw = (settings.google_sheets_service_account_json or "").strip()
-        if not raw:
-            # A provider named with no key behind it is the same class of operator error
-            # as the dev sink outside local: it would report a transport that cannot
-            # authenticate, and `sheets_delivery_available()` — the API's gate — would
-            # start offering the checkbox.
-            return UnconfiguredSheetsTransport(NO_CREDENTIALS_REASON)
-        return GoogleSheetsTransport(raw)
-
-    if provider == CONSOLE_PROVIDER:
+    if provider == CONSOLE_PROVIDER or (not provider and settings.app_env == "local"):
         if settings.app_env != "local":
-            # An explicit dev sink outside local is operator error, and it is the kind
-            # that reports every lead appended forever. Refuse it rather than swallow
-            # rows into a terminal nobody reads.
+            # An explicit dev sink outside local would report every lead appended forever.
             return UnconfiguredSheetsTransport(DEV_SINK_OUTSIDE_LOCAL_REASON)
         return ConsoleSheetsTransport()
-    if provider:
+    if provider and provider != CLIENT_ACCOUNT_PROVIDER:
         return UnconfiguredSheetsTransport(f"{PROVIDER_NOT_IMPLEMENTED_REASON}:{provider}")
-    if settings.app_env == "local":
-        return ConsoleSheetsTransport()
-    return UnconfiguredSheetsTransport(NO_CREDENTIALS_REASON)
+
+    from apps.api.actions.sheets import picker_configured
+
+    if not picker_configured():
+        return UnconfiguredSheetsTransport(NO_CREDENTIALS_REASON)
+    if token_source is None:
+        return UnconfiguredSheetsTransport(NO_CREDENTIAL_REF_REASON)
+    # Imported HERE: `google_sheets` imports this module for the Protocol and the result
+    # vocabulary, so a top-level import would be a cycle.
+    from apps.workers.google_sheets import GoogleSheetsTransport
+
+    return GoogleSheetsTransport(token_source)
 
 
 def sheets_delivery_available() -> bool:
     """Can THIS deployment append to a sheet at all?
 
-    Asked by the config surface (`POST /v1/integrations/endpoints/sheets`) so that a
-    client is never handed an endpoint nothing can deliver to. It is deliberately the
-    SAME selector the worker calls rather than a second read of the same settings: a
-    config screen that decided for itself whether sheets work would eventually disagree
-    with the worker, and the disagreement would read as "the screen says configured and
-    the spreadsheet stays empty" — the exact defect this module exists to kill.
-
-    It answers for the TRANSPORT only. Whether a particular endpoint has a credential
-    reference is a property of that row, checked in `append_event`.
+    Asked by the config surface (`POST /v1/integrations/endpoints/sheets`) so a client is
+    never handed an endpoint nothing can deliver to. The same selector the worker calls,
+    so the screen and the worker cannot disagree. Whether a particular endpoint has a
+    connection is a property of that row, checked in `append_event`.
     """
-    return not isinstance(get_sheets_transport(), UnconfiguredSheetsTransport)
+    probe: TokenSource = _no_token
+    return not isinstance(get_sheets_transport(probe), UnconfiguredSheetsTransport)
+
+
+async def _no_token(_http: Any) -> str | None:
+    return None
+
+
+def client_token_source(tenant_id: UUID, credential_id: UUID) -> TokenSource:
+    """Mint an access token from this tenant's Google Sheets connection, inside the tenant.
+
+    Resolved under `tenant_session`, so an endpoint can only ever name its own tenant's
+    connection (hard rule 1); a connection of another kind, or one since deleted, yields
+    no token and the append is refused on the client's delivery screen.
+    """
+
+    async def source(http: Any) -> str | None:
+        from apps.api.actions import credentials as creds
+        from apps.api.actions.execution import access_token_for
+        from apps.api.db.session import tenant_session
+
+        async with tenant_session(tenant_id) as session:
+            resolved = await creds.resolve_credential(
+                session, tenant_id=tenant_id, credential_id=credential_id
+            )
+        if resolved is None or resolved.kind != "google_sheets":
+            log.info("sheet_connection_missing", extra={"tenant_id": str(tenant_id)})
+            return None
+        return await access_token_for(resolved, credential_id=credential_id, client=http)
+
+    return source
 
 
 # --- the mapping + the one call the delivery worker makes ------------------------
@@ -274,6 +289,7 @@ def sheets_delivery_available() -> bool:
 async def append_event(
     *,
     endpoint: dict[str, Any],
+    tenant_id: UUID,
     event: str,
     data: dict[str, Any],
     delivery_id: Any,
@@ -297,8 +313,10 @@ async def append_event(
         return _refused(NO_SPREADSHEET_REASON)
 
     credential_ref = str(endpoint.get("secret") or "").strip()
-    if not credential_ref:
-        # An endpoint with no secrets-manager reference cannot reach any sheet, ever.
+    try:
+        credential_id = UUID(credential_ref)
+    except ValueError:
+        # No Google Sheets connection attached: this endpoint cannot reach any sheet.
         # Saying so on the delivery screen is the entire point of this module.
         return _refused(NO_CREDENTIAL_REF_REASON)
 
@@ -308,7 +326,8 @@ async def append_event(
         # keys shifts every value the first time a field is absent.
         return _refused(f"no_column_order:{event}")
 
-    result = await get_sheets_transport().append(
+    transport = get_sheets_transport(client_token_source(tenant_id, credential_id))
+    result = await transport.append(
         SheetAppend(
             spreadsheet_id=spreadsheet_id,
             worksheet=service.sheet_worksheet(mapping),
@@ -345,13 +364,13 @@ def _refused(reason: str) -> service.DeliveryResult:
 
 __all__ = [
     "CHANNEL",
+    "CLIENT_ACCOUNT_PROVIDER",
     "CONSOLE_PROVIDER",
     "DEV_SINK_OUTSIDE_LOCAL_REASON",
     "NO_CREDENTIALS_REASON",
     "NO_CREDENTIAL_REF_REASON",
     "NO_SPREADSHEET_REASON",
     "PROVIDER_NOT_IMPLEMENTED_REASON",
-    "SERVICE_ACCOUNT_PROVIDER",
     "VALUE_INPUT_OPTION",
     "AppendResult",
     "AppendStatus",
@@ -360,6 +379,7 @@ __all__ = [
     "SheetsTransport",
     "UnconfiguredSheetsTransport",
     "append_event",
+    "client_token_source",
     "get_sheets_transport",
     "sheets_delivery_available",
 ]

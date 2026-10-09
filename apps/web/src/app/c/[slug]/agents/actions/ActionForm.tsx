@@ -69,7 +69,7 @@ const DURING_CALL_ONLY: readonly Kind[] = ["caller_lookup", "payment_link"];
 const NAME_PLACEHOLDER: Record<Kind, string> = {
   custom_api: "check_order_status",
   whatsapp: "send_price_list",
-  calendar: "book_appointment",
+  calendar: "book_a_slot",
   sheets: "save_answers",
   payment_link: "send_payment_link",
   crm: "save_to_crm",
@@ -132,7 +132,9 @@ export function ActionForm({
       description,
       trigger: DURING_CALL_ONLY.includes(kind) ? "during_call" : trigger,
       pre_call_message: preCall || null,
-      credential_id: credentialId || null,
+      // A sheet's Google account is chosen with the spreadsheet itself.
+      credential_id:
+        (credentialKind === "google_sheets" ? draft.sheet_credential : credentialId) || null,
       params: params.map(toParam),
       config: buildConfig(kind, provider, draft, params),
     };
@@ -228,7 +230,7 @@ export function ActionForm({
         valid={valid}
       />
 
-      {credentialKind ? (
+      {credentialKind && credentialKind !== "google_sheets" ? (
         relevantCreds === undefined ? (
           <ProblemNotice
             error={creds.error ?? new Error("Your connected accounts could not be loaded.")}

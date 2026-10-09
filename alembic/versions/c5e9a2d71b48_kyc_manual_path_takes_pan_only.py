@@ -91,8 +91,8 @@ def upgrade() -> None:
         ondelete="RESTRICT",
     )
 
-    for table in ("kyc_records", "kyc_documents"):
-        op.execute(f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE kyc_records NO FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE kyc_documents NO FORCE ROW LEVEL SECURITY")
     try:
         op.execute(
             sa.text(
@@ -107,8 +107,8 @@ def upgrade() -> None:
             "WHERE kind = 'aadhaar' AND delete_requested_at IS NULL"
         )
     finally:
-        for table in ("kyc_records", "kyc_documents"):
-            op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
+        op.execute("ALTER TABLE kyc_records FORCE ROW LEVEL SECURITY")
+        op.execute("ALTER TABLE kyc_documents FORCE ROW LEVEL SECURITY")
 
     for table, checks in _CHECKS.items():
         for name, predicate in checks.items():

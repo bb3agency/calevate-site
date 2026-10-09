@@ -10,8 +10,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import OpsConfigPage from "@/app/admin/ops/config/page";
-import { appliesVerdict } from "@/app/admin/ops/config/configField";
-import { OPS_CONFIG_SECTIONS, SELF_SERVE_PRICE_META, placed } from "./fixtures/opsConfig";
+import { appliesCopy } from "@/app/admin/ops/config/configControl";
+import { OPS_CONFIG_SECTIONS, SELF_SERVE_PRICE_META, control, placed } from "./fixtures/opsConfig";
 import { testOutcomeCopy } from "@/app/admin/ops/opsLanguage";
 import { ApiProblem } from "@/lib/api/client";
 import {
@@ -385,7 +385,10 @@ function renderOps(routes: Routes) {
   return Object.assign(result, { container: document.body, calls, client });
 }
 
-/** Fill the config form for one key. Assumes the row's Change button is already clicked. */
+/**
+ * Fill the config form for one key. Assumes the row's Change button is already clicked.
+ * `confirm` is the phrase a high-risk setting asks for: the new value, typed back.
+ */
 function fillConfigForm(over: {
   value: string;
   reason: string;
@@ -402,7 +405,7 @@ function fillConfigForm(over: {
 }
 
 function saveButton(): HTMLButtonElement {
-  return screen.getByRole("button", { name: /^Save$/ }) as HTMLButtonElement;
+  return screen.getByRole("button", { name: /^Save change$/ }) as HTMLButtonElement;
 }
 
 function writeCount(calls: { method: string }[], method: string): number {
@@ -465,7 +468,7 @@ describe("two operators, one key", () => {
     fillConfigForm({
       value: "8.00",
       reason: "raising the self-serve rate",
-      confirm: "SELF_SERVE_INR_PER_MIN",
+      confirm: "8.00",
     });
     fireEvent.click(saveButton());
 
@@ -474,12 +477,13 @@ describe("two operators, one key", () => {
     );
 
     // WHAT IT IS NOW, WHO, WHEN — all three, from the server's own re-read rather than
-    // from anything the console remembered.
-    // The row's value, the conflict box's, and the server's own sentence inside it.
-    expectTextCount(container, "7.25", 3);
-    // The row's provenance, the conflict box's, and the server's sentence.
-    expectTextCount(container, "Priya", 3);
-    expectTextCount(container, "board approved the Q3 rate", 2); // the row's note, and theirs
+    // from anything the console remembered, inside the box that stops the write.
+    const box = screen
+      .getByText("Someone changed this setting first — nothing was saved")
+      .closest("div.rounded-card") as HTMLElement;
+    expect(box.textContent).toContain("₹7.25 per minute");
+    expect(box.textContent).toContain("Changed by Priya");
+    expect(box.textContent).toContain("board approved the Q3 rate");
     // The literal, in IST at the edge — not `formatIST(...)`, which would compare the
     // function under test against itself and pass on any format at all.
     expect(container.textContent).toContain("15 Aug, 10:00 am");
@@ -502,7 +506,7 @@ describe("two operators, one key", () => {
     fillConfigForm({
       value: "8.00",
       reason: "raising the self-serve rate",
-      confirm: "SELF_SERVE_INR_PER_MIN",
+      confirm: "8.00",
     });
     fireEvent.click(saveButton());
 
@@ -573,7 +577,7 @@ describe("two operators, one key", () => {
     fillConfigForm({
       value: "8.00",
       reason: "raising the self-serve rate",
-      confirm: "SELF_SERVE_INR_PER_MIN",
+      confirm: "8.00",
     });
     fireEvent.click(saveButton());
     await screen.findByText(
@@ -586,16 +590,12 @@ describe("two operators, one key", () => {
 
     // THE CONFIRMATION IS GONE. Overriding a peer is a fresh decision, so the typed word
     // that authorised the first attempt does not carry over to the second.
-    const confirmBox = screen.getByPlaceholderText(
-      "SELF_SERVE_INR_PER_MIN",
-    ) as HTMLInputElement;
+    const confirmBox = screen.getByPlaceholderText("8.00") as HTMLInputElement;
     expect(confirmBox.value).toBe("");
     expect(saveButton().disabled).toBe(true);
     expect(writeCount(calls, "PUT")).toBe(1);
 
-    fireEvent.change(confirmBox, {
-      target: { value: "SELF_SERVE_INR_PER_MIN" },
-    });
+    fireEvent.change(confirmBox, { target: { value: "8.00" } });
     fireEvent.click(saveButton());
     await waitFor(() => expect(writeCount(calls, "PUT")).toBe(2));
 
@@ -618,7 +618,7 @@ describe("two operators, one key", () => {
     fillConfigForm({
       value: "8.00",
       reason: "raising the self-serve rate",
-      confirm: "SELF_SERVE_INR_PER_MIN",
+      confirm: "8.00",
     });
     expect(saveButton().disabled).toBe(false);
 
@@ -644,7 +644,7 @@ describe("two operators, one key", () => {
     expect(saveButton().disabled).toBe(true);
     // Nothing was attempted, so nothing has to be undone.
     expect(writeCount(calls, "PUT")).toBe(0);
-    expect(container.textContent).toContain("Nothing you typed has been sent");
+    expect(container.textContent).toContain("Nothing you chose has been sent");
 
     // AND CONTINUING IS A FRESH DECISION. This half is asserted HERE rather than only on
     // the server-refused path, and that is not duplication: on this path nothing failed,
@@ -654,9 +654,7 @@ describe("two operators, one key", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Keep mine and replace theirs" }),
     );
-    const confirmBox = screen.getByPlaceholderText(
-      "SELF_SERVE_INR_PER_MIN",
-    ) as HTMLInputElement;
+    const confirmBox = screen.getByPlaceholderText("8.00") as HTMLInputElement;
     expect(confirmBox.value).toBe("");
     expect(saveButton().disabled).toBe(true);
     expect(writeCount(calls, "PUT")).toBe(0);
@@ -684,7 +682,7 @@ describe("two operators, one key", () => {
     fillConfigForm({
       value: "8.00",
       reason: "raising the self-serve rate",
-      confirm: "SELF_SERVE_INR_PER_MIN",
+      confirm: "8.00",
     });
     fireEvent.click(saveButton());
 
@@ -751,9 +749,8 @@ describe("two operators, one key", () => {
 
     await screen.findByText("self_serve_inr_per_min");
     fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
-    fireEvent.change(screen.getByPlaceholderText("SELF_SERVE_INR_PER_MIN"), {
-      target: { value: "SELF_SERVE_INR_PER_MIN" },
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Use the default" }));
+    fireEvent.change(screen.getByPlaceholderText("6.00"), { target: { value: "6.00" } });
     fireEvent.click(screen.getByRole("button", { name: /Revert to default/ }));
 
     await waitFor(() => expect(writeCount(calls, "DELETE")).toBe(1));
@@ -806,6 +803,7 @@ describe("what saving will actually do, said before the save", () => {
             value: 16,
             default: 16,
             kind: "integer",
+            control: control("number", { unit: "connections" }),
             applies: "on_restart",
             caveat: "the SQLAlchemy engine is built once per process",
           }),
@@ -821,11 +819,9 @@ describe("what saving will actually do, said before the save", () => {
     // operator has scrolled past.
     const form = saveButton().closest("form");
     expect(form).not.toBeNull();
-    expect(form?.textContent).toContain("Needs a restart to take effect");
-    expect(form?.textContent).toContain("the old value keeps running");
-    expect(form?.textContent).toContain(
-      "the SQLAlchemy engine is built once per process",
-    );
+    expect(form?.textContent).toContain("Applies after a restart");
+    expect(form?.textContent).toContain("the old value stays in force");
+    expect(form?.textContent).toContain("SQLAlchemy engine is built once per process");
   });
 
   it("does not let a live-but-not-retroactive change read as a finished one", async () => {
@@ -841,6 +837,7 @@ describe("what saving will actually do, said before the save", () => {
             default: null,
             has_default: false,
             kind: "string",
+            control: control("url", { risk: "high", risk_reason: "Call events stop arriving." }),
             // The API's own word for it (`core/platform_config.NEEDS_REPUBLISH`), which
             // is neither `live` nor `on_restart`: a restart does not fix it and waiting
             // does not either.
@@ -856,13 +853,11 @@ describe("what saving will actually do, said before the save", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
     const form = saveButton().closest("form");
 
-    expect(form?.textContent).toContain(
-      "Live within seconds, but NOT retroactive",
-    );
+    expect(form?.textContent).toContain("Applies after agents are republished");
     expect(form?.textContent).toContain("must be re-published");
     // The sentence a plain live field gets, which this one must NOT get: it is the
     // difference between a change that worked and one that half did.
-    expect(form?.textContent).not.toContain("nothing to re-publish");
+    expect(form?.textContent).not.toContain("Applies immediately");
   });
 
   it("refuses to claim a change is live when it cannot read the label", async () => {
@@ -880,42 +875,34 @@ describe("what saving will actually do, said before the save", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
     const form = saveButton().closest("form");
 
-    expect(form?.textContent).toContain(
-      "This build cannot say when this takes effect",
-    );
+    expect(form?.textContent).toContain("Timing not known");
     expect(form?.textContent).toContain("on_republish");
-    expect(form?.textContent).not.toContain("Live within seconds");
+    expect(form?.textContent).not.toContain("Applies immediately");
   });
 
   it("has words for every answer the API has, and one more", () => {
     // `core/platform_config.APPLIES_VALUES`, verbatim. A value this build cannot name is
     // the sixth case, and it is the only one that may not read as an assurance.
-    const id = (applies: string, caveat: string | null = null) =>
-      appliesVerdict(configField({ applies, caveat })).id;
+    const label = (applies: string, caveat: string | null = null) =>
+      appliesCopy(configField({ applies, caveat })).label;
 
-    expect(id("live")).toBe("live");
-    expect(id("on_restart")).toBe("on_restart");
-    expect(id("needs_republish")).toBe("needs_republish");
-    expect(id("env_only")).toBe("env_only");
-    expect(id("unclassified")).toBe("unclassified");
-    expect(id("someday")).toBe("unknown");
-    // A LIVE field carrying a caveat is a classification that has drifted; the sentence
-    // somebody wrote about the key is rendered rather than dropped on the floor.
-    expect(id("live", "re-publish the agents")).toBe("needs_republish");
+    expect(label("live")).toBe("Applies immediately");
+    expect(label("on_restart")).toBe("Applies after a restart");
+    expect(label("needs_republish")).toBe("Applies after agents are republished");
+    expect(label("env_only")).toBe("Can only be changed on the server");
+    expect(label("unclassified")).toBe("Timing not known");
+    expect(label("someday")).toBe("Timing not known");
+    // A caveat somebody wrote about the key is said, never dropped on the floor.
+    expect(appliesCopy(configField({ applies: "live", caveat: "re-publish the agents" })).sentence).toContain(
+      "Re-publish the agents.",
+    );
 
-    // EVERY answer but the plain one warns. `live` is the only quiet branch, and it is
-    // the only one where there is nothing left for an operator to do.
-    const quiet = [
-      "live",
-      "on_restart",
-      "needs_republish",
-      "env_only",
-      "unclassified",
-      "x",
-    ]
-      .map((a) => appliesVerdict(configField({ applies: a })).tone)
-      .filter((tone) => tone !== "warn");
-    expect(quiet).toEqual(["neutral"]);
+    // Only a plain `live` reads as reassurance; every other answer is a warning or a
+    // neutral statement that something is left to do or not known.
+    const reassuring = ["live", "on_restart", "needs_republish", "env_only", "unclassified", "x"].filter(
+      (a) => appliesCopy(configField({ applies: a })).tone === "ok",
+    );
+    expect(reassuring).toEqual(["live"]);
   });
 
   it("gives a key nobody classified its own reason, not the environment's", async () => {
@@ -936,7 +923,7 @@ describe("what saving will actually do, said before the save", () => {
 
     await screen.findByText("self_serve_inr_per_min");
     expect(container.textContent).toContain(
-      "This build has not said when a change would take effect",
+      "doesn't record when a change to this setting takes effect",
     );
     expect(container.textContent).not.toContain(
       "The environment always wins over the console",
@@ -956,6 +943,7 @@ describe("what saving will actually do, said before the save", () => {
             value: 16,
             default: 16,
             kind: "integer",
+            control: control("number", { unit: "connections" }),
             source: "default",
             editable: false,
             applies: "env_only",
@@ -969,14 +957,12 @@ describe("what saving will actually do, said before the save", () => {
     await screen.findByText("db_pool_size");
     // ONCE. The row's own applies line and the read-only reason are the same sentence,
     // and a screen that prints a warning twice teaches an operator to read neither.
-    expectTextCount(container, "The store can never deliver this value", 1);
+    expectTextCount(container, "A value saved here would never be read", 1);
     expect(container.textContent).toContain("DB_POOL_SIZE");
     // The distinction the API's own comment insists on: `on_restart` PROMISES a restart
     // is enough, and this one does not. Rendering them the same would send an operator to
     // bounce a process and wonder why nothing changed.
-    expect(container.textContent).not.toContain(
-      "Needs a restart to take effect",
-    );
+    expect(container.textContent).not.toContain("Applies after a restart");
   });
 });
 
@@ -988,7 +974,7 @@ describe("the receipt is the server's answer", () => {
         [`PUT ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]: {
           key: "self_serve_inr_per_min",
           previous: "6.00",
-          // The model coerced the trailing zero away. This is exactly the case where the
+          // The model normalised the leading zero away. This is exactly the case where the
           // typed value and the stored value differ, and the screen must show the second.
           field: configField({
             value: "7.25",
@@ -1005,18 +991,18 @@ describe("the receipt is the server's answer", () => {
     await screen.findByText("self_serve_inr_per_min");
     fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
     fillConfigForm({
-      value: "7.250",
+      value: "07.25",
       reason: "Q3 self-serve price change",
-      confirm: "SELF_SERVE_INR_PER_MIN",
+      confirm: "07.25",
     });
     fireEvent.click(saveButton());
 
     const receipt = await screen.findByRole("status");
-    expect(receipt.textContent).toContain("7.25");
-    expect(receipt.textContent).toContain("was 6.00");
-    expect(receipt.textContent).toContain("configuration version 43");
+    expect(receipt.textContent).toContain(
+      "changed from ₹6.00 per minute to ₹7.25 per minute",
+    );
     // The typed string appears NOWHERE — not in the receipt and not left in a form.
-    expectTextCount(container, "7.250", 0);
+    expectTextCount(container, "07.25", 0);
   });
 
   it("says when the process serving this screen has not picked the change up", async () => {
@@ -1046,14 +1032,12 @@ describe("the receipt is the server's answer", () => {
     fillConfigForm({
       value: "7.25",
       reason: "Q3 self-serve price change",
-      confirm: "SELF_SERVE_INR_PER_MIN",
+      confirm: "7.25",
     });
     fireEvent.click(saveButton());
 
-    await screen.findByText(
-      "The process serving this screen has not picked it up yet",
-    );
-    expect(container.textContent).toContain("It still reports 6.00");
+    await screen.findByText("This screen has not picked up the change yet");
+    expect(container.textContent).toContain("It still shows ₹6.00 per minute");
   });
 
   it("never renders a receipt for a write that failed", async () => {
@@ -1071,9 +1055,10 @@ describe("the receipt is the server's answer", () => {
     await screen.findByText("self_serve_inr_per_min");
     fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
     fillConfigForm({
-      value: "not a number",
+      // Passes the console's own check, so the refusal is the server's.
+      value: "9.99",
       reason: "fat fingers",
-      confirm: "SELF_SERVE_INR_PER_MIN",
+      confirm: "9.99",
     });
     fireEvent.click(saveButton());
 
@@ -1095,14 +1080,15 @@ describe("a write the server did not perform", () => {
   beforeEach(() => openSection("billing"));
   it("says nothing was written when the value was already the value", async () => {
     // `recorded: false` — `set_value` found the submitted value identical to the stored
-    // one, touched no row, bumped no sentinel and wrote no audit entry. A double-clicked
-    // Save, or two operators reaching the same conclusion, produces exactly this.
+    // one, touched no row, bumped no sentinel and wrote no audit entry. Two operators
+    // reaching the same conclusion produce exactly this: the screen still read 6.00 when
+    // this one chose 6.50, and a peer had already stored 6.50.
     renderOps(
       opsRoutes({
         [`PUT ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]: {
           key: "self_serve_inr_per_min",
-          previous: "6.00",
-          field: configField(),
+          previous: "6.50",
+          field: configField({ value: "6.50", source: "db", updated_by: "Priya" }),
           config_version: 42,
           recorded: false,
           etag: '"7"',
@@ -1113,17 +1099,17 @@ describe("a write the server did not perform", () => {
     await screen.findByText("self_serve_inr_per_min");
     fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
     fillConfigForm({
-      value: "6.00",
+      value: "6.50",
       reason: "confirming the Q3 rate",
-      confirm: "SELF_SERVE_INR_PER_MIN",
+      confirm: "6.50",
     });
     fireEvent.click(saveButton());
 
     const receipt = await screen.findByRole("status");
-    expect(receipt.textContent).toContain("Already the value");
-    expect(receipt.textContent).toContain("no audit entry was made");
+    expect(receipt.textContent).toContain("No change");
+    expect(receipt.textContent).toContain("nothing was saved or recorded");
     // The word that would be a lie: nothing was stored by this request.
-    expect(receipt.textContent).not.toContain("Stored.");
+    expect(receipt.textContent).not.toContain("Saved.");
   });
 });
 
@@ -1256,6 +1242,7 @@ describe("a key the environment pins", () => {
           kind: "string",
           default: null,
           has_default: false,
+          control: control("text"),
         }),
       ]);
 
@@ -1732,7 +1719,7 @@ describe("the states that only exist after a click are still operable", () => {
     fillConfigForm({
       value: "8.00",
       reason: "raising the self-serve rate",
-      confirm: "SELF_SERVE_INR_PER_MIN",
+      confirm: "8.00",
     });
     fireEvent.click(saveButton());
     await screen.findByText(
@@ -1774,7 +1761,7 @@ describe("the states that only exist after a click are still operable", () => {
     fillConfigForm({
       value: "7.25",
       reason: "Q3 self-serve price change",
-      confirm: "SELF_SERVE_INR_PER_MIN",
+      confirm: "7.25",
     });
     fireEvent.click(saveButton());
     await screen.findByRole("status");

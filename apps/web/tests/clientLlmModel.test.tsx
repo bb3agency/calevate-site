@@ -121,7 +121,7 @@ describe("the account's default model tier", () => {
   it("names tiers and never a model or the company behind it", async () => {
     const { container } = await renderClientPage(settingsPage, settingsRoutes());
 
-    await screen.findByText(/In force now: Standard/);
+    await screen.findByRole("radio", { name: /^Standard/ });
     for (const label of ["Standard", "Plus", "Pro"]) {
       expect(radio(new RegExp(`^${label}`))).toBeTruthy();
     }
@@ -133,7 +133,7 @@ describe("the account's default model tier", () => {
   it("prices every tier at the precision the server sent, and never through a float", async () => {
     const { container } = await renderClientPage(settingsPage, settingsRoutes());
 
-    await screen.findByText(/In force now: Standard/);
+    await screen.findByRole("radio", { name: /^Standard/ });
     expect(container.textContent).toContain("+₹1.5000 / min");
     expect(container.textContent).toContain("No extra charge");
     expect(container.textContent).not.toContain("₹1.50 /");
@@ -166,7 +166,7 @@ describe("the account's default model tier", () => {
     );
 
     expect(await screen.findByRole("status")).toBeTruthy();
-    expect(container.textContent).not.toContain("In force now");
+    expect(container.textContent).not.toContain("Standard");
     expect(container.textContent).not.toContain("₹");
   });
 
@@ -183,7 +183,7 @@ describe("the account's default model tier", () => {
     );
 
     await screen.findByRole("alert");
-    expect(container.textContent).not.toContain("In force now");
+    expect(container.textContent).not.toContain("Standard");
     expect(container.textContent).not.toContain("₹");
   });
 
@@ -230,7 +230,7 @@ describe("the account's default model tier", () => {
     );
 
     await act(async () => {
-      fireEvent.click(await screen.findByRole("radio", { name: /Use the Calevate default/ }));
+      fireEvent.click(await screen.findByRole("radio", { name: /^Standard/ }));
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Save model/ }));
@@ -263,7 +263,8 @@ describe("the account's default model tier", () => {
 
     const refusal = await screen.findByRole("alert");
     expect(refusal.textContent).toContain("Plus isn't switched on for your account yet.");
-    expect(container.textContent).toContain("In force now: Standard");
+    expect(radio(/^Standard/).closest("label")?.textContent).toContain("the model running now");
+    expect(container.textContent).not.toMatch(/saved/i);
   });
 
   it("says so when the tier in force is one this platform cannot run yet", async () => {
@@ -288,10 +289,12 @@ describe("the account's default model tier", () => {
     );
 
     await waitFor(() =>
-      expect(container.textContent).toContain("your agents run our standard model until it is"),
+      expect(container.textContent).toContain("so your calls run our standard model until it is"),
     );
-    expect(container.textContent).toContain("so your calls run our standard model until it is");
-    expect(radio(/^Standard/).disabled).toBe(true);
+    // Following the default stays possible; pinning a tier that cannot run does not.
+    await waitFor(() => expect(radio(/^Standard/).disabled).toBe(false));
+    const keep = screen.getByRole("checkbox", { name: /Keep Standard/ }) as HTMLInputElement;
+    expect(keep.disabled).toBe(true);
   });
 
   it("shows a tier this platform cannot run, disabled, with the server's reason", async () => {
@@ -467,12 +470,12 @@ describe("where one agent's model tier came from", () => {
   it("says an inheriting agent is following the account, and where to change that", async () => {
     const { container } = await renderClientPage(agentPage, agentRoutes());
 
-    await screen.findByText(/Using your organisation default: Standard/);
-    expect(container.textContent).toContain("Every agent that has not been given its own");
+    await screen.findByText(/This agent follows your organisation default/);
     expect(screen.getByRole("link", { name: /Change it for every agent/ })).toBeTruthy();
-    await screen.findByRole("radio", { name: /Follow my organisation/ });
-    // The server says this agent's minutes carry no surcharge, so the screen says so.
-    expect(container.textContent).toContain("It adds nothing to what you are charged");
+    const standard = await screen.findByRole("radio", { name: /^Standard/ });
+    expect((standard as HTMLInputElement).checked).toBe(true);
+    expect(standard.closest("label")?.textContent).toContain("Organisation default");
+    expect(container.textContent).not.toContain("Follow my organisation");
     expect(container.textContent ?? "").not.toMatch(VENDOR_WORDS);
   });
 
@@ -482,14 +485,13 @@ describe("where one agent's model tier came from", () => {
       agentRoutes({ "/v1/agents/agent-1": agent(OWN_PLUS) }),
     );
 
-    await screen.findByText(/This agent has its own model: Plus/);
+    await screen.findByText(/This agent has its own model/);
     expect(container.textContent).toContain("ignores your organisation default");
-    expect(container.textContent).not.toContain("Using your organisation default");
-    await screen.findByRole("radio", { name: /Follow my organisation/ });
-    // `llm_surcharged` x the plan's upgrade rate — the server's rule, not re-derived.
-    expect(container.textContent).toContain(
-      "It adds ₹1.5000 to every minute this agent is charged for",
-    );
+    expect(container.textContent).not.toContain("follows your organisation default");
+    const plus = await screen.findByRole("radio", { name: /^Plus/ });
+    expect((plus as HTMLInputElement).checked).toBe(true);
+    expect(plus.closest("label")?.textContent).toContain("+₹1.5000 / min");
+    expect(plus.closest("label")?.textContent).toContain("the model running now");
   });
 
   it("puts an overridden agent back on the account default with an explicit null", async () => {
@@ -502,7 +504,7 @@ describe("where one agent's model tier came from", () => {
     );
 
     await act(async () => {
-      fireEvent.click(await screen.findByRole("radio", { name: /Follow my organisation/ }));
+      fireEvent.click(await screen.findByRole("radio", { name: /^Standard/ }));
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Go back to the organisation default/ }));
@@ -535,7 +537,7 @@ describe("where one agent's model tier came from", () => {
       agentRoutes({ "/v1/organization/llm-defaults": withAnUnavailableTier() }),
     );
 
-    await waitFor(() => expect(radio(/^Follow my organisation/).disabled).toBe(false));
+    await waitFor(() => expect(radio(/^Standard/).disabled).toBe(false));
     expect(radio(/^Plus/).disabled).toBe(true);
     expect(container.textContent).toContain("ask your Calevate team to enable it");
     expect(container.textContent).not.toContain("deployment");
@@ -549,8 +551,57 @@ describe("where one agent's model tier came from", () => {
       }),
     );
 
-    await screen.findByText(/Using your organisation default: Standard/);
-    expect(screen.queryByRole("radio", { name: /Follow my organisation/ })).toBeNull();
+    await screen.findByText(/This agent follows your organisation default/);
+    expect(screen.queryByRole("radio", { name: /^Standard/ })).toBeNull();
     expect(container.textContent).toContain("part of the record of what it did");
+  });
+});
+
+describe("each fact is said once", () => {
+  it("lists each tier once, with the default marked on its own row", async () => {
+    const { container } = await renderClientPage(settingsPage, settingsRoutes());
+
+    const standard = await screen.findByRole("radio", { name: /^Standard/ });
+    expect((standard as HTMLInputElement).checked).toBe(true);
+    expect(standard.closest("label")?.textContent).toContain("Default");
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("In force now");
+    expect(text).not.toContain("Use the Calevate default");
+    expect(text).not.toContain("The tier we run by default");
+    expect(text.split("No extra charge")).toHaveLength(2);
+  });
+
+  it("pins the default tier only when the owner asks to keep it", async () => {
+    const { calls } = await renderClientPage(
+      settingsPage,
+      settingsRoutes({
+        "PUT /v1/organization/llm-defaults": defaults({ default_llm_tier: "standard" }),
+      }),
+    );
+
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("checkbox", { name: /Keep Standard even if/ }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Save model/ }));
+    });
+
+    const put = calls.find((call) => call.method === "PUT");
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({ default_llm_tier: "standard" });
+  });
+
+  it("gives an unavailable tier its reason as a sentence, and no price", async () => {
+    await renderClientPage(
+      settingsPage,
+      settingsRoutes({ "/v1/organization/llm-defaults": withAnUnavailableTier() }),
+    );
+
+    const plus = await screen.findByRole("radio", { name: /^Plus/ });
+    const row = plus.closest("label")?.textContent ?? "";
+    expect(row).toContain("It isn't switched on for your account yet; ask your Calevate team to enable it.");
+    expect(row).not.toContain("₹");
+    expect(row).not.toContain("No extra charge");
+    expect(row).not.toContain("Unavailable");
   });
 });

@@ -11,38 +11,17 @@ round-trips to a third party, and the API's own budget for a request handler doe
 include waiting on `oauth2.googleapis.com`.
 
 --------------------------------------------------------------------------------------
-WHY A SERVICE ACCOUNT, NOT AN INSTALLED-APP OAUTH FLOW
+WHOSE GOOGLE ACCOUNT WRITES THE ROW
 --------------------------------------------------------------------------------------
-Both models can write to a spreadsheet a CUSTOMER owns. The choice was made on who
-holds what, and it is a per-document share:
-
-* **Service account + the client shares their sheet with our robot address.** Access is
-  granted, and revoked, by the client in the Sheets UI they already know — "Share" →
-  paste the address → Editor. Our side holds ONE key pair, no per-tenant refresh token,
-  and the blast radius of that key is exactly the set of documents clients chose to
-  share. Revocation is a client action that needs no call to us and no code from us.
-* **OAuth installed-app / web flow.** Requires a per-tenant consent screen, a refresh
-  token PER TENANT held by us in perpetuity (a credential store we do not have and
-  would have to build), and — because `.../auth/spreadsheets` is a sensitive scope —
-  Google's app-verification review before any client outside our own domain can
-  consent. It also authorises against a HUMAN's whole Drive rather than one document:
-  the token we would be storing can read every spreadsheet that person can, which is a
-  far worse thing to hold than a robot identity with three documents shared to it.
-
-Domain-wide delegation is refused outright, and would be even if we had a Workspace
-domain to attach it to: it exists to bypass user consent across an entire organisation,
-Google's own guidance is to avoid it where an alternative exists, and our clients are
-Indian SMBs largely on personal Gmail accounts where it does not apply at all.
-  - https://developers.google.com/identity/protocols/oauth2/service-account (JWT-bearer
-    server-to-server flow, RFC 7523 profile: `grant_type=urn:ietf:params:oauth:grant-
-    type:jwt-bearer`, RS256 assertion, `aud` = the token endpoint)
-  - https://support.google.com/a/answer/14437356 (Google: use domain-wide delegation
-    only with a critical business case; prefer OAuth consent or per-resource sharing)
-
-Scope is `https://www.googleapis.com/auth/spreadsheets`, which the Sheets discovery
-document lists as one of three that authorise `values.append`. `drive.file` — the
-narrower one — grants access only to files the APP created, so it cannot reach a
-document the client made and shared, and `drive` is broader than anything we do.
+The CLIENT'S own, since D-703 (founder, 9 Oct 2026). The owner connects Google Sheets on the
+Google account they sign in with, picks the spreadsheet in Google's Picker, and the
+connection's scope is `drive.file`: a NON-SENSITIVE scope that reaches the files the person
+picked for this app and nothing else in their Drive
+(developers.google.com/workspace/drive/api/guides/api-specific-auth, read 10 Oct 2026). This
+replaces D-23's shared service account, which made every client share their document with a
+robot address; one way to reach a client's sheet, used by lead delivery and by the in-call
+Sheets action alike. The access token comes from the endpoint's `google_sheets` connection
+through the `token_source` the caller hands this transport, so no key material is held here.
 
 --------------------------------------------------------------------------------------
 THE HARD PART: AN APPEND IS NOT IDEMPOTENT AND THE API HAS NO REQUEST KEY
@@ -103,6 +82,7 @@ spreadsheet id, a credential reference, an access token or a vendor error string
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import quote
 
@@ -110,11 +90,6 @@ import httpx
 
 from apps.api.core.logging import get_logger
 from apps.api.integrations import service
-from apps.workers.google_oauth import (
-    access_token,
-    parse_service_account,
-    reset_token_cache,
-)
 from apps.workers.sheets_sync import (
     VALUE_INPUT_OPTION,
     AppendResult,
@@ -130,32 +105,15 @@ from apps.workers.sheets_sync import (
 
 log = get_logger(__name__)
 
-# The provider name that selects this adapter (`GOOGLE_SHEETS_PROVIDER`).
-PROVIDER = "service_account"
+# The provider name that selects this adapter (`GOOGLE_SHEETS_PROVIDER`); unset means it too.
+PROVIDER = "client_account"
 
 SHEETS_BASE = "https://sheets.googleapis.com/v4/spreadsheets"
-# See the module docstring: narrower scopes cannot reach a document the client created.
-SCOPE = "https://www.googleapis.com/auth/spreadsheets"
-
-# `TOKEN_URL`, `JWT_BEARER_GRANT`, `TOKEN_TTL_S`, `TOKEN_REFRESH_SKEW_S`,
-# `ServiceAccount`, `parse_service_account` and the token exchange itself MOVED to
-# `apps/workers/google_oauth.py` when Vertex AI (D-127) needed the identical RFC 7523
-# flow with a different scope. They are NOT re-exported from here: a name with two
-# import paths is the drift this repo treats as a defect even when both work, so the
-# callers moved in the same change. What stays is this module's own vocabulary — the
-# Sheets scope, the credential reference namespace, and the authored reason codes.
-
-# The only credential reference this deployment can resolve. The scheme is a namespace
-# so that a value from a DATABASE ROW can never name arbitrary key material: `secret_ref`
-# is client-adjacent config, and a resolver that accepted `sm://platform/kek` would be a
-# tenancy hole wearing a config field's clothes.
-CREDENTIAL_REF_PREFIX = "sm://google-sheets/"
-DEPLOYMENT_CREDENTIAL_NAME = "default"
+#: Mints the access token for one append from the endpoint's Google Sheets connection.
+TokenSource = Callable[[httpx.AsyncClient], Awaitable[str | None]]
 
 # Authored reason codes — never vendor prose. A Google error string may quote the row we
 # just handed it, and these land in an alert and on a client's own screen.
-CREDENTIAL_REF_UNKNOWN_REASON = "credential_ref_unknown"
-CREDENTIAL_UNRESOLVABLE_REASON = "google_credential_unresolvable"
 AUTH_FAILED_REASON = "google_auth_failed"
 SHEET_NOT_SHARED_REASON = "sheet_not_shared"
 SPREADSHEET_NOT_FOUND_REASON = "spreadsheet_not_found"
@@ -185,25 +143,6 @@ APPEND_BUDGET_S = 3 * service.DELIVERY_TIMEOUT_S
 _TRANSIENT_STATUS = frozenset({408, 429})
 
 
-# --- credentials ------------------------------------------------------------------
-# `ServiceAccount` and `parse_service_account` live in `google_oauth` now (see above).
-
-
-def credential_name(ref: str) -> str | None:
-    """The credential a `secret_ref` names, or None if it is not one of ours.
-
-    Deliberately strict about the prefix and about what may follow it. This value comes
-    off a row an operator writes; the resolver's whole job is that no row can widen what
-    a worker will read.
-    """
-    if not ref.startswith(CREDENTIAL_REF_PREFIX):
-        return None
-    name = ref[len(CREDENTIAL_REF_PREFIX) :].strip()
-    if not name or "/" in name:
-        return None
-    return name
-
-
 # --- caches ------------------------------------------------------------------------
 # The TOKEN cache moved to `google_oauth` with the flow that fills it. What stays here is
 # the one cache that is about SPREADSHEETS rather than about Google auth.
@@ -215,15 +154,7 @@ _HEADERED: set[tuple[str, str]] = set()
 
 
 def reset_caches() -> None:
-    """Drop the process-level token and header caches. For tests and for an operator
-    rotating the service-account key without a restart.
-
-    Still clears BOTH, even though the token cache is no longer this module's: four test
-    files and the rotation runbook call this one verb, and leaving them to remember a
-    second one is how a rotation drill starts passing while a stale token keeps being
-    sent.
-    """
-    reset_token_cache()
+    """Drop the process-level header cache. For tests."""
     _HEADERED.clear()
 
 
@@ -264,7 +195,7 @@ def _quote_range(a1: str) -> str:
 
 
 class GoogleSheetsTransport:
-    """The real thing: OAuth2 JWT-bearer → `values.append`, with a retry-time probe.
+    """The real thing: the client's own token → `values.append`, with a retry-time probe.
 
     One instance per append is fine and expected — every cache it uses is module-level,
     because the object's lifetime is one delivery and the facts it caches outlive it.
@@ -272,10 +203,10 @@ class GoogleSheetsTransport:
 
     name = PROVIDER
 
-    def __init__(self, raw_credential: str, *, client: httpx.AsyncClient | None = None) -> None:
-        # Parsed once, here, so a malformed key is one refusal rather than a parse
-        # failure inside every append.
-        self._account = parse_service_account(raw_credential)
+    def __init__(
+        self, token_source: TokenSource, *, client: httpx.AsyncClient | None = None
+    ) -> None:
+        self._token_source = token_source
         # Same injection seam, and the same ownership rule, as `service.deliver`: a
         # caller-supplied client is the caller's to close. It exists so the tests drive
         # this adapter through httpx's real request plumbing (`httpx.MockTransport`)
@@ -283,16 +214,6 @@ class GoogleSheetsTransport:
         self._client = client
 
     async def append(self, request: SheetAppend) -> AppendResult:
-        if credential_name(request.credential_ref) != DEPLOYMENT_CREDENTIAL_NAME:
-            # The endpoint names a credential this deployment does not hold. An operator
-            # error, and specifically the one that must not silently fall back to "well,
-            # use the only key we have" — an endpoint pointed at a credential we cannot
-            # resolve has not been configured yet.
-            return AppendResult(AppendStatus.REJECTED, reason=CREDENTIAL_REF_UNKNOWN_REASON)
-        account = self._account
-        if account is None:
-            return AppendResult(AppendStatus.REJECTED, reason=CREDENTIAL_UNRESOLVABLE_REASON)
-
         owns_client = self._client is None
         http = self._client or httpx.AsyncClient(
             timeout=service.DELIVERY_TIMEOUT_S, follow_redirects=False
@@ -302,11 +223,11 @@ class GoogleSheetsTransport:
             # has no whole-request deadline at all, so without this an append is four
             # round trips each of which a stalled response can hold indefinitely.
             async with asyncio.timeout(APPEND_BUDGET_S):
-                token = await access_token(http, account, scope=SCOPE)
+                token = await self._token_source(http)
                 if token is None:
-                    # Could be a network blip or a bad key; the token endpoint does not
-                    # let us tell those apart without reading a body we will not read.
-                    # Transient so the shared ladder tries twice more, then alerts loudly.
+                    # A revoked connection or a blip at Google's token endpoint; they cannot
+                    # be told apart here. Transient, so the shared ladder tries twice more
+                    # and then alerts, and the client sees the failure on their screen.
                     return AppendResult(AppendStatus.TRANSPORT_FAILED, reason=AUTH_FAILED_REASON)
                 return await self._append_with_token(http, token, request)
         except TimeoutError:
@@ -475,8 +396,7 @@ def _classify(status: int) -> AppendResult:
     if status >= 500:
         return AppendResult(AppendStatus.TRANSPORT_FAILED, reason=UNAVAILABLE_REASON)
     if status == 401:
-        # See `google_oauth.TOKEN_REFRESH_SKEW_S`: our tokens are never near expiry, so a
-        # 401 is a statement about the KEY.
+        # A token minted moments ago and refused: the client withdrew our access.
         return AppendResult(AppendStatus.REJECTED, reason=AUTH_FAILED_REASON)
     if status == 403:
         # ⚠ MARKED ASSUMPTION, NOT A VERIFIED FACT (CLAUDE.md hard rule 11). This treats
@@ -509,21 +429,16 @@ __all__ = [
     "APPEND_BUDGET_S",
     "APPEND_DEADLINE_REASON",
     "AUTH_FAILED_REASON",
-    "CREDENTIAL_REF_PREFIX",
-    "CREDENTIAL_REF_UNKNOWN_REASON",
-    "CREDENTIAL_UNRESOLVABLE_REASON",
-    "DEPLOYMENT_CREDENTIAL_NAME",
     "PROBE_FAILED_REASON",
     "PROVIDER",
     "RATE_LIMITED_REASON",
-    "SCOPE",
     "SHEET_NOT_SHARED_REASON",
     "SPREADSHEET_NOT_FOUND_REASON",
     "UNAVAILABLE_REASON",
     "WORKSHEET_REJECTED_REASON",
     "GoogleSheetsTransport",
+    "TokenSource",
     "a1_sheet",
     "column_letter",
-    "credential_name",
     "reset_caches",
 ]

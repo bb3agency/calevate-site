@@ -296,6 +296,10 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "session has no business seeing: it is OUR deployment's settings, not the "
         "client's. Nothing on a client screen depends on it"
     ),
+    "/v1/ops/config-sources/thinnest-workspace": (
+        "our own ThinnestAI workspace, read live so the operator picks it rather than "
+        "typing it into the platform configuration — a platform setting, not a client view"
+    ),
     "/v1/ops/model-prices": (
         "the founder's attested per-model prices (D-459) — superadmin ops surface, "
         "gated on platform:config for the same reason /v1/ops/config is. A view-as "

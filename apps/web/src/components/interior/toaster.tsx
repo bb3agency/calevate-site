@@ -337,7 +337,7 @@ export function ToastProvider({
             setFocused(false);
           }
         }}
-        className="pointer-events-none fixed inset-x-3 bottom-3 z-[60] flex flex-col items-stretch gap-2 sm:inset-x-auto sm:bottom-4 sm:right-4 sm:w-[360px] sm:max-w-[calc(100vw-2rem)]"
+        className="pointer-events-none fixed inset-x-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom,0px))] z-[60] flex flex-col items-stretch gap-2 sm:inset-x-auto sm:bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] sm:right-4 sm:w-[360px] sm:max-w-[calc(100vw-2rem)]"
       >
         <span role="status" aria-live="polite" className="sr-only">
           {announce}

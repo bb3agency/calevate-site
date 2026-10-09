@@ -232,10 +232,6 @@ TAG_SPELLING_ALLOWED: dict[str, str] = {
         "the generated union — exhaustive by the type checker, so the keys are the same "
         "three and cannot silently become four"
     ),
-    "apps/web/src/app/admin/new/languages.ts": (
-        "the wizard's per-language HINT strings, keyed the same exhaustive way. The "
-        "labels and the order come from `LANGUAGE_CHOICES`"
-    ),
 }
 
 #: Directories whose files are not product surfaces and are deliberately not scanned.

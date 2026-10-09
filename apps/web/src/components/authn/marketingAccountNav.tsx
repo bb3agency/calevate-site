@@ -39,9 +39,9 @@ import { clientConsoleUrl } from "@/lib/consoleOrigin";
 // did not fit — measured in Chromium, 374px of content in a 320px viewport. The padding
 // and type step back up at `sm`, so nothing changes on the screens that have the room.
 const LINK =
-  "rounded-md px-2 py-1.5 text-xs font-medium whitespace-nowrap text-ink-muted hover:bg-black/5 sm:px-3 sm:text-sm dark:hover:bg-white/5";
+  "inline-flex items-center touch:min-h-11 rounded-md px-2 py-1.5 text-xs font-medium whitespace-nowrap text-ink-muted hover:bg-black/5 sm:px-3 sm:text-sm dark:hover:bg-white/5";
 const PRIMARY =
-  "inline-flex items-center gap-1.5 rounded-md bg-brand-strong px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap text-white hover:bg-brand-strong sm:px-3 sm:text-sm";
+  "inline-flex items-center gap-1.5 touch:min-h-11 rounded-md bg-brand-strong px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap text-white hover:bg-brand-strong sm:px-3 sm:text-sm";
 
 export interface MarketingAccountNavProps {
   /**

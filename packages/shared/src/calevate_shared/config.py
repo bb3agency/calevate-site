@@ -24,6 +24,8 @@ from calevate_shared.carrier import DEFAULT_CARRIER, CarrierName
 from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
     AZURE_RESOURCE_PATTERN,
+    COPILOT_FAST_MODEL_DEFAULT,
+    COPILOT_PLANNING_MODEL_DEFAULT,
     PLATFORM_DEFAULT_LLM_MODEL,
     SARVAM_DEFAULT_STT,
     AzureOpenAIModel,
@@ -456,6 +458,10 @@ class Settings(BaseSettings):
     #: which the platform bounds to 60..1200 (`thinnest-findings/mirror/snapshots/2026-10-08/
     #: pages/api-reference/calls/place-call.md:1122-1126`).
     trial_call_max_seconds: int = Field(default=180, ge=60, le=1200)
+    #: The free trial a business gets the moment it signs itself up (D-703); an operator
+    #: still sets each managed client's trial by hand. Bounded like `billing/trials`.
+    self_serve_trial_days: int = Field(default=7, ge=1, le=365)
+    self_serve_trial_free_minutes: int = Field(default=15, ge=1, le=1000)
     #: The Gnani TTS key (D-618), read by `apps/voice-worker` and by nothing on this host.
     #:
     #: **A `Settings` FIELD THAT THIS DEPLOYMENT NEVER READS THE VALUE OF, FOR D-614's
@@ -764,12 +770,10 @@ class Settings(BaseSettings):
     #
     # The GOOGLE CREDENTIALS THAT WERE HERE ARE GONE, deleted rather than deprecated:
     # `gcp_project_id` and `gcp_service_account_json` existed for the Vertex AI legs and
-    # for nothing else, and D-410 removed the last reader of both. Google Sheets sync
-    # (D-23) was the one candidate for keeping them and does not use them — it reads
-    # `google_sheets_service_account_json` below through the same
-    # `workers/google_oauth.py` handshake, which stays. A credential an operator can still
-    # install and then believe in is the `COHERE_API_KEY` defect this file already
-    # recorded once.
+    # for nothing else, and D-410 removed the last reader of both. Google Sheets writes with
+    # each client's own Google account since D-703, so no platform Google key exists. A
+    # credential an operator can still install and then believe in is the `COHERE_API_KEY`
+    # defect this file already recorded once.
 
     # The resource name — the `<resource>` in `https://<resource>.openai.azure.com`.
     #
@@ -817,6 +821,19 @@ class Settings(BaseSettings):
     google_oauth_client_id: str | None = Field(default=None, max_length=256)
     google_oauth_client_secret: str | None = Field(default=None, max_length=512)
     google_oauth_redirect_uri: str | None = Field(default=None, max_length=512)
+    #: Where Google returns a person who chose "Continue with Google" (D-703): the sign-in
+    #: page, not the Calendar connection page, so the two flows never share a callback. Same
+    #: OAuth client as above; both addresses are registered on it.
+    google_signin_redirect_uri: str | None = Field(default=None, max_length=512)
+    #: The browser key Google's Picker needs to show a client their spreadsheets (D-703). Not
+    #: a secret in the browser — Google restricts it by website — but kept out of plaintext
+    #: config like every other key.
+    google_picker_api_key: str | None = Field(default=None, max_length=256)
+    #: The Google Cloud PROJECT NUMBER, which the Picker takes as its app id so the sheets a
+    #: client picks are shared with this app (`drive.file`).
+    google_cloud_project_number: str | None = Field(
+        default=None, max_length=32, pattern=r"^\d{6,20}$"
+    )
 
     # --- Zoho CRM and HubSpot OAuth (client CRM actions, D-700) -----------------------
     # The PLATFORM's own OAuth apps, which every client's CRM connection authorises
@@ -1079,8 +1096,8 @@ class Settings(BaseSettings):
     # recorded; otherwise the assistant falls back and says so (D-127 G-6). The fast model
     # answers and looks things up; the planning model takes multi-step requests and
     # background jobs (`copilot/model_tiers.route_tier` is the rule).
-    copilot_fast_model: GoogleDirectModel = "gemini-2.5-flash-lite"
-    copilot_planning_model: GoogleDirectModel = "gemini-2.5-flash"
+    copilot_fast_model: GoogleDirectModel = COPILOT_FAST_MODEL_DEFAULT
+    copilot_planning_model: GoogleDirectModel = COPILOT_PLANNING_MODEL_DEFAULT
     # MAY THE ASSISTANT FALL BACK TO AZURE when the chosen Gemini model cannot serve? On by
     # default: Gemini is the default MODEL, Azure the disclosed backup an operator can turn off.
     # The founder: Azure stays available as a fallback setting, not the default. Off, a Gemini
@@ -1475,10 +1492,10 @@ class Settings(BaseSettings):
 
     # Google Sheets delivery for outbound CRM sync (D-23, `outbound_webhooks.kind =
     # 'google_sheets'`). Same seam as `whatsapp_provider`: `console` is the local dev
-    # sink (refused outside APP_ENV=local), `service_account` selects the real adapter
-    # in `apps/workers/google_sheets.py`, and any other name resolves to
-    # `provider_not_implemented` and refuses to append rather than pretending. Unset
-    # falls back to the dev sink locally and a refusal everywhere else.
+    # sink (refused outside APP_ENV=local), `client_account` (or unset outside local) is
+    # the real adapter in `apps/workers/google_sheets.py`, writing with each client's own
+    # Google account (D-703), and any other name resolves to `provider_not_implemented`
+    # and refuses to append rather than pretending. Unset is the dev sink locally.
     #
     # This exists as CONFIG rather than as `app_env == "local"` — which is what
     # selection used to key off — because "are we on a laptop" is not a statement about
@@ -1487,30 +1504,6 @@ class Settings(BaseSettings):
     # this says the deployment cannot deliver to one.
     #
     google_sheets_provider: str | None = Field(default=None, max_length=64)
-
-    # The service-account key the `service_account` provider signs with: the JSON blob
-    # Google issues, injected from the secrets manager at deploy time exactly like
-    # CARTESIA_API_KEY (DEV-SETUP §4). Unset with the provider set is
-    # itself a refusal — `get_sheets_transport` returns the unconfigured transport, so
-    # the API stops offering the Sheets checkbox rather than creating endpoints that
-    # cannot authenticate.
-    #
-    # THE PREVIOUS COMMENT HERE SAID KEY MATERIAL NEVER LIVES IN SETTINGS, and that
-    # claim has to be corrected rather than quietly dropped. What `secret_ref` on the
-    # endpoint row holds is a REFERENCE — `sm://google-sheets/default` — and that is
-    # still true and still the rule: no key material in the database, ever. The
-    # reference names WHICH credential the deployment should use; the credential itself
-    # lives where every other vendor key in this system lives, which is the process
-    # environment fed by the secrets manager. There is nowhere else for it to live: this
-    # deployment has no runtime secret-fetching client, and inventing one for a single
-    # key would be a second way to hold a secret.
-    #
-    # ONE key for the whole platform, not one per tenant, because the tenancy boundary
-    # here is not ours to enforce: a client grants access by SHARING their own document
-    # with our service account's address and revokes it by un-sharing. Per-tenant
-    # service accounts would multiply GCP identities without narrowing what any one key
-    # can reach — it can only ever reach documents someone chose to share with it.
-    google_sheets_service_account_json: str | None = None
 
     # Meta Lead Ads answer retrieval (SURFACES §2b). Same seam as the two above and for
     # the same reason: `graph` is the only name with an adapter behind it

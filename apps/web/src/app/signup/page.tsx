@@ -14,9 +14,12 @@ import {
   PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
+  Skeleton,
 } from "@/components/ui";
 import { AuthPageFrame } from "@/components/authPage";
 import { AuthShowcase } from "@/components/authn/authShowcase";
+import { CreateAccountForm } from "@/components/authn/createAccountForm";
+import { useSignInOptions } from "@/components/authn/googleSignIn";
 import { useFormValidation } from "@/components/formValidation";
 import { ApiProblem } from "@/lib/api/client";
 import { CLIENT_ACCOUNT_PATH, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
@@ -25,7 +28,6 @@ import { lookup } from "@/lib/lookup";
 import {
   SIGNUP_CONTACT_EMAIL,
   SIGNUP_LANGUAGES,
-  SIGNUP_OPEN,
   SIGNUP_VERTICALS,
   isSignupClosed,
   isSignupDeferred,
@@ -37,69 +39,21 @@ import {
 } from "@/lib/api/signup";
 
 /**
- * Self-serve signup — `app.calevate.tech/signup` (D-34 motion 2, FLOWS §2).
+ * Self-serve signup — `app.calevate.tech/signup` (D-34 motion 2, FLOWS §2; D-703).
  *
- * The symptom: `POST /v1/auth/signup` shipped and nothing called it, so a business that
- * had already created an account had no way to create its workspace — the product had
- * exactly one door, the one an operator opens by hand.
+ * Two steps, because the identity and the workspace are two things (D-37): a Calevate
+ * account first (`CreateAccountForm`: Google, or an email code and a password), then the
+ * business (`SignupForm` → `POST /v1/auth/signup`, which starts the free trial).
  *
- * Three things this page is careful about.
+ * Whether signing up is open is the SERVER's live answer (`GET /v1/auth/client/sign-in-
+ * options`, the `self_serve_signup_enabled` console switch), so a closed deployment says
+ * so before any form, and an operator can open or close it without a deploy. The refusal
+ * paths stay wired under the form, because the server stays the authority.
  *
- * **It does not pretend to be a sign-up-from-scratch form.** The endpoint is NOT
- * unauthenticated: `POST /v1/auth/signup` resolves the caller from their own session
- * (`core/auth.py::current_identity`), so it needs a signed-in user who has no
- * organization yet, and the membership is what the call creates. So the page says who it
- * is for, rather than silently 401-ing someone who arrived without an account. (It read
- * "a Clerk-verified user" until D-177; the identity is ours now — `apps/api/authn/` is
- * the only thing that mints a session.)
+ * What a new account can and cannot do is the server's sentence: `next_steps` comes back
+ * on the response and the success panel renders only what arrived.
  *
- * This used to end "and there is no sign-in route in this app — no ClerkProvider, no
- * `/sign-in`, nothing to link to", which was true and was the hole: a stranger who
- * followed the landing page's one call to action arrived at a form they could not
- * submit, and the only exit was an email address. `/auth/sign-in` exists now and this
- * page mounts the client realm's own session provider. **The account-CREATION half is
- * honestly absent again since D-177**: Clerk's hosted `/sign-up` is gone, and the
- * first-party public intake is named as unbuilt in AUTH-MIGRATION §11 (C-11). So the
- * stranger's panel below says how an account is actually obtained today — an invitation,
- * or an operator — rather than linking to a door that is not there. The two steps stay
- * separate because they are separate: `apps/api/authn/` owns the identity, our Postgres
- * owns the workspace (D-37). Both are ours since D-177 — the split is a data-model
- * boundary now, not a vendor boundary, and it is the reason a person can hold an account
- * and no workspace.
- *
- * **A closed deployment says it is closed BEFORE the form, not after it.** The kill
- * switch DEFAULTS OFF, so on most deployments every submission is refused with
- * `signup_disabled` — a normal state of the world, not a fault. This page used to learn
- * that only from the refusal, which meant a closed deployment walked a business through
- * five fields and a submit before answering "no"; the form was decoration over a door
- * that was never going to open. `SIGNUP_OPEN` (build-time, defaulting to CLOSED,
- * documented in lib/api/signup.ts) now decides up front, and the same calm panel — with
- * the other door on it — is what the closed deployment renders instead of the form.
- *
- * The refusal path stays wired up underneath, because the config can only ever be stale
- * and the server is the authority: a build that says open against a server that says
- * closed still lands on the identical panel, and load-shedding — which no build-time
- * flag can predict — still arrives that way with "shortly" attached.
- *
- * **What a new account can and cannot do is the SERVER's sentence.** `next_steps` comes
- * back on the response for exactly that reason — the wallet gate and the KYC requirement
- * are compliance rules, and encoding them a second time here is how the two copies start
- * disagreeing. The success panel renders NOTHING that did not arrive in the response: no
- * name, no slug, no role, no next step. There is no optimistic branch, so no path exists
- * on which this screen can congratulate a business on a workspace the API never created.
- *
- * ## Framing, scrolling and the design language
- *
- * No app shell wraps this route — `/c` and `/admin` each own a `fixed inset-0` layout and
- * signup has neither — so it carries its own header and its own scroll container.
- * `globals.css` sets `html, body { overflow: hidden }` for those shells; without
- * `flex-1 min-h-0 overflow-y-auto` here, the form is clipped at the fold on a laptop and
- * the submit button is the part that vanishes.
- *
- * Field and button styling matches `/c/<slug>/campaigns`, the console's one existing
- * form, so the screen a business fills in looks like the product it is about to enter.
- * Those constants are defined locally in BOTH files and belong in `ui.tsx` — see the note
- * on `FIELD` below.
+ * No app shell wraps this route, so it carries its own frame and scroll container.
  */
 
 /**
@@ -159,89 +113,42 @@ export default function SignupPage() {
                 shape of reason — a closed deployment does not mount the form at all, so
                 no state and no mutation hook exist to reach an endpoint certain to
                 refuse them. */}
-            {!SIGNUP_OPEN ? (
-              <SignupClosed deferred={false} />
-            ) : (
-              <SignupOrInvitation />
-            )}
+            <SignupGate />
         </AuthPageFrame>
       </Providers>
     </ClientSessionProvider>
   );
 }
 
-/**
- * The form for somebody who has an account, the explanation for somebody who does not.
- *
- * Read off the RESTORED session row rather than off a provider's opinion: the row is the
- * server's answer to `GET /v1/auth/client/session`, so a stale cookie renders the panel
- * rather than a form whose every submit would 401.
- */
-function SignupOrInvitation() {
-  return useClientSessionRow() !== null ? <SignupForm /> : <NeedsAnAccount />;
+/** Open or closed, as the server says right now; a skeleton until it has said. */
+function SignupGate() {
+  const options = useSignInOptions();
+  if (options.isPending) return <Skeleton rows={4} label="Loading…" />;
+  if (!options.data?.self_serve_signup) return <SignupClosed deferred={false} />;
+  return <SignupOrAccount />;
 }
 
 /**
- * The stranger's panel, and it says the true thing rather than the tidy one.
- *
- * `POST /v1/auth/signup` resolves the caller from their session alone
- * (`core/auth.py::current_identity`), so an account is a hard prerequisite and not a
- * nicety. **There is no public account-creation door in this product today** — Clerk's
- * hosted `/sign-up` went with Clerk (D-177) and the first-party public intake is listed
- * as unbuilt in AUTH-MIGRATION §11 (C-11). The two ways an account actually comes into
- * existence are an invitation redeemed at `/auth/accept-invitation` and an operator
- * creating the workspace by hand.
- *
- * Linking to a sign-up route that does not exist would be the worse failure this page
- * already has a history of: a stranger sent one screen further into a door that is shut.
- * So the panel names the two real paths and the contact address, and the day the intake
- * ships, this is the one place that changes.
+ * The business form for somebody signed in, account creation for somebody who is not.
+ * Read off the RESTORED session row (the server's answer to `GET /v1/auth/client/
+ * session`), so a stale cookie renders account creation rather than a form that 401s.
  */
-function NeedsAnAccount() {
-  return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold tracking-tight text-ink">
-        Create your Calevate workspace
-      </h1>
-      <Card>
-        <div className="space-y-3 text-sm text-ink-muted">
-          <p>
-            Setting up a workspace takes two steps: a Calevate account first, then the
-            workspace itself. Nothing calls anyone at either step.
-          </p>
-          <p>
-            Accounts are created by invitation — if a colleague has invited you, the link
-            in that email creates your account and adds you to their workspace in one go.
-            Otherwise write to us and we will set the first one up with you.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Link href={CLIENT_SIGN_IN_PATH} className={PRIMARY_BUTTON}>
-              I already have an account
-              <ArrowRight aria-hidden className="h-4 w-4" />
-            </Link>
-          </div>
-          {SIGNUP_CONTACT_EMAIL && (
-            <p className="flex items-start gap-1.5 text-xs">
-              <Mail aria-hidden className="mt-px h-3.5 w-3.5 shrink-0 text-ink-faint" />
-              {/* Icon + ONE span, never icon + loose text + <a>: each child of a flex
-                  container is an item, so the address used to be laid out as its own
-                  column with a gap on both sides instead of flowing in the sentence.
-                  `flex-wrap` went with it — the span wraps its own text now. */}
-              <span>
-                Would rather talk to a person? Write to{" "}
-                <a
-                  className="font-medium text-brand-strong underline underline-offset-2 dark:text-brand-bright"
-                  href={`mailto:${SIGNUP_CONTACT_EMAIL}`}
-                >
-                  {SIGNUP_CONTACT_EMAIL}
-                </a>
-                .
-              </span>
-            </p>
-          )}
-        </div>
-      </Card>
-    </div>
+function SignupOrAccount() {
+  return useClientSessionRow() !== null ? (
+    <SignupForm />
+  ) : (
+    <Card>
+      <CreateAccountForm onCreated={() => window.location.reload()} />
+      <p className="mt-6 text-center text-sm text-ink-muted">
+        Already have an account?{" "}
+        <Link
+          href={CLIENT_SIGN_IN_PATH}
+          className="font-medium text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+        >
+          Sign in
+        </Link>
+      </p>
+    </Card>
   );
 }
 
@@ -387,7 +294,7 @@ function SignupForm() {
   const [businessName, setBusinessName] = useState("");
   const valid = useFormValidation();
   const [slug, setSlug] = useState("");
-  const [vertical, setVertical] = useState<string>("clinic");
+  const [vertical, setVertical] = useState<string>("custom");
   const [language, setLanguage] = useState<SignupLanguage>("te-IN");
   const [email, setEmail] = useState("");
 
@@ -395,8 +302,8 @@ function SignupForm() {
   // The server REFUSES to invent a URL for a name it cannot fold to ASCII
   // (`slug_not_derivable`), which on a Telugu-first product is the ordinary case rather
   // than an edge one. Asking here, before the POST, rather than letting the refusal come
-  // back: the same reason `SIGNUP_OPEN` exists — a form that cannot succeed is a worse
-  // answer than a form that says what it needs.
+  // back: a form that cannot succeed is a worse answer than a form that says what it
+  // needs.
   const mustChooseSlug = businessName.trim().length > 0 && !slugIsDerivable(derived);
   const created = signup.data;
 
@@ -423,10 +330,9 @@ function SignupForm() {
           </p>
         </div>
 
-        <Card title="Before your agent can call anyone">
-          {/* The server's list, not ours. These are compliance rules (an empty wallet
-              blocks outbound; a number needs KYC), and a second copy of them in the
-              frontend is a second copy to keep in step. */}
+        <Card title="What happens next">
+          {/* The server's list, not ours: a second copy of these rules in the frontend
+              would be a second copy to keep in step. */}
           <ul className="space-y-2">
             {created.next_steps.map((step) => (
               <li key={step} className="flex gap-2.5 text-sm text-ink-muted">
@@ -436,13 +342,12 @@ function SignupForm() {
             ))}
           </ul>
           <p className="mt-3 text-xs text-ink-faint">
-            Your receptionist starts as a draft, so nothing is live and nothing is being
-            charged yet.
+            Nothing is charged during your free trial.
           </p>
         </Card>
 
-        <Link href={`/c/${created.slug}`} className={PRIMARY_BUTTON}>
-          Open {created.name}
+        <Link href={`/c/${created.slug}/setup`} className={PRIMARY_BUTTON}>
+          Set up {created.name}
           <ArrowRight aria-hidden className="h-4 w-4" />
         </Link>
       </div>
@@ -572,7 +477,7 @@ function SignupForm() {
                 maxLength={120}
                 value={businessName}
                 onChange={(e) => setBusinessName(e.target.value)}
-                placeholder="Sri Sai Dental Care"
+                placeholder="Your business name"
                 className={FIELD}
               />
             )}
@@ -690,13 +595,9 @@ function SignupForm() {
               {signup.isPending ? "Creating…" : "Create workspace"}
             </button>
             <p className="text-xs text-ink-faint">
-              Creating a workspace does not start any calling. Your agent begins as a
-              draft, the wallet starts empty, and outbound calls stay blocked until there
-              is credit, a verified number, your registrations, your business identity
-              checked, and your own written notice to your telecom access provider that
-              these calls are placed by an automated dialler — which is why outbound is
-              arranged with us rather than switched on here. Answering incoming calls is
-              not gated by any of that.
+              Your free trial starts straight away: you can build your agents and place
+              test calls to your own phone. Calling your customers opens once you add
+              credit and verify your business.
             </p>
           </div>
         </form>

@@ -93,7 +93,7 @@ class TestWiring:
         not cost a test edit. What is asserted is that the scan SEES the known ones: a
         walk that found nothing would pass every section below."""
         sites = {site.qualname for site in guard.dial_sites()}
-        assert "apps/api/crm/routes.py::call_lead" in sites
+        assert "apps/api/crm/lead_dial.py::place_lead_call" in sites
         assert "apps/workers/campaign_dispatch.py::_dispatch_for_campaign" in sites
         assert len(sites) >= 4, sites
 
@@ -180,21 +180,21 @@ class TestUngatedDial:
         branch for a reason that has nothing to do with the rule: a `record_compliance_block`
         call landed there and the mutation stopped matching, so the guard's own negative
         control went red while the guard was working perfectly. What is being mutated is the
-        DECISION being read, and that is one line. `_edit` replaces the first occurrence, and
-        `call_lead` holds it (the eligibility GET and `call_back` come later in the file) —
-        which the offender assertion below names, so a future reordering fails loudly here
-        rather than quietly testing the wrong route."""
-        root = _mirror(tmp_path, "apps/api/crm/routes.py")
+        DECISION being read, and that is one line. The lead dial lives in
+        `crm/lead_dial.place_lead_call` (shared by the button and the assistant, D-694), which
+        holds the only occurrence; the offender assertion below names it, so a future move
+        fails loudly here rather than quietly testing the wrong function."""
+        root = _mirror(tmp_path, "apps/api/crm/lead_dial.py")
         _edit(
             root,
-            "apps/api/crm/routes.py",
+            "apps/api/crm/lead_dial.py",
             "    if not decision.allowed:\n",
             "    if False:\n",
         )
         offenders = guard.ungated_dials(roots=(root,))
-        assert any("routes.py::call_lead" in o and "does not act on" in o for o in offenders), (
-            offenders
-        )
+        assert any(
+            "lead_dial.py::place_lead_call" in o and "does not act on" in o for o in offenders
+        ), offenders
 
     def test_catches_a_gate_call_that_happens_after_the_dial(self, tmp_path: Path) -> None:
         """Order is the whole rule. A decision read after the phone has already rung is

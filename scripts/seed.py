@@ -281,6 +281,27 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
     ],
 }
 
+# The `custom` business type's starting point: a business that fits none of the templates
+# above. It is kept out of VERTICAL_TEMPLATES because self-serve signup accepts exactly
+# that dict's keys. Falling back to the clinic's fields here gave a shop or a travel agent
+# CRM columns for symptoms and a preferred doctor.
+CUSTOM_EXTRACTION_FIELDS: list[dict[str, Any]] = [
+    {
+        "key": "need",
+        "label": "What they need",
+        "type": "text",
+        "reason": "What the caller is asking for, in their own words",
+        "required": True,
+    },
+    {
+        "key": "preferred_time",
+        "label": "Preferred time",
+        "type": "text",
+        "reason": "Day or time the caller wants to be called back or served",
+        "required": False,
+    },
+]
+
 
 async def seed_reserved_slugs() -> int:
     """Insert reserved slugs. Returns the number newly inserted."""

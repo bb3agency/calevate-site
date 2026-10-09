@@ -346,6 +346,8 @@ const DEFAULT_SESSIONS: Record<string, unknown> = {
     mfa_complete: true,
     email_verified: true,
   },
+  // D-703: which sign-in doors are open. Signup open, Google off, unless a test says so.
+  "GET /v1/auth/client/sign-in-options": { google: false, self_serve_signup: true },
 };
 
 function jsonResponse(body: unknown): Response {

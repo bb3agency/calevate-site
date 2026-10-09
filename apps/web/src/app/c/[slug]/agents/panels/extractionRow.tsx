@@ -159,7 +159,7 @@ export function FieldEditorRow({
               value={row.label}
               disabled={disabled}
               onChange={(event) => onChange({ label: event.target.value })}
-              placeholder="e.g. Reason for visit"
+              placeholder={`e.g. ${eg.extractionLabel}`}
               className={FIELD}
             />
           </label>
@@ -193,7 +193,7 @@ export function FieldEditorRow({
             value={row.enumText}
             disabled={disabled}
             onChange={(event) => onChange({ enumText: event.target.value })}
-            placeholder={"One per line, or separated by commas\ne.g. New, Follow-up, Emergency"}
+            placeholder={`One per line, or separated by commas\ne.g. ${eg.extractionOptions}`}
             className={`${FIELD} py-2`}
           />
           <span className={FIELD_HINT}>The agent must pick one of these for the column.</span>

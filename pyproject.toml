@@ -278,6 +278,13 @@ warn_unreachable = true
 plugins = ["pydantic.mypy"]
 mypy_path = "packages/shared/src"
 
+# `mypy apps packages` is the typed surface; `tests/` is not in it. A few in-package tests
+# (apps/api/copilot/*_test.py) import shared fixtures from `tests/`, and following those
+# imports must not drag the whole tests tree into the strict check.
+[[tool.mypy.overrides]]
+module = "tests.*"
+follow_imports = "silent"
+
 [tool.pydantic-mypy]
 init_typed = true
 

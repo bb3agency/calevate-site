@@ -27,6 +27,7 @@ from typing import ClassVar
 
 import pytest
 from apps.api.billing import payments, wallet
+from apps.api.core.stepup import StepUp
 from apps.api.db.session import tenant_session
 
 pytestmark = [pytest.mark.rls]
@@ -333,6 +334,8 @@ async def test_a_failed_replay_does_not_release_the_original_refunds_claim(
             ),
             _Req(),  # type: ignore[arg-type]
             principal,
+            StepUp(present=False, verified_at=None),
+            payment_routes.refund_confirmation(tenant_id, payment_id),
         )
 
     assert released == [], (
@@ -416,6 +419,8 @@ async def test_a_refund_the_provider_accepted_keeps_its_claim_when_its_answer_is
             ),
             _Req(),  # type: ignore[arg-type]
             principal,
+            StepUp(present=False, verified_at=None),
+            payment_routes.refund_confirmation(tenant_id, payment_id),
         )
 
     assert released == [], f"a claim was released after the provider answered {code}"

@@ -23,10 +23,12 @@ export const OAUTH_RETURN_KEY = "calevate.oauth.return";
 /** As long as the server's own state lasts. */
 const MAX_AGE_MS = 10 * 60 * 1000;
 
-export const PROVIDER_KIND: Record<string, OAuthKind> = {
-  google: "google_calendar",
-  zoho: "zoho_crm",
-  hubspot: "hubspot",
+/** The connections each provider's callback page can finish. Google's two share one
+ * callback address, so the connection started in this browser decides which it was. */
+export const PROVIDER_KINDS: Record<string, readonly OAuthKind[]> = {
+  google: ["google_calendar", "google_sheets"],
+  zoho: ["zoho_crm"],
+  hubspot: ["hubspot"],
 };
 
 interface Start {
@@ -78,8 +80,9 @@ export function beginOAuthReturn(slug: string, kind: OAuthKind): void {
  */
 export function noteOAuthReturn(provider: string, result: Omit<OAuthResult, "kind">): string | null {
   const start = read<Start>(OAUTH_START_KEY);
-  const kind = lookup(PROVIDER_KIND, provider);
-  if (!start || !kind || start.kind !== kind || Date.now() - start.at > MAX_AGE_MS) return null;
+  const kinds = lookup(PROVIDER_KINDS, provider);
+  if (!start || !kinds?.includes(start.kind) || Date.now() - start.at > MAX_AGE_MS) return null;
+  const kind = start.kind;
   write(OAUTH_RETURN_KEY, { ...result, kind, slug: start.slug, at: Date.now() });
   return `/c/${encodeURIComponent(start.slug)}/integrations`;
 }

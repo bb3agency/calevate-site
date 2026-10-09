@@ -67,6 +67,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service as admin_service
 from apps.api.authn.subjects import load_subject
+from apps.api.billing.trials import start_trial
 from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
@@ -414,9 +415,34 @@ async def create_self_serve_tenant(
     """
 
     async def _audit(session: AsyncSession, tenant_id: UUID) -> None:
-        """The last write of the birth transaction. `audit_log` is not tenant-RLS'd
-        (migration 05bba2f3c19c) but it IS the same transaction, so a tenant that
-        exists with no record of its creation is not a reachable state."""
+        """The free trial and the audit row, the last writes of the birth transaction.
+
+        D-703: a business that signs itself up starts its free trial at once, on the
+        console's self-serve terms (test calls only until the first payment, D-697). In the
+        same transaction, so there is no self-serve account without its trial."""
+        settings = get_settings()
+        trial = await start_trial(
+            session,
+            tenant_id=tenant_id,
+            days=settings.self_serve_trial_days,
+            # `started_by` names an OPERATOR (admin_users); nobody started this one.
+            actor_user_id=None,
+            free_minutes=settings.self_serve_trial_free_minutes,
+        )
+        await write_audit(
+            session,
+            action="trial.started",
+            actor_type="user",
+            tenant_id=tenant_id,
+            object_type="tenant_trials",
+            object_id=str(trial.id),
+            ip=ip,
+            summary={
+                "days": str(settings.self_serve_trial_days),
+                "free_minutes": str(settings.self_serve_trial_free_minutes),
+                "reason": "self-serve signup",
+            },
+        )
         await write_audit(
             session,
             action="organization.self_serve_created",

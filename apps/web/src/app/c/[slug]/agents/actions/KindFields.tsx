@@ -13,7 +13,8 @@ import { CalendarClock } from "lucide-react";
 
 import type { FormValidation } from "@/components/formValidation";
 import { FIELD, FIELD_HINT, FIELD_LABEL, ProblemNotice } from "@/components/ui";
-import { useConnectionsStatus, useCredentials, type ActionTool } from "@/lib/api/actions";
+import { SheetChooser } from "@/components/sheetChooser";
+import { useCredentials, type ActionTool } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
 
 import { spreadsheetId, type DraftParam, type Kind, type Provider } from "./params";
@@ -54,6 +55,8 @@ export function initialDraft(kind: Kind, existing?: ActionTool): KindDraft {
     calendar_id: text(existing, "calendar_id", "primary"),
     duration_min: text(existing, "duration_min", "30"),
     spreadsheet: text(existing, "spreadsheet_id"),
+    spreadsheet_name: text(existing, "spreadsheet_name"),
+    sheet_credential: existing?.credential_id ?? "",
     worksheet: text(existing, "worksheet", "Sheet1"),
     match_header: text(existing, "match_header", "Phone"),
     return_headers: list(existing, "return_headers"),
@@ -119,7 +122,11 @@ export function buildConfig(
     };
   }
   if (kind === "sheets") {
-    const base = { spreadsheet_id: spreadsheetId(d.spreadsheet), worksheet: d.worksheet };
+    const base = {
+      spreadsheet_id: spreadsheetId(d.spreadsheet),
+      spreadsheet_name: d.spreadsheet_name || null,
+      worksheet: d.worksheet,
+    };
     return d.operation === "lookup"
       ? {
           ...base,
@@ -161,6 +168,7 @@ export function buildConfig(
   if (provider === "sheet") {
     return {
       spreadsheet_id: spreadsheetId(d.spreadsheet),
+      spreadsheet_name: d.spreadsheet_name || null,
       worksheet: d.worksheet,
       match_header: d.match_header,
       return_headers: splitList(d.return_headers),
@@ -217,28 +225,32 @@ export function KindFields({
   session: Session;
   valid: FormValidation;
 }) {
-  const status = useConnectionsStatus(session);
   const creds = useCredentials(session);
   const set = (key: string) => (value: string) => onChange({ ...draft, [key]: value });
-  const shareWith = status.data?.sheets_share_with;
 
   const sheetFields = (
     <>
-      <div className="flex flex-wrap gap-2">
-        <Field
-          label="Sheet address"
-          value={draft.spreadsheet}
-          onChange={set("spreadsheet")}
-          placeholder="https://docs.google.com/spreadsheets/d/…"
-          inputMode="url"
-        />
-        <Field label="Tab name" value={draft.worksheet} onChange={set("worksheet")} />
-      </div>
-      <p className={FIELD_HINT}>
-        {shareWith
-          ? `Share the sheet with ${shareWith} as an Editor so your agent can use it.`
-          : "Google Sheets is not available on your account yet."}
-      </p>
+      <SheetChooser
+        session={session}
+        value={
+          draft.spreadsheet && draft.sheet_credential
+            ? {
+                credentialId: draft.sheet_credential,
+                spreadsheetId: draft.spreadsheet,
+                name: draft.spreadsheet_name || "Chosen spreadsheet",
+              }
+            : null
+        }
+        onChange={(chosen) =>
+          onChange({
+            ...draft,
+            spreadsheet: chosen.spreadsheetId,
+            spreadsheet_name: chosen.name,
+            sheet_credential: chosen.credentialId,
+          })
+        }
+      />
+      <Field label="Tab name" value={draft.worksheet} onChange={set("worksheet")} />
     </>
   );
 
@@ -326,7 +338,7 @@ export function KindFields({
           </label>
         </div>
         <Field
-          label="Appointment length (minutes)"
+          label="Booking length (minutes)"
           value={draft.duration_min}
           onChange={set("duration_min")}
           inputMode="numeric"

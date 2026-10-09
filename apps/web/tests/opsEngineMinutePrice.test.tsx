@@ -10,7 +10,7 @@ import {
   type EngineMinutePrice,
 } from "@/lib/api/engineMinutePricing";
 
-import { OPS_CONFIG_SECTIONS } from "./fixtures/opsConfig";
+import { OPS_CONFIG_SECTIONS, control } from "./fixtures/opsConfig";
 import { renderAdminPage } from "./harness";
 
 /**
@@ -126,6 +126,7 @@ describe("ThinnestAI settings on the configuration screen", () => {
       has_default: true,
       kind: "boolean",
       options: [],
+      control: control("switch", { risk: "high", risk_reason: "Changes which keys run." }),
       nullable: false,
       label: "ThinnestAI runs on our own keys (BYOK)",
       description: "Turn on only after all three legs are set up in ThinnestAI.",

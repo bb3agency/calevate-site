@@ -27,7 +27,11 @@ from hashlib import sha256
 from typing import Any, Final, Literal
 from uuid import UUID
 
-from scripts.seed import DEFAULT_RETENTION_POLICIES, VERTICAL_TEMPLATES
+from scripts.seed import (
+    CUSTOM_EXTRACTION_FIELDS,
+    DEFAULT_RETENTION_POLICIES,
+    VERTICAL_TEMPLATES,
+)
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -162,7 +166,7 @@ def derive_slug(name: str) -> str:
             ],
             remediation=(
                 "Enter the web address for this client yourself — for example "
-                "'sri-sai-dental'. It appears in every client URL and cannot be changed "
+                "'sri-traders'. It appears in every client URL and cannot be changed "
                 "later."
             ),
         )
@@ -209,6 +213,11 @@ DEFAULT_PLAN_TIER = _DEFAULT_PLAN_TIER
 # Extra writes a caller needs INSIDE the tenant's birth transaction. Called with the
 # open session and the new tenant id, after every row above has been written.
 TenantRootHook = Callable[[AsyncSession, UUID], Awaitable[None]]
+
+
+def starting_fields(vertical_template: str) -> list[dict[str, Any]]:
+    """The extraction fields a new client starts with: its template's, or the neutral set."""
+    return VERTICAL_TEMPLATES.get(vertical_template, CUSTOM_EXTRACTION_FIELDS)
 
 
 async def create_organization(
@@ -268,7 +277,7 @@ async def create_organization(
     async with admin_session() as probe:
         await assert_slug_available(probe, slug)
 
-    fields = VERTICAL_TEMPLATES.get(vertical_template, VERTICAL_TEMPLATES.get("clinic", []))
+    fields = starting_fields(vertical_template)
 
     # FORCE RLS derives WITH CHECK from USING, so creating a tenant root requires the
     # new org's own GUC — generate the id first, then insert under it (the pattern the

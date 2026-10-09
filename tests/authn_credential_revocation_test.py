@@ -67,6 +67,13 @@ _EXEMPT: dict[str, str] = {
         "flow issues is minted AFTER, at the foot of the function, and revoking it would "
         "sign the new member out of the redemption they just completed."
     ),
+    "apps/api/authn/registration.py::complete_signup": (
+        "Self-serve account creation (D-703). The subject is inserted by "
+        "`create_verified_client` in this same call, which refuses an address that already "
+        "has a live account, so the password it writes is the first credential of a subject "
+        "nobody has ever signed in as: there is no session to end, and the one this flow "
+        "issues is minted after the write, for the person who just proved the mailbox."
+    ),
 }
 
 
@@ -202,6 +209,7 @@ def test_the_four_known_callers_are_all_present_and_accounted_for() -> None:
         "apps/api/authn/bootstrap.py::confirm_bootstrap",
         "apps/api/authn/invitations.py::accept_with_password",
         "apps/api/authn/operators.py::revoke_operator",
+        "apps/api/authn/registration.py::complete_signup",
     }, (
         "the set of functions that write or destroy a password has changed. That is "
         "allowed — it is what the census above is for — but this list is the one a reader "

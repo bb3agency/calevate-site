@@ -860,8 +860,8 @@ scorecard — D-31]:
   1. **Canonical copy → the secrets manager.** `SARVAM_API_KEY`,
      `AZURE_OPENAI_API_KEY` (D-410 — the static key for BOTH LLM surfaces; it is a
      credential, so the name-fragment machinery seals it out of `platform_settings` and
-     nothing may log it), `GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON` (D-23 — lead delivery
-     only; the LLM legs no longer touch Google),
+     nothing may log it), `GOOGLE_OAUTH_CLIENT_SECRET` (D-703 — sign-in, Calendar and Sheets
+     all use each client's own Google account; there is no platform Google key),
      `BOLNA_API_KEY` exist in `.env` for local dev only; prod values are injected at
      runtime from the secrets manager (DEV-SETUP §3). **Never in Postgres plaintext, never
      committed** (hard rule: secrets).

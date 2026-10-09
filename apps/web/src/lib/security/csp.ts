@@ -113,6 +113,15 @@ const RAZORPAY_CONNECT_ORIGINS = [
   "https://lumberjack-metrics.razorpay.com",
 ];
 const RAZORPAY_IMAGE_ORIGIN = "https://cdn.razorpay.com";
+/**
+ * Google's file picker (D-703): the loader `apis.google.com/js/api.js` and the picker it
+ * loads come from `apis.google.com`, and the picker renders in an iframe on
+ * `docs.google.com` (developers.google.com/workspace/drive/picker/guides/web-picker, read
+ * 10 Oct 2026). Google publishes no CSP list for it; any further origin the browser reports
+ * on the first real pick is added here (OPERATIONS gate A-12).
+ */
+const GOOGLE_PICKER_SCRIPT_ORIGIN = "https://apis.google.com";
+const GOOGLE_PICKER_FRAME_ORIGIN = "https://docs.google.com";
 
 /** The collector's path in `apps/api` (`apps/api/security/routes.py`). One spelling. */
 export const CSP_REPORT_PATH = "/reports/v1/csp";
@@ -216,13 +225,13 @@ export function buildContentSecurityPolicy(
   const evalSource = opts.devEval && process.env.NODE_ENV !== "production" ? " 'unsafe-eval'" : "";
   const directives = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}'${evalSource} ${RAZORPAY_CHECKOUT_ORIGIN}`,
+    `script-src 'self' 'nonce-${nonce}'${evalSource} ${RAZORPAY_CHECKOUT_ORIGIN} ${GOOGLE_PICKER_SCRIPT_ORIGIN}`,
     "style-src 'self' 'unsafe-inline'",
     `img-src 'self' data: blob: ${RAZORPAY_IMAGE_ORIGIN}`,
     "font-src 'self'",
     `connect-src ${connect}`,
     `media-src ${mediaSources}`,
-    `frame-src ${RAZORPAY_CHECKOUT_ORIGIN} ${RAZORPAY_API_ORIGIN}`,
+    `frame-src ${RAZORPAY_CHECKOUT_ORIGIN} ${RAZORPAY_API_ORIGIN} ${GOOGLE_PICKER_FRAME_ORIGIN}`,
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'none'",

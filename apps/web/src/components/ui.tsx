@@ -91,7 +91,15 @@ export function Card({
           48px of a 288px content strip — a sixth of the screen — on whitespace, and it is
           what pushed `/admin/tenants/[tenantId]`'s inner grid past the viewport (its
           single column's min-content is 288px and the padded box left it 238px). */}
-      <div className={compact ? (bodyClassName ?? "px-4 pb-4") : (bodyClassName ?? "p-4 sm:p-6")}>{children}</div>
+      {/* A compact card's header supplies the top padding; without one the body needs its
+          own, or the first line sits on the border. */}
+      <div
+        className={
+          bodyClassName ?? (compact ? (title || action ? "px-4 pb-4" : "p-4") : "p-4 sm:p-6")
+        }
+      >
+        {children}
+      </div>
     </section>
   );
 }
@@ -163,7 +171,9 @@ export function Fact({
         )}
         {label}
       </dt>
-      <dd className="mt-1 text-sm font-semibold text-ink">{children}</dd>
+      {/* `anywhere`: an email or a GSTIN is one unbroken token, and in a two-column grid
+          on a phone it would otherwise push past the card. */}
+      <dd className="mt-1 text-sm font-semibold text-ink [overflow-wrap:anywhere]">{children}</dd>
       {hint && <dd className="mt-0.5 text-xs text-ink-muted">{hint}</dd>}
     </div>
   );
@@ -291,6 +301,8 @@ const SWITCH_TRACK =
  * - **`headingLevel`.** The card variant's `h2` is a peer of `Card`'s own `h2`. An inline
  *   disclosure sits INSIDE a card's body, under that `h2`, so it takes `3` there —
  *   otherwise the heading list reads as two peers where one contains the other.
+ *   `4` is for a disclosure inside one row of a list that sits under an `h3` (a setting's
+ *   technical details on the ops configuration screen).
  * - **`subtitle` is not expected.** §3 requires the closed state to carry the FACT rather
  *   than a tease; in the inline variant the TITLE is the fact ("No GST, and no tax
  *   invoice") and the body is only the elaboration, so a subtitle would
@@ -311,12 +323,12 @@ export function Disclosure({
   icon?: ReactNode;
   defaultOpen?: boolean;
   variant?: "card" | "inline";
-  headingLevel?: 2 | 3;
+  headingLevel?: 2 | 3 | 4;
   children: ReactNode;
   className?: string;
 }) {
   const inline = variant === "inline";
-  const Heading = headingLevel === 3 ? "h3" : "h2";
+  const Heading = headingLevel === 4 ? "h4" : headingLevel === 3 ? "h3" : "h2";
   return (
     <details
       open={defaultOpen}
@@ -417,7 +429,7 @@ export function StatTile({
   tone?: "soft" | "strong";
 }) {
   return (
-    <div className="flex items-start gap-4 rounded-card border border-line bg-surface p-5 shadow-card">
+    <div className="@container flex items-start gap-3 rounded-card border border-line bg-surface p-4 shadow-card sm:gap-4 sm:p-5">
       {icon && (
         <div
           className={clsx(
@@ -433,8 +445,10 @@ export function StatTile({
       <div className="min-w-0">
         <p className="text-[13px] font-medium text-ink-muted">{label}</p>
         {/* `tabular-nums` so a polling number does not make the card twitch as digits
-            change width (D-24: this screen refetches on an interval). */}
-        <p className="mt-1 truncate text-2xl font-bold tracking-tight tabular-nums text-ink">
+            change width (D-24: this screen refetches on an interval). Never truncated — an
+            amount cut to "₹1,23,4…" is a wrong number — so it steps down a size in a
+            narrow tile and wraps only as a last resort. */}
+        <p className="mt-1 text-xl font-bold tracking-tight tabular-nums text-ink [overflow-wrap:anywhere] @[13rem]:text-2xl">
           {value ?? "—"}
         </p>
         {hint && <div className="mt-1 text-[11px] text-ink-muted">{hint}</div>}
@@ -525,7 +539,7 @@ export function StatusBadge({
   return (
     <span
       className={clsx(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+        "inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium",
         lookup(styles, value) ??
           "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
       )}
@@ -1066,6 +1080,23 @@ export const SECONDARY_BUTTON =
  */
 export const DANGER_BUTTON =
   "inline-flex items-center gap-2 rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white [&:not(:disabled)]:hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2 press";
+
+/**
+ * A MODAL: a bottom sheet on a phone, a centred card from `sm`. Class strings rather than
+ * a component for the reason the buttons above are: each modal keeps its own focus trap
+ * and ids, and only the frame is shared.
+ *
+ * On a phone the card sits at the bottom edge, where the thumb is, at full width; it
+ * scrolls inside itself (`max-h` in `dvh`, so the browser's own bars are allowed for)
+ * instead of running off a short or landscape screen with its buttons out of reach, and
+ * pads past the home indicator. The actions stack full width there, primary on top.
+ */
+export const MODAL_SCRIM =
+  "scrim-enter fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4";
+export const MODAL_PANEL =
+  "modal-enter w-full max-w-md max-h-[calc(100dvh-1.5rem)] overflow-y-auto overscroll-contain rounded-t-2xl border border-line bg-surface p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] shadow-overlay outline-none sm:max-h-[calc(100dvh-2rem)] sm:rounded-card sm:p-6";
+export const MODAL_ACTIONS =
+  "mt-5 flex flex-col-reverse gap-2 *:justify-center sm:flex-row sm:flex-wrap sm:justify-end";
 
 /**
  * A verdict, in the tone the verdict deserves.

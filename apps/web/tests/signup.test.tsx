@@ -77,6 +77,8 @@ async function mount(): Promise<void> {
   await act(async () => {
     render(<SignupPage />);
   });
+  // Two reads decide what renders: the session restore and whether signing up is open.
+  await screen.findByRole("button", { name: "Create workspace" });
 }
 
 async function submit(routes: Record<string, unknown>): Promise<ApiCall[]> {
@@ -278,13 +280,12 @@ describe("what a prospect types", () => {
       expect(made.url).not.toContain("owner@srisai.example");
       expect(made.url).not.toContain("Sri%20Sai");
     }
-    // TWO calls: the realm's session restore on mount, then the signup. The restore is
-    // named rather than counted away, so a THIRD call still fails this the way it should.
-    expect(calls.map((c) => c.path)).toEqual([
-      "/v1/auth/client/session",
-      SIGNUP,
-    ]);
-    const call = calls[1];
+    // THREE calls: the session restore and the sign-up switch on mount, then the signup.
+    // Named rather than counted away, so a fourth call still fails this the way it should.
+    expect(calls.map((c) => c.path).sort()).toEqual(
+      ["/v1/auth/client/session", "/v1/auth/client/sign-in-options", SIGNUP].sort(),
+    );
+    const call = calls.find((c) => c.path === SIGNUP)!;
     expect(call.method).toBe("POST");
     expect(call.path).toBe(SIGNUP);
     const body = JSON.parse(call.body ?? "{}");
@@ -296,9 +297,11 @@ describe("what a prospect types", () => {
     const calls = stubApi({});
     await mount();
     fill();
-    // The realm's session restore is the ONE call a mount is allowed to make, and it is
-    // not "what a prospect typed" — nothing this screen collects has been sent.
-    expect(calls.map((c) => c.path)).toEqual(["/v1/auth/client/session"]);
+    // The session restore and the sign-up switch are the calls a mount may make, and
+    // neither is "what a prospect typed" — nothing this screen collects has been sent.
+    expect(calls.map((c) => c.path).sort()).toEqual(
+      ["/v1/auth/client/session", "/v1/auth/client/sign-in-options"].sort(),
+    );
   });
 });
 

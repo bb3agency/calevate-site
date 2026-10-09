@@ -37,6 +37,7 @@ export function LeadsToolbar({
   exportRefusal,
   exportNote,
   onExported,
+  askExample,
 }: {
   search: string;
   onSearch: (value: string) => void;
@@ -63,6 +64,8 @@ export function LeadsToolbar({
   /** What the file holds, in a sentence — behind the ⓘ beside the button. */
   exportNote: string;
   onExported: () => void;
+  /** A request in this business's own words, for the search placeholder. */
+  askExample: string;
 }) {
   return (
       <div className="flex flex-wrap items-center gap-2">
@@ -103,7 +106,7 @@ export function LeadsToolbar({
             onChange={(e) => onAsk(e.target.value)}
             maxLength={2000}
             aria-label="Find leads by what they asked for"
-            placeholder="What did they ask for? e.g. 3BHK in Gachibowli"
+            placeholder={`What did they ask for? e.g. ${askExample}`}
             className="w-full rounded-md border border-line bg-surface py-1.5 pl-8 pr-3 text-sm text-ink placeholder:text-ink-faint touch:min-h-11"
           />
         </form>

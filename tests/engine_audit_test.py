@@ -1556,6 +1556,9 @@ async def test_a_long_retry_after_fails_fast_instead_of_holding_the_request_open
 #: are a vendor's nouns; `status` and `duration` are everybody's.
 _VENDOR_ONLY_KEYS = frozenset(
     {
+        # ThinnestAI's per-call override block on `POST /calls` (D-697's call cap). Nothing
+        # of ours is called this.
+        "overrides",
         # Cartesia Line (TRD §10.5; the adapter marks which shapes are sourced, and
         # `docs/vendor/cartesia/` carries the citations since D-270).
         "agent_call_id",
@@ -1627,6 +1630,9 @@ _VENDOR_ONLY_KEYS = frozenset(
 #: vocabulary is a guard somebody switches off.
 _SHARED_PAYLOAD_KEYS = frozenset(
     {
+        # A phone number's display name on ThinnestAI, and a word this product uses for
+        # its own form fields and connections (D-704 shows it in the trial-number picker).
+        "label",
         # D-690: `tools` (the built-in tools list), `mode` and `line` (the hand-over's) are
         # everyday words in our own code too, so none proves where a payload came from.
         "tools",

@@ -1,11 +1,19 @@
 "use client";
 
-import { useState } from "react";
-import { RotateCcw, Save, TriangleAlert, Users } from "lucide-react";
+import { useId, useState } from "react";
+import {
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  Clock,
+  RotateCcw,
+  ShieldAlert,
+  TriangleAlert,
+  Users,
+} from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
-import { MonoValue } from "@/app/admin/ops/opsLanguage";
-import { useFormValidation } from "@/components/formValidation";
+import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import {
   FIELD,
   FIELD_HINT,
@@ -13,37 +21,50 @@ import {
   NoticeBox,
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
+  SECONDARY_BUTTON_SM,
 } from "@/components/ui";
-import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
+import { ApiProblem } from "@/lib/api/client";
 import { cardRefusalSentences } from "@/lib/api/opsRateCard";
 import {
   isLostUpdate,
   useRevertConfig,
   useSetConfig,
   type ConfigField,
+  type ConfigValue,
   type ConfigWrite,
 } from "@/lib/api/opsConfig";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
+import { ConfigInput } from "./ConfigInput";
 import {
-  AppliesNotice,
-  appliesVerdict,
-  display,
+  REASON_PRESETS,
+  appliesCopy,
+  confirmPhrase,
+  displayValue,
   draftOf,
-  etagOf,
-  parseDraft,
-  provenance,
-  selectChoices,
-} from "./configField";
+  optionFor,
+  serverFieldMessage,
+  settingState,
+  validateDraft,
+  valueOf,
+} from "./configControl";
+import { etagOf } from "./configField";
+
+/** The server's minimum for a reason (`ConfigSetIn.reason`). */
+const REASON_MIN = 3;
 
 /**
- * Changing ONE setting: new value, reason, the key typed back, then Save.
+ * Changing ONE setting: the new value in the control that fits it, a before → after
+ * preview, the reason (it is the audit log), and Save.
  *
- * The word typed is sent as `X-Confirm-Action` and names the KEY, so a confirmation made for
- * one setting cannot be replayed against another. The write is conditional (`If-Match`) on
- * the token the form opened against; a poll that moves the token underneath the operator
- * stops the write until they choose, and there is no retry — re-sending the same body
- * against a moved value is last-write-wins with a confirmation step.
+ * Confirmation is proportionate. A setting the server marks `high` risk (it can stop
+ * calls, move money, lock people out or change what a caller is told) asks for the new
+ * value to be typed back; every other setting is confirmed by the preview and one press.
+ * Either way the request carries the server's step-up confirmation (`set_config:<key>` /
+ * `revert_config:<key>`) and is audited — nothing the console decides weakens that.
+ *
+ * The write is conditional (`If-Match`) on the token the form opened against; a value that
+ * moves underneath the operator stops the write until they choose, with no blind retry.
  */
 export function ConfigForm({
   field,
@@ -59,10 +80,18 @@ export function ConfigForm({
 }) {
   const save = useSetConfig();
   const revert = useRevertConfig();
-  // Seeded from the value in force, so a change is an edit rather than a retype.
-  const [draft, setDraft] = useState(draftOf(field.value));
+  const ids = useId();
+  const inputId = `${ids}-value`;
+  const errorId = `${ids}-error`;
+  const reasonId = `${ids}-reason`;
+
+  const [mode, setMode] = useState<"set" | "revert">("set");
+  const [draft, setDraft] = useState(draftOf(field, field.value));
   const [reason, setReason] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [triedSave, setTriedSave] = useState(false);
+  /** The draft the server last refused, so its words are shown only beside that draft. */
+  const [refusedDraft, setRefusedDraft] = useState<string | null>(null);
   /**
    * The ENTITY-TAG this edit was decided against, moved only by an explicit choice in
    * `ValueMoved`. The token and not the value: a peer who sets 88 → 91 → 88 leaves the
@@ -72,50 +101,82 @@ export function ConfigForm({
   /** The server refused a conditional write; cleared only by an operator's choice. */
   const [refused, setRefused] = useState(false);
 
-  useUnsavedGuard(draft !== draftOf(field.value) || reason.trim() !== "" || confirm !== "");
+  const reverting = mode === "revert";
+  const next: ConfigValue = reverting ? field.default : valueOf(field, draft);
+  // A revert always has something to do: it removes the stored row, even one equal to the default.
+  const changed = reverting || JSON.stringify(next) !== JSON.stringify(field.value);
+  useUnsavedGuard((!reverting && changed) || reason.trim() !== "" || confirm !== "");
 
-  const word = field.key.toUpperCase();
-  // A field that LOSES its token between two reads has, as far as this form can tell,
-  // moved — the safe reading, and the one that stops the write.
   const conflicted = (etagOf(field) ?? "") !== basisTag || refused;
-  const valid = useFormValidation();
-  const ready = confirmationMatches(confirm, word, "exact") && !conflicted;
-  const verdict = appliesVerdict(field);
+  const high = field.control.risk === "high";
+  const phrase = confirmPhrase(field, next);
+  const confirmed = !high || confirmationMatches(confirm, phrase);
+  const typedProblem = reverting ? null : validateDraft(field, draft);
+  const serverProblem =
+    refusedDraft === draft
+      ? serverFieldMessage(field, save.error instanceof ApiProblem ? save.error : null)
+      : null;
+  const valueProblem = typedProblem ?? serverProblem;
+  const reasonProblem = reason.trim().length >= REASON_MIN ? null : "Say why, in a few words.";
+  const pending = save.isPending || revert.isPending;
+  const ready =
+    !conflicted &&
+    !pending &&
+    changed &&
+    confirmed &&
+    (reverting || (typedProblem === null && reasonProblem === null));
   // `null` for every other failure, which keeps `WriteFailure` the ONE renderer for those.
   const cardRefusals = cardRefusalSentences(save.error);
-  const choices = field.kind === "enum" ? selectChoices(field) : [];
-  const unavailable = choices.find((choice) => choice.value === draft)?.unavailable ?? null;
+  const unavailable =
+    !reverting && typeof next === "string" ? (optionFor(field, next)?.unavailable_reason ?? null) : null;
+  const applies = appliesCopy(field);
+  const canRevert = field.source === "db" && field.has_default;
 
-  /** Continue from a stated current value: re-base the precondition, re-arm the typing. */
+  /** Continue from a stated current value: re-base the precondition, re-arm the confirm. */
   const rebase = (nextDraft: string) => {
     setDraft(nextDraft);
     setBasisTag(etagOf(field) ?? "");
     setRefused(false);
     setConfirm("");
   };
+  const onFailure = (error: Error) => {
+    if (isLostUpdate(error)) setRefused(true);
+    setRefusedDraft(draft);
+  };
+
+  const submit = () => {
+    setTriedSave(true);
+    if (!ready) return;
+    if (reverting) {
+      revert.mutate(
+        { key: field.key, ifMatch: basisTag },
+        { onSuccess: (write) => onWritten(write), onError: onFailure },
+      );
+      return;
+    }
+    save.mutate(
+      { key: field.key, value: next, reason: reason.trim(), ifMatch: basisTag },
+      {
+        onSuccess: (write) => {
+          setReason("");
+          setConfirm("");
+          onWritten(write);
+        },
+        onError: onFailure,
+      },
+    );
+  };
+
+  const showValueProblem = valueProblem !== null && (triedSave || draft !== draftOf(field, field.value) || serverProblem !== null);
 
   return (
     <form
-      className="space-y-4"
+      className="space-y-5"
       noValidate
-      onSubmit={valid.onSubmit(() => {
-        // Belt and braces with the button's `disabled`: Enter in a text input submits.
-        if (!ready || save.isPending) return;
-        save.mutate(
-          { key: field.key, value: parseDraft(field, draft), reason: reason.trim(), ifMatch: basisTag },
-          {
-            onSuccess: (write) => {
-              setReason("");
-              setConfirm("");
-              onWritten(write);
-            },
-            // ONLY the flag: `rebase` is the one place the confirmation is cleared.
-            onError: (error) => {
-              if (isLostUpdate(error)) setRefused(true);
-            },
-          },
-        );
-      })}
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
     >
       {/* The conflict comes FIRST: it decides whether anything below may be sent. */}
       {conflicted && (
@@ -123,14 +184,13 @@ export function ConfigForm({
           field={field}
           refused={refused}
           serverSaid={save.error?.message ?? revert.error?.message ?? null}
-          onTakeTheirs={() => rebase(draftOf(field.value))}
+          onTakeTheirs={() => rebase(draftOf(field, field.value))}
           onKeepMine={() => rebase(draft)}
           onDiscard={onDone}
         />
       )}
 
-      {/* The card refusal in the server's own sentences, one line per refusal. Nothing was
-          written when this appears: the card check runs before the row lands. */}
+      {/* Nothing was written when this appears: the card check runs before the row lands. */}
       {!refused && cardRefusals !== null && (
         <NoticeBox
           tone="stop"
@@ -138,67 +198,55 @@ export function ConfigForm({
           title="The rate card was refused — nothing was saved"
         >
           <p className="mt-1">
-            Calevate will not record a card that sells a minute for less than it costs, or
-            one whose rates stop falling as the packs get bigger. Neither the price nor the
-            card moved.
+            Calevate will not record a card that sells a minute for less than it costs, or one
+            whose rates stop falling as the packs get bigger.
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             {cardRefusals.map((sentence) => (
               <li key={sentence}>{sentence}</li>
             ))}
           </ul>
-          <p className="mt-2 text-xs">
-            The card is a committed catalogue, so correcting it is a code change and a
-            deploy — there is no cell to retype here.
-          </p>
         </NoticeBox>
       )}
-
-      {!refused && cardRefusals === null && save.error && (
+      {!refused && cardRefusals === null && save.error && serverProblem === null && (
         <WriteFailure error={save.error} actionLabel="Save" />
       )}
       {!refused && revert.error && <WriteFailure error={revert.error} actionLabel="Revert to default" />}
 
-      <label className="block">
-        <span className={FIELD_LABEL}>New value</span>
-        {field.kind === "enum" ? (
-          <select value={draft} onChange={(e) => setDraft(e.target.value)} className={FIELD}>
-            {choices.map((choice) => (
-              <option key={choice.value} value={choice.value}>
-                {choice.text}
-              </option>
-            ))}
-          </select>
-        ) : field.kind === "boolean" ? (
-          <select value={draft} onChange={(e) => setDraft(e.target.value)} className={FIELD}>
-            <option value="true">true</option>
-            <option value="false">false</option>
-          </select>
-        ) : (
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            // `text` even for decimals: a `number` input hands back a float, and
-            // `usd_inr_rate` must reach the API as the exact string typed (hard rule 7).
-            inputMode={field.kind === "integer" ? "numeric" : "text"}
-            className={`${FIELD} font-mono`}
-          />
-        )}
-        <span className={FIELD_HINT}>
-          {field.has_default ? (
-            <>
-              Built-in default: <MonoValue>{display(field.default)}</MonoValue>.
-            </>
-          ) : (
-            <>This setting has no built-in default, so it cannot be reverted.</>
-          )}{" "}
-          Checked against the same rules the platform uses when it starts, so a value that
-          would break it is refused here.
-        </span>
-      </label>
+      <p className="text-sm text-ink-muted">
+        Now: <span className="font-semibold text-ink">{displayValue(field, field.value)}</span>{" "}
+        <span className="text-xs">({settingState(field).label})</span>
+      </p>
 
-      {/* Saving is allowed: the validator accepts it, and a tier may be pointed at a model
-          before its key or price lands. What it means for clients is said here. */}
+      {reverting ? (
+        <div className="space-y-2 rounded-card border border-line bg-surface-muted p-3 text-sm">
+          <p className="text-ink">
+            Going back to the default:{" "}
+            <span className="font-semibold">{displayValue(field, field.default)}</span>.
+          </p>
+          <button type="button" onClick={() => setMode("set")} className={SECONDARY_BUTTON_SM}>
+            Choose a value instead
+          </button>
+        </div>
+      ) : (
+        <div>
+          <ConfigInput
+            field={field}
+            draft={draft}
+            onChange={setDraft}
+            inputId={inputId}
+            describedBy={showValueProblem ? errorId : undefined}
+            invalid={showValueProblem}
+          />
+          {showValueProblem && (
+            <p id={errorId} role="alert" className="mt-1.5 text-xs font-medium text-rose-700 dark:text-rose-300">
+              {valueProblem}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Saving is allowed: a tier may be pointed at a model before its key or price lands. */}
       {unavailable && (
         <NoticeBox
           tone="warn"
@@ -209,83 +257,127 @@ export function ConfigForm({
         </NoticeBox>
       )}
 
-      <label className="block">
-        <span className={FIELD_LABEL}>Reason</span>
-        <input
-          {...valid.field("reason", "Say why this value is changing.")}
-          required
-          minLength={3}
-          maxLength={500}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="e.g. 'Q3 price change, approved in #pricing'"
-          className={FIELD}
-        />
-        {valid.error("reason")}
-        <span className={FIELD_HINT}>Saved with the change and in the audit log.</span>
-      </label>
+      {changed && (
+        <div aria-live="polite" className="rounded-card border border-line p-3">
+          <p className={FIELD_LABEL}>{reverting ? "What reverting does" : "What changes"}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <span className="min-w-0 break-words text-ink-muted line-through decoration-ink-faint [overflow-wrap:anywhere]">
+              {displayValue(field, field.value)}
+            </span>
+            <ArrowRight aria-label="becomes" className="h-4 w-4 shrink-0 text-ink-faint" />
+            <span className="min-w-0 break-words font-semibold text-ink [overflow-wrap:anywhere]">
+              {displayValue(field, next)}
+            </span>
+          </div>
+        </div>
+      )}
 
-      <TypedConfirmation
-        match="exact"
-        id={`confirm-config-${field.key}`}
-        phrase={word}
-        value={confirm}
-        onChange={setConfirm}
-        hint="This confirms your change and is tied to this setting, so it can't be used to change a different one."
-      />
-
-      {/* WHAT SAVING WILL AND WILL NOT DO, immediately above the button that does it. */}
-      <AppliesNotice verdict={verdict} />
-
-      <div className="flex flex-wrap gap-2">
-        <button type="submit" disabled={!ready || save.isPending} className={PRIMARY_BUTTON}>
-          <Save aria-hidden className="h-4 w-4" />
-          {save.isPending ? "Saving…" : "Save"}
-        </button>
-        {/* Offered only where there is something to revert TO and FROM. It carries its own
-            confirmation string on the wire, so the word above does not authorise it. */}
-        {field.source === "db" && field.has_default && (
-          <button
-            type="button"
-            disabled={!confirmationMatches(confirm, word, "exact") || conflicted || revert.isPending}
-            onClick={() =>
-              revert.mutate(
-                { key: field.key, ifMatch: basisTag },
-                {
-                  onSuccess: (write) => {
-                    setConfirm("");
-                    onWritten(write);
-                  },
-                  onError: (error) => {
-                    if (isLostUpdate(error)) setRefused(true);
-                  },
-                },
-              )
-            }
-            className={SECONDARY_BUTTON}
-          >
-            <RotateCcw aria-hidden className="h-4 w-4" />
-            {revert.isPending ? "Reverting…" : "Revert to default"}
-          </button>
-        )}
-      </div>
-
-      {/* Why a control is dead, where the control is. */}
-      {conflicted ? (
-        <p className="text-xs text-ink-muted">
-          Saving and reverting are both held until you choose above — nothing will be sent
-          against a value that has already changed.
+      {/* WHAT SAVING WILL AND WILL NOT DO, in the same form as the button that does it. */}
+      {applies.applies === "live" && !field.caveat ? (
+        <p className="flex items-start gap-1.5 text-xs text-ink-muted">
+          <CheckCircle2 aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            <span className="font-medium text-ink">{applies.label}.</span> {applies.sentence}
+          </span>
         </p>
       ) : (
-        !confirmationMatches(confirm, word, "exact") &&
-        field.source === "db" &&
-        field.has_default && (
-          <p className="text-xs text-ink-muted">
-            Type <MonoValue>{word}</MonoValue> above to enable both buttons — reverting is
-            confirmed the same way.
-          </p>
-        )
+        <NoticeBox
+          tone={applies.tone === "ok" ? "neutral" : applies.tone}
+          icon={<Clock aria-hidden className="h-5 w-5" />}
+          title={applies.label}
+        >
+          <p className="mt-1">{applies.sentence}</p>
+        </NoticeBox>
       )}
+
+      {high && field.control.risk_reason && (
+        <NoticeBox
+          tone="warn"
+          icon={<ShieldAlert aria-hidden className="h-5 w-5" />}
+          title="This setting needs care"
+        >
+          <p className="mt-1">{field.control.risk_reason}</p>
+        </NoticeBox>
+      )}
+
+      {reverting ? (
+        <p className={FIELD_HINT}>The audit log records this as a return to the default.</p>
+      ) : (
+        <div>
+          <label htmlFor={reasonId} className={FIELD_LABEL}>
+            Why are you changing it?
+          </label>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {REASON_PRESETS.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                aria-pressed={reason === preset}
+                onClick={() => setReason(preset)}
+                className={SECONDARY_BUTTON_SM}
+              >
+                {reason === preset && <Check aria-hidden className="h-3.5 w-3.5 text-brand" />}
+                {preset}
+              </button>
+            ))}
+          </div>
+          <input
+            id={reasonId}
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            maxLength={500}
+            placeholder="Or write your own, e.g. Q3 price change approved by the founder"
+            aria-invalid={(triedSave && reasonProblem !== null) || undefined}
+            aria-describedby={`${reasonId}-hint`}
+            className={`${FIELD} mt-2`}
+          />
+          <span id={`${reasonId}-hint`} className={FIELD_HINT}>
+            {triedSave && reasonProblem ? reasonProblem : "Kept with the change in the audit log."}
+          </span>
+        </div>
+      )}
+
+      {high && changed && (
+        <TypedConfirmation
+          id={`confirm-config-${field.key}`}
+          phrase={phrase}
+          value={confirm}
+          onChange={setConfirm}
+          hint="Typing the new value is a second look at exactly what will apply."
+        />
+      )}
+
+      <div className="sticky bottom-0 -mx-4 -mb-4 flex flex-wrap items-center gap-2 border-t border-line bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:-mx-5 sm:px-5 sm:pb-3">
+        <button type="submit" disabled={!ready} className={PRIMARY_BUTTON}>
+          {reverting ? <RotateCcw aria-hidden className="h-4 w-4" /> : <CheckCircle2 aria-hidden className="h-4 w-4" />}
+          {pending ? "Saving…" : reverting ? "Revert to default" : "Save change"}
+        </button>
+        {canRevert && !reverting && (
+          <button
+            type="button"
+            onClick={() => {
+              setMode("revert");
+              setConfirm("");
+            }}
+            className={SECONDARY_BUTTON}
+          >
+            Use the default
+          </button>
+        )}
+        <p className="w-full text-xs text-ink-muted sm:ml-auto sm:w-auto">
+          {conflicted
+            ? "Held until you choose above."
+            : !changed
+              ? "Nothing to save yet."
+              : !reverting && typedProblem !== null
+                ? "Fix the value above to save."
+                : !reverting && reasonProblem !== null
+                  ? "Add a reason to save."
+                  : high && !confirmed
+                    ? "Type the new value to confirm."
+                    : null}
+        </p>
+      </div>
     </form>
   );
 }
@@ -293,8 +385,8 @@ export function ConfigForm({
 /**
  * The value moved underneath this edit — the two-operators case, stated and stopped. Three
  * choices and no "retry": these are scalars with no merge, and a re-send against a changed
- * value is last-write-wins. Either continuing choice re-bases the precondition and clears the
- * typed word, so the next save is still conditional and still deliberate.
+ * value is last-write-wins. Either continuing choice re-bases the precondition and clears
+ * the confirmation, so the next save is still conditional and still deliberate.
  */
 function ValueMoved({
   field,
@@ -323,16 +415,13 @@ function ValueMoved({
     >
       <p className="mt-1">
         {refused
-          ? "Nothing was saved. Someone else changed this setting between the value you " +
-            "were shown and the moment you pressed Save."
-          : "Someone else changed this setting since you opened this form. Nothing you " +
-            "typed has been sent."}
+          ? "Someone else changed this setting between the value you were shown and the moment you pressed Save."
+          : "Someone else changed this setting since you opened this form. Nothing you chose has been sent."}
       </p>
-      {/* The server's words inside this box rather than in a second red one above it. */}
       {refused && serverSaid && <p className="mt-1 text-xs">The server said: {serverSaid}</p>}
       <p className="mt-2">
-        It is now <MonoValue className="font-semibold">{display(field.value)}</MonoValue>,{" "}
-        {provenance(field)}.
+        It is now <span className="font-semibold">{displayValue(field, field.value)}</span> (
+        {settingState(field).label}).
         {field.note && <> Their reason: &ldquo;{field.note}&rdquo;</>}
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
@@ -346,10 +435,6 @@ function ValueMoved({
           Discard my change
         </button>
       </div>
-      <p className="mt-2 text-xs">
-        Either of the first two puts you back in the form with the confirmation cleared, so
-        the next save is a fresh decision made against the value above.
-      </p>
     </NoticeBox>
   );
 }

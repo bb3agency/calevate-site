@@ -61,6 +61,7 @@ from sqlalchemy import text
 
 from apps.api.authn.models import AUTHN_REALMS
 from apps.api.core.logging import get_logger
+from apps.api.db.base import uuid7
 from apps.api.db.session import untenanted_session
 
 log = get_logger(__name__)
@@ -219,4 +220,40 @@ async def mark_email_verified(realm: str, subject_id: UUID, *, at: datetime) -> 
     log.info("auth_email_verified", extra={"realm": realm, "subject_id": str(subject_id)})
 
 
-__all__ = ["Subject", "load_subject", "mark_email_verified", "resolve_by_email"]
+async def create_verified_client(*, email: str, name: str | None, at: datetime) -> UUID | None:
+    """A new client-realm person whose mailbox was proved on the way in (D-703).
+
+    Reached only after proof: a signup code typed back, or Google saying `email_verified`.
+    So `email_verified_at` is written here, unlike an invitation redemption (D-185), where
+    possession of a forwarded link proves nothing about the mailbox.
+
+    Returns None when a live account already holds the address — `uq_users_email_lower`
+    decides that race, not a read before the write. The caller has proved the mailbox, so
+    it may be told plainly that the account exists.
+    """
+    async with untenanted_session() as session:
+        inserted = (
+            await session.execute(
+                text(
+                    "INSERT INTO users (id, email, name, email_verified_at, created_at, "
+                    "updated_at) VALUES (:id, :email, :name, :at, :at, :at) "
+                    "ON CONFLICT (lower(email)) WHERE deactivated_at IS NULL DO NOTHING "
+                    "RETURNING id"
+                ),
+                {"id": uuid7(), "email": email.strip(), "name": name, "at": at},
+            )
+        ).first()
+    if inserted is None:
+        log.info("auth_signup_address_taken")
+        return None
+    log.info("auth_user_created_self_serve", extra={"user_id": str(inserted[0])})
+    return UUID(str(inserted[0]))
+
+
+__all__ = [
+    "Subject",
+    "create_verified_client",
+    "load_subject",
+    "mark_email_verified",
+    "resolve_by_email",
+]

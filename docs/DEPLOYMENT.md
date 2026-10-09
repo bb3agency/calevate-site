@@ -1018,7 +1018,7 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
 
    `RESEND_API_KEY` is the third env-only key and the ONLY credential that is (see the
    email block below for why). Everything else — the engine's vendor key, the Sarvam stack, the
-   four `AZURE_OPENAI_*` values (D-410), `GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON`,
+   four `AZURE_OPENAI_*` values (D-410), the Google OAuth app and Picker settings (D-703),
    `EMAIL_PROVIDER`, Razorpay, the GST
    invoice identity, `ENGINE`, calling windows, `USD_INR_RATE`, `ALERTS_EMAIL`, all 55 of
    them — is set afterwards from `admin.calevate.tech/ops`, live, without an SSH session

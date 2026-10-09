@@ -231,12 +231,15 @@ SUBJECTS: dict[str, str] = {
     "otp_step_up": "Your Calevate authorization code",
     "invite_password": "You have been invited to Calevate",
     "admin_bootstrap": "Set up your Calevate administrator account",
+    "otp_signup": "Your Calevate sign-up code",
+    "signup_existing_account": "You already have a Calevate account",
 }
 
 _OTP_PURPOSE = {
     "otp_login_challenge": "sign in",
     "otp_step_up": "authorize this action",
     "otp_email_verify": "confirm your email address",
+    "otp_signup": "create your Calevate account",
 }
 
 
@@ -272,6 +275,24 @@ def render(kind: str, realm: str, secret: str) -> Email:
             cta="Accept the invitation",
             url=console_links.accept_invitation_link(secret),
             expiry="This link works once and expires in 72 hours.",
+        )
+
+    if kind == "signup_existing_account":
+        return _link_email(
+            subject=subject,
+            preheader="Someone tried to create an account with this address.",
+            heading="You already have a Calevate account",
+            lead=(
+                "Someone tried to create a new Calevate account with this email address. "
+                "You already have one, so nothing new was created. Sign in as usual, or "
+                "choose a new password here if you have forgotten it."
+            ),
+            cta="Choose a new password",
+            url=console_links.password_reset_link(realm, secret),
+            expiry=(
+                "This link works once and expires in one hour. If this was not you, you can "
+                "ignore this email: your account and password have not changed."
+            ),
         )
 
     if kind == "admin_bootstrap":

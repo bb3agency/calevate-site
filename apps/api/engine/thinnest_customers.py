@@ -51,6 +51,13 @@ PLAN_CUSTOMER_CAPS: Final[dict[str, int]] = {
 
 
 @dataclass(frozen=True, slots=True)
+class DeveloperWorkspace:
+    workspace_id: str
+    #: The workspace's display name in their console; None if the answer carried none.
+    name: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class Customer:
     workspace_id: str
     external_id: str | None
@@ -170,13 +177,18 @@ class ThinnestCustomers:
         )
 
     async def developer_workspace_id(self) -> str:
-        """Our own workspace's id, from `GET /workspace` without the header
-        (`api-reference/workspace/get-workspace.md:327-351`), remembered for this process so
-        it is never taken for a client's (`thinnest_workspace.is_developer_workspace`)."""
+        """Our own workspace's id; see `developer_workspace`."""
+        return (await self.developer_workspace()).workspace_id
+
+    async def developer_workspace(self) -> DeveloperWorkspace:
+        """Our own workspace, from `GET /workspace` without the header
+        (`api-reference/workspace/get-workspace.md:327-351`, `id` and `name` required),
+        remembered for this process so it is never taken for a client's
+        (`thinnest_workspace.is_developer_workspace`)."""
         row = await self._request("GET", "/workspace", route="/workspace")
         workspace = _customer(row).workspace_id
         remember_developer_workspace(workspace)
-        return workspace
+        return DeveloperWorkspace(workspace_id=workspace, name=_str(row.get("name")))
 
     async def get(self, workspace_id: str) -> Customer:
         return _customer(
@@ -224,6 +236,7 @@ def set_thinnest_customers(client: ThinnestCustomers | None) -> None:
 __all__ = [
     "PLAN_CUSTOMER_CAPS",
     "Customer",
+    "DeveloperWorkspace",
     "ThinnestCustomers",
     "set_thinnest_customers",
     "thinnest_customers",

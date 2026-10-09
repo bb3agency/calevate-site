@@ -63,6 +63,14 @@ export interface VerticalExamples {
   readonly extractionReason: string;
   /** What a founder types to have the script drafted for them. */
   readonly scriptBrief: string;
+  /** A detail the agent collects on every call: an extracted field's name. */
+  readonly extractionLabel: string;
+  /** Choices for a pick-one field, comma-separated. */
+  readonly extractionOptions: string;
+  /** Two end-of-call rules, one per line. */
+  readonly endCallRules: string;
+  /** What a caller asked for, as typed into the lead search. */
+  readonly leadSearch: string;
 }
 
 const CLINIC: VerticalExamples = {
@@ -87,6 +95,10 @@ const CLINIC: VerticalExamples = {
   extractionReason: "so we can route urgent cases to a doctor first",
   scriptBrief:
     "We are a dental clinic in Hyderabad. Callers usually want to book a check-up or ask about teeth cleaning prices. Book appointments and take a callback number.",
+  extractionLabel: "Reason for visit",
+  extractionOptions: "New, Follow-up, Emergency",
+  endCallRules: "Never promise a same-day appointment.\nAlways offer a callback if unsure.",
+  leadSearch: "teeth cleaning on Saturday",
 };
 
 const REAL_ESTATE: VerticalExamples = {
@@ -112,6 +124,10 @@ const REAL_ESTATE: VerticalExamples = {
   extractionReason: "so we can call back the buyers whose budget matches an available unit",
   scriptBrief:
     "We are a property office in Hyderabad. Callers usually ask about available flats, price and location. Book site visits and take a budget and a callback number.",
+  extractionLabel: "Budget",
+  extractionOptions: "Ready to move, Under construction, Plot",
+  endCallRules: "Never quote a final price on the phone.\nAlways offer a site visit if unsure.",
+  leadSearch: "3BHK in Gachibowli",
 };
 
 const INSURANCE: VerticalExamples = {
@@ -137,6 +153,11 @@ const INSURANCE: VerticalExamples = {
   extractionReason: "so we can call back the policies that are closest to lapsing first",
   scriptBrief:
     "We are an insurance agency in Vijayawada. Callers usually ask about renewals, premiums and claims. Take the policy number and book an advisor callback.",
+  extractionLabel: "Policy type",
+  extractionOptions: "New policy, Renewal, Claim",
+  endCallRules:
+    "Never confirm a premium without the policy number.\nAlways offer an advisor callback if unsure.",
+  leadSearch: "renewal due this month",
 };
 
 const EDUCATION: VerticalExamples = {
@@ -162,6 +183,10 @@ const EDUCATION: VerticalExamples = {
   extractionReason: "so we can call back the parents whose child is closest to an exam date",
   scriptBrief:
     "We are a coaching centre in Guntur. Callers usually ask about courses, batch timings and fees. Book counselling sessions and take the student's class and a callback number.",
+  extractionLabel: "Course",
+  extractionOptions: "Enquiry, Demo booked, Admitted",
+  endCallRules: "Never promise a seat in a batch that is full.\nAlways offer a callback if unsure.",
+  leadSearch: "NEET weekend batch",
 };
 
 /**
@@ -184,13 +209,18 @@ const CUSTOM: VerticalExamples = {
   staffRole: "What they do",
   staffWhyItMatters: "a mispronounced name is the first thing a caller notices",
   bookingRules:
-    "How appointments are taken, how far ahead, and what the agent must never promise without checking.",
+    "How bookings or orders are taken, how far ahead, and what your agent must never promise without checking.",
   contactName: "Front desk",
   knowledgeTitle: "Opening hours",
   knowledgeAnswer: "The answer a caller should have been given.",
   extractionReason: "so we can call back the enquiries that matter most first",
   scriptBrief:
     "What the business does, where it is, what callers usually want, and what the agent should do about it.",
+  extractionLabel: "What they need",
+  extractionOptions: "New enquiry, Repeat customer, Complaint",
+  endCallRules:
+    "Never promise a delivery date or a price without checking.\nAlways offer a callback if unsure.",
+  leadSearch: "home delivery on Sunday",
 };
 
 const BY_VERTICAL: Readonly<Record<Vertical, VerticalExamples>> = {
