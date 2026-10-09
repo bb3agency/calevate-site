@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 
-import { Card, ProblemNotice, Skeleton, formatCount, formatDuration } from "@/components/ui";
+import { ProblemNotice, Skeleton, formatCount, formatDuration } from "@/components/ui";
+import { Section } from "@/components/console/section";
 import { Metric } from "@/components/console/metric";
 import { useAttention } from "@/lib/api/attention";
 import { useCalls, useDashboard, useUsage } from "@/lib/api/hooks";
@@ -207,20 +208,24 @@ export function DashboardScreen({ slug }: { slug: string }) {
   const data = dashboard.data;
 
   return (
-    <div className="space-y-4 pb-12 lg:space-y-5">
-      <LineNotice session={session} href={href(`/c/${slug}/settings/line-protection`)} />
-      <AttentionBanner attention={attention} href={href(`/c/${slug}/attention`)} />
-      <SetupChecklist />
-      <TrialCallPanel slug={slug} />
+    <div className="space-y-10 pb-12">
+      {/* What needs the owner first: notices, setup and the trial, each rendering nothing
+          when there is nothing to say. */}
+      <div className="space-y-4 empty:hidden">
+        <LineNotice session={session} href={href(`/c/${slug}/settings/line-protection`)} />
+        <AttentionBanner attention={attention} href={href(`/c/${slug}/attention`)} />
+        <SetupChecklist />
+        <TrialCallPanel slug={slug} />
+      </div>
 
-      {/* THE DAY AT A GLANCE — four figures in one strip, each marking itself when a poll
-          changes it. */}
+      {/* THE DAY AT A GLANCE — four figures on the page itself, no boxes: the numbers are
+          the content, and a hairline under the strip is all the grouping they need. Each
+          marks itself when a poll changes it. */}
       <section
         aria-label="Today at a glance"
-        className="grid grid-cols-2 gap-px overflow-hidden rounded-card border border-line bg-line shadow-card md:grid-cols-4"
+        className="grid grid-cols-2 gap-x-6 gap-y-6 border-b border-line pb-8 md:grid-cols-4"
       >
         <Metric
-          className="bg-surface p-4 sm:p-5"
           label="Calls today"
           value={formatCount(data.calls_today)}
           flashValue={String(data.calls_today)}
@@ -229,14 +234,12 @@ export function DashboardScreen({ slug }: { slug: string }) {
         {/* The window is part of the number: a seven-day average of COMPLETED calls
             (D-215), said in the hint so it is not read as an all-time figure. */}
         <Metric
-          className="bg-surface p-4 sm:p-5"
           label="Average call length"
           value={formatDuration(data.avg_duration_s_7d)}
           flashValue={data.avg_duration_s_7d == null ? null : String(data.avg_duration_s_7d)}
           hint="Completed calls, last 7 days"
         />
         <Metric
-          className="bg-surface p-4 sm:p-5"
           label="New leads (7 days)"
           value={formatCount(data.leads_new_7d)}
           flashValue={String(data.leads_new_7d)}
@@ -247,7 +250,6 @@ export function DashboardScreen({ slug }: { slug: string }) {
           }
         />
         <Metric
-          className="bg-surface p-4 sm:p-5"
           label="Hot leads waiting"
           value={formatCount(data.hot_leads_open)}
           flashValue={String(data.hot_leads_open)}
@@ -259,11 +261,11 @@ export function DashboardScreen({ slug }: { slug: string }) {
           sits high, across ALL the org's agents. It renders its own empty state. */}
       <KnowledgeGaps />
 
-      <div className="grid items-start gap-4 lg:grid-cols-12 lg:gap-5">
-        <div className="space-y-4 lg:col-span-8 lg:space-y-5">
-          <Card density="compact" title="Calls each day">
+      <div className="grid items-start gap-10 lg:grid-cols-12 lg:gap-12">
+        <div className="space-y-10 lg:col-span-8">
+          <Section title="Calls each day">
             <DailyCalls days={data.daily_7d} />
-          </Card>
+          </Section>
           <LatestCalls
             recent={recent}
             allHref={href(`/c/${slug}/calls`)}
@@ -271,30 +273,28 @@ export function DashboardScreen({ slug }: { slug: string }) {
           />
         </div>
 
-        <div className="space-y-4 lg:col-span-4 lg:space-y-5">
+        <div className="space-y-10 lg:col-span-4">
           {/* MONEY — what is left to spend, then what this month has cost. Each read has
               its own loading and failure arm (§52); a failed read is never a dash. */}
-          <section
-            aria-label="Credit and spend"
-            className="divide-y divide-line rounded-card border border-line bg-surface shadow-card"
-          >
-            <CallingCreditTile wallet={wallet} href={href(`/c/${slug}/billing?tab=credits`)} />
-            <SpendThisMonth usage={usage} href={href(`/c/${slug}/billing?tab=usage`)} />
-          </section>
-          {/* WHICH definition produced the after-hours number, from the field the API
-              added for exactly this reason: a guess and a fact must not read the same. */}
-          <div className="rounded-card border border-line bg-surface p-4 shadow-card sm:p-5">
-            <Metric
-              label="Captured after hours"
-              value={formatCount(data.after_hours_captured_7d)}
-              flashValue={String(data.after_hours_captured_7d)}
-              hint={
-                data.after_hours_basis === "business_hours"
-                  ? "Using your recorded opening hours"
-                  : "Using 9am–9pm IST — add your opening hours for a real figure"
-              }
-            />
-          </div>
+          <Section title="Credit and spend">
+            <div className="divide-y divide-line border-y border-line">
+              <CallingCreditTile wallet={wallet} href={href(`/c/${slug}/billing?tab=credits`)} />
+              <SpendThisMonth usage={usage} href={href(`/c/${slug}/billing?tab=usage`)} />
+              {/* WHICH definition produced the after-hours number, from the field the API
+                  added for exactly this reason: a guess and a fact must not read the same. */}
+              <Metric
+                className="py-4"
+                label="Captured after hours"
+                value={formatCount(data.after_hours_captured_7d)}
+                flashValue={String(data.after_hours_captured_7d)}
+                hint={
+                  data.after_hours_basis === "business_hours"
+                    ? "Using your recorded opening hours"
+                    : "Using 9am–9pm IST — add your opening hours for a real figure"
+                }
+              />
+            </div>
+          </Section>
           {/* `?? {}` is a PAYLOAD default, not an envelope one: `data` is narrowed above,
               and `sentiment_split` is optional on the wire because it has a server-side
               default. An absent split from a response that arrived means none scored. */}

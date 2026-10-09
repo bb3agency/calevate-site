@@ -197,7 +197,8 @@ describe("the call log", () => {
     await screen.findByText("+91 98765 43210");
     // Fails visible: the row is there and the unfamiliar word is printed, because a
     // status this build does not know is the one a reader most needs to see.
-    expect(container.textContent).toContain("abandoned");
+    // Sentence case since REDESIGN-2, like the outcome tag beside it.
+    expect(container.textContent).toContain("Abandoned");
   });
 
   /**

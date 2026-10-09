@@ -23,12 +23,12 @@ import type { Dashboard } from "@/lib/api/client";
  */
 const DAY_CLASSES = [
   { key: "completed", label: "Completed", fill: "bg-brand" },
-  { key: "no_answer", label: "No answer", fill: "bg-amber-400" },
-  { key: "failed", label: "Failed", fill: "bg-rose-500" },
+  { key: "no_answer", label: "No answer", fill: "bg-chart-warn" },
+  { key: "failed", label: "Failed", fill: "bg-chart-danger" },
   {
     key: "in_flight",
     label: "Still running",
-    fill: "bg-slate-300 dark:bg-slate-600",
+    fill: "bg-chart-neutral",
   },
 ] as const;
 

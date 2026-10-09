@@ -1,14 +1,15 @@
 "use client";
 
-import { Card, formatCount } from "@/components/ui";
+import { Section } from "@/components/console/section";
+import { formatCount } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 
 const SENTIMENT_TONES: Record<string, string> = {
   positive: "bg-brand",
-  neutral: "bg-slate-300",
-  negative: "bg-rose-500",
+  neutral: "bg-chart-neutral",
+  negative: "bg-chart-danger",
 };
-const FALLBACK = "bg-slate-400";
+const FALLBACK = "bg-ink/40";
 
 /**
  * How callers sounded over the last 7 days — one bar split by the server's counts, with
@@ -18,7 +19,7 @@ export function SentimentSplit({ split }: { split: Record<string, number> }) {
   const rows = Object.entries(split);
   const total = rows.reduce((sum, [, count]) => sum + count, 0);
   return (
-    <Card density="compact" title="How callers sounded">
+    <Section title="How callers sounded">
       {total === 0 ? (
         <p className="text-[13px] text-ink-muted">
           We haven&apos;t rated any calls in the last 7 days yet.
@@ -46,6 +47,6 @@ export function SentimentSplit({ split }: { split: Record<string, number> }) {
           </ul>
         </div>
       )}
-    </Card>
+    </Section>
   );
 }

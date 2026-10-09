@@ -502,18 +502,17 @@ const LEAD_STATUS_STYLES: Record<string, string> = {
   lost: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
 };
 
+// Call states on the palette's own roles (REDESIGN-2): done is brand, a missed connection
+// is a warning, a failure is danger, anything still moving is neutral ink.
 const CALL_STATUS_STYLES: Record<string, string> = {
-  completed:
-    "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-  in_progress: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
-  queued: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-  ringing: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-  no_answer:
-    "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
-  busy: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
-  voicemail:
-    "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
-  failed: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+  completed: "bg-brand-soft text-brand-strong",
+  in_progress: "bg-ink/[0.06] text-ink",
+  queued: "bg-ink/[0.06] text-ink-muted",
+  ringing: "bg-ink/[0.06] text-ink-muted",
+  no_answer: "bg-warn-soft text-warn",
+  busy: "bg-warn-soft text-warn",
+  voicemail: "bg-warn-soft text-warn",
+  failed: "bg-danger-soft text-danger",
 };
 
 /**
@@ -544,9 +543,15 @@ export function StatusBadge({
           "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
       )}
     >
-      {value.replace(/_/g, " ")}
+      {kind === "call" ? sentenceCase(value) : value.replace(/_/g, " ")}
     </span>
   );
+}
+
+/** `no_answer` → "No answer": a call state reads like the outcome tag beside it. */
+function sentenceCase(value: string): string {
+  const words = value.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /**

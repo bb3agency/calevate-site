@@ -1,7 +1,7 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import {
-  Card,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -11,7 +11,7 @@ import {
 } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
 import type { WriteAccess } from "@/lib/api/hooks";
-import { useDeliveries, useDeliveryPayload } from "@/lib/api/integrations";
+import { eventLabel, useDeliveries, useDeliveryPayload } from "@/lib/api/integrations";
 import { lookup } from "@/lib/lookup";
 
 /**
@@ -35,8 +35,8 @@ import { lookup } from "@/lib/lookup";
  * plain grey is where the two drift.
  */
 const STATUS_TONE: Record<string, string> = {
-  delivered: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-  failed: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+  delivered: "bg-brand-soft text-brand-strong",
+  failed: "bg-danger-soft text-danger",
   skipped: "bg-black/5 text-ink-muted dark:bg-white/10",
 };
 
@@ -56,7 +56,7 @@ export function DeliveryLog({
   payload: ReturnType<typeof useDeliveryPayload>;
 }) {
   return (
-    <Card title="Recent deliveries" density="compact">
+    <Section title="Recent deliveries" description="What we sent to your destinations, and whether it arrived.">
       {/* Why the payload column is not here — said ONLY when the answer is ours rather
           than the server's. A staff reader who genuinely lacks `calls:read_raw` gets no
           column and no sentence, which is the deliberate design ("a permanently empty
@@ -94,7 +94,9 @@ export function DeliveryLog({
             {deliveries.data.map((delivery) => (
               <tr key={delivery.id}>
                 <td className="py-2">
-                  <code className="text-xs">{delivery.event_type}</code>
+                  <span className="text-meta text-ink">
+                    {delivery.event_type ? (eventLabel(delivery.event_type) ?? delivery.event_type) : "—"}
+                  </span>
                 </td>
                 <td className="py-2">
                   <span
@@ -183,7 +185,7 @@ export function DeliveryLog({
                 customer&apos;s details, and this view was written to your audit log.
               </p>
               {payload.data.truncated && (
-                <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                <p className="mt-2 text-xs text-warn">
                   Only the first part of this body is kept — it was{" "}
                   {payload.data.original_bytes.toLocaleString("en-IN")} bytes when we
                   sent it, and what you see below is where our copy stops.
@@ -208,6 +210,6 @@ export function DeliveryLog({
           ) : null}
         </div>
       )}
-    </Card>
+    </Section>
   );
 }

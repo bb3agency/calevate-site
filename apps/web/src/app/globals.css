@@ -73,6 +73,12 @@
   --danger-soft: #fff1f2;
   --danger-line: #fecdd3;
 
+  /* CHART FILLS. Categorical marks only (bars, legend dots), never text, so they are not
+     held to 4.5:1; they sit beside a text legend that carries the meaning. */
+  --chart-warn: #fbbf24;
+  --chart-danger: #f43f5e;
+  --chart-neutral: #cbd5e1;
+
   /*
    * MOTION. One set of curves and durations for every transition in the app.
    *
@@ -160,6 +166,7 @@
    */
   --text-muted: #94a3b8;
   --text-faint: #7c8a9c;
+  --chart-neutral: #475569;
 }
 
 @theme inline {
@@ -183,6 +190,9 @@
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
   --color-danger-line: var(--danger-line);
+  --color-chart-warn: var(--chart-warn);
+  --color-chart-danger: var(--chart-danger);
+  --color-chart-neutral: var(--chart-neutral);
 
   --font-sans: var(--font-pp-mori);
   /* JetBrains Mono first (bundled, glyph-disambiguated — see app/layout.tsx), then the
@@ -192,6 +202,28 @@
   /* The card radius, once. The design uses 14px, which is not a Tailwind step. */
   --radius-card: 14px;
 
+  /*
+   * TYPE ROLES (docs/design/REDESIGN-2.md, "Design Read and system"). Five sizes carry the
+   * whole console, so a screen picks a ROLE (`text-title`, `text-heading`, `text-body`,
+   * `text-meta`, `text-figure`) instead of a pixel value. Weight and tracking travel with
+   * the role so a heading cannot be set at body weight by accident.
+   */
+  --text-title: 1.375rem;
+  --text-title--line-height: 1.75rem;
+  --text-title--font-weight: 600;
+  --text-title--letter-spacing: -0.01em;
+  --text-heading: 1.0625rem;
+  --text-heading--line-height: 1.5rem;
+  --text-heading--font-weight: 600;
+  --text-body: 0.875rem;
+  --text-body--line-height: 1.375rem;
+  --text-meta: 0.8125rem;
+  --text-meta--line-height: 1.25rem;
+  --text-figure: 1.625rem;
+  --text-figure--line-height: 2rem;
+  --text-figure--font-weight: 600;
+  --text-figure--letter-spacing: -0.01em;
+
   /* Overriding Tailwind's own `ease-out`/`ease-in-out` rather than adding parallel names,
      so `ease-out` means one curve everywhere it is written. */
   --ease-out: var(--ease-out-strong);
@@ -199,7 +231,9 @@
   --ease-drawer: var(--ease-drawer-curve);
 
   /* `shadow-card` / `shadow-raised` / `shadow-overlay`: resting card, hovered or
-     floating control (menus, the copilot dock), and modal/drawer. */
+     floating control (menus, the copilot dock), and modal/drawer. The calm system
+     (REDESIGN-2) puts resting content straight on the page with hairlines; only things
+     that float above the page (menus, sheets, dialogs) take a shadow. */
   --shadow-card: var(--elevation-1);
   --shadow-raised: var(--elevation-2);
   --shadow-overlay: var(--elevation-3);

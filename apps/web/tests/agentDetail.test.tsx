@@ -2007,8 +2007,15 @@ describe("progressive disclosure defaults", () => {
 
     await screen.findByText("Reception");
     expect(disclosed("What it is")).toBe(true);
-    expect(disclosed("What it can do during a call")).toBe(true);
     expect(disclosed("The model it thinks with")).toBe(true);
+  });
+
+  it("gives what the agent can do on a call its own section, not a closed panel", async () => {
+    // REDESIGN-2: Actions moved out of Advanced's disclosures into the section menu.
+    await renderClientPage(page, routes());
+    await screen.findByText("Reception");
+    const nav = screen.getByRole("navigation", { name: "Agent settings" });
+    expect(within(nav).getByRole("link", { name: "Actions" }).getAttribute("href")).toContain("section=actions");
   });
 
   it("never hides a compliance control behind one", async () => {

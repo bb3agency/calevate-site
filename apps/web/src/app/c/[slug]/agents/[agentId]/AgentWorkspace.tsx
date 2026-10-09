@@ -43,6 +43,7 @@ import { noFill } from "@/lib/copilot/types";
 import { KnowledgeGaps } from "../../KnowledgeGaps";
 import { AgentIdentity } from "../AgentIdentity";
 import { AgentModel } from "../AgentModel";
+import { Actions } from "../actions/Actions";
 import { ExtractionList } from "../panels/extraction";
 import { TrainingPanel } from "../panels/training";
 import { AdvancedSection } from "./sections/advanced";
@@ -58,6 +59,7 @@ const SECTIONS = [
   { id: "calls", label: "Call handling" },
   { id: "captured", label: "Captured details" },
   { id: "knowledge", label: "Knowledge" },
+  { id: "actions", label: "Actions" },
   { id: "advanced", label: "Advanced" },
 ];
 
@@ -164,6 +166,8 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
                   </section>
                 </div>
               );
+            case "actions":
+              return <ActionsSection agentId={agent.id} />;
             case "advanced":
               return <AdvancedSection agent={agent} slug={slug} />;
             default:
@@ -173,4 +177,9 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
       />
     </div>
   );
+}
+
+function ActionsSection({ agentId }: { agentId: string }) {
+  const session = useClientSession();
+  return <Actions agentId={agentId} session={session} />;
 }

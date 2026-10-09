@@ -334,7 +334,9 @@ rendered component: `Tabs`, `Dropdown`, `Pagination`, `LoadMore`, `ShowMore`,
 `FloatingLabelInput`, `LoadingButton`, `ProgressBar`, `SkeletonSwap`, `StreamingText`,
 `LiveActivity`, `NewItemsPill`, `ToastProvider`/`useToast`.
 
-Also shared, and equally binding: `components/console/emptyState` for every empty list,
+Also shared, and equally binding: `components/console/section` (`Section`, `TEXT_ACTION`)
+for a headed block with no box, and `components/console/chooser` for a "pick a job" step
+(REDESIGN-2); `components/console/emptyState` for every empty list,
 `components/typedConfirmation.tsx` for every type-to-confirm step,
 `components/llmModelPicker.tsx` for any model choice,
 `components/actionButton.tsx`, `components/navDrawer.tsx`, `lib/lookup.ts`

@@ -28,19 +28,16 @@ function formatValue(value: unknown): string {
 export function CallHeader({ detail, leadHref }: { detail: CallDetail; leadHref: string | null }) {
   const captured = Object.entries((detail.extraction ?? {}) as Record<string, unknown>);
   return (
-    <section
-      aria-label="Call summary"
-      className="rounded-card border border-line bg-surface p-4 shadow-card sm:p-5"
-    >
+    <section aria-label="Call summary">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         {isLive(detail) && <LiveDot />}
-        <span className="text-xl font-semibold tabular-nums tracking-tight text-ink">
+        <span className="text-title tabular-nums text-ink">
           {detail.caller_e164 ? formatPhone(detail.caller_e164) : "Unknown number"}
         </span>
         {detail.caller_e164 && <CopyButton value={detail.caller_e164} label="Copy phone number" />}
         <CallState call={detail} />
       </div>
-      <p className="mt-1 text-[13px] text-ink-muted">
+      <p className="mt-1 text-meta text-ink-muted">
         {formatIST(detail.started_at)} · {formatDuration(detail.duration_s)} ·{" "}
         {detail.agent_name ?? "Agent"} · <span className="capitalize">{detail.direction}</span>
         {detail.sentiment ? (
@@ -52,9 +49,9 @@ export function CallHeader({ detail, leadHref }: { detail: CallDetail; leadHref:
       </p>
 
       {(detail.summary || leadHref) && (
-        <div className="mt-4 flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+        <div className="mt-5 flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
           {detail.summary && (
-            <p className="max-w-prose text-[15px] leading-relaxed text-ink">{detail.summary}</p>
+            <p className="max-w-prose text-[15px] leading-relaxed text-ink [text-wrap:pretty]">{detail.summary}</p>
           )}
           {leadHref && (
             <Link
@@ -69,26 +66,24 @@ export function CallHeader({ detail, leadHref }: { detail: CallDetail; leadHref:
       )}
 
       {captured.length > 0 && (
-        <div className="mt-4 border-t border-line pt-4">
-          <h2 className="mb-2 text-[13px] font-medium text-ink-muted">Captured details</h2>
+        <div className="mt-8 max-w-2xl">
+          <h2 className="text-heading text-ink">Captured details</h2>
           {/* dt/dd are DIRECT children of one wrapper div each — a <dl> accepts a div that
               groups a dt/dd pair and nothing deeper (axe definition-list / dlitem). */}
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 lg:grid-cols-3">
+          <dl className="mt-3 divide-y divide-line border-y border-line">
             {captured.map(([key, value]) => {
-              // A field the extractor flagged for a person to confirm before acting on it.
-              // The value still shows — it is usable — with the reason beneath it.
               const review = detail.extraction_needs_review?.[key];
               return (
-                <div key={key} className="min-w-0">
-                  <dt className="text-[12px] capitalize text-ink-faint">{key.replace(/_/g, " ")}</dt>
-                  <dd className="break-words text-sm font-medium text-ink">{formatValue(value)}</dd>
-                  {review && <dd className="mt-1 text-xs text-warn">{review}</dd>}
+                <div key={key} className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-0.5 py-3">
+                  <dt className="text-body capitalize text-ink-muted">{key.replace(/_/g, " ")}</dt>
+                  <dd className="min-w-0 break-words text-body font-medium text-ink sm:text-right">{formatValue(value)}</dd>
+                  {review && <dd className="w-full text-meta text-warn">{review}</dd>}
                 </div>
               );
             })}
           </dl>
           {!detail.extraction_valid && (
-            <p className="mt-3 text-xs text-warn">
+            <p className="mt-3 text-meta text-warn">
               We could not capture some details cleanly from this call.
             </p>
           )}

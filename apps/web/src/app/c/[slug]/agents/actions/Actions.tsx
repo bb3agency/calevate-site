@@ -1,54 +1,58 @@
 "use client";
 
 /**
- * WHAT AN AGENT MAY DO MID-CALL — the master switch and the action list.
+ * WHAT AN AGENT CAN DO ON A CALL — the agent's Actions section, as a guided flow
+ * (REDESIGN-2): pick a job → connect an account if it needs one → two or three plain
+ * settings → turn it on, with a safe "Try it" for booking.
  *
- * The accounts actions use are connected on the Integrations page (D-700), not here: they
- * belong to the account, not to one agent. Every value binding is one of three things the
- * founder's spec names: a static value, a lead/call variable (`</>` — the caller's number,
- * the call id), or ✨ AI-decided (the model fills it from the conversation). A change
- * reaches the live agent at once.
- *
- * Types come off the generated client; nothing here recomputes server state.
- *
- * ## What this file is now, after the split (UX-DOCTRINE §6)
- *
- * It was 738 lines carrying five components and the whole wire mapping. It is now the
- * ORCHESTRATION only — which reads happen, what the master switch does, and which of the
- * children renders. The children are one subject each, in this directory: `ToolRow` (with
- * its test and run-log panels), `ActionForm` with `KindFields`, `ParamEditor`, and the
- * React-free vocabulary in `params.ts`.
+ * This file is the ORCHESTRATION only: which reads happen, what the master switch does,
+ * and which view is showing — the list of what is on, or one job being set up. The
+ * children are one subject each: `BookingSetup`/`BookingJob` (the two calendar tools
+ * behind "Book appointments"), `ActionForm` (every other job), `ToolRow`, `AccountRow`, and
+ * the React-free vocabulary in `jobs.ts` and `params.ts`. Accounts are connected for the
+ * whole business (D-700); a job can connect a sign-in account in place.
  */
 
 import { useState } from "react";
-import Link from "next/link";
-import { PlugZap, Plus } from "lucide-react";
+import {
+  CalendarCheck,
+  Code2,
+  CreditCard,
+  Database,
+  MessageCircle,
+  Sheet,
+  UserSearch,
+} from "lucide-react";
 
-import {
-  FIELD_HINT,
-  ProblemNotice,
-  RestrictionNote,
-  SECONDARY_BUTTON_SM,
-  SectionHeading,
-  Skeleton,
-  ToggleSwitch,
-} from "@/components/ui";
-import {
-  ACTION_KIND_LABELS,
-  useAgentActions,
-  useSetMasterSwitch,
-} from "@/lib/api/actions";
+import { Chooser, ChooserItem } from "@/components/console/chooser";
+import { Section, TEXT_ACTION } from "@/components/console/section";
+import { ProblemNotice, RestrictionNote, Skeleton, ToggleSwitch } from "@/components/ui";
+import { useAgentActions, useSetMasterSwitch } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
 
 import { ActionForm } from "./ActionForm";
+import { BookingJob } from "./BookingJob";
+import { BookingSetup } from "./BookingSetup";
+import { JOBS, bookingParts, type JobId } from "./jobs";
 import { ToolRow } from "./ToolRow";
-import { KINDS, type Kind } from "./params";
+
+const ICONS: Record<JobId, typeof CalendarCheck> = {
+  booking: CalendarCheck,
+  caller_lookup: UserSearch,
+  whatsapp: MessageCircle,
+  payment_link: CreditCard,
+  crm: Database,
+  sheets: Sheet,
+  custom_api: Code2,
+};
+
+type View = { at: "list" } | { at: "setup"; job: JobId } | { at: "change-booking" };
 
 export function Actions({ agentId, session }: { agentId: string; session: Session }) {
   const actions = useAgentActions(session, agentId);
   const setMaster = useSetMasterSwitch(session, agentId);
-  const [adding, setAdding] = useState<Kind | null>(null);
+  const [view, setView] = useState<View>({ at: "list" });
   // Reading actions and credentials is `org:read`; every write here — the master switch,
   // a tool, a credential, a test run — is `org:manage`, which staff do not hold.
   const write = useWriteAccess(session, "org:manage", "change what this agent can do mid-call");
@@ -58,84 +62,117 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
     return <ProblemNotice error={actions.error} onRetry={() => void actions.refetch()} />;
 
   const settings = actions.data;
+  const { check, book } = bookingParts(settings.tools);
+  const hasBooking = check !== undefined || book !== undefined;
+  const others = settings.tools.filter((t) => t.kind !== "calendar");
+  const back = () => setView({ at: "list" });
+  const switchOn = () => {
+    if (!settings.api_actions_enabled) setMaster.mutate(true);
+  };
+
+  if (view.at !== "list") {
+    return (
+      <fieldset disabled={!write.allowed} className="min-w-0 max-w-2xl">
+        <button type="button" className={`${TEXT_ACTION} mb-4`} onClick={back}>
+          ← All actions
+        </button>
+        {view.at === "change-booking" || (view.at === "setup" && view.job === "booking") ? (
+          <BookingSetup
+            agentId={agentId}
+            session={session}
+            tools={settings.tools}
+            masterOn={settings.api_actions_enabled}
+            check={check}
+            book={book}
+            onDone={back}
+          />
+        ) : (
+          <ActionForm
+            kind={JOBS.find((j) => j.id === view.job)?.kind ?? "custom_api"}
+            agentId={agentId}
+            session={session}
+            takenNames={settings.tools.map((t) => t.name)}
+            onSaved={switchOn}
+            onDone={back}
+          />
+        )}
+        {setMaster.isError ? <ProblemNotice error={setMaster.error} /> : null}
+      </fieldset>
+    );
+  }
+
+  const offered = JOBS.filter((j) => j.id !== "booking" || !hasBooking);
 
   return (
-    <section className="space-y-6">
-      <SectionHeading icon={<PlugZap className="h-3.5 w-3.5" />}>
-        Actions during the call
-      </SectionHeading>
-      <p className="text-sm text-ink-muted">
-        Let this agent do things mid-call — know who is calling, book a slot, send a WhatsApp
-        or a payment link, save the caller to your CRM or sheet. Changes reach live calls
-        straight away. Only the account owner can switch an action on.
+    <div className="max-w-2xl space-y-10">
+      <p className="max-w-prose text-body text-ink-muted">
+        Your agent can book, look up and send things while it talks. Changes reach live calls
+        straight away.
       </p>
 
       <RestrictionNote reason={write.reason} />
 
       {/* A disabled <fieldset> disables every control inside it natively, including the
           ones the child components own, so no write can be reached without the grant. */}
-      <fieldset disabled={!write.allowed} className="min-w-0 space-y-6">
-        <ToggleSwitch
-          label="Use actions on calls"
-          hint="One switch for every action on this agent."
-          checked={settings.api_actions_enabled}
-          disabled={setMaster.isPending}
-          onChange={(next) => setMaster.mutate(next)}
-          className="rounded-card border border-line bg-app p-4"
-        />
-        {setMaster.isError ? <ProblemNotice error={setMaster.error} /> : null}
+      <fieldset disabled={!write.allowed} className="min-w-0 space-y-10">
+        <div>
+          <ToggleSwitch
+            label="Use actions on calls"
+            hint="One switch for every action on this agent."
+            checked={settings.api_actions_enabled}
+            disabled={setMaster.isPending}
+            onChange={(next) => setMaster.mutate(next)}
+          />
+          {setMaster.isError ? <ProblemNotice error={setMaster.error} /> : null}
+        </div>
 
-        <p className="text-sm text-ink-muted">
-          Actions use the accounts you connect on the{" "}
-          <Link className="font-medium underline underline-offset-2" href={`/c/${session.orgSlug}/integrations`}>
-            Integrations page
-          </Link>
-          . We never show a saved key or password again.
-        </p>
+        {hasBooking ? (
+          <BookingJob
+            agentId={agentId}
+            session={session}
+            check={check}
+            book={book}
+            onChange={() => setView({ at: "change-booking" })}
+          />
+        ) : null}
 
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-ink">Configured actions</h3>
-          {settings.tools.length === 0 ? (
-            <p className="text-sm text-ink-muted">No actions yet. Add one below.</p>
-          ) : (
-            <ul className="space-y-2">
-              {settings.tools.map((tool) => (
+        {others.length > 0 ? (
+          <Section headingLevel={3} title={hasBooking ? "Other actions" : "What it does now"}>
+            <ul className="divide-y divide-line border-y border-line">
+              {others.map((tool) => (
                 <ToolRow key={tool.id} tool={tool} agentId={agentId} session={session} />
               ))}
             </ul>
-          )}
-        </div>
+          </Section>
+        ) : null}
 
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-ink">Add an action</h3>
-          <div className="flex flex-wrap gap-2">
-            {KINDS.map((kind: Kind) => (
-              <button
-                key={kind}
-                type="button"
-                className={SECONDARY_BUTTON_SM}
-                onClick={() => setAdding(kind)}
-              >
-                <Plus className="mr-1 inline h-3.5 w-3.5" />
-                {ACTION_KIND_LABELS[kind]}
-              </button>
-            ))}
-          </div>
-          {settings.calendar_available ? null : (
-            <p className={FIELD_HINT}>
-              Google Calendar is not available on your account yet — ask your Calevate team.
-            </p>
-          )}
-          {adding ? (
-            <ActionForm
-              kind={adding}
-              agentId={agentId}
-              session={session}
-              onDone={() => setAdding(null)}
-            />
-          ) : null}
-        </div>
+        <Section
+          headingLevel={3}
+          title={settings.tools.length === 0 ? "What should your agent do on calls?" : "Add something else"}
+          description={settings.tools.length === 0 ? "Pick one. You can add more later." : undefined}
+        >
+          <Chooser label="Things your agent can do">
+            {offered.map((job) => {
+              const Icon = ICONS[job.id];
+              const unavailable = job.id === "booking" && !settings.calendar_available;
+              return (
+                <ChooserItem
+                  key={job.id}
+                  title={job.title}
+                  description={
+                    unavailable
+                      ? "Google Calendar is not available on your account yet — ask your Calevate team."
+                      : job.line
+                  }
+                  icon={<Icon className="h-5 w-5" />}
+                  disabled={unavailable}
+                  onSelect={() => setView({ at: "setup", job: job.id })}
+                />
+              );
+            })}
+          </Chooser>
+        </Section>
       </fieldset>
-    </section>
+    </div>
   );
 }

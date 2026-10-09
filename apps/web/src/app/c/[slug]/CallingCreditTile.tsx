@@ -66,7 +66,7 @@ export function CallingCreditTile({
 
   return (
     <Metric
-      className="p-4 sm:p-5"
+      className="py-4"
       label="Calling credit left"
       value={formatINR(wallet.data.balance_inr)}
       flashValue={wallet.data.balance_inr}

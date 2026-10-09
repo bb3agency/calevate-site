@@ -1,8 +1,9 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { Eye, ShieldCheck, User } from "lucide-react";
 
-import { Card, NoticeBox, ProblemNotice, RestrictionNote } from "@/components/ui";
+import { NoticeBox, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
 import { formatClock } from "@/components/callAudioPlayer";
 import type { CallDetail } from "@/lib/api/client";
@@ -47,7 +48,7 @@ export function TranscriptCard({
   onSeek: (ms: number) => void;
 }) {
   return (
-    <Card density="compact"
+    <Section
       className={className}
       title="Transcript"
       action={
@@ -165,6 +166,6 @@ export function TranscriptCard({
           />
         )}
       </div>
-    </Card>
+    </Section>
   );
 }

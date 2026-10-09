@@ -1,30 +1,32 @@
 "use client";
 
 /**
- * CONNECTED ACCOUNTS — the calendar, CRM, WhatsApp, payment and API accounts this
- * business's agents act in (D-700).
+ * ACCOUNTS YOUR AGENTS USE — the calendar, sheet, CRM, WhatsApp, payment and API accounts
+ * this business's agents act in (D-700).
  *
  * Account-wide, which is why it lives on the Integrations page and not on an agent: one
  * WhatsApp account or one CRM serves every agent that uses it. Two ways in:
  *
- * - SIGN IN (Google Calendar, Zoho CRM, HubSpot): the consent page opens in a popup, the
- *   provider returns to `/oauth/callback/<provider>`, which hands the code back here
- *   (`oauthReturn.ts`), and the server keeps the long-lived connection.
+ * - SIGN IN (Google Calendar, Google Sheets, Zoho CRM, HubSpot): `useAccountSignIn` opens
+ *   the consent page in a popup and finishes the connection when it comes back.
  * - PASTE A KEY (WhatsApp providers, Razorpay, the client's own API): sealed on save and
  *   never shown again — the list carries a fingerprint only.
+ *
+ * One list of services, each row saying whether it is connected and to what (REDESIGN-2).
+ * It used to be four "Connect" cards above a separate list of what was connected, so the
+ * owner read the same fact in two places and matched them up themselves.
  *
  * Only the owner connects or removes an account; an operator viewing the account is
  * refused by the server with the reason, which renders here as the error.
  */
 
-import { useEffect, useId, useState } from "react";
-import { FlaskConical, KeyRound, LogIn, Plus, Trash2 } from "lucide-react";
+import { useId, useState } from "react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
+import { Section, TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
 import { FieldMessage, useFormValidation } from "@/components/formValidation";
 import { PasswordInput } from "@/components/passwordInput";
 import {
-  DANGER_BUTTON,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -40,8 +42,6 @@ import {
   useCreateCredential,
   useCredentials,
   useDeleteCredential,
-  useOAuthComplete,
-  useOAuthConnect,
   useTestCredential,
   type CredentialTest,
   type IntegrationCredential,
@@ -51,7 +51,7 @@ import type { Session } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
 
 import type { KeyKind } from "../agents/actions/params";
-import { beginOAuthReturn, takeOAuthReturn, OAUTH_RETURN_KEY } from "./oauthReturn";
+import { useAccountSignIn } from "./useAccountSignIn";
 
 const SIGN_IN: { kind: OAuthKind; label: string; what: string }[] = [
   { kind: "google_calendar", label: "Google Calendar", what: "Find free times and book them for callers." },
@@ -63,6 +63,7 @@ const SIGN_IN: { kind: OAuthKind; label: string; what: string }[] = [
   { kind: "zoho_crm", label: "Zoho CRM", what: "Save callers as leads and greet them by name." },
   { kind: "hubspot", label: "HubSpot", what: "Save callers as contacts and greet them by name." },
 ];
+const SIGN_IN_KINDS: readonly string[] = SIGN_IN.map((s) => s.kind);
 
 const KEY_KINDS: { kind: KeyKind; label: string; hint: string }[] = [
   { kind: "aisensy", label: "AiSensy API key", hint: "AiSensy → Manage → API key." },
@@ -83,134 +84,153 @@ const KEY_KINDS: { kind: KeyKind; label: string; hint: string }[] = [
 export function ConnectedAccounts({ session, canWrite }: { session: Session; canWrite: boolean }) {
   const creds = useCredentials(session);
   const status = useConnectionsStatus(session);
-  const connect = useOAuthConnect(session);
-  const complete = useOAuthComplete(session);
+  const { signIn, connect, complete, error: signInError } = useAccountSignIn(session);
   const remove = useDeleteCredential(session);
   const probe = useTestCredential(session);
   const [tested, setTested] = useState<{ id: string; result: CredentialTest } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<IntegrationCredential | null>(null);
   const [adding, setAdding] = useState(false);
 
-  // A consent that came back — in this tab after a redirect, or in the popup, which writes
-  // it to storage for this tab to finish (`oauthReturn.ts`).
-  useEffect(() => {
-    const finish = () => {
-      const back = takeOAuthReturn(session.orgSlug);
-      if (back) complete.mutate(back);
-    };
-    finish();
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === OAUTH_RETURN_KEY) finish();
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-    // `complete` is stable for this component's life; re-running on it would re-read storage.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.orgSlug]);
+  /** Check and Disconnect for one connected account, and the check's answer under it. */
+  const accountActions = (c: IntegrationCredential) => (
+    <span className="flex flex-wrap items-center gap-x-4">
+      <button
+        type="button"
+        className={TEXT_ACTION}
+        disabled={!canWrite || probe.isPending}
+        onClick={() => probe.mutate(c.id, { onSuccess: (result) => setTested({ id: c.id, result }) })}
+        aria-label={`Check ${c.label}`}
+      >
+        Check
+      </button>
+      <button
+        type="button"
+        className={TEXT_ACTION_DANGER}
+        disabled={!canWrite}
+        onClick={() => setPendingDelete(c)}
+        aria-label={`Disconnect ${c.label}`}
+      >
+        Disconnect
+      </button>
+    </span>
+  );
+  const checkResult = (c: IntegrationCredential) =>
+    tested?.id === c.id ? (
+      <p className={`text-meta ${tested.result.ok ? "text-ink-muted" : "text-danger"}`} role="status">
+        {tested.result.message}
+      </p>
+    ) : null;
 
-  function signIn(kind: OAuthKind) {
-    connect.mutate(kind, {
-      onSuccess: (r) => {
-        const popup = window.open(r.authorize_url, "calevate-connect", "width=520,height=720");
-        beginOAuthReturn(session.orgSlug, kind, popup !== null);
-        // A blocked popup: go there in this tab; the callback page brings the client back.
-        if (!popup) window.location.assign(r.authorize_url);
-      },
-    });
-  }
+  const keys = creds.data?.filter((c) => !SIGN_IN_KINDS.includes(c.kind)) ?? [];
 
   return (
-    <section className="space-y-4 rounded-card border border-line bg-surface p-4" aria-labelledby="connected-accounts">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="connected-accounts" className="flex items-center gap-1.5 text-base font-semibold text-ink">
-          <KeyRound className="h-4 w-4" /> Connected accounts
-        </h2>
-      </div>
-      <p className="text-sm text-ink-muted">
-        The accounts your agents use during calls. Connect each one once and choose it on an
-        agent&rsquo;s Actions. We never show a saved key or password again, and only the
-        account owner can connect or remove one.
-      </p>
+    <div className="space-y-10">
+      <Section
+        title="Accounts your agents use"
+        description="Connect each one once. Every agent can then use it on calls."
+      >
+        {creds.isPending ? (
+          <Skeleton rows={4} />
+        ) : creds.isError ? (
+          <ProblemNotice error={creds.error} onRetry={() => void creds.refetch()} />
+        ) : (
+          <ul className="divide-y divide-line border-y border-line">
+            {SIGN_IN.map((s) => {
+              const available = status.data?.[s.kind] === true;
+              const mine = creds.data.filter((c) => c.kind === s.kind);
+              return (
+                <li key={s.kind} className="flex flex-col gap-2 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+                  <div className="min-w-0">
+                    <p className="text-body font-medium text-ink">{s.label}</p>
+                    <p className="text-meta text-ink-muted">{s.what}</p>
+                  </div>
+                  <div className="min-w-0 space-y-1.5 sm:text-right">
+                    {mine.map((c) => (
+                      <div key={c.id}>
+                        <div className="flex flex-wrap items-center gap-x-4 sm:justify-end">
+                          <span className="text-body text-ink [overflow-wrap:anywhere]">{c.label}</span>
+                          {accountActions(c)}
+                        </div>
+                        {checkResult(c)}
+                      </div>
+                    ))}
+                    {mine.length === 0 ? (
+                      <button
+                        type="button"
+                        className={SECONDARY_BUTTON_SM}
+                        disabled={!canWrite || !available || connect.isPending}
+                        onClick={() => signIn(s.kind)}
+                      >
+                        {available ? `Connect ${s.label}` : "Not available yet"}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className={TEXT_ACTION}
+                        disabled={!canWrite || !available || connect.isPending}
+                        onClick={() => signIn(s.kind)}
+                      >
+                        Connect another
+                      </button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {signInError ? <ProblemNotice error={signInError} /> : null}
+        {complete.isSuccess ? (
+          <NoticeBox tone="ok" title="Connected" className="mt-3">
+            {complete.data.label} is connected. Choose it on an agent&rsquo;s Actions.
+          </NoticeBox>
+        ) : null}
+        <p className={`${FIELD_HINT} mt-3`}>
+          Google asks for permission on the account you choose. Calevate can open only the
+          spreadsheets you pick.
+        </p>
+      </Section>
 
-      <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        {SIGN_IN.map((s) => {
-          const available = status.data?.[s.kind] === true;
-          return (
-            <li key={s.kind} className="rounded-card border border-line bg-app p-3">
-              <p className="text-sm font-medium text-ink">{s.label}</p>
-              <p className="text-xs text-ink-muted">{s.what}</p>
-              <button
-                type="button"
-                className={`${SECONDARY_BUTTON_SM} mt-2`}
-                disabled={!canWrite || !available || connect.isPending}
-                onClick={() => signIn(s.kind)}
-              >
-                <LogIn className="mr-1 inline h-3.5 w-3.5" />
-                {available ? `Connect ${s.label}` : "Not available yet"}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-      {connect.isError ? <ProblemNotice error={connect.error} /> : null}
-      {complete.isError ? <ProblemNotice error={complete.error} /> : null}
-      {complete.isSuccess ? (
-        <NoticeBox tone="ok" title="Connected">
-          {complete.data.label} is connected. Choose it on an agent&rsquo;s Actions.
-        </NoticeBox>
-      ) : null}
+      <Section
+        headingLevel={2}
+        title="Keys"
+        description="For services you connect by pasting a key. We seal it and never show it again."
+        action={
+          <button
+            type="button"
+            className={SECONDARY_BUTTON_SM}
+            disabled={!canWrite}
+            onClick={() => setAdding((v) => !v)}
+            aria-expanded={adding}
+          >
+            Add a key
+          </button>
+        }
+      >
+        {adding ? <AddKey session={session} onDone={() => setAdding(false)} /> : null}
+        {creds.data && keys.length === 0 && !adding ? (
+          <p className="text-body text-ink-muted">No keys yet.</p>
+        ) : null}
+        {keys.length > 0 ? (
+          <ul className="divide-y divide-line border-y border-line">
+            {keys.map((c) => (
+              <li key={c.id} className="py-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
+                  <span className="min-w-0 text-body text-ink [overflow-wrap:anywhere]">
+                    {c.label}{" "}
+                    <span className="text-ink-muted">
+                      · {lookup(PROVIDER_LABELS, c.kind) ?? c.kind} · ····{c.last_four}
+                    </span>
+                  </span>
+                  {accountActions(c)}
+                </div>
+                {checkResult(c)}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </Section>
 
-      <p className={FIELD_HINT}>
-        Google Calendar and Google Sheets ask for permission on the Google account you choose,
-        one at a time. Calevate can open only the spreadsheets you pick.
-      </p>
-
-      {creds.isPending ? (
-        <Skeleton rows={2} />
-      ) : creds.isError ? (
-        <ProblemNotice error={creds.error} onRetry={() => void creds.refetch()} />
-      ) : creds.data.length === 0 ? (
-        <p className="text-sm text-ink-muted">Nothing connected yet.</p>
-      ) : (
-        <ul className="divide-y divide-line rounded-card border border-line bg-app">
-          {creds.data.map((c) => (
-            <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
-              <span className="min-w-0 break-words text-ink">
-                {c.label}{" "}
-                <span className="text-ink-faint">
-                  · {lookup(PROVIDER_LABELS, c.kind) ?? c.kind} · ····{c.last_four}
-                </span>
-              </span>
-              <span className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  className={SECONDARY_BUTTON_SM}
-                  disabled={!canWrite || probe.isPending}
-                  onClick={() =>
-                    probe.mutate(c.id, { onSuccess: (result) => setTested({ id: c.id, result }) })
-                  }
-                >
-                  <FlaskConical className="mr-1 inline h-3.5 w-3.5" /> Check
-                </button>
-                <button
-                  type="button"
-                  className={DANGER_BUTTON}
-                  disabled={!canWrite}
-                  onClick={() => setPendingDelete(c)}
-                  aria-label={`Disconnect ${c.label}`}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </span>
-              {tested?.id === c.id ? (
-                <p className={`w-full text-xs ${tested.result.ok ? "text-ink" : "text-danger"}`} role="status">
-                  {tested.result.message}
-                </p>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
       {probe.isError ? <ProblemNotice error={probe.error} /> : null}
       {remove.error && pendingDelete === null ? <ProblemNotice error={remove.error} /> : null}
       {pendingDelete && (
@@ -230,20 +250,7 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
           <p>Connect it again any time and choose it on those actions.</p>
         </ConfirmDialog>
       )}
-
-      <div>
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
-          disabled={!canWrite}
-          onClick={() => setAdding((v) => !v)}
-          aria-expanded={adding}
-        >
-          <Plus className="mr-1 inline h-3.5 w-3.5" /> Add a key
-        </button>
-        {adding ? <AddKey session={session} onDone={() => setAdding(false)} /> : null}
-      </div>
-    </section>
+    </div>
   );
 }
 
@@ -260,7 +267,7 @@ function AddKey({ session, onDone }: { session: Session; onDone: () => void }) {
 
   return (
     <form
-      className="mt-3 space-y-2 rounded-card border border-line bg-app p-3"
+      className="mb-6 max-w-md space-y-3"
       noValidate
       onSubmit={valid.onSubmit(() => {
         create.mutate(

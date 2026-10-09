@@ -42,7 +42,7 @@ export function SpendThisMonth({
   }
   return (
     <Metric
-      className="p-4 sm:p-5"
+      className="py-4"
       label="Spend this month"
       value={formatINR(usage.data.month_charges_inr)}
       flashValue={usage.data.month_charges_inr}

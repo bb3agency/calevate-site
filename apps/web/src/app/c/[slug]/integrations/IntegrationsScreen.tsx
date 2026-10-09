@@ -4,7 +4,8 @@ import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { PageHeader } from "@/components/console/pageHeader";
-import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote } from "@/components/ui";
+import { Section } from "@/components/console/section";
+import { ProblemNotice, RestrictionNote, SECONDARY_BUTTON_SM } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
   useDeactivateEndpoint,
@@ -71,49 +72,44 @@ export function IntegrationsScreen() {
   };
 
   return (
-    <div className="space-y-5 pb-12">
-      <PageHeader
-        description="Connect the accounts your agents use on calls, and send leads and call results to your own systems."
-        actions={
+    <div className="max-w-4xl space-y-10 pb-12">
+      <PageHeader description="Connect the accounts your agents use on calls, and send leads and call results to your own systems." />
+      <RestrictionNote reason={write.reason} />
+
+      <ConnectedAccounts session={session} canWrite={write.allowed} />
+
+      <Section
+        title="Send to your own system"
+        description="Each destination gets your leads and call results as they happen, signed so your system knows they came from us."
+        action={
           <button
             type="button"
             onClick={() => setAdding(true)}
             // Both forms are built from the options read: no answer, no forms.
             disabled={!write.allowed || !options.data}
             title={write.reason ?? undefined}
-            className={PRIMARY_BUTTON}
+            className={SECONDARY_BUTTON_SM}
           >
             Add destination
           </button>
         }
-      />
-      <RestrictionNote reason={write.reason} />
-
-      <ConnectedAccounts session={session} canWrite={write.allowed} />
-
-      <section className="space-y-1" aria-labelledby="any-crm">
-        <h2 id="any-crm" className="text-base font-semibold text-ink">
-          Send to your own system, or any CRM
-        </h2>
-        <p className="text-sm text-ink-muted">
-          Each destination below receives your leads and call results as they happen, signed so
-          your system can tell they came from us. To reach a CRM we do not connect to directly,
-          create a webhook in Zapier, Make or Pabbly, add its address here as a destination, and
-          map the fields there.
+      >
+        {/* §52: the forms are withheld until the options read answers, and a failed (or
+            paused) read is a refusal here rather than four plausible checkboxes. */}
+        {!options.isLoading && (options.error || !options.data) && (
+          <ProblemNotice
+            error={options.error ?? new Error("We could not load the list of events you can subscribe to.")}
+            onRetry={() => void options.refetch()}
+          />
+        )}
+        {deactivate.error && !stopping && <ProblemNotice error={deactivate.error} />}
+        <EndpointList endpoints={endpoints} write={write} busy={deactivate.isPending} onStop={setStopping} />
+        <p className="mt-3 max-w-prose text-meta text-ink-muted">
+          To reach a CRM we do not connect to directly, create a webhook in Zapier, Make or
+          Pabbly, add its address here, and map the fields there.
         </p>
-      </section>
+      </Section>
 
-      {/* §52: the forms are withheld until the options read answers, and a failed (or
-          paused) read is a refusal here rather than four plausible checkboxes. */}
-      {!options.isLoading && (options.error || !options.data) && (
-        <ProblemNotice
-          error={options.error ?? new Error("We could not load the list of events you can subscribe to.")}
-          onRetry={() => void options.refetch()}
-        />
-      )}
-      {deactivate.error && !stopping && <ProblemNotice error={deactivate.error} />}
-
-      <EndpointList endpoints={endpoints} write={write} busy={deactivate.isPending} onStop={setStopping} />
       <DeliveryLog
         deliveries={deliveries}
         payloadAccess={payloadAccess}

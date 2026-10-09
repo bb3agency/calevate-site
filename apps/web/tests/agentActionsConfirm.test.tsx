@@ -130,6 +130,8 @@ describe("removing a configured action", () => {
       { "DELETE /v1/agents/agent-1/actions/tool-1": {} },
     );
 
+    // REDESIGN-2: a row's rare controls sit behind Manage, so the row scans as a list.
+    fireEvent.click(await screen.findByRole("button", { name: "Manage send_reminder" }));
     fireEvent.click(
       await screen.findByRole("button", { name: "Remove send_reminder" }),
     );
@@ -185,7 +187,9 @@ describe("editing a configured action", () => {
       },
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Edit lookup_order" }));
+    // REDESIGN-2: Manage opens the row; its edit control is called Change.
+    fireEvent.click(await screen.findByRole("button", { name: "Manage lookup_order" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Change lookup_order" }));
     const url = (await screen.findByLabelText("Secure address (https)")) as HTMLInputElement;
     expect(url.value).toBe("https://api.example.in/orders");
     expect((screen.getByLabelText("Method") as HTMLSelectElement).value).toBe("GET");

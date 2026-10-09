@@ -92,11 +92,13 @@ describe("the mid-call actions panel", () => {
     ).toBeTruthy();
 
     const master = screen.getByRole("switch", { name: /use actions on calls/i });
+    // REDESIGN-2: Remove and Test now sit behind each row's Manage, which the disabled
+    // fieldset closes off along with the master switch and every job in the chooser.
     const writes = [
       master,
-      screen.getByRole("button", { name: "Remove Look up an order" }),
-      screen.getByRole("button", { name: /test/i }),
+      screen.getByRole("button", { name: "Manage Look up an order" }),
       screen.getByRole("button", { name: /your own api/i }),
+      screen.getByRole("button", { name: /book appointments/i }),
     ];
     for (const control of writes) expect(control.matches(":disabled")).toBe(true);
 

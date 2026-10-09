@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useMemo } from "react";
 
-import { Card, ProblemNotice, Skeleton } from "@/components/ui";
+import { Section, TEXT_ACTION } from "@/components/console/section";
+import { ProblemNotice, Skeleton } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
 import { DataTable } from "@/components/console/dataTable";
 import type { useCalls } from "@/lib/api/hooks";
@@ -26,17 +27,16 @@ export function LatestCalls({
 }) {
   const columns = useMemo(() => callColumns({ callHref, compact: true }), [callHref]);
   return (
-    <Card density="compact"
+    <Section
       title="Latest calls"
       action={
         <Link
           href={allHref}
-          className="rounded-sm text-[13px] font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 touch:inline-flex touch:items-center"
+          className={TEXT_ACTION}
         >
           View all
         </Link>
       }
-      bodyClassName="px-1 pb-1 sm:px-2 sm:pb-2"
     >
       {recent.isLoading ? (
         <div className="p-3">
@@ -61,6 +61,6 @@ export function LatestCalls({
           label="Latest calls"
         />
       )}
-    </Card>
+    </Section>
   );
 }

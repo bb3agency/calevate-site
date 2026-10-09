@@ -105,7 +105,7 @@ export default function ClientRealmLayout({
               <main
                 id={MAIN_CONTENT_ID}
                 tabIndex={-1}
-                className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6"
+                className="relative flex-1 overflow-y-auto bg-surface px-4 py-4 lg:px-8 lg:py-8"
               >
                 {/* THE DOOR. Inside the shell, so a locked-out client sees their own
                     console with a message in it rather than a bare error page — and

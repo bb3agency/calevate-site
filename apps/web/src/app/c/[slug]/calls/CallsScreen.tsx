@@ -3,7 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
-import { Card, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatCount } from "@/components/ui";
+import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatCount } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { DataTable } from "@/components/console/dataTable";
@@ -125,7 +125,7 @@ export function CallsScreen({ slug }: { slug: string }) {
   const filterLabel = status ? STATUS_FILTERS.find((f) => f.value === status)?.label : null;
 
   return (
-    <div className="space-y-4 pb-12">
+    <div className="space-y-5 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SegmentedControl
           label="Show calls by outcome"
@@ -156,7 +156,7 @@ export function CallsScreen({ slug }: { slug: string }) {
 
       {calls.error && <ProblemNotice error={calls.error} onRetry={() => void calls.refetch()} />}
 
-      <Card bodyClassName="p-1 sm:p-2">
+      <div className="border-y border-line">
         {calls.isLoading ? (
           <div className="p-4">
             <Skeleton rows={6} />
@@ -214,7 +214,7 @@ export function CallsScreen({ slug }: { slug: string }) {
             className="py-1"
           />
         )}
-      </Card>
+      </div>
     </div>
   );
 }

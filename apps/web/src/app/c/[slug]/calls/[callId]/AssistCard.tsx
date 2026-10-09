@@ -1,10 +1,10 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 import { Sparkles } from "lucide-react";
 
 import {
-  Card,
   NoticeBox,
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
@@ -77,7 +77,7 @@ export function AssistCard({ session, callId }: { session: Session; callId: stri
   const [asking, setAsking] = useState(false);
 
   return (
-    <Card density="compact"
+    <Section
       title="Ask the assistant"
       info={
         <p>
@@ -131,7 +131,7 @@ export function AssistCard({ session, callId }: { session: Session; callId: stri
 
         {assist.data && <AssistAnswer answer={assist.data} />}
       </div>
-    </Card>
+    </Section>
   );
 }
 

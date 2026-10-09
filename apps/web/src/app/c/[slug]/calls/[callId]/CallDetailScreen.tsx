@@ -232,7 +232,7 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
   const showingRaw = rawTurns !== undefined;
 
   return (
-    <div className="space-y-4 pb-12">
+    <div className="space-y-8 pb-12">
       {/* No <h1>: the app shell renders the page title from the nav list. */}
       <Link
         href={href(`/c/${slug}/calls`)}
@@ -262,8 +262,8 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
       {/* Two columns from `lg`: the transcript is long-form reading and takes the width;
           the short, actionable panels sit beside it. In the DOM the actions come first,
           so on a phone they are above the transcript rather than after it. */}
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <aside aria-label="Act on this call" className="space-y-4 lg:col-start-2 lg:row-start-1">
+      <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-12">
+        <aside aria-label="Act on this call" className="space-y-8 lg:col-start-2 lg:row-start-1">
           <FollowUpCard eligibility={eligibility} callback={callback} write={write} />
           {detail.has_recording && (
             <RecordingCard

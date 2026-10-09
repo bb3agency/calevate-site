@@ -2,7 +2,7 @@
 
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
-import { Card, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import type { WriteAccess } from "@/lib/api/hooks";
 import { SHEET_KIND, eventLabel, useEndpoints, type Endpoint } from "@/lib/api/integrations";
 
@@ -96,7 +96,7 @@ export function EndpointList({
   ];
 
   return (
-    <Card title="Your endpoints" density="compact">
+    <div className="border-y border-line">
       {endpoints.isLoading ? (
         <Skeleton rows={2} />
       ) : endpoints.error || !endpoints.data ? (
@@ -109,6 +109,6 @@ export function EndpointList({
       ) : (
         <EmptyState message="No endpoints yet. Add the web address your CRM gives you and we'll send each lead as it arrives." />
       )}
-    </Card>
+    </div>
   );
 }

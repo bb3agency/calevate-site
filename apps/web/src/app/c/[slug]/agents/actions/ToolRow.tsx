@@ -1,19 +1,19 @@
 "use client";
 
 /**
- * One configured action, and the panel that fires it for real.
+ * One configured action as one row: what it is in words, one switch, and "Manage".
  *
- * Split out of `Actions.tsx` (UX-DOCTRINE §6). The test panel is deliberately DISCLOSED
- * rather than always open — it is rare, and it has a consequence a reader must be warned
- * about before they can reach the button ("a WhatsApp test really sends").
+ * Split out of `Actions.tsx` (UX-DOCTRINE §6). Everything rare sits behind Manage — the
+ * instructions the agent reads, a real test run, recent runs, changing it, removing it —
+ * so a list of actions scans as a list rather than a toolbar per row (REDESIGN-2). The test
+ * panel keeps its warning above the button, because a WhatsApp test really sends.
  */
 
 import { useState } from "react";
-import { FlaskConical, History, Pencil, Trash2 } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
+import { TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
 import {
-  DANGER_BUTTON,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -22,7 +22,7 @@ import {
   PRIMARY_BUTTON_SM,
   ProblemNotice,
   ScrollRegion,
-  SECONDARY_BUTTON_SM,
+  ToggleSwitch,
 } from "@/components/ui";
 import {
   ACTION_KIND_LABELS,
@@ -39,11 +39,14 @@ import type { Session } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
 
 import { ActionForm } from "./ActionForm";
+import { humanName, jobFor } from "./jobs";
 import { KINDS } from "./params";
 
 // The kinds whose test needs a number to stand in for the caller's: one of the business's
 // own (the server refuses any other for a WhatsApp or payment-link test).
 const NEEDS_TEST_PHONE: readonly string[] = ["whatsapp", "payment_link", "crm", "caller_lookup"];
+
+type Panel = "test" | "runs" | "edit" | null;
 
 export function ToolRow({
   tool,
@@ -56,86 +59,117 @@ export function ToolRow({
 }) {
   const setEnabled = useSetActionEnabled(session, agentId);
   const remove = useDeleteAction(session, agentId);
-  const [testing, setTesting] = useState(false);
-  const [showingRuns, setShowingRuns] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [managing, setManaging] = useState(false);
+  const [panel, setPanel] = useState<Panel>(null);
   // A kind this build has no form for is listed and removable, never offered for editing.
   const editableKind = KINDS.find((k) => k === tool.kind);
-  // A boolean is enough here — the row IS the action, so there is only one thing this
-  // dialog can be about.
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
-  const kindLabel = lookup(ACTION_KIND_LABELS, tool.kind) ?? tool.kind;
-  const label =
+  const title = humanName(tool.name);
+  const job = jobFor(tool.kind)?.title ?? lookup(ACTION_KIND_LABELS, tool.kind) ?? tool.kind;
+  const provider =
     tool.provider && tool.kind !== "calendar"
-      ? `${kindLabel} · ${lookup(PROVIDER_LABELS, tool.provider) ?? tool.provider}`
-      : kindLabel;
+      ? (lookup(PROVIDER_LABELS, tool.provider) ?? tool.provider)
+      : null;
+  const meta = [job, provider, tool.trigger === "after_call" ? "after the call" : null]
+    .filter(Boolean)
+    .join(" · ");
+  const toggle = (next: Panel) => setPanel((p) => (p === next ? null : next));
 
   return (
-    <li className="rounded-card border border-line bg-app p-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p title={tool.name} className="truncate text-sm font-medium text-ink">
-            {tool.name}
-          </p>
-          <p className="truncate text-xs text-ink-muted">
-            {label} · {tool.trigger === "after_call" ? "After the call" : "During the call"}
-          </p>
+    <li className="py-3.5">
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-body font-medium text-ink [overflow-wrap:anywhere]">{title}</p>
+          <p className="text-meta text-ink-muted">{meta}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {editableKind ? (
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              onClick={() => setEditing((v) => !v)}
-              aria-expanded={editing}
-              aria-label={`Edit ${tool.name}`}
-            >
-              <Pencil className="mr-1 inline h-3.5 w-3.5" />
-              Edit
-            </button>
-          ) : null}
+        <div className="flex items-center gap-5">
+          <ToggleSwitch
+            label={
+              <>
+                <span className="sr-only">{title}: </span>
+                {tool.enabled ? "On" : "Off"}
+              </>
+            }
+            checked={tool.enabled}
+            disabled={setEnabled.isPending}
+            onChange={(next) => setEnabled.mutate({ toolId: tool.id, enabled: next })}
+          />
           <button
             type="button"
-            className={SECONDARY_BUTTON_SM}
-            onClick={() => setTesting((v) => !v)}
-            aria-expanded={testing}
+            className={TEXT_ACTION}
+            aria-expanded={managing}
+            aria-label={`Manage ${tool.name}`}
+            onClick={() => {
+              setManaging((v) => !v);
+              setPanel(null);
+            }}
           >
-            <FlaskConical className="mr-1 inline h-3.5 w-3.5" />
-            Test
-          </button>
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            onClick={() => setShowingRuns((v) => !v)}
-            aria-expanded={showingRuns}
-            aria-label={`Recent runs of ${tool.name}`}
-          >
-            <History className="mr-1 inline h-3.5 w-3.5" />
-            Runs
-          </button>
-          <label className="flex items-center gap-1 text-xs text-ink-muted">
-            <input
-              type="checkbox"
-              checked={tool.enabled}
-              disabled={setEnabled.isPending}
-              onChange={(e) => setEnabled.mutate({ toolId: tool.id, enabled: e.target.checked })}
-            />
-            On
-          </label>
-          <button
-            type="button"
-            className={DANGER_BUTTON}
-            onClick={() => setConfirmingRemoval(true)}
-            aria-label={`Remove ${tool.name}`}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
+            {managing ? "Done" : "Manage"}
           </button>
         </div>
       </div>
-      <p className="mt-2 text-xs text-ink-muted">{tool.description}</p>
       {setEnabled.error ? <ProblemNotice error={setEnabled.error} /> : null}
       {/* While the dialog is open the refusal renders inside it, so it is not printed twice. */}
       {remove.error && !confirmingRemoval ? <ProblemNotice error={remove.error} /> : null}
+
+      {managing ? (
+        <div className="mt-3 space-y-3 border-l-2 border-line pl-4">
+          <div>
+            <p className="text-meta font-medium text-ink-muted">What your agent is told</p>
+            <p className="text-body text-ink">{tool.description}</p>
+          </div>
+          <div className="flex flex-wrap gap-x-5">
+            {editableKind ? (
+              <button
+                type="button"
+                className={TEXT_ACTION}
+                onClick={() => toggle("edit")}
+                aria-expanded={panel === "edit"}
+                aria-label={`Change ${tool.name}`}
+              >
+                Change
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={TEXT_ACTION}
+              onClick={() => toggle("test")}
+              aria-expanded={panel === "test"}
+            >
+              Test it
+            </button>
+            <button
+              type="button"
+              className={TEXT_ACTION}
+              onClick={() => toggle("runs")}
+              aria-expanded={panel === "runs"}
+              aria-label={`Recent runs of ${tool.name}`}
+            >
+              Recent runs
+            </button>
+            <button
+              type="button"
+              className={TEXT_ACTION_DANGER}
+              onClick={() => setConfirmingRemoval(true)}
+              aria-label={`Remove ${tool.name}`}
+            >
+              Remove
+            </button>
+          </div>
+          {panel === "edit" && editableKind ? (
+            <ActionForm
+              kind={editableKind}
+              agentId={agentId}
+              session={session}
+              existing={tool}
+              onDone={() => setPanel(null)}
+            />
+          ) : null}
+          {panel === "test" ? <TestPanel tool={tool} agentId={agentId} session={session} /> : null}
+          {panel === "runs" ? <RunsPanel tool={tool} agentId={agentId} session={session} /> : null}
+        </div>
+      ) : null}
+
       {confirmingRemoval && (
         <ConfirmDialog
           title={`Remove the action “${tool.name}”?`}
@@ -155,19 +189,6 @@ export function ToolRow({
           <p>You can set it up again later, with the same credential.</p>
         </ConfirmDialog>
       )}
-      {editing && editableKind ? (
-        <div className="mt-3">
-          <ActionForm
-            kind={editableKind}
-            agentId={agentId}
-            session={session}
-            existing={tool}
-            onDone={() => setEditing(false)}
-          />
-        </div>
-      ) : null}
-      {testing ? <TestPanel tool={tool} agentId={agentId} session={session} /> : null}
-      {showingRuns ? <RunsPanel tool={tool} agentId={agentId} session={session} /> : null}
     </li>
   );
 }
@@ -196,7 +217,7 @@ function TestPanel({
       : [];
 
   return (
-    <div className="mt-3 rounded-card border border-line bg-surface p-3">
+    <div className="border-t border-line pt-3">
       <p className="text-xs font-medium text-ink">Test with sample values</p>
       <p className={FIELD_HINT}>
         This runs it for real — a WhatsApp test really sends, a booking really books, a CRM
@@ -280,7 +301,7 @@ function RunsPanel({
 }) {
   const runs = useActionLog(session, agentId, tool.id, true);
   return (
-    <div className="mt-3 rounded-card border border-line bg-surface p-3">
+    <div className="border-t border-line pt-3">
       <p className="text-xs font-medium text-ink">Recent runs</p>
       {runs.isPending ? (
         <p className={FIELD_HINT}>Loading…</p>

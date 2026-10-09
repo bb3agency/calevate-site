@@ -1,8 +1,9 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { PhoneForwarded, ShieldAlert } from "lucide-react";
 
-import { Card, NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
+import { NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
 import type { useCallBack, useCallbackEligibility, useWriteAccess } from "@/lib/api/hooks";
 
 /**
@@ -35,12 +36,12 @@ export function FollowUpCard({
           card — no button, no reason, nothing to reload. §52: failure is a refusal, and
           nothing is not a refusal. */}
       {eligibility.isLoading && (
-        <Card density="compact" title="Follow up">
+        <Section title="Follow up">
           <Skeleton rows={2} />
-        </Card>
+        </Section>
       )}
       {eligibility.error != null && (
-        <Card density="compact" title="Follow up">
+        <Section title="Follow up">
           <ProblemNotice
             error={eligibility.error}
             onRetry={() => void eligibility.refetch()}
@@ -49,10 +50,10 @@ export function FollowUpCard({
             We could not check whether this call can be followed up, so the button stays
             closed.
           </p>
-        </Card>
+        </Section>
       )}
       {eligibility.data && (
-        <Card density="compact" title="Follow up">
+        <Section title="Follow up">
           {callback.data?.status === "queued" ? (
             <NoticeBox tone="ok" icon={<PhoneForwarded className="h-5 w-5" />}>
               Calling back now — follow-up #{callback.data.follow_up_number}. It will appear in
@@ -105,7 +106,7 @@ export function FollowUpCard({
               </button>
             </div>
           )}
-        </Card>
+        </Section>
       )}
     </>
   );

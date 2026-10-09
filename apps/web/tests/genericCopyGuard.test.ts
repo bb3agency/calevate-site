@@ -31,6 +31,12 @@ const ALLOWED: ReadonlyArray<{ file: string; text: RegExp; reason: string }> = [
     text: /^Clinic or hospital$/,
     reason: "the clinic business type's own label in the signup picker",
   },
+  {
+    file: "src/app/c/[slug]/agents/actions/jobs.ts",
+    text: /^Book appointments$/,
+    reason:
+      "the founder-approved name of the booking job (REDESIGN-2); salons, offices and schools book appointments too",
+  },
 ];
 
 /**

@@ -1,10 +1,10 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Sparkles } from "lucide-react";
 
 import {
-  Card,
   FIELD,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
@@ -58,27 +58,27 @@ export function KnowledgeGaps({
 
   if (gaps.isLoading) {
     return (
-      <Card density="compact" title={title} className={className}>
+      <Section title={title} className={className}>
         <Skeleton rows={4} />
-      </Card>
+      </Section>
     );
   }
 
   if (gaps.error || !gaps.data) {
     return (
-      <Card density="compact" title={title} className={className}>
+      <Section title={title} className={className}>
         <ProblemNotice
           error={gaps.error ?? new Error("Your knowledge gaps did not load.")}
           onRetry={() => void gaps.refetch()}
         />
-      </Card>
+      </Section>
     );
   }
 
   const { items, open_count } = gaps.data;
 
   return (
-    <Card density="compact"
+    <Section
       title={title}
       className={className}
       info={
@@ -94,7 +94,6 @@ export function KnowledgeGaps({
           </span>
         ) : undefined
       }
-      bodyClassName="px-2 pb-2 sm:px-3 sm:pb-3"
     >
       {write.reason && (
         <div className="px-2 pb-3">
@@ -123,7 +122,7 @@ export function KnowledgeGaps({
           ))}
         </ul>
       )}
-    </Card>
+    </Section>
   );
 }
 
