@@ -184,6 +184,15 @@ TENANT_TABLES = [
     # A client's acceptance of the no-cold-calls pledge (D-692). Tenant data, read by every
     # outbound gate. Append-only — see APPEND_ONLY_TABLES below.
     "outbound_pledge_acceptances",
+    # The client's own ThinnestAI customer workspace and its business-details application
+    # (D-693, migration d93b6f2a4c18). Tenant data with one extra untenanted READ arm for
+    # the provisioning and reconciliation sweeps' directory read.
+    "tenant_engine_workspaces",
+    # One number-purchase request in a client's own workspace, keyed by its idempotency key
+    # (D-693).
+    "engine_number_purchases",
+    # One of our cloned voices, cloned again into a client's own workspace (D-693).
+    "engine_voice_clone_copies",
     # This tenant's own compliance application with the telephony carrier (the RESELLER
     # stage, migration c7a4f9e15b03). Tenant data — the business's own registration
     # paperwork and the carrier's decision on it — read by the number-acquisition gate

@@ -365,6 +365,205 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/engine-workspaces/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Client voice workspaces provisioned against clients, failures and plan headroom */
+        get: operations["workspaces_summary_v1_admin_engine_workspaces_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This client's own voice workspace, business details, purchase gates, numbers */
+        get: operations["tenant_workspace_v1_admin_engine_workspaces_tenants__tenant_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/business-details": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send this client's verified business details to its workspace (again) */
+        post: operations["send_business_details_v1_admin_engine_workspaces_tenants__tenant_id__business_details_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/business-details/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read this client's business-details status from its workspace now */
+        post: operations["refresh_details_v1_admin_engine_workspaces_tenants__tenant_id__business_details_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/available": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Numbers this client could buy in its own workspace, a page at a time */
+        get: operations["admin_available_v1_admin_engine_workspaces_tenants__tenant_id__numbers_available_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/cities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cities numbers can be searched in, in this client's workspace */
+        get: operations["admin_cities_v1_admin_engine_workspaces_tenants__tenant_id__numbers_cities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/purchase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Buy a number in this client's own workspace, in its name — charges it a month
+         * @description The client's own purchase, run by an operator: same gates (verified business, approved business details, attested price, enough credit), same charge (the client's first month now). Repeating `request_key` never buys a second number.
+         */
+        post: operations["admin_purchase_v1_admin_engine_workspaces_tenants__tenant_id__numbers_purchase_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/{number_id}/forget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Release our record of a number the platform no longer holds, or a test number
+         * @description Stops our record and the client's monthly charge without releasing anything at the voice platform: for a number the platform no longer holds (the `engine_number_missing_at_vendor` alarm), or a number held in the platform account that was recorded for this client for testing (it is detached from the client's agents and stays ours). Refused with `engine_number_still_held` for a number the client's own workspace still holds: release that one. Requires `confirm: true`.
+         */
+        post: operations["admin_forget_v1_admin_engine_workspaces_tenants__tenant_id__numbers__number_id__forget_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/{number_id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Release a voice-platform number for good — no refund of the month
+         * @description Permanent: the number goes back to the pool and anybody may take it next; the current month is not refunded by the platform or to the client. The client's monthly charge stops. A number held in the platform account (testing) is released only here. Requires `confirm: true`.
+         */
+        post: operations["admin_release_v1_admin_engine_workspaces_tenants__tenant_id__numbers__number_id__release_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/offboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run this closed client's workspace offboarding again
+         * @description Releases the workspace's numbers (permanent, no refund of the month), deletes its agents and deletes the customer. Refused unless the account is closed.
+         */
+        post: operations["offboard_again_v1_admin_engine_workspaces_tenants__tenant_id__offboard_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/provision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Provision this client's own voice workspace again (after a plan upgrade or a fix) */
+        post: operations["provision_again_v1_admin_engine_workspaces_tenants__tenant_id__provision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/impersonation-grants": {
         parameters: {
             query?: never;
@@ -615,7 +814,7 @@ export interface paths {
         put?: never;
         /**
          * Give a bought number back to the vendor and stop the monthly rental
-         * @description Stops any agent answering the number, gives it back to the voice platform and stops the monthly charge. The record survives, marked released, because a closed month's costs still refer to it. Refused with `number_not_ours_to_release` for a connection the client holds in their own name — they cancel that with their own operator. Releasing an already-released number succeeds and changes nothing.
+         * @description Stops any agent answering the number, gives it back to the voice platform and stops the monthly charge. The record survives, marked released, because a closed month's costs still refer to it. Refused with `number_not_ours_to_release` for a connection the client holds in their own name — they cancel that with their own operator, and with `number_released_in_voice_workspace` for a number the voice platform holds, which is released from the client's voice workspace. Releasing an already-released number succeeds and changes nothing.
          */
         post: operations["release_number_v1_admin_numbers_tenants__tenant_id___number_id__release_post"];
         delete?: never;
@@ -1845,7 +2044,8 @@ export interface paths {
         /**
          * Download one KYC file, decrypted, for review
          * @description Decrypted in memory and returned as an attachment; never via a presigned URL,
-         *     because the stored object is ciphertext and the key is ours.
+         *     because the stored object is ciphertext and the key is ours. The view is audited on
+         *     the tenant's own session, so a file is never handed out without its audit row.
          */
         get: operations["download_kyc_document_v1_admin_tenants__tenant_id__kyc_documents__document_id__get"];
         put?: never;
@@ -6221,6 +6421,117 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/numbers/own/available": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Numbers this account could buy, a page at a time, at its monthly price */
+        get: operations["own_numbers_available_v1_numbers_own_available_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/numbers/own/business-details": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send the verified business details for phone numbers (again, after a rejection)
+         * @description Sends the business's verified legal name, GST status and certificate, as recorded under Verify your business, for approval for phone numbers. Refused with `business_details_kyc_not_verified` until the business is verified. Approval usually takes a few minutes; read it from the status.
+         */
+        post: operations["send_business_details_v1_numbers_own_business_details_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/numbers/own/cities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The cities numbers can be searched in */
+        get: operations["own_number_cities_v1_numbers_own_cities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/numbers/own/purchase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Buy a number in this business's name — charges the first month now
+         * @description Buys the number, charges this account's first month at the price the status shows, and points it at the chosen agent. Repeating the same `request_key` never buys a second number. Refused, with nothing charged, while the business is not verified or its details not approved, or if somebody else took the number.
+         */
+        post: operations["purchase_own_number_v1_numbers_own_purchase_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/numbers/own/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Can this account buy a phone number yet, and what is the next step */
+        get: operations["own_numbers_status_v1_numbers_own_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/numbers/own/{number_id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Give a number up for good — no refund of this month
+         * @description Releases the number permanently: it stops ringing at once, anybody may take it next, and the current month is not refunded. The monthly charge stops. Requires `confirm: true`. Releasing an already released number changes nothing.
+         */
+        post: operations["release_own_number_v1_numbers_own__number_id__release_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/numbers/purchase": {
         parameters: {
             query?: never;
@@ -7709,6 +8020,37 @@ export interface components {
             tenant_id: string;
         };
         /**
+         * AdminAvailableNumberOut
+         * @description A number this client could buy: what the CLIENT pays (the attested rate) and what it
+         *     costs US (the vendor's monthly rent), the second for the operator only.
+         */
+        AdminAvailableNumberOut: {
+            /** City */
+            city: string | null;
+            /** Client Inr Per Month */
+            client_inr_per_month: string | null;
+            /** E164 */
+            e164: string;
+            /** Number */
+            number: string;
+            /** Vendor Inr Per Month */
+            vendor_inr_per_month: string | null;
+        };
+        /** AdminAvailableNumbersOut */
+        AdminAvailableNumbersOut: {
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Numbers */
+            numbers: components["schemas"]["AdminAvailableNumberOut"][];
+        };
+        /** AdminCityOut */
+        AdminCityOut: {
+            /** Available */
+            available: number;
+            /** Name */
+            name: string;
+        };
+        /**
          * AdminCopilotAskIn
          * @description `POST /v1/admin/copilot/ask` — the client body plus WHICH ACCOUNT IS OPEN (D-499).
          *
@@ -7879,6 +8221,57 @@ export interface components {
              * Format: uuid
              */
             user_id: string;
+        };
+        /** AdminPurchaseIn */
+        AdminPurchaseIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /**
+             * Direction
+             * @default both
+             * @enum {string}
+             */
+            direction: "inbound" | "outbound" | "both";
+            /** Number */
+            number: string;
+            /** Request Key */
+            request_key: string;
+        };
+        /** AdminPurchasedOut */
+        AdminPurchasedOut: {
+            /** Attachment */
+            attachment: string;
+            /** Client Inr Per Month */
+            client_inr_per_month: string | null;
+            /** E164 */
+            e164: string;
+            /** First Period */
+            first_period: ("charged" | "invoiced" | "replayed" | "closed" | "trial" | "before_first_period") | null;
+            /**
+             * Number Id
+             * Format: uuid
+             */
+            number_id: string;
+            /** Replayed */
+            replayed: boolean;
+        };
+        /** AdminReleaseIn */
+        AdminReleaseIn: {
+            /**
+             * Confirm
+             * @constant
+             */
+            confirm: true;
+        };
+        /** AdminReleasedOut */
+        AdminReleasedOut: {
+            /**
+             * Number Id
+             * Format: uuid
+             */
+            number_id: string;
+            /** Released */
+            released: boolean;
         };
         /**
          * AgentChargeOut
@@ -8572,6 +8965,27 @@ export interface components {
             /** Region */
             region: string | null;
         };
+        /**
+         * AvailableOwnNumberOut
+         * @description One number this account could buy, at OUR monthly price.
+         */
+        AvailableOwnNumberOut: {
+            /** City */
+            city: string | null;
+            /** E164 */
+            e164: string;
+            /** Inr Per Month */
+            inr_per_month: string | null;
+            /** Number */
+            number: string;
+        };
+        /** AvailableOwnNumbersOut */
+        AvailableOwnNumbersOut: {
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Numbers */
+            numbers: components["schemas"]["AvailableOwnNumberOut"][];
+        };
         /** BlockerOut */
         BlockerOut: {
             /** Reason */
@@ -8738,6 +9152,26 @@ export interface components {
             lapsed: boolean;
             /** Platform */
             platform: string | null;
+            /** Review Note */
+            review_note: string | null;
+            /** Status */
+            status: string | null;
+            /** Submitted At */
+            submitted_at: string | null;
+        };
+        /** BusinessDetailsSentOut */
+        BusinessDetailsSentOut: {
+            /** Business Review Note */
+            business_review_note: string | null;
+            /** Business Status */
+            business_status: string;
+        };
+        /** BusinessDetailsStateOut */
+        BusinessDetailsStateOut: {
+            /** Can Rent */
+            can_rent: boolean;
+            /** Checked At */
+            checked_at: string | null;
             /** Review Note */
             review_note: string | null;
             /** Status */
@@ -9592,6 +10026,13 @@ export interface components {
             gloss_model?: string | null;
             /** Idx */
             idx: number;
+        };
+        /** CityOut */
+        CityOut: {
+            /** Available */
+            available: number;
+            /** Name */
+            name: string;
         };
         /**
          * ClientHealthOut
@@ -11637,6 +12078,11 @@ export interface components {
             engine_owned: boolean | null;
             /** Number Id */
             number_id?: string | null;
+            /**
+             * Platform Held
+             * @default false
+             */
+            platform_held: boolean;
             /** Provider */
             provider: string | null;
             /** Unassigned */
@@ -15020,7 +15466,7 @@ export interface components {
              * @default not_applicable
              * @enum {string}
              */
-            platform_attachment: "not_applicable" | "unchanged" | "applied" | "partial" | "refused";
+            platform_attachment: "not_applicable" | "unchanged" | "applied" | "partial" | "refused" | "other_workspace";
             /** Released */
             released: number;
             /** Unsupported */
@@ -15103,6 +15549,11 @@ export interface components {
             id: string;
             /** Inr Per Month */
             inr_per_month?: string | null;
+            /**
+             * Releasable
+             * @default false
+             */
+            releasable: boolean;
             /** Series */
             series: string;
             /**
@@ -15393,6 +15844,32 @@ export interface components {
             pack_id: string;
             /** Studio Inr Per Min */
             studio_inr_per_min: string;
+        };
+        /**
+         * OwnNumbersStatusOut
+         * @description Where this account stands on the way to buying a number, in the screen's order.
+         */
+        OwnNumbersStatusOut: {
+            /** Account Setup */
+            account_setup: string | null;
+            /** Available */
+            available: boolean;
+            /** Blocker */
+            blocker: string | null;
+            /** Business Review Note */
+            business_review_note: string | null;
+            /** Business Status */
+            business_status: string | null;
+            /** Business Submitted At */
+            business_submitted_at: string | null;
+            /** Can Send Business Details */
+            can_send_business_details: boolean;
+            /** Inr Per Month */
+            inr_per_month: string | null;
+            /** Kyc Status */
+            kyc_status: string | null;
+            /** Step */
+            step: ("workspace" | "verify_business" | "business_details" | "price" | "ready") | null;
         };
         /** OwnVoiceKeyOut */
         OwnVoiceKeyOut: {
@@ -15953,6 +16430,21 @@ export interface components {
             /** Search Pattern */
             search_pattern?: string | null;
         };
+        /** PurchaseOwnNumberIn */
+        PurchaseOwnNumberIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /**
+             * Direction
+             * @default both
+             * @enum {string}
+             */
+            direction: "inbound" | "outbound" | "both";
+            /** Number */
+            number: string;
+            /** Request Key */
+            request_key: string;
+        };
         /**
          * PurchasedNumberOut
          * @description What the client now holds, what it costs them, and whether it can be used yet.
@@ -15976,6 +16468,24 @@ export interface components {
             inr_per_month: string;
             /** Series */
             series: string;
+        };
+        /** PurchasedOwnNumberOut */
+        PurchasedOwnNumberOut: {
+            /** Attachment */
+            attachment: string;
+            /** E164 */
+            e164: string;
+            /** First Period */
+            first_period: ("charged" | "invoiced" | "replayed" | "closed" | "trial" | "before_first_period") | null;
+            /** Inr Per Month */
+            inr_per_month: string | null;
+            /**
+             * Number Id
+             * Format: uuid
+             */
+            number_id: string;
+            /** Replayed */
+            replayed: boolean;
         };
         /**
          * QaReport
@@ -16425,6 +16935,8 @@ export interface components {
             client_inr_per_month: string | null;
             /** E164 */
             e164: string;
+            /** First Period */
+            first_period?: ("charged" | "invoiced" | "replayed" | "closed" | "trial" | "before_first_period") | null;
             /**
              * Number Id
              * Format: uuid
@@ -16434,7 +16946,12 @@ export interface components {
              * Platform Attachment
              * @enum {string}
              */
-            platform_attachment: "not_applicable" | "unchanged" | "applied" | "partial" | "refused";
+            platform_attachment: "not_applicable" | "unchanged" | "applied" | "partial" | "refused" | "other_workspace";
+            /**
+             * Platform Held
+             * @default false
+             */
+            platform_held: boolean;
             /** Series */
             series: string;
         };
@@ -16592,6 +17109,24 @@ export interface components {
         RejectIn: {
             /** Reason */
             reason: string;
+        };
+        /** ReleaseOwnNumberIn */
+        ReleaseOwnNumberIn: {
+            /**
+             * Confirm
+             * @constant
+             */
+            confirm: true;
+        };
+        /** ReleasedOwnNumberOut */
+        ReleasedOwnNumberOut: {
+            /**
+             * Number Id
+             * Format: uuid
+             */
+            number_id: string;
+            /** Released */
+            released: boolean;
         };
         /** ReplayOut */
         ReplayOut: {
@@ -18388,12 +18923,29 @@ export interface components {
             id: string;
             /** Monthly Rental Usd */
             monthly_rental_usd: string | null;
+            /**
+             * On Engine
+             * @default false
+             */
+            on_engine: boolean;
+            /**
+             * Platform Held
+             * @default false
+             */
+            platform_held: boolean;
             /** Provider */
             provider: string | null;
             /** Released */
             released: boolean;
             /** Series */
             series: string;
+        };
+        /** TenantNumbersCountOut */
+        TenantNumbersCountOut: {
+            /** Own Workspace */
+            own_workspace: number;
+            /** Platform Held */
+            platform_held: number;
         };
         /**
          * TenantProfileOut
@@ -18568,6 +19120,31 @@ export interface components {
             status: string;
             /** Vertical Template */
             vertical_template: string | null;
+        };
+        /** TenantWorkspaceOut */
+        TenantWorkspaceOut: {
+            /** Agents In Platform Account */
+            agents_in_platform_account: number;
+            /** Attempts */
+            attempts: number;
+            /** Available */
+            available: boolean;
+            business_details: components["schemas"]["BusinessDetailsStateOut"] | null;
+            /** Client Inr Per Month */
+            client_inr_per_month: string | null;
+            /** Last Error Code */
+            last_error_code: string | null;
+            numbers: components["schemas"]["TenantNumbersCountOut"] | null;
+            /** Provisioned At */
+            provisioned_at: string | null;
+            /** Purchase Blockers */
+            purchase_blockers: string[];
+            /** Purchase Step */
+            purchase_step: ("workspace" | "verify_business" | "business_details" | "price" | "ready") | null;
+            /** Status */
+            status: string | null;
+            /** Workspace Id */
+            workspace_id: string | null;
         };
         /**
          * TestActionIn
@@ -20017,6 +20594,48 @@ export interface components {
              */
             status: "credited" | "refunded" | "duplicate" | "failed" | "ignored";
         };
+        /** WorkspaceFailureOut */
+        WorkspaceFailureOut: {
+            /** Last Error Code */
+            last_error_code: string | null;
+            /** Status */
+            status: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Tenant Name */
+            tenant_name: string;
+        };
+        /**
+         * WorkspacesSummaryOut
+         * @description Every client's workspace against the plan, for the ops dashboard.
+         */
+        WorkspacesSummaryOut: {
+            /** Available */
+            available: boolean;
+            /** By Status */
+            by_status: {
+                [key: string]: number;
+            };
+            /** Counted */
+            counted: number;
+            /** Failures */
+            failures: components["schemas"]["WorkspaceFailureOut"][];
+            /** Headroom */
+            headroom: number | null;
+            /** Not Provisioned */
+            not_provisioned: number;
+            /** Plan */
+            plan: string | null;
+            /** Plan Cap */
+            plan_cap: number | null;
+            /** Provisioned */
+            provisioned: number;
+            /** Tenants */
+            tenants: number;
+        };
         /** WritePromptIn */
         WritePromptIn: {
             /** Body */
@@ -20590,6 +21209,363 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CopilotConversationClearedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    workspaces_summary_v1_admin_engine_workspaces_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspacesSummaryOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    tenant_workspace_v1_admin_engine_workspaces_tenants__tenant_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantWorkspaceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    send_business_details_v1_admin_engine_workspaces_tenants__tenant_id__business_details_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessDetailsStateOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    refresh_details_v1_admin_engine_workspaces_tenants__tenant_id__business_details_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessDetailsStateOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_available_v1_admin_engine_workspaces_tenants__tenant_id__numbers_available_get: {
+        parameters: {
+            query?: {
+                city?: string | null;
+                pattern?: string | null;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminAvailableNumbersOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_cities_v1_admin_engine_workspaces_tenants__tenant_id__numbers_cities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCityOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_purchase_v1_admin_engine_workspaces_tenants__tenant_id__numbers_purchase_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminPurchaseIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminPurchasedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_forget_v1_admin_engine_workspaces_tenants__tenant_id__numbers__number_id__forget_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                number_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminReleaseIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminReleasedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_release_v1_admin_engine_workspaces_tenants__tenant_id__numbers__number_id__release_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                number_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminReleaseIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminReleasedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    offboard_again_v1_admin_engine_workspaces_tenants__tenant_id__offboard_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantWorkspaceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    provision_again_v1_admin_engine_workspaces_tenants__tenant_id__provision_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantWorkspaceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -30579,6 +31555,194 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HolderOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    own_numbers_available_v1_numbers_own_available_get: {
+        parameters: {
+            query?: {
+                city?: string | null;
+                pattern?: string | null;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvailableOwnNumbersOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    send_business_details_v1_numbers_own_business_details_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessDetailsSentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    own_number_cities_v1_numbers_own_cities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CityOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    purchase_own_number_v1_numbers_own_purchase_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PurchaseOwnNumberIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchasedOwnNumberOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    own_numbers_status_v1_numbers_own_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnNumbersStatusOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    release_own_number_v1_numbers_own__number_id__release_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                number_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReleaseOwnNumberIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleasedOwnNumberOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -479,6 +479,9 @@ async def update_agent(
             ),
         )
 
+    # The knowledge lock before the row lock, for `_lock_knowledge_first`'s reason: a live
+    # agent is republished below.
+    await _lock_knowledge_first(session, tenant_id=tenant_id)
     # SELECT FOR UPDATE before the write, not a bare CAS, because two things have to be
     # decided from one read: whether the agent is archived (a refusal with its own name)
     # and whether it is live (a republish). A CAS could carry the first and not the second.
@@ -583,6 +586,7 @@ async def activate_agent(
     with its own endpoint, and doing it here would make a double-clicked button hit the
     vendor twice.
     """
+    await _lock_knowledge_first(session, tenant_id=tenant_id)
     status = await _locked_status(session, agent_id)
     if status == "archived":
         raise archived_refusal("activated")
@@ -725,6 +729,10 @@ async def archive_agent(
     # `restore` all did; taking it here also makes `agents` the FIRST row every one of
     # these paths locks, which is what keeps the ordering deadlock-free against
     # `update_agent` (agents → engine) and `launch_campaign` (agents → campaigns).
+    #
+    # The tenant's knowledge lock comes before even that (`_lock_knowledge_first`): the
+    # withdrawal below takes it, and taken after the row it deadlocks a knowledge publish.
+    await _lock_knowledge_first(session, tenant_id=tenant_id)
     if await _locked_status(session, agent_id) == "live":
         raise ProblemError.conflict(
             "agent_is_live",
@@ -917,6 +925,21 @@ async def _engine_agent_ref(session: AsyncSession, agent_id: UUID) -> str | None
         )
     ).scalar()
     return str(ref) if ref else None
+
+
+async def _lock_knowledge_first(session: AsyncSession, *, tenant_id: UUID) -> None:
+    """Take the tenant's knowledge lock before this transaction locks any agent row.
+
+    A knowledge publish holds `kb/service.lock_tenant_knowledge` and then writes every agent
+    row; a mover that held its agent row and then took the knowledge lock (the republish's
+    `engine_facts.sync_business_facts`, archiving's `withdraw_agent_knowledge`) closed a
+    cycle that PostgreSQL broke by aborting one side. Taken first, the mover waits for the
+    publish instead, and the later takes are re-entrant.
+    """
+    # Imported here: `kb.service` imports `agents.t0`, which imports `agents.service`.
+    from apps.api.kb.service import lock_tenant_knowledge
+
+    await lock_tenant_knowledge(session, tenant_id=tenant_id)
 
 
 async def _locked_status(session: AsyncSession, agent_id: UUID) -> str:

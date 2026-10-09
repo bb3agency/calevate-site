@@ -40,6 +40,7 @@ from calevate_shared.engine import (
 )
 from sqlalchemy import text
 from tests.conftest import accept_agreements
+from tests.workspace_support import give_own_workspace
 
 FACTS = f"{T0_HEADER}\nHours: mon 09:30-18:00; sun closed\nService: Root canal - Rs 8000"
 SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, then book.\n"
@@ -210,6 +211,7 @@ async def _agent(script: str) -> tuple[uuid.UUID, uuid.UUID]:
     )
     tenant_id, agent_id = created["id"], created["agent_id"]
     await accept_agreements(uuid.UUID(str(tenant_id)))
+    await give_own_workspace(uuid.UUID(str(tenant_id)))
     await _write(tenant_id, agent_id, script)
     return tenant_id, agent_id
 

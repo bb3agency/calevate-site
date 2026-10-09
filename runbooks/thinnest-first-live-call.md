@@ -18,9 +18,14 @@ metered minutes, wallet debit).
   gate row. Mask numbers as `+91XXXXXX1234`.
 - `ENGINE` is **deployment-wide**: every agent on the deployment is published to ThinnestAI
   from the switch on. Use a deployment with no live client traffic.
+- **Every client has its own ThinnestAI customer workspace (D-693).** The test client's
+  agent, number, calls, contacts and do-not-call list live in that workspace, not in our
+  developer workspace; its number is rented in the test client's business name. In their
+  console you look at it by opening that customer from our developer workspace.
 - Vendor facts cite the 7 Oct 2026 snapshots of their docs,
   `thinnest-findings/mirror/snapshots/2026-10-07/pages/` and, for voices, BYOK and clones,
-  the evening snapshot `2026-10-07b/pages/` (paths below are under one of them).
+  the evening snapshot `2026-10-07b/pages/`; workspaces and numbers cite `2026-10-08/pages/`
+  (paths below are under one of them).
   Commercial figures are FOUNDER-RELAYED (`docs/evidence/thinnest-ai-evaluation.md`), not
   invoices.
 
@@ -35,9 +40,16 @@ metered minutes, wallet debit).
       `2026-10-07b/pages/channels/voice-clone.md:20-24`). The plan also decides recording
       retention (30 days on pay-as-you-go, 49 on Pro, 75 on Scale,
       `api-reference/recordings/get-call-recording.md:7`).
-- [ ] Their wallet has money in it. When their balance reaches zero, calls stop.
+- [ ] The plan also caps how many client workspaces we may hold: 3 on Free and
+      pay-as-you-go, 100 on Pro, 1,000 on Scale, and a deleted one counts until it is erased
+      (`2026-10-08/pages/api-reference/customers.md:191-200`). Every tenant on the deployment
+      gets one, test tenants included, so count them before you start (gate T-8).
+- [ ] Their wallet has money in it. When their balance reaches zero, calls stop — for every
+      client workspace too, since they are all billed to our balance (`customers.md:185-189`).
+      Renting a number charges its first month at once (`phone-numbers/rent-phone-number.md:7`).
 - [ ] The test client account in Calevate exists, has accepted every blocking agreement,
-      and has credit in its wallet.
+      has credit in its wallet, and its KYC record is verified with a real business
+      certificate (D-692): that certificate is what is sent to ThinnestAI for the number.
 - [ ] Two phones of your own: one to call in from, one to be called.
 
 ## 1. API key (their console, then our server)
@@ -59,7 +71,11 @@ metered minutes, wallet debit).
 - [ ] `thinnest_max_concurrent_calls` = 5 (the pay-as-you-go ceiling). Raise it only after
       ThinnestAI confirms a raise in writing (gate T-7).
 - [ ] `thinnest_byok_enabled` = **off**. Full workspace-keys calls are not on sale (D-681).
-      The Studio rung's voice-only BYOK lives in its own workspace (§3a), not here.
+      The Studio rung's voice-only BYOK is switched on separately (§3a), not here.
+- [ ] `thinnest_customer_plan` = the plan you are on (`payg` by default). It sets the
+      headroom shown on the ops summary; it does not change the plan.
+- [ ] `thinnest_developer_workspace_id` = our own workspace's `org_…` id (`GET /workspace`,
+      `2026-10-08/pages/api-reference/workspace/get-workspace.md:327-351`) (gate T-16).
 - [ ] Check `/healthz/ready` on api, workers and voice-runtime: nothing listed missing. On
       this engine it names `THINNEST_API_KEY`, `ENGINE_INTAKE_KEK`, `WEBHOOK_BASE_URL` and
       `ENGINE_ACTIONS_BASE_URL` when any is absent or not usable.
@@ -113,30 +129,53 @@ you add here AND enable, and can play a preview of each. Paths are under
       voice-only BYOK. Check: the card reads On; BYOK status reads enabled, scope `voice`,
       complete (`api-reference/bring-your-own-keys.md:115-147`); the Cartesia voices list;
       one plays a preview. Then add and enable the Cartesia voices clients may choose. Until
-      this is done the rate card says Studio is not available. No customer workspace is
-      created; Clear and Studio agents share our developer workspace (D-688).
+      this is done the rate card says Studio is not available. The switch is made in our
+      developer workspace and every client workspace inherits it
+      (`2026-10-08/pages/api-reference/bring-your-own-keys.md:129-133`); the result also
+      says how many client workspaces do NOT inherit, which must be 0. Clear agents are
+      kept `off` in every workspace first (D-693).
 - [ ] Note for Studio agents: on voice-only BYOK the call runs on ThinnestAI's low-cost
       models only (`bring-your-own-keys.md:44-63`), and if our Cartesia key fails the voice
       does not speak (`:98-103`).
 
-## 4. Number (their console)
+## 3b. The test client's own workspace (admin console → the test client; D-693)
 
-ThinnestAI can now rent and point numbers by API too
-(`api-reference/phone-numbers/rent-phone-number.md:7`), but an Indian number still needs
-business details approved in their console first, and Calevate does not rent through the
-API. This engine uses ThinnestAI's own numbers only (D-678; Vobiz stays with Pipecat).
+- [ ] The voice-workspace panel on the client's admin **Numbers** page reads **active**, with an `org_…` id that is NOT our
+      developer workspace's. A workspace is made automatically when the tenant is created
+      (the daily sweep makes one for an older tenant). `plan_limit` or `failed`: follow
+      `runbooks/engine-workspace-provisioning.md` before going on.
+- [ ] Ops summary: workspaces provisioned equals tenants, no failures, headroom left.
+- [ ] In their console, the customer named after the test client exists under our developer
+      workspace.
 
-- [ ] **Phone Numbers → KYC**: business details sent and approved.
-- [ ] **Phone Numbers → Buy / Import number**: India, a number, confirm the monthly price.
-- [ ] Leave **Inbound** and **Outbound** empty there. From now on Calevate sets them (D-691):
-      a change made in their console is put back by the daily number sweep
+## 4. Number (client console → Numbers, as the test client)
+
+This engine uses ThinnestAI's own numbers only (D-678; Vobiz stays with Pipecat). Since
+D-693 the number is bought from Calevate, in the client's own workspace and the client's
+own business name; nothing is rented in their console. Paths are under
+`2026-10-08/pages/api-reference/phone-numbers/`.
+
+- [ ] **Step 1, Verify your business**: done (the KYC record is verified).
+- [ ] **Step 2, Business details for phone numbers**: sent automatically once both the
+      workspace is active and the KYC record is verified; it reads **approved** within
+      minutes (`get-business-details.md:7`). Approval through the API for a customer
+      workspace has not been seen yet: write down how long it took and what it said (gate
+      T-20). If it reads rejected, the reason is shown; correct the certificate under Verify
+      your business and press **Send the details again**.
+- [ ] **Step 3, Buy a number**: pick a city, pick a number, check the price shown is our
+      ₹499 a month (never ThinnestAI's own monthly price), choose the test agent if it is
+      already published (§5), confirm. The first month is taken from the client's wallet
+      and the number is attached to the agent. Refused with a named reason if any step
+      above is missing; nothing is charged then.
+- [ ] Press Buy twice quickly once: only one number is bought (the request is keyed).
+- [ ] In their console, inside the test client's customer, the number is listed under
+      **Phone Numbers**. Leave **Inbound** and **Outbound** alone there: Calevate sets them
+      (D-691), and the daily number sweep puts back any change made in their console
       (`engine_number_attachment_repaired`).
-- [ ] Admin console → the test client → **Numbers** → the number is listed under "Numbers on
-      ThinnestAI" → **Record this number**. A rented number is priced at the attested ₹499 a
-      month and its first month is collected now; it is refused with
-      `engine_number_not_held` if ThinnestAI does not list it and
-      `engine_number_answered_by_other_client` if another client's agent answers it.
-- [ ] Ops console → **Voice platform business details** reads `accepted`, "can rent: yes".
+- [ ] Our own test number, if one was rented in our developer workspace before D-693, is
+      "held in the platform account": testing only, and it cannot answer an agent that
+      lives in the client's workspace (`engine_number_other_workspace`). Do not use it for
+      this sitting (gate T-21).
 
 ## 5. Publish the test agent (client console, as the test client)
 
@@ -146,6 +185,11 @@ API. This engine uses ThinnestAI's own numbers only (D-678; Vobiz stays with Pip
       voices are on, publish a second agent on a **Studio** voice and repeat §6 with it.
       Switching an agent between Clear and Studio is a field change on republish (its
       `byok` setting, D-688): the agent keeps its id and its number.
+- [ ] The agent lives in the client's own workspace. A new agent is created there; an agent
+      published before D-693 is recreated there on this publish under a new id, and its old
+      copy in our developer workspace is deleted once no call is on it
+      (`engine_agent_retire_failed` if it cannot be). Publish is refused with
+      `engine_workspace_not_provisioned` while the workspace is not active (§3b).
 - [ ] Opening line (AI introduction and recording notice) under 200 characters. An agent
       that calls out needs one: every outbound call speaks it first.
 - [ ] Keep the script short. The instructions hold at most 20,000 characters
@@ -154,7 +198,8 @@ API. This engine uses ThinnestAI's own numbers only (D-678; Vobiz stays with Pip
       facts do not count: they are published as a knowledge document titled **Business
       facts**.
 - [ ] Publish. Agent page: status **live**, verification **applied**.
-- [ ] In their console, open the agent (look only, do not edit):
+- [ ] In their console, open the test client's customer, then the agent (look only, do not
+      edit). It is NOT in our developer workspace's own agent list:
   - [ ] its instructions end with the **PLATFORM RULES** block and contain no
         `[T0 FACTS]` block;
   - [ ] **Knowledge** holds exactly one **Business facts** document;
@@ -165,9 +210,10 @@ API. This engine uses ThinnestAI's own numbers only (D-678; Vobiz stays with Pip
 
 ## 6. Inbound call
 
-- [ ] Admin console → the client's **Numbers** → the recorded number → attach it to the test
-      agent. The response says the platform took it (`platform_attachment: applied`); their
-      console now shows the agent on the number's **Inbound** (and **Outbound** is empty: an
+- [ ] If the number was bought without an agent: admin console → the client's **Numbers** →
+      the number → attach it to the test agent. The response says the platform took it
+      (`platform_attachment: applied`); their console (inside the client's customer) now
+      shows the agent on the number's **Inbound** (and **Outbound** is empty: an
       agent calls out on its own line). An outbound-only agent cannot be attached here; record
       the number with that agent chosen, and it is lent the number on **Outbound** only
       (D-691).
@@ -199,8 +245,8 @@ client every one of these must be TRUE, not merely recorded:
 
 - [ ] No outbound halt (big red switch off), no maintenance drain.
 - [ ] Agent `live`, direction `outbound` or `both`.
-- [ ] Their console → **Phone Numbers** → **Outbound** on the number set to the agent, and
-      **Dial-out ready** says yes.
+- [ ] Their console, inside the client's customer → **Phone Numbers** → **Outbound** on the
+      number set to the agent, and **Dial-out ready** says yes.
 - [ ] The number is recorded on the test client in the admin console, direction `both`,
       bound to the agent, and DLT `registered`. On this engine the record form fixes the
       carrier to ThinnestAI (provider `thinnest`); a number recorded under any other
@@ -228,12 +274,27 @@ client every one of these must be TRUE, not merely recorded:
       (`api-reference/usage/list-call-log.md`, the costMicro field); a difference goes to gate T-10.
 - [ ] **Recording copied** to our storage (it plays from our copy, not their link).
 - [ ] **Logs** carry no phone number and no transcript text (hard rule 6).
+- [ ] **Do-not-call reached the client's workspace.** The number you opted out in §6/§7 is
+      on the do-not-call list inside the test client's customer in their console, and NOT
+      on our developer workspace's list (D-691, D-693).
+- [ ] **Studio in a client workspace (gate T-15), once Studio voices are on.** The docs say
+      per-agent `byok` works the same inside a customer workspace
+      (`2026-10-08/pages/api-reference/bring-your-own-keys.md:79-80`); no call has shown it.
+      With a Studio agent (`byok: workspace`) and a Clear agent (`byok: off`) both published
+      for the test client: call each; the Studio one speaks the Cartesia voice you chose,
+      the Clear one the Clear band; each call's `costMicro` matches its rate (Studio at the
+      voice-only BYOK rate, Clear at the band's); no `engine_workspace_byok_not_inherited`
+      alarm. Record the result on gate T-15. A fail stops Studio for every client.
 
 ## 9. If something goes wrong
 
 - **Publish refused.** The refusal names the fix (`engine_prompt_too_long`,
-  `engine_greeting_too_long`, `engine_voice_required`, `engine_actions_url_not_public`, …).
-  Fix it in our console; never edit the agent in theirs.
+  `engine_greeting_too_long`, `engine_voice_required`, `engine_actions_url_not_public`,
+  `engine_workspace_not_provisioned`, …). Fix it in our console; never edit the agent in
+  theirs.
+- **The client has no workspace, or the number cannot be bought.**
+  `runbooks/engine-workspace-provisioning.md`. Never create the client's agent or number in
+  our developer workspace as a workaround.
 - **The number rings out or says it is not in service.** Check §6's **Inbound** setting
   and that the agent is live in their console.
 - **No call in the call list after five minutes.** Check the webhook is enabled in their
@@ -244,8 +305,11 @@ client every one of these must be TRUE, not merely recorded:
 
 ## 10. What stays open after this sitting
 
-The questions for ThinnestAI are OPERATIONS §2 gates T-1..T-14 (BYOK per leg — answered,
+The questions for ThinnestAI are OPERATIONS §2 gates T-1..T-21 (BYOK per leg — answered,
 `null` reset, the webhook replay window, the action timeout and call identification, the
-DPA and training, Telugu quality, the concurrency raise, customer workspaces, the DLT roles
-on our numbers, the per-band invoice, the Pro plan, voice-only BYOK on our key, clone limits, and
-the studio-band and voice-only BYOK rates). Record each answer with its date and source.
+DPA and training, Telugu quality, the concurrency raise, the plan before the fourth client,
+the DLT roles on client numbers, the per-band invoice, the Pro plan, voice-only BYOK on our
+key, clone limits, the studio-band and voice-only BYOK rates, per-agent `byok` in a client
+workspace, our developer workspace id, deleting an agent during a call, the clone limit per
+workspace, an idempotency key on renting, business details per client workspace, and our
+test number staying testing-only). Record each answer with its date and source.

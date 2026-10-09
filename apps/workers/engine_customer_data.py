@@ -27,7 +27,10 @@ from uuid import UUID
 from arq import Retry
 from sqlalchemy import text
 
-from apps.api.compliance.processor_erasure import record_answer, record_request_sent
+from apps.api.compliance.processor_erasure import (
+    record_answer,
+    record_engine_contact_progress,
+)
 from apps.api.core.alerting import alert
 from apps.api.core.envelope import Envelope, seal, unseal
 from apps.api.core.errors import ProblemError
@@ -139,7 +142,14 @@ _TASK_SQL: Final = (
 
 
 async def erase_engine_contact(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    """Erase the subject's contact in the client's own workspace; record the outcome."""
+    """Erase the subject's contact in the client's own workspace; record the outcome.
+
+    Each contact's `recordingsPending` is written to the erasure task the moment its DELETE
+    answers, because a retry finds the contact gone and learns nothing more
+    (`processor_erasure.record_engine_contact_progress`). The task is confirmed only when
+    every contact this erasure ever deleted reported no recording pending, and never by an
+    attempt that found no contact after an earlier one had deleted some.
+    """
     tenant_id = UUID(str(payload["tenant_id"]))
     request_id = UUID(str(payload["request_id"]))
     workspace = await own_workspace(tenant_id)
@@ -148,13 +158,19 @@ async def erase_engine_contact(ctx: dict[str, Any], payload: dict[str, Any]) -> 
         # nothing is sent to a workspace that is not this client's.
         log.warning("engine_contact_erasure_skipped", extra={"request_id": str(request_id)})
         return "not_provisioned"
+    async with tenant_session(tenant_id) as session:
+        task_id = (await session.execute(text(_TASK_SQL), {"rid": request_id})).scalar()
     try:
         phone = _open_subject(payload.get("subject"), request_id=request_id)
         client = thinnest_customer_data()
         contacts = await client.contact_ids(workspace, phone)
-        pending = 0
         for contact_id in contacts:
-            pending += await client.delete_contact(workspace, contact_id)
+            pending = await client.delete_contact(workspace, contact_id)
+            if task_id is not None:
+                async with tenant_session(tenant_id) as session:
+                    await record_engine_contact_progress(
+                        session, task_id=task_id, progress={contact_id: pending}
+                    )
     except Exception as exc:
         _retry_if_worth_it(exc, int(ctx.get("job_try", 1)))
         alert(
@@ -170,21 +186,21 @@ async def erase_engine_contact(ctx: dict[str, Any], payload: dict[str, Any]) -> 
             request_id=str(request_id),
         )
         raise
-    async with tenant_session(tenant_id) as session:
-        task_id = (await session.execute(text(_TASK_SQL), {"rid": request_id})).scalar()
-        if task_id is not None:
-            await record_request_sent(
-                session, task_id=task_id, vendor_reference=",".join(contacts) or "no-contact"
-            )
-            if pending == 0:
+    known: dict[str, int] = {}
+    if task_id is not None:
+        async with tenant_session(tenant_id) as session:
+            known = await record_engine_contact_progress(session, task_id=task_id, progress={})
+            pending_total = sum(known.values())
+            earlier_only = not contacts and bool(known)
+            if pending_total == 0 and not earlier_only:
                 await record_answer(
                     session,
                     task_id=task_id,
                     outcome="confirmed",
                     note=(
-                        f"{len(contacts)} contact(s) erased in the client's workspace, "
+                        f"{len(known)} contact(s) erased in the client's workspace, "
                         "recordings included"
-                        if contacts
+                        if known
                         else "the client's workspace holds no contact on this number"
                     ),
                 )
@@ -193,10 +209,10 @@ async def erase_engine_contact(ctx: dict[str, Any], payload: dict[str, Any]) -> 
         extra={
             "request_id": str(request_id),
             "contacts": len(contacts),
-            "recordings_pending": pending,
+            "recordings_pending": sum(known.values()),
         },
     )
-    return f"contacts={len(contacts)} recordings_pending={pending}"
+    return f"contacts={len(contacts)} recordings_pending={sum(known.values())}"
 
 
 __all__ = [

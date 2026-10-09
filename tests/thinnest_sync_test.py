@@ -222,7 +222,7 @@ async def test_a_handover_line_too_long_is_refused_before_any_write() -> None:
     handler, seen = _recorder({})
     long_line = _handoff().model_copy(update={"spoken_line": "x" * 301})
     with pytest.raises(ProblemError) as raised:
-        await _engine(handler).create_agent(_cfg(handoff=long_line))
+        await _engine(handler).create_agent(_cfg(handoff=long_line, engine_workspace="org_c"))
     assert raised.value.code == "engine_handover_line_too_long" and seen == []
 
 

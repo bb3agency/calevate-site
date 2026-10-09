@@ -40,6 +40,7 @@ import {
 } from "@/lib/api/opsDashboardDataUse";
 import { OPS_FX_RATE_PATH, type FxRate } from "@/lib/api/opsFxRate";
 import { NUMBER_PRICING_PATH, type NumberPrice } from "@/lib/api/numberPricing";
+import { WORKSPACE_PATHS } from "@/lib/api/engineWorkspaces";
 import { ENGINE_BUSINESS_DETAILS_PATH } from "@/lib/api/numbers";
 
 import { formatISTInput, istInputToInstant } from "@/components/ui";
@@ -129,6 +130,20 @@ beforeEach(() => {
 
 const PLATFORM = "/v1/ops/platform";
 
+/** No per-client workspaces on this engine: the summary renders nothing (D-693). */
+const NO_WORKSPACES = {
+  available: false,
+  plan: null,
+  plan_cap: null,
+  counted: 0,
+  headroom: null,
+  tenants: 0,
+  provisioned: 0,
+  by_status: {},
+  failures: [],
+  not_provisioned: 0,
+};
+
 /** A deployment whose numbers are not the voice platform's: the panel renders nothing. */
 const NO_BUSINESS_DETAILS = {
   available: false,
@@ -184,6 +199,8 @@ function routes(
     // The voice platform's business-details panel (D-691) renders nothing on a deployment
     // whose numbers are not the platform's, which is these cases' premise.
     [ENGINE_BUSINESS_DETAILS_PATH]: NO_BUSINESS_DETAILS,
+    // Likewise the client-workspaces summary (D-693): no per-client workspaces here.
+    [WORKSPACE_PATHS.summary]: NO_WORKSPACES,
     ...extra,
   };
 }

@@ -40,11 +40,13 @@ from typing import Any, Final
 from urllib.parse import quote
 
 import httpx
+from calevate_shared.engine_scope import raw_of, scope_of, scoped_handle
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import NO_CREDENTIALS_REASON, engine_not_configured
 from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL
+from apps.api.engine.thinnest_workspace import workspace_headers
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, vendor_request
 
 ENGINE: Final = "thinnest"
@@ -243,13 +245,15 @@ class ThinnestActions:
     async def _request(
         self, method: str, path: str, *, route: str, agent_ref: str, **kwargs: Any
     ) -> dict[str, Any]:
-        """`path` names `{agent}` where the vendor agent id goes."""
+        """`path` names `{agent}` where the vendor agent id goes. The request acts in the
+        agent's own workspace, read from its handle (D-693)."""
         return await vendor_request(
             self._http(),
             method,
-            path.replace("{agent}", agent_ref),
+            path.replace("{agent}", raw_of(agent_ref)),
             engine=ENGINE,
             route=route,
+            headers=workspace_headers(method, route, scope_of(agent_ref)),
             **kwargs,
         )
 
@@ -340,6 +344,19 @@ class ThinnestActions:
             ok=data.get("ok") is True, status=status if isinstance(status, int) else 0
         )
 
+    async def has_live_call(self, agent_ref: str) -> bool:
+        """Is any call connected on this agent right now? `GET /calls?agent=&status=connected`
+        (snap:api-reference/calls/list-calls.md:262, :277), one row is enough."""
+        page = await self._request(
+            "GET",
+            "/calls",
+            route="/calls",
+            agent_ref=agent_ref,
+            params={"agent": raw_of(agent_ref), "status": "connected", "limit": 1},
+        )
+        rows = page.get("items")
+        return isinstance(rows, list) and any(isinstance(row, dict) for row in rows)
+
     async def call(self, agent_ref: str, call_id: str) -> LiveCall | None:
         """`GET /calls/{id}`: the call an action names, or None when the vendor holds no
         such call. `agent` is `{id, name}` and `phone` the customer's number
@@ -354,12 +371,14 @@ class ThinnestActions:
         if _str(row.get("id")) is None:
             return None
         agent = row.get("agent")
+        workspace = scope_of(agent_ref)
+        vendor_agent = _str(agent.get("id")) if isinstance(agent, dict) else _str(agent)
         return LiveCall(
-            engine_call_id=str(row["id"]),
+            engine_call_id=scoped_handle(str(row["id"]), workspace),
             direction=_str(row.get("direction")),
             phone=_str(row.get("phone")),
             reference=_str(row.get("reference")),
-            agent_ref=_str(agent.get("id")) if isinstance(agent, dict) else _str(agent),
+            agent_ref=scoped_handle(vendor_agent, workspace) if vendor_agent else None,
             status=_str(row.get("status")),
         )
 

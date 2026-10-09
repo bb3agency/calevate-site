@@ -192,6 +192,14 @@ class HostsVoices(Protocol):
     async def set_agent_own_voice_key(self, ref: str, *, on: bool) -> None: ...
 
 
+@runtime_checkable
+class ListsVoiceClones(Protocol):
+    """An adapter that can list the clones of the workspace it is acting in (D-693), so a
+    clone made again in a client's workspace is found by its name rather than made twice."""
+
+    async def list_voice_clones(self) -> list[VoiceClone]: ...
+
+
 __all__ = [
     "CatalogueModel",
     "EngineCatalogue",
@@ -201,6 +209,7 @@ __all__ = [
     "HostedVoiceListing",
     "HostedVoiceSource",
     "HostsVoices",
+    "ListsVoiceClones",
     "OwnVoiceKeyState",
     "PreviewAudio",
     "ReportsOwnKeys",

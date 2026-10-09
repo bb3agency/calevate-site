@@ -10,9 +10,14 @@ Where the mirror is silent the value is marked UNVERIFIED at the line and the ad
 sends nothing or refuses by name. The open items: the shape of a `call.completed` body, and
 which number `from` names on an inbound call.
 
-ONE WORKSPACE, TWO RUNGS (D-688). Every agent lives in our developer workspace, which runs on
-voice-only BYOK with our Cartesia key (`thinnest-findings/mirror/snapshots/2026-10-07b/pages/
-api-reference/bring-your-own-keys.md:13-24`). Each agent says whether it follows that:
+ONE CUSTOMER WORKSPACE PER CLIENT (D-693). A client's agents, calls, numbers and webhooks live
+in its own ThinnestAI customer workspace; every request about them carries the workspace
+header, derived in one place (`engine/thinnest_workspace.py`) from the object's handle
+(`<raw>@<org_…>`, `calevate_shared.engine_scope`). An unscoped handle is an object created
+in our developer workspace before D-693; it is addressed there until its next publish
+recreates it. Customer workspaces inherit the developer workspace's voice-only BYOK with
+our Cartesia key (`snapshots/2026-10-08/pages/api-reference/bring-your-own-keys.md:128-133`),
+and each agent says whether it follows that (D-688):
 `byok: "workspace"` speaks a Cartesia voice (Studio), `byok: "off"` stays on ThinnestAI's own
 voices and models at their normal rate (Clear). The field is sent on every create and update,
 never left to its `workspace` default (LIVE-DOCS `docs.thinnest.ai/api-reference/agents/
@@ -70,6 +75,7 @@ from calevate_shared.engine import (
     WebhookVerdict,
     compose_engine_prompt,
 )
+from calevate_shared.engine_scope import raw_of, scoped_handle
 from calevate_shared.events import (
     CallDirection,
     CallEvent,
@@ -110,6 +116,11 @@ from apps.api.engine.charges import EngineCharge, EngineChargeListing
 from apps.api.engine.document import engine_document
 from apps.api.engine.recording_source import EngineRecordingSource, RecordingFetchRules
 from apps.api.engine.text_split import split_for_text_cap
+from apps.api.engine.thinnest_workspace import (
+    workspace_headers,
+    workspace_not_provisioned,
+    workspace_of,
+)
 from apps.api.engine.vendor_http import (
     REQUEST_TIMEOUT_S,
     EngineRejectedError,
@@ -358,6 +369,11 @@ def _our_status(raw_status: str, hangup: str | None) -> CallStatus:
     if raw_status == "missed":
         return _MISSED_BY_HANGUP.get(hangup or "", "no_answer")
     return _STATUS_MAP.get(raw_status, "failed")
+
+
+def _scoped(raw: str | None, workspace: str | None) -> str | None:
+    """A vendor id read from a response, as our handle in the workspace it was read from."""
+    return scoped_handle(raw, workspace) if raw else None
 
 
 def _agent_ref_of(payload: dict[str, Any]) -> str | None:
@@ -742,15 +758,25 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
     return drifted
 
 
-def _charged_inr(call: dict[str, Any]) -> Decimal | None:
-    """What the call cost the workspace in rupees: `costMicro` is integer millionths of
-    `currency` (6370000 is 6.37), null until the call is settled
-    (snapshots/2026-10-08/pages/api-reference/calls/get-call.md:498-523). Divided as
-    `Decimal`, never through a float; a currency other than INR is not converted here."""
-    micro = call.get("costMicro")
+def _is_rupees(row: dict[str, Any]) -> bool:
+    """A charge in rupees: `currency` is `INR`, or absent, which is the account's one
+    currency, fixed at rupees once there is a customer unless dollars were chosen before
+    (snapshots/2026-10-08/pages/api-reference/customers.md:219-223; we bill in rupees)."""
+    currency = row.get("currency")
+    return currency is None or currency == "INR"
+
+
+def _charged_inr(row: dict[str, Any]) -> Decimal | None:
+    """What a call cost the workspace in rupees, the ONE reading of a charge for the call
+    object and the usage log alike: `costMicro` is integer millionths of `currency`
+    (6370000 is 6.37), null until the call is settled (snapshots/2026-10-08/pages/
+    api-reference/calls/get-call.md:498-523; usage/list-call-log.md). Divided as `Decimal`,
+    never through a float. Not rupees, not an integer, or negative is not a charge here: a
+    negative figure would breach the ledger's CHECK and a foreign one is not converted."""
+    micro = row.get("costMicro")
     if not isinstance(micro, int) or isinstance(micro, bool) or micro < 0:
         return None
-    if call.get("currency") != "INR":
+    if not _is_rupees(row):
         return None
     return Decimal(micro) / _MICRO_PER_UNIT
 
@@ -872,11 +898,14 @@ class ThinnestEngine:
         path: str,
         *,
         route: str,
+        workspace: str | None,
         absent_is_success: bool = False,
         extra_refused_statuses: frozenset[int] = frozenset(),
         headers: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
+        """`workspace` is required and has no default, so no call site can drop it by
+        omission: every request states which workspace it acts in."""
         return await vendor_request(
             self._http(),
             method,
@@ -885,15 +914,21 @@ class ThinnestEngine:
             route=route,
             absent_is_success=absent_is_success,
             extra_refused_statuses=extra_refused_statuses,
-            headers=headers,
+            headers={**(headers or {}), **workspace_headers(method, route, workspace)},
             **kwargs,
         )
+
+    @staticmethod
+    def _at(handle: str) -> tuple[str, str | None]:
+        """`(the vendor's id, the workspace it lives in)` for one of our handles."""
+        return raw_of(handle), workspace_of(handle)
 
     async def _walk(
         self,
         path: str,
         *,
         route: str,
+        workspace: str | None,
         params: dict[str, Any] | None = None,
     ) -> tuple[list[dict[str, Any]], ListingIncompleteReason | None, int]:
         """Every row of a cursor-paged list, the reason it is short if it is, and the page
@@ -906,7 +941,9 @@ class ThinnestEngine:
             query: dict[str, Any] = {**(params or {}), "limit": _LISTING_PAGE_SIZE}
             if cursor is not None:
                 query["cursor"] = cursor
-            payload = await self._request("GET", path, route=route, params=query)
+            payload = await self._request(
+                "GET", path, route=route, workspace=workspace, params=query
+            )
             pages += 1
             rows.extend(_items(payload))
             following = _str(payload.get("nextCursor"))
@@ -1083,7 +1120,9 @@ class ThinnestEngine:
             ),
         }
 
-    async def _apply_built_in_tools(self, ref: EngineAgentRef, cfg: AgentConfig) -> None:
+    async def _apply_built_in_tools(
+        self, raw: str, workspace: str | None, cfg: AgentConfig
+    ) -> None:
         """Pin the built-in tools, then read what was saved. The vendor applies a change in
         order and stops at the first refusal, keeping what came before, so a refusal or a
         saved state that differs from what was sent is a partial apply: the publish is
@@ -1091,7 +1130,11 @@ class ThinnestEngine:
         wanted = self.built_in_tools_body(cfg)
         try:
             saved = await self._request(
-                "PATCH", f"/agents/{ref}/tools", route="/agents/{ref}/tools", json=wanted
+                "PATCH",
+                f"/agents/{raw}/tools",
+                route="/agents/{ref}/tools",
+                workspace=workspace,
+                json=wanted,
             )
         except EngineRejectedError as exc:
             if exc.vendor_status != 400:
@@ -1102,11 +1145,11 @@ class ThinnestEngine:
             log.warning("thinnest_tools_not_pinned", extra={"fields": ",".join(drifted)})
             raise _tools_not_pinned()
 
-    async def _find_agent(self, cfg: AgentConfig) -> str | None:
-        """The vendor id of an agent this adapter already made for `cfg`, found by its name
-        tag."""
+    async def _find_agent(self, cfg: AgentConfig, workspace: str | None) -> str | None:
+        """The vendor id of an agent this adapter already made for `cfg` in `workspace`,
+        found by its name tag."""
         tag = _name_tag(cfg)
-        rows, reason, _ = await self._walk("/agents", route="/agents")
+        rows, reason, _ = await self._walk("/agents", route="/agents", workspace=workspace)
         for row in rows:
             name = _str(row.get("name"))
             if name is not None and name.endswith(tag):
@@ -1123,7 +1166,7 @@ class ThinnestEngine:
             )
         return None
 
-    async def _apply_own_key_voice(self, raw: str, cfg: AgentConfig) -> None:
+    async def _apply_own_key_voice(self, raw: str, workspace: str | None, cfg: AgentConfig) -> None:
         """`PUT /agents/{id}/byok-voice` for an agent speaking a voice of our own voice key
         (snapshots/2026-10-07b/pages/api-reference/agents/set-agent-byok-voice.md:322-460).
         A `409` is the workspace not on its own keys, or the agent with no voice channel."""
@@ -1134,6 +1177,7 @@ class ThinnestEngine:
                 "PUT",
                 f"/agents/{raw}/byok-voice",
                 route="/agents/{ref}/byok-voice",
+                workspace=workspace,
                 json={"voice": cfg.engine_byok_voice_id},
                 extra_refused_statuses=frozenset({409}),
             )
@@ -1152,27 +1196,40 @@ class ThinnestEngine:
             ) from exc
 
     async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef:
+        """A new agent in the client's OWN workspace (`cfg.engine_workspace`, D-693). Never
+        in the developer workspace: without a customer workspace this refuses before any
+        request, and the handle returned carries the workspace."""
+        workspace = cfg.engine_workspace
+        if workspace is None:
+            raise workspace_not_provisioned()
         body = self._agent_body(cfg)
         # Built (and so checked) before any write, so a refusal leaves nothing behind.
         self.built_in_tools_body(cfg)
-        raw = await self._find_agent(cfg)
+        raw = await self._find_agent(cfg, workspace)
         if raw is not None:
-            await self._request("PATCH", f"/agents/{raw}", route="/agents/{ref}", json=body)
+            await self._request(
+                "PATCH", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace, json=body
+            )
         else:
-            data = await self._request("POST", "/agents", route="/agents", json=body)
+            data = await self._request(
+                "POST", "/agents", route="/agents", workspace=workspace, json=body
+            )
             raw = _str(data.get("id"))
             if raw is None:
                 raise _bad_response("The voice platform did not return an agent id.")
-        await self._apply_own_key_voice(raw, cfg)
-        await self._apply_built_in_tools(raw, cfg)
-        return raw
+        await self._apply_own_key_voice(raw, workspace, cfg)
+        await self._apply_built_in_tools(raw, workspace, cfg)
+        return scoped_handle(raw, workspace)
 
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None:
+        raw, workspace = self._at(ref)
         body = self._agent_body(cfg)
         self.built_in_tools_body(cfg)
-        await self._request("PATCH", f"/agents/{ref}", route="/agents/{ref}", json=body)
-        await self._apply_own_key_voice(ref, cfg)
-        await self._apply_built_in_tools(ref, cfg)
+        await self._request(
+            "PATCH", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace, json=body
+        )
+        await self._apply_own_key_voice(raw, workspace, cfg)
+        await self._apply_built_in_tools(raw, workspace, cfg)
 
     async def override_call_script(
         self, ref: EngineAgentRef, *, opening_line: str, system_prompt: str
@@ -1214,21 +1271,29 @@ class ThinnestEngine:
             ),
             "voice": {"answersCalls": False, "unavailableMessage": PAUSED_LINE_MESSAGE},
         }
-        await self._request("PATCH", f"/agents/{ref}", route="/agents/{ref}", json=body)
+        raw, workspace = self._at(ref)
+        await self._request(
+            "PATCH", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace, json=body
+        )
 
     async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
         """`GET /agents/{id}` (agents.md:80), with the agent's documents from its knowledge
         list: documents are agent-scoped here, so that list IS what the agent references."""
-        data = await self._request("GET", f"/agents/{ref}", route="/agents/{ref}")
+        raw, workspace = self._at(ref)
+        data = await self._request(
+            "GET", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace
+        )
         returned = _str(data.get("id"))
-        if returned is not None and returned != ref:
+        if returned is not None and returned != raw:
             raise _bad_response("The voice platform described a different agent.")
         instructions = data.get("instructions")
         greeting = data.get("greeting")
         # A present-but-null greeting is an agent with none; an absent key is unread.
         greeting_readable = "greeting" in data and (greeting is None or isinstance(greeting, str))
         destinations, destinations_readable = _handover_destinations(
-            await self._request("GET", f"/agents/{ref}/tools", route="/agents/{ref}/tools")
+            await self._request(
+                "GET", f"/agents/{raw}/tools", route="/agents/{ref}/tools", workspace=workspace
+            )
         )
         return AgentSnapshot(
             engine_agent_ref=ref,
@@ -1253,8 +1318,13 @@ class ThinnestEngine:
         sweep's own-voice-key leg repairs it), and `answersCalls` / `unavailableMessage`,
         which a pause sets on purpose. A voice or model we leave on the vendor's default is
         not compared either: the default comes back as its own id, which we do not hold."""
-        agent = await self._request("GET", f"/agents/{ref}", route="/agents/{ref}")
-        tools = await self._request("GET", f"/agents/{ref}/tools", route="/agents/{ref}/tools")
+        raw, workspace = self._at(ref)
+        agent = await self._request(
+            "GET", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace
+        )
+        tools = await self._request(
+            "GET", f"/agents/{raw}/tools", route="/agents/{ref}/tools", workspace=workspace
+        )
         drifted = _settings_drift(self._agent_body(cfg), agent)
         tool_drift = _tools_drift(self.built_in_tools_body(cfg), tools)
         if any(name.startswith("tools.") for name in tool_drift):
@@ -1270,6 +1340,7 @@ class ThinnestEngine:
         when they or the hand-over drifted. The script, greeting and line state are not
         sent, so a repair cannot lift a pause or overwrite an emergency console edit of the
         script, which is a human's decision (`agents/publishing.engine_drift_for`)."""
+        raw, workspace = self._at(ref)
         wanted = self._agent_body(cfg)
         body: dict[str, Any] = {}
         voice: dict[str, Any] = {}
@@ -1284,14 +1355,21 @@ class ThinnestEngine:
         if voice:
             body["voice"] = voice
         if body:
-            await self._request("PATCH", f"/agents/{ref}", route="/agents/{ref}", json=body)
+            await self._request(
+                "PATCH", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace, json=body
+            )
         if {"built_in_tools", "hand_over"} & set(drifted):
-            await self._apply_built_in_tools(ref, cfg)
+            await self._apply_built_in_tools(raw, workspace, cfg)
 
     async def delete_agent(self, ref: EngineAgentRef) -> None:
         """`DELETE /agents/{id}`, 204; it takes the agent's knowledge with it (agents.md:82)."""
+        raw, workspace = self._at(ref)
         await self._request(
-            "DELETE", f"/agents/{ref}", route="/agents/{ref}", absent_is_success=True
+            "DELETE",
+            f"/agents/{raw}",
+            route="/agents/{ref}",
+            workspace=workspace,
+            absent_is_success=True,
         )
 
     # --- calls ---------------------------------------------------------------
@@ -1305,7 +1383,10 @@ class ThinnestEngine:
         Any failure here is before `POST /calls`, so it is reported as not placed.
         """
         try:
-            data = await self._request("GET", f"/agents/{ref}", route="/agents/{ref}")
+            raw, workspace = self._at(ref)
+            data = await self._request(
+                "GET", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace
+            )
         except ProblemError as exc:
             raise _dial_precondition_failed(missing="published agent") from exc
         greeting = _str(data.get("greeting"))
@@ -1333,11 +1414,12 @@ class ThinnestEngine:
             variables["lead_name"] = ctx.lead_name
         if len(variables) > CALL_VARIABLES_MAX:
             raise _dial_precondition_failed(missing=f"room for {len(variables)} call variables")
+        raw_agent, workspace = self._at(ref)
         purpose = await self._outbound_opening(ref)
         body: dict[str, Any] = {
             "to": to,
             "purpose": purpose,
-            "agent": ref,
+            "agent": raw_agent,
             "ifOutsideHours": "refuse",
         }
         if ctx.from_e164:
@@ -1362,6 +1444,7 @@ class ThinnestEngine:
                 "POST",
                 "/calls",
                 route="/calls",
+                workspace=workspace,
                 json=body,
                 headers=headers,
                 # Every 409 on this route is a call that was not placed: outside hours, a
@@ -1382,7 +1465,7 @@ class ThinnestEngine:
             raise _bad_response("The voice platform did not return a call id.")
         if data.get("status") == "scheduled":
             log.warning("thinnest_call_scheduled_not_placed", extra={"engine_call_id": handle})
-        return handle
+        return scoped_handle(handle, workspace)
 
     async def end_call(self, call_id: str) -> RecallOutcome:
         """`DELETE /calls/{id}`: 200 with `status: cancelled` for a call still waiting, 202 for
@@ -1403,7 +1486,10 @@ class ThinnestEngine:
         if current is not None and current.raw_status == "connected":
             return RecallOutcome.ALREADY_RUNNING
         try:
-            report = await self._request("DELETE", f"/calls/{call_id}", route="/calls/{id}")
+            raw_call, workspace = self._at(call_id)
+            report = await self._request(
+                "DELETE", f"/calls/{raw_call}", route="/calls/{id}", workspace=workspace
+            )
         except EngineRejectedError as exc:
             if exc.vendor_status != 409:
                 raise
@@ -1426,8 +1512,8 @@ class ThinnestEngine:
         raise engine_lacks("transfer", engine=self.name)
 
     # --- numbers -------------------------------------------------------------
-    # Renting a number and attaching it to an agent are console steps
-    # (voices-and-models.md:85-87), so every write refuses by name.
+    # Renting, attaching and releasing a number go through `engine/thinnest_numbers.py` and
+    # `campaigns/engine_numbers.py`, per workspace (D-693); the Protocol writes refuse here.
 
     async def search_numbers(self, query: NumberSearch) -> Sequence[AvailableNumber]:
         raise engine_lacks("numbers", engine=self.name)
@@ -1443,9 +1529,13 @@ class ThinnestEngine:
         engine's handle for it (it is what `from` takes).
         `rented` is a number we pay ThinnestAI for; `brought` is one on our own carrier
         account. `agent` is the agent answering it, or null while unassigned or lent only for
-        calling out (:84-86)."""
+        calling out (:84-86). In the workspace the caller opened with `in_workspace`; both
+        handles come back scoped to it."""
+        workspace = workspace_of(None)
         numbers: list[ProvisionedNumber] = []
-        rows, reason, _ = await self._walk("/phone-numbers", route="/phone-numbers")
+        rows, reason, _ = await self._walk(
+            "/phone-numbers", route="/phone-numbers", workspace=workspace
+        )
         if reason is not None:
             log.warning("thinnest_number_listing_incomplete", extra={"reason": reason})
         for row in rows:
@@ -1457,9 +1547,10 @@ class ThinnestEngine:
                 ProvisionedNumber(
                     e164=e164,
                     provider=_str(row.get("provider")),
-                    engine_number_ref=raw,
+                    engine_number_ref=scoped_handle(raw, workspace),
                     engine_owned=row.get("source") == "rented",
-                    answering_agent_ref=_str(row.get("agent")),
+                    answering_agent_ref=_scoped(_str(row.get("agent")), workspace),
+                    calling_agent_ref=_scoped(_str(row.get("callingAgent")), workspace),
                 )
             )
         return numbers
@@ -1490,10 +1581,12 @@ class ThinnestEngine:
     # one handle per source exactly as they do on every other engine.
 
     async def _post_knowledge(self, ref: EngineAgentRef, title: str, text: str) -> str:
+        raw, workspace = self._at(ref)
         data = await self._request(
             "POST",
-            f"/agents/{ref}/knowledge",
+            f"/agents/{raw}/knowledge",
             route="/agents/{ref}/knowledge",
+            workspace=workspace,
             json={"title": title, "text": text},
         )
         handle = _str(data.get("id"))
@@ -1561,12 +1654,14 @@ class ThinnestEngine:
     async def _remove_parts(self, ref: EngineAgentRef, handles: Sequence[str]) -> None:
         """Best effort: a part left behind is counted by `list_kb` as a loose document,
         which the KB publish path reports as out of sync."""
+        raw, workspace = self._at(ref)
         for handle in handles:
             try:
                 await self._request(
                     "DELETE",
-                    f"/agents/{ref}/knowledge/{handle}",
+                    f"/agents/{raw}/knowledge/{handle}",
                     route="/agents/{ref}/knowledge/{kb}",
+                    workspace=workspace,
                     absent_is_success=True,
                 )
             except Exception as exc:
@@ -1582,6 +1677,7 @@ class ThinnestEngine:
         not hold is a 404, which raises. A composite handle removes every part: a part
         already gone is skipped, any other failure raises once the rest were tried, and
         the 404 is raised only when no part was there at all."""
+        raw, workspace = self._at(ref)
         handles = _parts_of(kb)
         absent: EngineRejectedError | None = None
         failure: Exception | None = None
@@ -1590,8 +1686,9 @@ class ThinnestEngine:
             try:
                 await self._request(
                     "DELETE",
-                    f"/agents/{ref}/knowledge/{handle}",
+                    f"/agents/{raw}/knowledge/{handle}",
                     route="/agents/{ref}/knowledge/{kb}",
+                    workspace=workspace,
                 )
             except EngineRejectedError as exc:
                 if exc.vendor_status != 404:
@@ -1609,8 +1706,9 @@ class ThinnestEngine:
             raise absent
 
     async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]:
+        raw, workspace = self._at(ref)
         rows, reason, _ = await self._walk(
-            f"/agents/{ref}/knowledge", route="/agents/{ref}/knowledge"
+            f"/agents/{raw}/knowledge", route="/agents/{ref}/knowledge", workspace=workspace
         )
         if reason is not None:
             raise ProblemError(
@@ -1624,15 +1722,17 @@ class ThinnestEngine:
 
     async def list_account_kb(self) -> AccountKBListing:
         """The union over the account's agents: knowledge here is agent-scoped, so there is
-        no account-level list to ask. A failure on one agent makes the answer incomplete."""
+        no account-level list to ask. A failure on one agent makes the answer incomplete. In the
+        workspace the caller opened with `in_workspace` (each sweep walks every workspace)."""
+        workspace = workspace_of(None)
         objects: list[AccountKBObject] = []
-        agents, reason, pages = await self._walk("/agents", route="/agents")
+        agents, reason, pages = await self._walk("/agents", route="/agents", workspace=workspace)
         for row in agents:
             raw = _str(row.get("id"))
             if raw is None:
                 continue
             try:
-                handles = await self.list_kb(raw)
+                handles = await self.list_kb(scoped_handle(raw, workspace))
             except ProblemError:
                 reason = reason or "partial_fan_out"
                 continue
@@ -1662,7 +1762,7 @@ class ThinnestEngine:
         speaks every supported language" (snapshots/2026-10-07b/pages/api-reference/voices/
         list-voices.md:7, :346-347, :417-451). Which band may be sold is the caller's
         decision (`agents/hosted_voices.py`)."""
-        data = await self._request("GET", "/voices", route="/voices")
+        data = await self._request("GET", "/voices", route="/voices", workspace=workspace_of(None))
         voices = [
             HostedVoice(
                 voice_id=voice_id,
@@ -1685,7 +1785,7 @@ class ThinnestEngine:
         provider's own sample when it hosts one. `409` when the workspace is not on its own
         keys (snapshots/2026-10-07b/pages/api-reference/bring-your-own-keys/
         list-byok-voices.md:7, :344-379, :452-485)."""
-        data = await self._request("GET", "/byok/voices", route="/byok/voices")
+        data = await self._request("GET", "/byok/voices", route="/byok/voices", workspace=None)
         provider = data.get("provider")
         voices = [
             HostedVoice(
@@ -1775,6 +1875,7 @@ class ThinnestEngine:
                 "POST",
                 "/voice-clones",
                 route="/voice-clones",
+                workspace=workspace_of(None),
                 data=form,
                 files={"sample": (sample.filename, sample.data, sample.content_type)},
                 extra_refused_statuses=frozenset({409}),
@@ -1789,10 +1890,29 @@ class ThinnestEngine:
             raise _bad_response("The voice platform did not describe the cloned voice.")
         return clone
 
+    async def list_voice_clones(self) -> list[VoiceClone]:
+        """Every clone of the workspace the caller opened with `in_workspace`, from
+        `GET /voice-clones` (snapshots/2026-10-07b/pages/api-reference/voice-clones/
+        list-voice-clones.md:7). Refuses rather than answering a partial list."""
+        rows, reason, _ = await self._walk(
+            "/voice-clones", route="/voice-clones", workspace=workspace_of(None)
+        )
+        if reason is not None:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_listing_incomplete",
+                title="The voice platform's clone list could not be read in full",
+                detail="We could not confirm which voices this workspace has cloned.",
+                remediation="Try again. If it keeps failing, contact us.",
+            )
+        return [clone for row in rows if (clone := self._clone(row)) is not None]
+
     async def find_voice_clone(self, voice_id: str) -> VoiceClone | None:
         """The clone whose `voiceId` is `voice_id`, from `GET /voice-clones`, or None
         (snapshots/2026-10-07b/pages/api-reference/voice-clones/list-voice-clones.md:7)."""
-        rows, reason, _ = await self._walk("/voice-clones", route="/voice-clones")
+        rows, reason, _ = await self._walk(
+            "/voice-clones", route="/voice-clones", workspace=workspace_of(None)
+        )
         for row in rows:
             clone = self._clone(row)
             if clone is not None and clone.voice_id == voice_id:
@@ -1812,7 +1932,10 @@ class ThinnestEngine:
         it back to a standard voice; answers how many it moved (snapshots/2026-10-07b/pages/
         api-reference/voice-clones/delete-voice-clone.md:7, :345-355)."""
         data = await self._request(
-            "DELETE", f"/voice-clones/{quote(clone_id, safe='')}", route="/voice-clones/{id}"
+            "DELETE",
+            f"/voice-clones/{quote(clone_id, safe='')}",
+            route="/voice-clones/{id}",
+            workspace=workspace_of(None),
         )
         moved = data.get("movedAgents")
         return moved if isinstance(moved, int) and not isinstance(moved, bool) else 0
@@ -1832,7 +1955,7 @@ class ThinnestEngine:
     async def own_key_state(self) -> OwnVoiceKeyState:
         """`GET /byok` (snapshots/2026-10-07b/pages/api-reference/
         bring-your-own-keys.md:115-147)."""
-        data = await self._request("GET", "/byok", route="/byok")
+        data = await self._request("GET", "/byok", route="/byok", workspace=workspace_of(None))
         return _key_state(data)
 
     async def install_own_voice_key(
@@ -1849,6 +1972,7 @@ class ThinnestEngine:
                 "PUT",
                 "/byok/credentials",
                 route="/byok/credentials",
+                workspace=None,
                 json={"kind": "tts", "provider": provider, "credentials": credentials},
             )
         except EngineRejectedError as exc:
@@ -1871,6 +1995,7 @@ class ThinnestEngine:
                 "PATCH",
                 "/byok",
                 route="/byok",
+                workspace=None,
                 json={"enabled": True, "scope": "voice"},
                 extra_refused_statuses=frozenset({409}),
             )
@@ -1890,21 +2015,30 @@ class ThinnestEngine:
         """`PATCH /byok {enabled: false}`, then the state as read back. Every agent on
         `byok: workspace` returns to the platform's own voices at their next call
         (bring-your-own-keys.md:186-198)."""
-        await self._request("PATCH", "/byok", route="/byok", json={"enabled": False})
+        await self._request(
+            "PATCH", "/byok", route="/byok", workspace=None, json={"enabled": False}
+        )
         return await self.own_key_state()
 
     async def agent_own_voice_key(self, ref: EngineAgentRef) -> bool | None:
         """The agent's `byok` as `GET /agents/{id}` holds it, as ours; None when unreported."""
         return _own_voice_key_of(
-            await self._request("GET", f"/agents/{ref}", route="/agents/{ref}")
+            await self._request(
+                "GET", f"/agents/{raw_of(ref)}", route="/agents/{ref}", workspace=workspace_of(ref)
+            )
         )
 
     async def set_agent_own_voice_key(self, ref: EngineAgentRef, *, on: bool) -> None:
         """`PATCH /agents/{id} {byok}` alone, leaving every other field as it is. The vendor
         reads it once when a call starts, so a ringing call keeps the old value (evaluation
         §12 item 1)."""
+        raw, workspace = self._at(ref)
         await self._request(
-            "PATCH", f"/agents/{ref}", route="/agents/{ref}", json={"byok": _byok_value(on)}
+            "PATCH",
+            f"/agents/{raw}",
+            route="/agents/{ref}",
+            workspace=workspace,
+            json={"byok": _byok_value(on)},
         )
 
     async def list_call_charges(self, *, since: date) -> EngineChargeListing:
@@ -1913,31 +2047,33 @@ class ThinnestEngine:
         when nothing was charged) (snapshots/2026-10-07/pages/api-reference/usage/
         list-call-log.md:247-300, :456-459, :533-547). `from` is a date in the workspace's
         time zone, so callers ask from a day early. Converted to rupees here as `Decimal`,
-        never through a float.
+        never through a float. Per workspace: the one the caller opened with `in_workspace`,
+        whose call and agent ids come back scoped to it.
         """
+        workspace = workspace_of(None)
         charges: list[EngineCharge] = []
         other_currency = 0
         rows, reason, _pages = await self._walk(
-            "/usage/calls", route="/usage/calls", params={"from": since.isoformat()}
+            "/usage/calls",
+            route="/usage/calls",
+            workspace=workspace,
+            params={"from": since.isoformat()},
         )
         for row in rows:
             call_id = _str(row.get("id"))
             if call_id is None:
                 continue
-            if (_str(row.get("currency")) or "INR") != "INR":
+            if not _is_rupees(row):
                 other_currency += 1
                 continue
-            micro = row.get("costMicro")
-            charged = (
-                Decimal(micro) / _MICRO_PER_UNIT
-                if isinstance(micro, int) and not isinstance(micro, bool)
-                else None
-            )
+            charged = _charged_inr(row)
             agent = row.get("agent")
             charges.append(
                 EngineCharge(
-                    engine_call_id=call_id,
-                    engine_agent_ref=_str(agent.get("id")) if isinstance(agent, dict) else None,
+                    engine_call_id=scoped_handle(call_id, workspace),
+                    engine_agent_ref=_scoped(
+                        _str(agent.get("id")) if isinstance(agent, dict) else None, workspace
+                    ),
                     charged_inr=charged,
                 )
             )
@@ -1952,7 +2088,7 @@ class ThinnestEngine:
         `voice` says a model is fast enough for calls, `available` that this plan may pick
         it, and `voiceOnlyByok` that a call may run on it while only the voice is our own key
         (`bring-your-own-keys.md:44-63`)."""
-        model_rows, model_reason, _ = await self._walk("/models", route="/models")
+        model_rows, model_reason, _ = await self._walk("/models", route="/models", workspace=None)
         models = [
             CatalogueModel(
                 model_id=model_id,
@@ -1969,7 +2105,9 @@ class ThinnestEngine:
 
     # --- reading the truth ---------------------------------------------------
 
-    def _snapshot(self, payload: dict[str, Any], *, fallback_id: str = "") -> ExecutionSnapshot:
+    def _snapshot(
+        self, payload: dict[str, Any], *, workspace: str | None, fallback_id: str = ""
+    ) -> ExecutionSnapshot:
         """A call object (get-call.md:14-47, :110-197) as our snapshot.
 
         `billable_ready` waits for `analysedAt` (results final, get-call.md:190-193) and NOT for
@@ -1978,7 +2116,8 @@ class ThinnestEngine:
         lose that transcript. The link is valid before the audio lands (it answers 404 for a
         minute or so), so it is passed on and the recording copy retries.
         """
-        call_id = _str(payload.get("id")) or fallback_id
+        raw_call = _str(payload.get("id"))
+        call_id = scoped_handle(raw_call, workspace) if raw_call else fallback_id
         raw_status = (_str(payload.get("status")) or "").lower()
         hangup = _str(payload.get("hangup"))
         terminal = raw_status in _TERMINAL_RAW
@@ -2000,7 +2139,7 @@ class ThinnestEngine:
         turns, unparsed = parse_transcript(payload.get("transcript"), call_id)
         fields = payload.get("fields")
         analysed = payload.get("analysedAt") is not None or hangup == "not_placed"
-        agent = _agent_ref_of(payload)
+        agent = _scoped(_agent_ref_of(payload), workspace)
         return ExecutionSnapshot(
             engine_call_id=call_id,
             engine_agent_ref=agent,
@@ -2031,8 +2170,11 @@ class ThinnestEngine:
         list hands out, inbound calls included (snapshots/2026-10-07/pages/api-reference/
         calls/get-call.md:7); the first docs said it answered 404 for calls the API did not
         place, and `workers/engine_delivery` keeps its fallbacks for when it does."""
-        payload = await self._request("GET", f"/calls/{call_id}", route="/calls/{id}")
-        return self._snapshot(payload, fallback_id=call_id).model_copy(
+        raw_call, workspace = self._at(call_id)
+        payload = await self._request(
+            "GET", f"/calls/{raw_call}", route="/calls/{id}", workspace=workspace
+        )
+        return self._snapshot(payload, workspace=workspace, fallback_id=call_id).model_copy(
             update={"raw_document": engine_document(payload, engine=self.name)}
         )
 
@@ -2053,7 +2195,7 @@ class ThinnestEngine:
         if snapshot.recording_url is None and snapshot.raw_status != "completed":
             return None
         host = (urlsplit(self._base_url).hostname or "").lower()
-        raw = snapshot.engine_call_id
+        raw, workspace = self._at(snapshot.engine_call_id)
         return EngineRecordingSource(
             url=f"{self._base_url.rstrip('/')}/calls/{quote(raw, safe='')}/recording",
             rules=RecordingFetchRules(
@@ -2062,17 +2204,21 @@ class ThinnestEngine:
                 not_ready_status=404,
                 gone_status=410,
             ),
-            auth_headers={AUTH_HEADER: f"{AUTH_SCHEME} {self._api_key}"},
+            auth_headers={
+                AUTH_HEADER: f"{AUTH_SCHEME} {self._api_key}",
+                **workspace_headers("GET", "/calls/{id}/recording", workspace),
+            },
             auth_hosts=frozenset({host}),
         )
 
     def snapshot_from_delivery(self, payload: dict[str, Any]) -> ExecutionSnapshot:
         """The snapshot a VERIFIED `call.analysed` delivery carries: "exactly the object
         above" (get-call.md:56-65), the only source of an inbound call's transcript and
-        recording. Call it after `verify_webhook` has passed, never before."""
+        recording. Call it after `verify_webhook` has passed, never before, inside
+        `in_workspace` of the delivering agent's workspace so the ids come back scoped."""
         data = payload.get("data")
         call = data if isinstance(data, dict) else {}
-        return self._snapshot(call).model_copy(
+        return self._snapshot(call, workspace=workspace_of(None)).model_copy(
             update={"raw_document": engine_document(call, engine=self.name)}
         )
 
@@ -2088,9 +2234,12 @@ class ThinnestEngine:
         snapshots: list[ExecutionSnapshot] = []
         seen: set[str] = set()
         reason: ListingIncompleteReason | None = None
-        rows, reason, pages = await self._walk("/calls", route="/calls", params={"since": instant})
+        workspace = workspace_of(None)
+        rows, reason, pages = await self._walk(
+            "/calls", route="/calls", workspace=workspace, params={"since": instant}
+        )
         for row in rows:
-            snapshot = self._snapshot(row)
+            snapshot = self._snapshot(row, workspace=workspace)
             if not snapshot.engine_call_id or snapshot.engine_call_id in seen:
                 continue
             seen.add(snapshot.engine_call_id)
@@ -2125,7 +2274,7 @@ class ThinnestEngine:
             return WebhookVerdict(ok=False, method="hmac", reason="body_unreadable")
         data = payload.get("data") if isinstance(payload, dict) else None
         agent = _agent_ref_of(data) if isinstance(data, dict) else None
-        ref = agent
+        ref = _scoped(agent, workspace_of(None))
         if ref is None:
             return WebhookVerdict(ok=False, method="hmac", reason="agent_unidentified")
         secret = self._signing_secret_for(ref) if self._signing_secret_for else None
@@ -2158,8 +2307,8 @@ class ThinnestEngine:
         recording = call.get("recording")
         recording_url = _str(recording.get("url")) if isinstance(recording, dict) else None
         return CallEvent(
-            call_id=_str(call.get("id")) or "",
-            engine_agent_ref=_agent_ref_of(call),
+            call_id=_scoped(_str(call.get("id")), workspace_of(None)) or "",
+            engine_agent_ref=_scoped(_agent_ref_of(call), workspace_of(None)),
             direction=direction,
             status=_our_status(raw_status, hangup),
             raw_status=raw_status or "unknown",
@@ -2191,8 +2340,10 @@ class ThinnestEngine:
         return EngineNotice(
             kind=kind,
             notice_id=notice_id,
-            engine_agent_ref=_agent_ref_of(body) or _str(body.get("agentId")),
-            engine_call_id=_str(body.get("callId")),
+            engine_agent_ref=_scoped(
+                _agent_ref_of(body) or _str(body.get("agentId")), workspace_of(None)
+            ),
+            engine_call_id=_scoped(_str(body.get("callId")), workspace_of(None)),
             occurred_at=_parse_dt(payload.get("sentAt")),
             engine=self.name,
         )

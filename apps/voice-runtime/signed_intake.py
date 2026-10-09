@@ -35,6 +35,7 @@ from typing import Any, Final
 from apps.api.core.envelope import Envelope, KekRing
 from apps.api.db.session import untenanted_session
 from apps.api.reliability.engine_intake_keys import open_webhook_secret
+from calevate_shared.engine_scope import SCOPE_SEPARATOR, scoped_handle, split_handle
 from calevate_shared.webhook_signature import (
     signed_time_is_fresh,
     timestamped_sha256_signature_matches,
@@ -214,13 +215,24 @@ def keyed_event(
     data = payload.get("data")
     if not isinstance(data, dict):
         return "unusable execution key"
-    unit = event_id if route.call_field is None else scalar_hint(data.get(route.call_field))
-    execution_id = keyable(unit or "")
+    # An agent in a client's own workspace is held as `<id>@<org_…>` (D-693); the body names
+    # the vendor's bare ids, so a call is keyed in the agent's workspace — the form every
+    # other path stores it in — and the agent is compared without it.
+    agent_id, workspace = split_handle(engine_agent_ref)
+    if route.call_field is None:
+        execution_id = keyable(event_id)
+    else:
+        raw_call = keyable(scalar_hint(data.get(route.call_field)) or "")
+        execution_id = (
+            keyable(scoped_handle(raw_call, workspace))
+            if raw_call is not None and SCOPE_SEPARATOR not in raw_call
+            else None
+        )
     if execution_id is None:
         return "unusable execution key"
     agent = data.get("agent")
     named = scalar_hint(agent.get("id")) if isinstance(agent, dict) else None
-    if named is not None and named != engine_agent_ref:
+    if named is not None and named != agent_id:
         # Signed by this agent's secret yet naming another agent: a misregistered endpoint.
         return "agent mismatch"
     event_name = keyable(f"{event}:{event_id}")

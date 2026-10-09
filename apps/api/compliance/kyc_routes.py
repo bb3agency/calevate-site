@@ -82,7 +82,7 @@ from apps.api.compliance.kyc_documents import (
     accept_upload,
     assert_kind_fits_slot,
     current_documents,
-    delete_quietly,
+    delete_requested_documents,
     masked_owner_id,
     new_document_id,
     record_document,
@@ -98,13 +98,16 @@ from apps.api.compliance.kyc_verification import (
 )
 from apps.api.compliance.models import KYC_ENTITY_TYPES
 from apps.api.core.alerting import alert
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.console_links import console_base
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
+from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session, untenanted_session
+
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/compliance/kyc", tags=["compliance"])
 
@@ -213,7 +216,7 @@ def documents_out(documents: dict[str, KycDocumentRow]) -> list[KycDocumentOut]:
             content_type=row.content_type,
             size_bytes=row.size_bytes,
             uploaded_at=row.created_at,
-            held=row.purged_at is None,
+            held=row.held,
         )
         for row in documents.values()
     ]
@@ -627,6 +630,7 @@ async def upload_document(
     # identity documents for them.
     uploader = principal.client_user_id
     if uploader is None:
+        assert_view_as_may(principal, "compliance.kyc_documents")
         raise ProblemError.business_rule(
             "kyc_documents_are_the_clients_own",
             "Verification documents have to be uploaded by somebody at your own business.",
@@ -653,33 +657,44 @@ async def upload_document(
     )
     # Ciphertext only; the store's SSE applies on top (`_put_document`).
     await store_kyc_document(key=key, data=sealed.ciphertext, content_type=_CIPHERTEXT_TYPE)
-    replaced = await record_document(
-        session,
-        tenant_id=principal.tenant_id,
-        document_id=document_id,
-        slot=checked_slot,
-        kind=kind,
-        object_key=key,
-        accepted=accepted,
-        sealed=sealed,
-        uploaded_by_user_id=uploader,
-    )
-    await write_audit(
-        session,
-        action="kyc.document_uploaded",
-        actor=principal,
-        tenant_id=principal.tenant_id,
-        object_type="kyc_document",
-        object_id=str(document_id),
-        ip=client_request_ip(request),
-        # Slot, kind and size; never the filename, which the client chose and may name a
-        # person (hard rule 6).
-        summary={"slot": checked_slot, "kind": kind, "size_bytes": accepted.size_bytes},
-    )
+    # Written and COMMITTED in its own transaction, as `review_kyc` does, rather than on the
+    # request session: that one commits only after the response's background tasks have run,
+    # and the task below must find the superseded rows committed (and must never delete a
+    # file a rolled-back supersede would have left current).
+    #
+    # The object is stored before its row exists, and no sweep looks for an object with no
+    # row, so a failure from here on (a concurrent upload losing the current-per-slot index,
+    # the audit write, the commit) takes the object down with the request.
+    try:
+        async with tenant_session(principal.tenant_id) as writer:
+            replaced = await record_document(
+                writer,
+                tenant_id=principal.tenant_id,
+                document_id=document_id,
+                slot=checked_slot,
+                kind=kind,
+                object_key=key,
+                accepted=accepted,
+                sealed=sealed,
+                uploaded_by_user_id=uploader,
+            )
+            await write_audit(
+                writer,
+                action="kyc.document_uploaded",
+                actor=principal,
+                tenant_id=principal.tenant_id,
+                object_type="kyc_document",
+                object_id=str(document_id),
+                ip=client_request_ip(request),
+                # Slot, kind and size; never the filename, which the client chose and may
+                # name a person (hard rule 6).
+                summary={"slot": checked_slot, "kind": kind, "size_bytes": accepted.size_bytes},
+            )
+    except Exception:
+        await _discard_unrecorded_upload(key, document_id=document_id)
+        raise
     if replaced:
-        # A background task runs after the response, i.e. after this request's transaction
-        # committed, so a rollback never leaves a current row pointing at a deleted file.
-        tasks.add_task(delete_quietly, replaced)
+        tasks.add_task(delete_requested_documents, principal.tenant_id, replaced)
     rows = await current_documents(session, tenant_id=principal.tenant_id)
     return documents_out({checked_slot: rows[checked_slot]})[0]
 
@@ -729,7 +744,7 @@ async def submit_for_review(
         session, tenant_id=principal.tenant_id, record=record
     )
     owner = documents.get("owner_id")
-    if owner is None or owner.purged_at is not None:
+    if owner is None or not owner.held:
         raise ProblemError.business_rule(
             "kyc_owner_id_missing",
             "Upload the owner's Aadhaar (masked copy) or PAN card first.",
@@ -808,6 +823,18 @@ async def _current_out(session: AsyncSession, *, tenant_id: UUID) -> KycRecordOu
 
 #: What the object store is told the bytes are: they are ciphertext, not the document.
 _CIPHERTEXT_TYPE = "application/octet-stream"
+
+
+async def _discard_unrecorded_upload(key: str, *, document_id: UUID) -> None:
+    """Delete an object whose row was never written. A delete that fails is logged with
+    the document id: the object stays under the tenant's prefix, which the account
+    erasure removes."""
+    from apps.workers.storage import StorageUnavailableError, delete_objects
+
+    try:
+        await delete_objects([key])
+    except StorageUnavailableError:
+        log.error("kyc_unrecorded_upload_left", extra={"document_id": str(document_id)})
 
 
 async def _read_bounded(file: UploadFile) -> bytes:

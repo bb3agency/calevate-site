@@ -48,8 +48,10 @@ from fastapi import (
     UploadFile,
 )
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.clone_copies import forget_clone, keep_clone_sample
 from apps.api.agents.engine_catalogue_routes import PREVIEW_RESPONSES, stored_preview_response
 from apps.api.agents.hosted_voices import (
     STUDIO_VOICE_PROVIDER,
@@ -613,8 +615,24 @@ async def create_clone(
         language=clone.language or language,
         description=description,
     )
+    # The recording is kept, sealed, so the clone can be made again in a client's own voice
+    # workspace (D-693): a clone belongs to the workspace that made it.
+    # Best effort: the clone exists at the platform and must be recorded either way. Without
+    # the sample it can still be spoken in our workspace; a client workspace is then refused
+    # by name (`voice_clone_sample_missing`) until the voice is cloned again.
+    try:
+        await keep_clone_sample(
+            session,
+            voice_id=row.voice_id,
+            filename=sample.filename or "sample",
+            content_type=content_type,
+            language=language,
+            data=data,
+        )
+    except Exception as exc:
+        log.warning("voice_clone_sample_not_kept", extra={"reason": type(exc).__name__})
     # The consents are the operator's legal attestations: who, when, and the two promises,
-    # in the same transaction as the row. The recording itself is not kept here.
+    # in the same transaction as the row.
     await _audit(
         session,
         request,
@@ -712,6 +730,14 @@ async def delete_clone(
         )
     moved = await engine.delete_voice_clone(row.clone_id)
     await withdraw_hosted_voice(session, voice_id=voice_id)
+    # Its copies in clients' own workspaces and the kept recording go with it (D-693).
+    sample_key = (
+        await session.execute(
+            text("SELECT sample_object_key FROM platform_voice_catalog WHERE voice_id = :v"),
+            {"v": voice_id},
+        )
+    ).scalar()
+    await forget_clone(engine, voice_id=voice_id, sample_key=sample_key)
     await _audit(
         session,
         request,
@@ -923,6 +949,7 @@ async def enable_studio(
         summary={
             "agents_kept_off": result.agents_kept_off,
             "key_installed": result.key_installed,
+            "workspaces_not_inheriting": result.workspaces_not_inheriting,
             "voice_provider": result.state.voice_provider,
             "speaks_on_own_voice": result.state.speaks_on_own_voice,
         },

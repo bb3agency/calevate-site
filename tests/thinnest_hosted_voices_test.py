@@ -414,8 +414,11 @@ def test_every_agent_body_states_its_own_voice_key_switch(on: bool | None, sent:
     assert body.get("byok") == sent
 
 
-async def test_an_agent_is_created_and_updated_in_our_one_workspace() -> None:
+async def test_an_agent_is_created_and_updated_in_its_clients_own_workspace() -> None:
+    """D-693: every request about a client's agent carries that client's workspace header,
+    and the handle the create returns names the workspace."""
     bodies: list[dict[str, Any]] = []
+    ws = "org_client-9"
 
     def _write(request: httpx.Request) -> httpx.Response:
         bodies.append(json.loads(request.content))
@@ -423,20 +426,30 @@ async def test_an_agent_is_created_and_updated_in_our_one_workspace() -> None:
 
     vendor = _Vendor(
         {
-            ("GET", "/agents", None): _ok({"items": [], "nextCursor": None}),
-            ("POST", "/agents", None): _write,
-            ("PATCH", "/agents/ag_9", None): _write,
-            ("PUT", "/agents/ag_9/byok-voice", None): _ok({}),
+            ("GET", "/agents", ws): _ok({"items": [], "nextCursor": None}),
+            ("POST", "/agents", ws): _write,
+            ("PATCH", "/agents/ag_9", ws): _write,
+            ("PUT", "/agents/ag_9/byok-voice", ws): _ok({}),
         }
     )
     engine = _engine(vendor)
-    ref = await engine.create_agent(_cfg(engine_own_voice_key=False, engine_voice_id="priya"))
+    ref = await engine.create_agent(
+        _cfg(engine_own_voice_key=False, engine_voice_id="priya", engine_workspace=ws)
+    )
     await engine.update_agent(ref, _cfg(engine_own_voice_key=True, engine_byok_voice_id="cv-1"))
-    assert ref == "ag_9"
+    assert ref == f"ag_9@{ws}"
     assert [b["byok"] for b in bodies] == ["off", "workspace"]
     own_key_voice = next(r for r in vendor.seen if r.url.path.endswith("/byok-voice"))
     assert json.loads(own_key_voice.content) == {"voice": "cv-1"}
-    assert all(WORKSPACE_HEADER not in r.headers for r in vendor.seen)
+    assert all(r.headers.get(WORKSPACE_HEADER) == ws for r in vendor.seen)
+
+
+async def test_no_agent_is_created_without_a_client_workspace() -> None:
+    vendor = _Vendor({})
+    with pytest.raises(ProblemError) as refused:
+        await _engine(vendor).create_agent(_cfg())
+    assert refused.value.code == "engine_workspace_not_provisioned"
+    assert vendor.seen == []
 
 
 async def test_the_agents_switch_is_read_back_and_set_alone() -> None:

@@ -545,6 +545,110 @@
         "title": "AdjustmentOut",
         "type": "object"
       },
+      "AdminAvailableNumberOut": {
+        "additionalProperties": false,
+        "description": "A number this client could buy: what the CLIENT pays (the attested rate) and what it\ncosts US (the vendor's monthly rent), the second for the operator only.",
+        "properties": {
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "client_inr_per_month": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Inr Per Month"
+          },
+          "e164": {
+            "title": "E164",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "string"
+          },
+          "vendor_inr_per_month": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Inr Per Month"
+          }
+        },
+        "required": [
+          "number",
+          "e164",
+          "city",
+          "client_inr_per_month",
+          "vendor_inr_per_month"
+        ],
+        "title": "AdminAvailableNumberOut",
+        "type": "object"
+      },
+      "AdminAvailableNumbersOut": {
+        "additionalProperties": false,
+        "properties": {
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "numbers": {
+            "items": {
+              "$ref": "#/components/schemas/AdminAvailableNumberOut"
+            },
+            "title": "Numbers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "numbers",
+          "next_cursor"
+        ],
+        "title": "AdminAvailableNumbersOut",
+        "type": "object"
+      },
+      "AdminCityOut": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "available"
+        ],
+        "title": "AdminCityOut",
+        "type": "object"
+      },
       "AdminCopilotAskIn": {
         "additionalProperties": false,
         "description": "`POST /v1/admin/copilot/ask` \u2014 the client body plus WHICH ACCOUNT IS OPEN (D-499).\n\n`tenant_id` is the account whose admin page the operator is looking at, or null on a\nplatform screen. It scopes three things and nothing else: which tenant the account read\ntools run under, which tenant's live business state is composed, and which memories are\neligible for recall (`copilot/admin_memory.py`).\n\n**IT IS NOT AN AUTHORIZATION INPUT AND IT IS NOT A PAYER.** The payer is always the\nplatform ledger \u2014 an operator never spends a client's allowance (D-499) \u2014 so no body\nfield here can move anyone's bill. And it widens nothing: every route serving this\npermission is admin-realm, and both admin roles hold `admin:tenants`, so an operator\nnaming an account here reaches exactly what the console's own tenant page would show\nthem. It is still validated to be a real, undeleted account before it is used, because\na silently-ignored id would let a screen believe it had scoped the assistant when it\nhad not.\n\n**INSIDE A VIEW-AS SESSION THE HEADER WINS.** `Principal.tenant_id` from an\nimpersonation grant is proven by a second factor and audited; this field is a claim in a\nbody. The route takes the principal's when there is one and never reconciles the two.",
@@ -1045,6 +1149,150 @@
           "permissions"
         ],
         "title": "AdminMeOut",
+        "type": "object"
+      },
+      "AdminPurchaseIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "direction": {
+            "default": "both",
+            "enum": [
+              "inbound",
+              "outbound",
+              "both"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "number": {
+            "maxLength": 20,
+            "minLength": 8,
+            "pattern": "^\\+?\\d{8,15}$",
+            "title": "Number",
+            "type": "string"
+          },
+          "request_key": {
+            "maxLength": 100,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Request Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "request_key"
+        ],
+        "title": "AdminPurchaseIn",
+        "type": "object"
+      },
+      "AdminPurchasedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "attachment": {
+            "title": "Attachment",
+            "type": "string"
+          },
+          "client_inr_per_month": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Inr Per Month"
+          },
+          "e164": {
+            "title": "E164",
+            "type": "string"
+          },
+          "first_period": {
+            "anyOf": [
+              {
+                "enum": [
+                  "charged",
+                  "invoiced",
+                  "replayed",
+                  "closed",
+                  "trial",
+                  "before_first_period"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Period"
+          },
+          "number_id": {
+            "format": "uuid",
+            "title": "Number Id",
+            "type": "string"
+          },
+          "replayed": {
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "number_id",
+          "e164",
+          "client_inr_per_month",
+          "attachment",
+          "replayed",
+          "first_period"
+        ],
+        "title": "AdminPurchasedOut",
+        "type": "object"
+      },
+      "AdminReleaseIn": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "title": "AdminReleaseIn",
+        "type": "object"
+      },
+      "AdminReleasedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "number_id": {
+            "format": "uuid",
+            "title": "Number Id",
+            "type": "string"
+          },
+          "released": {
+            "title": "Released",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "number_id",
+          "released"
+        ],
+        "title": "AdminReleasedOut",
         "type": "object"
       },
       "AgentChargeOut": {
@@ -2709,6 +2957,79 @@
         "title": "AvailableNumberOut",
         "type": "object"
       },
+      "AvailableOwnNumberOut": {
+        "additionalProperties": false,
+        "description": "One number this account could buy, at OUR monthly price.",
+        "properties": {
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "e164": {
+            "title": "E164",
+            "type": "string"
+          },
+          "inr_per_month": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inr Per Month"
+          },
+          "number": {
+            "title": "Number",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "e164",
+          "city",
+          "inr_per_month"
+        ],
+        "title": "AvailableOwnNumberOut",
+        "type": "object"
+      },
+      "AvailableOwnNumbersOut": {
+        "additionalProperties": false,
+        "properties": {
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "numbers": {
+            "items": {
+              "$ref": "#/components/schemas/AvailableOwnNumberOut"
+            },
+            "title": "Numbers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "numbers",
+          "next_cursor"
+        ],
+        "title": "AvailableOwnNumbersOut",
+        "type": "object"
+      },
       "BlockerOut": {
         "additionalProperties": false,
         "properties": {
@@ -3186,6 +3507,96 @@
           "lapsed"
         ],
         "title": "BusinessDetailsOut",
+        "type": "object"
+      },
+      "BusinessDetailsSentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "business_review_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Review Note"
+          },
+          "business_status": {
+            "title": "Business Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "business_status",
+          "business_review_note"
+        ],
+        "title": "BusinessDetailsSentOut",
+        "type": "object"
+      },
+      "BusinessDetailsStateOut": {
+        "additionalProperties": false,
+        "properties": {
+          "can_rent": {
+            "title": "Can Rent",
+            "type": "boolean"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "review_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Note"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          }
+        },
+        "required": [
+          "status",
+          "can_rent",
+          "review_note",
+          "submitted_at",
+          "checked_at"
+        ],
+        "title": "BusinessDetailsStateOut",
         "type": "object"
       },
       "BuyNumberIn": {
@@ -5303,6 +5714,25 @@
           "chars"
         ],
         "title": "ChunkOut",
+        "type": "object"
+      },
+      "CityOut": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "available"
+        ],
+        "title": "CityOut",
         "type": "object"
       },
       "ClientHealthOut": {
@@ -9993,6 +10423,11 @@
               }
             ],
             "title": "Number Id"
+          },
+          "platform_held": {
+            "default": false,
+            "title": "Platform Held",
+            "type": "boolean"
           },
           "provider": {
             "anyOf": [
@@ -17980,7 +18415,8 @@
               "unchanged",
               "applied",
               "partial",
-              "refused"
+              "refused",
+              "other_workspace"
             ],
             "title": "Platform Attachment",
             "type": "string"
@@ -18115,6 +18551,11 @@
               }
             ],
             "title": "Inr Per Month"
+          },
+          "releasable": {
+            "default": false,
+            "title": "Releasable",
+            "type": "boolean"
           },
           "series": {
             "title": "Series",
@@ -18748,6 +19189,130 @@
           "studio_inr_per_min"
         ],
         "title": "OverridePackOut",
+        "type": "object"
+      },
+      "OwnNumbersStatusOut": {
+        "additionalProperties": false,
+        "description": "Where this account stands on the way to buying a number, in the screen's order.",
+        "properties": {
+          "account_setup": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Setup"
+          },
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "blocker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocker"
+          },
+          "business_review_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Review Note"
+          },
+          "business_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Status"
+          },
+          "business_submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Submitted At"
+          },
+          "can_send_business_details": {
+            "title": "Can Send Business Details",
+            "type": "boolean"
+          },
+          "inr_per_month": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inr Per Month"
+          },
+          "kyc_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kyc Status"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "enum": [
+                  "workspace",
+                  "verify_business",
+                  "business_details",
+                  "price",
+                  "ready"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          }
+        },
+        "required": [
+          "available",
+          "step",
+          "blocker",
+          "account_setup",
+          "kyc_status",
+          "business_status",
+          "business_review_note",
+          "business_submitted_at",
+          "can_send_business_details",
+          "inr_per_month"
+        ],
+        "title": "OwnNumbersStatusOut",
         "type": "object"
       },
       "OwnVoiceKeyOut": {
@@ -20255,6 +20820,53 @@
         "title": "PurchaseIn",
         "type": "object"
       },
+      "PurchaseOwnNumberIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "direction": {
+            "default": "both",
+            "enum": [
+              "inbound",
+              "outbound",
+              "both"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "number": {
+            "maxLength": 20,
+            "minLength": 8,
+            "pattern": "^\\+?\\d{8,15}$",
+            "title": "Number",
+            "type": "string"
+          },
+          "request_key": {
+            "maxLength": 100,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Request Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "request_key"
+        ],
+        "title": "PurchaseOwnNumberIn",
+        "type": "object"
+      },
       "PurchasedNumberOut": {
         "additionalProperties": false,
         "description": "What the client now holds, what it costs them, and whether it can be used yet.",
@@ -20299,6 +20911,68 @@
           "activated"
         ],
         "title": "PurchasedNumberOut",
+        "type": "object"
+      },
+      "PurchasedOwnNumberOut": {
+        "additionalProperties": false,
+        "properties": {
+          "attachment": {
+            "title": "Attachment",
+            "type": "string"
+          },
+          "e164": {
+            "title": "E164",
+            "type": "string"
+          },
+          "first_period": {
+            "anyOf": [
+              {
+                "enum": [
+                  "charged",
+                  "invoiced",
+                  "replayed",
+                  "closed",
+                  "trial",
+                  "before_first_period"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Period"
+          },
+          "inr_per_month": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inr Per Month"
+          },
+          "number_id": {
+            "format": "uuid",
+            "title": "Number Id",
+            "type": "string"
+          },
+          "replayed": {
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "number_id",
+          "e164",
+          "inr_per_month",
+          "attachment",
+          "replayed",
+          "first_period"
+        ],
+        "title": "PurchasedOwnNumberOut",
         "type": "object"
       },
       "QaReport": {
@@ -21365,6 +22039,25 @@
             "title": "E164",
             "type": "string"
           },
+          "first_period": {
+            "anyOf": [
+              {
+                "enum": [
+                  "charged",
+                  "invoiced",
+                  "replayed",
+                  "closed",
+                  "trial",
+                  "before_first_period"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Period"
+          },
           "number_id": {
             "format": "uuid",
             "title": "Number Id",
@@ -21376,10 +22069,16 @@
               "unchanged",
               "applied",
               "partial",
-              "refused"
+              "refused",
+              "other_workspace"
             ],
             "title": "Platform Attachment",
             "type": "string"
+          },
+          "platform_held": {
+            "default": false,
+            "title": "Platform Held",
+            "type": "boolean"
           },
           "series": {
             "title": "Series",
@@ -21752,6 +22451,41 @@
           "reason"
         ],
         "title": "RejectIn",
+        "type": "object"
+      },
+      "ReleaseOwnNumberIn": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "const": true,
+            "title": "Confirm",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "title": "ReleaseOwnNumberIn",
+        "type": "object"
+      },
+      "ReleasedOwnNumberOut": {
+        "additionalProperties": false,
+        "properties": {
+          "number_id": {
+            "format": "uuid",
+            "title": "Number Id",
+            "type": "string"
+          },
+          "released": {
+            "title": "Released",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "number_id",
+          "released"
+        ],
+        "title": "ReleasedOwnNumberOut",
         "type": "object"
       },
       "ReplayOut": {
@@ -25822,6 +26556,16 @@
             ],
             "title": "Monthly Rental Usd"
           },
+          "on_engine": {
+            "default": false,
+            "title": "On Engine",
+            "type": "boolean"
+          },
+          "platform_held": {
+            "default": false,
+            "title": "Platform Held",
+            "type": "boolean"
+          },
           "provider": {
             "anyOf": [
               {
@@ -25856,6 +26600,25 @@
           "released"
         ],
         "title": "TenantNumberCostOut",
+        "type": "object"
+      },
+      "TenantNumbersCountOut": {
+        "additionalProperties": false,
+        "properties": {
+          "own_workspace": {
+            "title": "Own Workspace",
+            "type": "integer"
+          },
+          "platform_held": {
+            "title": "Platform Held",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "own_workspace",
+          "platform_held"
+        ],
+        "title": "TenantNumbersCountOut",
         "type": "object"
       },
       "TenantProfileOut": {
@@ -26257,6 +27020,140 @@
           "holds"
         ],
         "title": "TenantSummary",
+        "type": "object"
+      },
+      "TenantWorkspaceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agents_in_platform_account": {
+            "title": "Agents In Platform Account",
+            "type": "integer"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "business_details": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BusinessDetailsStateOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_inr_per_month": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Inr Per Month"
+          },
+          "last_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Code"
+          },
+          "numbers": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TenantNumbersCountOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provisioned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provisioned At"
+          },
+          "purchase_blockers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Purchase Blockers",
+            "type": "array"
+          },
+          "purchase_step": {
+            "anyOf": [
+              {
+                "enum": [
+                  "workspace",
+                  "verify_business",
+                  "business_details",
+                  "price",
+                  "ready"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Step"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          }
+        },
+        "required": [
+          "available",
+          "status",
+          "workspace_id",
+          "last_error_code",
+          "attempts",
+          "provisioned_at",
+          "business_details",
+          "purchase_step",
+          "purchase_blockers",
+          "client_inr_per_month",
+          "numbers",
+          "agents_in_platform_account"
+        ],
+        "title": "TenantWorkspaceOut",
         "type": "object"
       },
       "TestActionIn": {
@@ -29499,6 +30396,130 @@
         "title": "WebhookAck",
         "type": "object"
       },
+      "WorkspaceFailureOut": {
+        "additionalProperties": false,
+        "properties": {
+          "last_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Code"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "tenant_name": {
+            "title": "Tenant Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "tenant_name",
+          "status",
+          "last_error_code"
+        ],
+        "title": "WorkspaceFailureOut",
+        "type": "object"
+      },
+      "WorkspacesSummaryOut": {
+        "additionalProperties": false,
+        "description": "Every client's workspace against the plan, for the ops dashboard.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "By Status",
+            "type": "object"
+          },
+          "counted": {
+            "title": "Counted",
+            "type": "integer"
+          },
+          "failures": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceFailureOut"
+            },
+            "title": "Failures",
+            "type": "array"
+          },
+          "headroom": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headroom"
+          },
+          "not_provisioned": {
+            "title": "Not Provisioned",
+            "type": "integer"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan"
+          },
+          "plan_cap": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Cap"
+          },
+          "provisioned": {
+            "title": "Provisioned",
+            "type": "integer"
+          },
+          "tenants": {
+            "title": "Tenants",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "available",
+          "plan",
+          "plan_cap",
+          "counted",
+          "headroom",
+          "tenants",
+          "provisioned",
+          "by_status",
+          "failures",
+          "not_provisioned"
+        ],
+        "title": "WorkspacesSummaryOut",
+        "type": "object"
+      },
       "WritePromptIn": {
         "additionalProperties": false,
         "properties": {
@@ -30526,6 +31547,543 @@
         "x-calevate-permission": "copilot:admin"
       }
     },
+    "/v1/admin/engine-workspaces/summary": {
+      "get": {
+        "operationId": "workspaces_summary_v1_admin_engine_workspaces_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspacesSummaryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Client voice workspaces provisioned against clients, failures and plan headroom",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}": {
+      "get": {
+        "operationId": "tenant_workspace_v1_admin_engine_workspaces_tenants__tenant_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantWorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This client's own voice workspace, business details, purchase gates, numbers",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/business-details": {
+      "post": {
+        "operationId": "send_business_details_v1_admin_engine_workspaces_tenants__tenant_id__business_details_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BusinessDetailsStateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Send this client's verified business details to its workspace (again)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/business-details/refresh": {
+      "post": {
+        "operationId": "refresh_details_v1_admin_engine_workspaces_tenants__tenant_id__business_details_refresh_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BusinessDetailsStateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Read this client's business-details status from its workspace now",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/available": {
+      "get": {
+        "operationId": "admin_available_v1_admin_engine_workspaces_tenants__tenant_id__numbers_available_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "city",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 60,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "City"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pattern",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^\\d{1,10}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pattern"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^\\d{1,9}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAvailableNumbersOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Numbers this client could buy in its own workspace, a page at a time",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/cities": {
+      "get": {
+        "operationId": "admin_cities_v1_admin_engine_workspaces_tenants__tenant_id__numbers_cities_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AdminCityOut"
+                  },
+                  "title": "Response Admin Cities V1 Admin Engine Workspaces Tenants  Tenant Id  Numbers Cities Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Cities numbers can be searched in, in this client's workspace",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/purchase": {
+      "post": {
+        "description": "The client's own purchase, run by an operator: same gates (verified business, approved business details, attested price, enough credit), same charge (the client's first month now). Repeating `request_key` never buys a second number.",
+        "operationId": "admin_purchase_v1_admin_engine_workspaces_tenants__tenant_id__numbers_purchase_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminPurchaseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPurchasedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Buy a number in this client's own workspace, in its name \u2014 charges it a month",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/{number_id}/forget": {
+      "post": {
+        "description": "Stops our record and the client's monthly charge without releasing anything at the voice platform: for a number the platform no longer holds (the `engine_number_missing_at_vendor` alarm), or a number held in the platform account that was recorded for this client for testing (it is detached from the client's agents and stays ours). Refused with `engine_number_still_held` for a number the client's own workspace still holds: release that one. Requires `confirm: true`.",
+        "operationId": "admin_forget_v1_admin_engine_workspaces_tenants__tenant_id__numbers__number_id__forget_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "number_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Number Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReleaseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReleasedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Release our record of a number the platform no longer holds, or a test number",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/{number_id}/release": {
+      "post": {
+        "description": "Permanent: the number goes back to the pool and anybody may take it next; the current month is not refunded by the platform or to the client. The client's monthly charge stops. A number held in the platform account (testing) is released only here. Requires `confirm: true`.",
+        "operationId": "admin_release_v1_admin_engine_workspaces_tenants__tenant_id__numbers__number_id__release_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "number_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Number Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReleaseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReleasedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Release a voice-platform number for good \u2014 no refund of the month",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/offboard": {
+      "post": {
+        "description": "Releases the workspace's numbers (permanent, no refund of the month), deletes its agents and deletes the customer. Refused unless the account is closed.",
+        "operationId": "offboard_again_v1_admin_engine_workspaces_tenants__tenant_id__offboard_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantWorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Run this closed client's workspace offboarding again",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/provision": {
+      "post": {
+        "operationId": "provision_again_v1_admin_engine_workspaces_tenants__tenant_id__provision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantWorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Provision this client's own voice workspace again (after a plan upgrade or a fix)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/impersonation-grants": {
       "post": {
         "description": "Begins a 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant and expires in minutes.\n\nThe session may CHANGE the account, not only read it, and every change is recorded against you: the audit row names your operator id, the client, and this grant. What it may not do is spend the client's money or AI allowance, grant anyone access to their account, give a consent, accept an agreement or file an erasure \u2014 those stay with the client, and the platform surfaces stay in the operator console.\n\nSTARTING a view-as session needs step-up: a second factor proved in the last 30 minutes AND the header `X-Confirm-Action: view_as:<slug>`. EXTENDING one does not \u2014 send the grant currently held as `renew` and it is continued, for up to an hour from the second factor that started it.",
@@ -31130,7 +32688,7 @@
     },
     "/v1/admin/numbers/tenants/{tenant_id}/{number_id}/release": {
       "post": {
-        "description": "Stops any agent answering the number, gives it back to the voice platform and stops the monthly charge. The record survives, marked released, because a closed month's costs still refer to it. Refused with `number_not_ours_to_release` for a connection the client holds in their own name \u2014 they cancel that with their own operator. Releasing an already-released number succeeds and changes nothing.",
+        "description": "Stops any agent answering the number, gives it back to the voice platform and stops the monthly charge. The record survives, marked released, because a closed month's costs still refer to it. Refused with `number_not_ours_to_release` for a connection the client holds in their own name \u2014 they cancel that with their own operator, and with `number_released_in_voice_workspace` for a number the voice platform holds, which is released from the client's voice workspace. Releasing an already-released number succeeds and changes nothing.",
         "operationId": "release_number_v1_admin_numbers_tenants__tenant_id___number_id__release_post",
         "parameters": [
           {
@@ -34880,7 +36438,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/kyc/documents/{document_id}": {
       "get": {
-        "description": "Decrypted in memory and returned as an attachment; never via a presigned URL,\nbecause the stored object is ciphertext and the key is ours.",
+        "description": "Decrypted in memory and returned as an attachment; never via a presigned URL,\nbecause the stored object is ciphertext and the key is ours. The view is audited on\nthe tenant's own session, so a file is never handed out without its audit row.",
         "operationId": "download_kyc_document_v1_admin_tenants__tenant_id__kyc_documents__document_id__get",
         "parameters": [
           {
@@ -44681,6 +46239,266 @@
           }
         },
         "summary": "Record who this account's numbers are registered to \u2014 once, and not editable",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/numbers/own/available": {
+      "get": {
+        "operationId": "own_numbers_available_v1_numbers_own_available_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "city",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 60,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "City"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pattern",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^\\d{1,10}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pattern"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^\\d{1,9}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailableOwnNumbersOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Numbers this account could buy, a page at a time, at its monthly price",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/numbers/own/business-details": {
+      "post": {
+        "description": "Sends the business's verified legal name, GST status and certificate, as recorded under Verify your business, for approval for phone numbers. Refused with `business_details_kyc_not_verified` until the business is verified. Approval usually takes a few minutes; read it from the status.",
+        "operationId": "send_business_details_v1_numbers_own_business_details_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BusinessDetailsSentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Send the verified business details for phone numbers (again, after a rejection)",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/numbers/own/cities": {
+      "get": {
+        "operationId": "own_number_cities_v1_numbers_own_cities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CityOut"
+                  },
+                  "title": "Response Own Number Cities V1 Numbers Own Cities Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The cities numbers can be searched in",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/numbers/own/purchase": {
+      "post": {
+        "description": "Buys the number, charges this account's first month at the price the status shows, and points it at the chosen agent. Repeating the same `request_key` never buys a second number. Refused, with nothing charged, while the business is not verified or its details not approved, or if somebody else took the number.",
+        "operationId": "purchase_own_number_v1_numbers_own_purchase_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurchaseOwnNumberIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchasedOwnNumberOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Buy a number in this business's name \u2014 charges the first month now",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/numbers/own/status": {
+      "get": {
+        "operationId": "own_numbers_status_v1_numbers_own_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnNumbersStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Can this account buy a phone number yet, and what is the next step",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/numbers/own/{number_id}/release": {
+      "post": {
+        "description": "Releases the number permanently: it stops ringing at once, anybody may take it next, and the current month is not refunded. The monthly charge stops. Requires `confirm: true`. Releasing an already released number changes nothing.",
+        "operationId": "release_own_number_v1_numbers_own__number_id__release_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "number_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Number Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseOwnNumberIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleasedOwnNumberOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Give a number up for good \u2014 no refund of this month",
         "tags": [
           "campaigns"
         ],

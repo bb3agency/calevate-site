@@ -30,7 +30,7 @@ from apps.api.compliance.outbound_pledge import (
     accept_pledge,
     read_pledge,
 )
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
@@ -108,6 +108,7 @@ async def accept_outbound_pledge(
     # business, so an operator in a view-as session cannot give it for them.
     person = principal.client_user_id
     if person is None:
+        assert_view_as_may(principal, "compliance.outbound_pledge")
         raise ProblemError.business_rule(
             "outbound_pledge_is_the_clients_own_act",
             "The pledge has to be accepted by somebody at your own business.",

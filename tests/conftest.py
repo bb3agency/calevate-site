@@ -23,6 +23,7 @@ from apps.api.db.session import untenanted_session
 from apps.workers import storage
 from botocore.exceptions import ClientError
 from sqlalchemy import text
+from tests.thinnest_fake_account import account  # noqa: F401 - the fake ThinnestAI account (D-693)
 
 
 async def record_autodialer_notice_for_tests(

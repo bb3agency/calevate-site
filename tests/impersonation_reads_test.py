@@ -29,6 +29,22 @@ from apps.api.main import app
 # no `X-Impersonate-Org` header. Impersonation never touches them, so gating them on a
 # mutating permission costs nobody a view.
 ADMIN_CONSOLE_GETS: dict[str, str] = {
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}": (
+        "the operator's view of one client's voice workspace (D-693); the client's own is "
+        "GET /v1/numbers/own/status, which is org:read"
+    ),
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/cities": (
+        "the operator's purchase on a client's behalf (D-693); the client's own is "
+        "GET /v1/numbers/own/cities, which is org:read"
+    ),
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/available": (
+        "the operator's search showing OUR cost beside the client's price (D-693); the "
+        "client's own is GET /v1/numbers/own/available, which is org:read"
+    ),
+    "/v1/admin/engine-workspaces/summary": (
+        "the cross-client ops summary of voice workspaces and plan headroom (D-693) — "
+        "admin console, never impersonated"
+    ),
     "/v1/admin/kyc/reviews": (
         "the cross-client KYC review queue (D-692) — admin console, never impersonated"
     ),

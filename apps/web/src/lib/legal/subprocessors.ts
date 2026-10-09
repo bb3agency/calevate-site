@@ -362,8 +362,10 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "client chooses that route instead of a manual review.",
     receives:
       "The owner's DigiLocker sign-in happens on the provider's page. We receive the " +
-      "name on the record, a masked Aadhaar or PAN and the provider's reference; we " +
-      "store no document or image from this route.",
+      "record the owner chose and the provider's reference. The record can include the " +
+      "date of birth, gender, address and contact details, a photo link and, for a PAN, " +
+      "the full number; we read it in memory and keep only the name on it, a masked " +
+      "Aadhaar or PAN and the reference. We store no document or image from this route.",
     location: "An Indian company; where it processes is not yet confirmed in writing.",
     status:
       "Configured, not enabled. It activates only when the provider's credentials are " +

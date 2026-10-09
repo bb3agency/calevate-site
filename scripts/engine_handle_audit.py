@@ -1,16 +1,20 @@
-"""Find any stored engine handle that still carries a ThinnestAI workspace scope (D-688).
+"""Report the stored engine handles that do not live in their client's own workspace (D-693).
 
-D-687 stored an agent, knowledge document or call that lived in a ThinnestAI customer
-workspace as `<id>@<workspace>`. D-688 removed customer workspaces and every reader of that
-form, so a handle still spelled that way names an object no code path can reach: the adapter
-would send `ag_…@org_…` as a path segment and the vendor would answer 404. This reports how
-many such handles each column holds; it changes nothing.
+Each client has its own ThinnestAI customer workspace, and a handle issued there is held as
+`<id>@<org_…>` (`calevate_shared.engine_scope`). For every column that stores one, per
+tenant, this counts:
+
+* `platform_account` — unscoped handles: objects in our developer workspace, made before
+  D-693. Not a fault: an agent is recreated in its client's workspace on its next publish,
+  and a number held there is the platform's own, recorded for testing.
+* `foreign` — handles scoped to a workspace that is NOT the tenant's own active one. Every
+  request about such an object would act in another workspace: a fault.
 
     uv run python -m scripts.engine_handle_audit
 
-Exit 0 when none are found, 1 otherwise. Tenant-scoped tables are read tenant by tenant
-under their own policy (the directory is the only admin-role read), the shape
-`workers/number_rental` argues.
+Exit 0 when nothing is `foreign`, 1 otherwise. Tenant-scoped tables are read tenant by
+tenant under their own policy (the directory is the only admin-role read), the shape
+`workers/number_rental` argues. It changes nothing.
 """
 
 from __future__ import annotations
@@ -20,65 +24,65 @@ import sys
 from typing import Final
 from uuid import UUID
 
-from apps.api.db.session import admin_session, tenant_session, untenanted_session
+from apps.api.db.session import admin_session, tenant_session
+from apps.api.tenancy.engine_workspace import resolve_workspace
+from calevate_shared.engine_scope import scope_of
 from sqlalchemy import text
 
-#: The separator D-687 used (`<id>@<workspace>`). No vendor id ThinnestAI documents carries
-#: one: agents are `ag_…`, calls `out_…`/`sch_…` or the call reference, knowledge `kn_…`.
-SCOPE_SEPARATOR: Final = "@"
-
-#: Route tables, readable untenanted by design (`db/registry.RLS_EXEMPT_TENANT_COLUMNS`).
-_ROUTE_COLUMNS: Final = (
-    ("engine_agent_routes", "engine_agent_ref"),
-    ("engine_kb_routes", "engine_kb_ref"),
-)
-#: Tenant tables, read under each tenant's own policy.
-_TENANT_COLUMNS: Final = (
-    ("agents", "engine_agent_ref"),
-    ("calls", "engine_call_id"),
+#: Tenant tables and the column each holds a workspace-scoped handle in, read under each
+#: tenant's own policy. `engine_agent_routes` carries `tenant_id` and its writes are policed,
+#: so it is read the same way.
+_COLUMNS: Final = (
+    ("engine_agent_routes", "engine_agent_ref", "active"),
+    ("agents", "engine_agent_ref", "deleted_at IS NULL"),
+    ("calls", "engine_call_id", "true"),
+    ("phone_numbers", "engine_number_ref", "released_at IS NULL"),
 )
 _DIRECTORY: Final = "SELECT id FROM organizations ORDER BY id"
 
 
-async def scoped_handle_counts(tenants: list[UUID] | None = None) -> dict[str, int]:
-    """`table.column` -> how many stored handles carry the workspace separator. `tenants`
-    narrows the tenant-scoped half; by default every organization is read."""
-    pattern = f"%{SCOPE_SEPARATOR}%"
-    counts: dict[str, int] = {}
-    async with untenanted_session() as session:
-        for table, column in _ROUTE_COLUMNS:
-            counts[f"{table}.{column}"] = int(
-                (
-                    await session.execute(
-                        text(f"SELECT count(*) FROM {table} WHERE {column} LIKE :p"),
-                        {"p": pattern},
-                    )
-                ).scalar_one()
-            )
+async def handle_report(tenants: list[UUID] | None = None) -> dict[str, dict[str, int]]:
+    """`table.column` -> `{"platform_account": n, "foreign": n}` over `tenants` (all by
+    default)."""
     if tenants is None:
         async with admin_session() as directory:
             tenants = [UUID(str(t)) for t in (await directory.execute(text(_DIRECTORY))).scalars()]
-    for table, column in _TENANT_COLUMNS:
-        counts[f"{table}.{column}"] = 0
+    report = {
+        f"{table}.{column}": {"platform_account": 0, "foreign": 0}
+        for table, column, _where in _COLUMNS
+    }
     for tenant_id in tenants:
         async with tenant_session(tenant_id) as scoped:
-            for table, column in _TENANT_COLUMNS:
-                counts[f"{table}.{column}"] += int(
-                    (
-                        await scoped.execute(
-                            text(f"SELECT count(*) FROM {table} WHERE {column} LIKE :p"),
-                            {"p": pattern},
-                        )
-                    ).scalar_one()
-                )
-    return counts
+            own = await resolve_workspace(scoped, tenant_id)
+            for table, column, where in _COLUMNS:
+                handles = (
+                    await scoped.execute(
+                        text(
+                            f"SELECT {column} FROM {table} WHERE {column} IS NOT NULL "
+                            f"AND tenant_id = :tid AND {where}"
+                        ),
+                        {"tid": tenant_id},
+                    )
+                ).scalars()
+                for handle in handles:
+                    scope = scope_of(str(handle))
+                    key = f"{table}.{column}"
+                    if scope is None:
+                        report[key]["platform_account"] += 1
+                    elif scope != own:
+                        report[key]["foreign"] += 1
+    return report
 
 
 async def main() -> int:
-    counts = await scoped_handle_counts()
-    for name, count in counts.items():
-        print(f"{'FOUND' if count else 'ok   '} {name}: {count}")
-    return 1 if any(counts.values()) else 0
+    report = await handle_report()
+    for name, counts in report.items():
+        flag = "FOUND" if counts["foreign"] else "ok   "
+        print(
+            f"{flag} {name}: foreign={counts['foreign']} "
+            f"platform_account={counts['platform_account']}"
+        )
+    return 1 if any(counts["foreign"] for counts in report.values()) else 0
 
 
 if __name__ == "__main__":

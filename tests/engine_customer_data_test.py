@@ -3,8 +3,9 @@
 Do-not-call additions are pushed (`POST /do-not-call`) and an erasure erases the contact
 (`GET /contacts?phone=`, `DELETE /contacts/{id}`) — but ONLY for a tenant whose workspace
 resolves to its own `org_` id, always with `Thinnest-Workspace`, and never to our developer
-workspace, which holds every client's data. Today the resolver answers "not provisioned" for
-everyone; these tests drive both paths with a fake resolver. Shapes are the mirror's:
+workspace, which holds every legacy client's data. These tests drive both paths with a fake
+resolver; `tests/engine_workspace_data_test.py` drives them through the real one (D-693).
+Shapes are the mirror's:
 `thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/do-not-call/
 add-do-not-call-number.md:340-380`, `contacts/list-contacts.md:355-363`,
 `contacts/delete-contact.md:365-390`.
@@ -122,7 +123,7 @@ async def _outbox(job: str, tenant_id: uuid.UUID) -> list[dict[str, Any]]:
 # --- the resolver ---------------------------------------------------------------------------
 
 
-async def test_no_tenant_has_a_workspace_of_its_own_until_the_workspace_lane_lands() -> None:
+async def test_a_tenant_with_no_workspace_row_has_no_workspace_of_its_own() -> None:
     assert await engine_workspace.workspace_for_tenant(uuid.uuid4()) is None
     assert await engine_workspace.own_workspace(uuid.uuid4()) is None
 
@@ -269,7 +270,7 @@ async def test_an_erasure_in_the_clients_own_workspace_erases_the_contact_and_re
         ("GET", "/contacts", WORKSPACE),
         ("DELETE", "/contacts/cust_1", WORKSPACE),
     ]
-    assert await _task_status(tenant_id, request_id) == ("confirmed", "cust_1")
+    assert await _task_status(tenant_id, request_id) == ("confirmed", "cust_1=0")
 
 
 async def test_recordings_still_queued_leave_the_task_awaiting_an_answer(
@@ -281,7 +282,7 @@ async def test_recordings_still_queued_leave_the_task_awaiting_an_answer(
     [payload] = await _outbox(jobs.ENGINE_CONTACT_ERASURE_JOB, tenant_id)
 
     assert await jobs.erase_engine_contact({}, payload) == "contacts=1 recordings_pending=1"
-    assert await _task_status(tenant_id, request_id) == ("requested", "cust_1")
+    assert await _task_status(tenant_id, request_id) == ("requested", "cust_1=1")
 
 
 async def test_no_contact_on_the_number_is_confirmed_as_nothing_held(

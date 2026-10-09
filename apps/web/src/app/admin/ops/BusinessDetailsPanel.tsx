@@ -29,14 +29,14 @@ export function BusinessDetailsPanel() {
 
   if (details.isLoading) {
     return (
-      <Card title="Voice platform business details">
+      <Card title="Platform account: business details">
         <Skeleton rows={2} />
       </Card>
     );
   }
   if (details.error) {
     return (
-      <Card title="Voice platform business details">
+      <Card title="Platform account: business details">
         <ProblemNotice error={details.error} onRetry={() => void details.refetch()} />
       </Card>
     );
@@ -50,11 +50,13 @@ function BusinessDetailsCard({ data }: { data: EngineBusinessDetails }) {
   const status = data.status ?? "unknown";
   return (
     <Card
-      title={`${data.platform ?? "Voice platform"} business details`}
+      title={`Platform account: ${data.platform ?? "voice platform"} business details`}
       info={
         <p>
-          The application India requires before a number is rented. Send or correct it in the
-          voice platform&apos;s own console, on its Phone Numbers page; this panel only reads it.
+          The platform (developer) account&apos;s own application, which India requires before a
+          number is rented there. Each client&apos;s own workspace has its own, on that client&apos;s
+          Numbers page. Send or correct this one in the voice platform&apos;s own console, on its
+          Phone Numbers page; this panel only reads it.
         </p>
       }
     >

@@ -12,20 +12,26 @@ import {
   NoticeBox,
   PRIMARY_BUTTON,
   ProblemNotice,
+  RestrictionNote,
   SECONDARY_BUTTON,
   Skeleton,
 } from "@/components/ui";
+import { useActAccess, useWriteAccess, type WriteAccess } from "@/lib/api/hooks";
 import { ENTITY_TYPES, useKycRecord, type KycRecord } from "@/lib/api/kyc";
 import { useClientSession } from "@/lib/api/session";
 import type { Session } from "@/lib/api/client";
 import {
   ACCEPT_ATTRIBUTE,
   BUSINESS_DOCUMENT_KINDS,
+  DIGILOCKER_OUTCOME,
   GSTIN_PATTERN,
   OWNER_ID_KINDS,
   fileProblem,
+  forgetPendingRun,
   outboundSteps,
   ownerIdProblem,
+  readPendingRun,
+  rememberPendingRun,
   useAcceptPledge,
   useCompleteDigiLocker,
   useOutboundPledge,
@@ -35,9 +41,13 @@ import {
   useUploadKycDocument,
   type OutboundPledge,
 } from "@/lib/api/verifyBusiness";
+import { lookup } from "@/lib/lookup";
 
-/** Where a started DigiLocker run's reference waits while the client is at DigiLocker. */
-const PENDING_RUN_KEY = "calevate.kyc.pendingRun";
+import { PhoneNumbersNext } from "./PhoneNumbersNext";
+
+/** Who may change what on this page, as the server will rule it. Uploads and the pledge are
+ *  the business's own acts: a view-as operator is refused those even holding `org:manage`. */
+type Access = { write: WriteAccess; upload: WriteAccess };
 
 /**
  * Verify your business (D-692) — the page that opens outbound calling.
@@ -53,6 +63,11 @@ export default function VerifyBusinessPage() {
   const session = useClientSession();
   const kyc = useKycRecord(session);
   const pledge = useOutboundPledge(session);
+  const access: Access = {
+    write: useWriteAccess(session, "org:manage", "verify the business"),
+    upload: useActAccess(session, "org:manage", "compliance.kyc_documents", "upload verification documents"),
+  };
+  const pledgeAccess = useActAccess(session, "org:manage", "compliance.outbound_pledge", "accept the pledge");
 
   if (kyc.isLoading || pledge.isLoading) return <Skeleton rows={8} />;
   const record = kyc.data;
@@ -70,8 +85,9 @@ export default function VerifyBusinessPage() {
       {kyc.error && <ProblemNotice error={kyc.error} onRetry={() => void kyc.refetch()} />}
       {pledge.error && <ProblemNotice error={pledge.error} onRetry={() => void pledge.refetch()} />}
       {record && <OutboundStatus record={record} pledge={pledge.data} />}
-      {pledge.data && <PledgeCard session={session} pledge={pledge.data} />}
-      {record && <VerifyCards session={session} record={record} />}
+      {pledge.data && <PledgeCard session={session} pledge={pledge.data} access={pledgeAccess} />}
+      {record && <VerifyCards session={session} record={record} access={access} />}
+      <PhoneNumbersNext />
     </div>
   );
 }
@@ -100,7 +116,15 @@ function OutboundStatus({ record, pledge }: { record: KycRecord; pledge: Outboun
   );
 }
 
-function PledgeCard({ session, pledge }: { session: Session; pledge: OutboundPledge }) {
+function PledgeCard({
+  session,
+  pledge,
+  access,
+}: {
+  session: Session;
+  pledge: OutboundPledge;
+  access: WriteAccess;
+}) {
   const accept = useAcceptPledge(session);
   const [read, setRead] = useState(false);
   return (
@@ -119,14 +143,20 @@ function PledgeCard({ session, pledge }: { session: Session; pledge: OutboundPle
               The pledge changed since you accepted version {pledge.accepted_version}. Please read and accept it again.
             </p>
           )}
+          <RestrictionNote reason={access.reason} />
           <label className="flex items-start gap-2 text-sm text-ink">
-            <input type="checkbox" checked={read} onChange={(event) => setRead(event.target.checked)} />
+            <input
+              type="checkbox"
+              checked={read}
+              disabled={!access.allowed}
+              onChange={(event) => setRead(event.target.checked)}
+            />
             I have read this and accept it on behalf of the business.
           </label>
           <button
             type="button"
             className={PRIMARY_BUTTON}
-            disabled={!read || accept.isPending}
+            disabled={!access.allowed || !read || accept.isPending}
             onClick={() => accept.mutate(pledge)}
           >
             Accept the pledge
@@ -138,7 +168,7 @@ function PledgeCard({ session, pledge }: { session: Session; pledge: OutboundPle
   );
 }
 
-function VerifyCards({ session, record }: { session: Session; record: KycRecord }) {
+function VerifyCards({ session, record, access }: { session: Session; record: KycRecord; access: Access }) {
   const locked = record.is_verified || record.status === "submitted" || record.status === "in_review";
   const business = record.documents.find((document) => document.slot === "business");
   const [path, setPath] = useState<"manual" | "digilocker">(record.kyc_path === "digilocker" ? "digilocker" : "manual");
@@ -152,8 +182,9 @@ function VerifyCards({ session, record }: { session: Session; record: KycRecord 
           <p className="mt-1">{record.rejection_reason}</p>
         </NoticeBox>
       )}
-      {!locked && <DetailsCard session={session} record={record} />}
-      {!locked && <BusinessDocumentCard session={session} record={record} />}
+      {!locked && <RestrictionNote reason={access.write.reason ?? access.upload.reason} />}
+      {!locked && <DetailsCard session={session} record={record} access={access.write} />}
+      {!locked && <BusinessDocumentCard session={session} record={record} access={access.upload} />}
       {locked && !record.digilocker_outstanding && (
         <Card title="Your verification">
           <p className="text-sm text-ink">
@@ -188,10 +219,11 @@ function VerifyCards({ session, record }: { session: Session; record: KycRecord 
               </label>
             </fieldset>
           )}
+          {locked && <RestrictionNote reason={access.write.reason} />}
           {path === "manual" && !record.digilocker_outstanding ? (
-            <ManualPath session={session} record={record} />
+            <ManualPath session={session} record={record} access={access} />
           ) : (
-            <DigiLockerPath session={session} record={record} />
+            <DigiLockerPath session={session} record={record} access={access.write} />
           )}
         </Card>
       )}
@@ -199,7 +231,7 @@ function VerifyCards({ session, record }: { session: Session; record: KycRecord 
   );
 }
 
-function DetailsCard({ session, record }: { session: Session; record: KycRecord }) {
+function DetailsCard({ session, record, access }: { session: Session; record: KycRecord; access: WriteAccess }) {
   const save = useSaveBusinessDetails(session);
   const [entityType, setEntityType] = useState(record.entity_type ?? "");
   const [name, setName] = useState(record.legal_business_name ?? "");
@@ -268,7 +300,12 @@ function DetailsCard({ session, record }: { session: Session; record: KycRecord 
           <input className={FIELD} value={owner} onChange={(event) => setOwner(event.target.value)} maxLength={120} />
         </label>
         <div className="sm:col-span-2">
-          <button type="submit" className={PRIMARY_BUTTON} disabled={!ready || save.isPending}>
+          <button
+            type="submit"
+            className={PRIMARY_BUTTON}
+            disabled={!access.allowed || !ready || save.isPending}
+            title={access.reason ?? undefined}
+          >
             Save details
           </button>
           {save.isSuccess && <span className="ml-3 text-sm text-ink">Saved.</span>}
@@ -282,9 +319,11 @@ function DetailsCard({ session, record }: { session: Session; record: KycRecord 
 function FilePicker({
   label,
   onPick,
+  disabled,
 }: {
   label: string;
   onPick: (file: File) => void;
+  disabled: boolean;
 }) {
   const [problem, setProblem] = useState<string | null>(null);
   return (
@@ -293,6 +332,7 @@ function FilePicker({
       <input
         type="file"
         accept={ACCEPT_ATTRIBUTE}
+        disabled={disabled}
         className="mt-1 block text-sm"
         onChange={(event) => {
           const file = event.target.files?.[0];
@@ -312,7 +352,15 @@ function FilePicker({
   );
 }
 
-function BusinessDocumentCard({ session, record }: { session: Session; record: KycRecord }) {
+function BusinessDocumentCard({
+  session,
+  record,
+  access,
+}: {
+  session: Session;
+  record: KycRecord;
+  access: WriteAccess;
+}) {
   const upload = useUploadKycDocument(session);
   const current = record.documents.find((document) => document.slot === "business");
   const options = record.gst_registered
@@ -343,6 +391,7 @@ function BusinessDocumentCard({ session, record }: { session: Session; record: K
             </label>
           )}
           <FilePicker
+            disabled={!access.allowed || upload.isPending}
             label={current ? `On file: ${current.filename}. Replace it` : "Choose the certificate"}
             onPick={(file) => upload.mutate({ slot: "business", kind: record.gst_registered ? "gst" : kind, file })}
           />
@@ -354,7 +403,7 @@ function BusinessDocumentCard({ session, record }: { session: Session; record: K
   );
 }
 
-function ManualPath({ session, record }: { session: Session; record: KycRecord }) {
+function ManualPath({ session, record, access }: { session: Session; record: KycRecord; access: Access }) {
   const upload = useUploadKycDocument(session);
   const submit = useSubmitForReview(session);
   const owner = record.documents.find((document) => document.slot === "owner_id" && document.held);
@@ -388,6 +437,7 @@ function ManualPath({ session, record }: { session: Session; record: KycRecord }
         </NoticeBox>
       )}
       <FilePicker
+        disabled={!access.upload.allowed || upload.isPending}
         label={owner ? `On file: ${owner.filename}. Replace it` : "Choose the ID file"}
         onPick={(file) => upload.mutate({ slot: "owner_id", kind, file })}
       />
@@ -416,7 +466,7 @@ function ManualPath({ session, record }: { session: Session; record: KycRecord }
       <button
         type="button"
         className={PRIMARY_BUTTON}
-        disabled={!owner || !number || Boolean(numberProblem) || submit.isPending}
+        disabled={!access.write.allowed || !owner || !number || Boolean(numberProblem) || submit.isPending}
         onClick={() => submit.mutate({ owner_id_type: idType, owner_id_number: number.trim().toUpperCase() })}
       >
         Send for review
@@ -426,11 +476,20 @@ function ManualPath({ session, record }: { session: Session; record: KycRecord }
   );
 }
 
-function DigiLockerPath({ session, record }: { session: Session; record: KycRecord }) {
+function DigiLockerPath({ session, record, access }: { session: Session; record: KycRecord; access: WriteAccess }) {
   const start = useStartDigiLocker(session);
   const [document, setDocument] = useState<"aadhaar" | "pan">("aadhaar");
   if (!record.self_verification_available) {
-    return (
+    // We asked for DigiLocker on this account, and only a DigiLocker run clears that
+    // request (`kyc.KycState.digilocker_outstanding`): an uploaded ID cannot, so pointing
+    // the client at the upload would send them round in a circle.
+    return record.digilocker_outstanding ? (
+      <p className="text-sm text-ink">
+        DigiLocker verification is temporarily unavailable, and uploading the owner&apos;s ID
+        cannot replace the DigiLocker check we asked for. Please contact us and we will sort it
+        out with you.
+      </p>
+    ) : (
       <p className="text-sm text-ink">
         DigiLocker verification is not available yet. Please upload the owner&apos;s ID for our review instead.
       </p>
@@ -456,17 +515,14 @@ function DigiLockerPath({ session, record }: { session: Session; record: KycReco
       <button
         type="button"
         className={PRIMARY_BUTTON}
-        disabled={start.isPending || !record.entity_type}
+        disabled={!access.allowed || start.isPending || !record.entity_type}
+        title={access.reason ?? undefined}
         onClick={() =>
           start.mutate(
             { entity_type: record.entity_type ?? "", id_document: document },
             {
               onSuccess: (run) => {
-                try {
-                  window.sessionStorage.setItem(PENDING_RUN_KEY, run.provider_ref);
-                } catch {
-                  // Storage blocked: the return leg still finishes from the provider's callback.
-                }
+                rememberPendingRun(session.orgSlug, run.provider_ref);
                 window.location.assign(run.redirect_url);
               },
             },
@@ -486,31 +542,25 @@ function DigiLockerReturn({ session }: { session: Session }) {
   const asked = useRef(false);
   const [ref, setRef] = useState<string | null>(null);
 
+  const org = session.orgSlug;
+
   useEffect(() => {
     if (asked.current) return;
     asked.current = true;
-    let stored: string | null = null;
-    try {
-      stored = window.sessionStorage.getItem(PENDING_RUN_KEY);
-    } catch {
-      stored = null;
-    }
     const fromUrl = new URLSearchParams(window.location.search).get("provider_ref");
-    const run = stored ?? fromUrl;
+    const run = readPendingRun(org) ?? fromUrl;
     if (!run) return;
     setRef(run);
     complete.mutate(run, {
       onSuccess: (result) => {
-        if (result.status !== "pending") {
-          try {
-            window.sessionStorage.removeItem(PENDING_RUN_KEY);
-          } catch {
-            // Nothing to clean up.
-          }
-        }
+        // `pending` is the only outcome worth asking about again.
+        if (result.status !== "pending") finished(org);
       },
+      // A refusal is final for this reference too (another account's run, an unknown one,
+      // verification switched off), so it must not greet every later visit to the page.
+      onError: () => forgetPendingRun(org),
     });
-  }, [complete]);
+  }, [complete, org]);
 
   if (!ref) return null;
   if (complete.isPending) return <Skeleton rows={2} />;
@@ -525,5 +575,27 @@ function DigiLockerReturn({ session }: { session: Session }) {
       </NoticeBox>
     );
   }
+  const outcome = complete.data ? lookup(DIGILOCKER_OUTCOME, complete.data.status) : undefined;
+  if (outcome) {
+    return (
+      <NoticeBox tone={outcome.tone} title={outcome.title}>
+        <p className="mt-1">{outcome.body}</p>
+      </NoticeBox>
+    );
+  }
   return null;
+}
+
+/** The run has an outcome: forget it, and drop the reference from the address so a reload
+ *  does not ask about it again. */
+function finished(org: string): void {
+  forgetPendingRun(org);
+  try {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("provider_ref")) return;
+    url.searchParams.delete("provider_ref");
+    window.history.replaceState(window.history.state, "", url.toString());
+  } catch {
+    // The address keeps the reference; a reload answers "already recorded".
+  }
 }

@@ -855,6 +855,35 @@ async def read_voice_preview(key: str) -> bytes | None:
     return await read_kb_object(key)
 
 
+#: Where the recording one of OUR clones was made from is kept, sealed (D-693): clones are
+#: per ThinnestAI workspace, so a client speaking a clone needs it made again in its own
+#: workspace, from this. A voice recording is a person's voice, so the object is
+#: ciphertext under the platform key (`agents/clone_copies.py`), never the recording.
+VOICE_CLONE_SAMPLE_PREFIX = "voice-clone-samples"
+
+
+def voice_clone_sample_key(voice_id: str) -> str:
+    return f"{VOICE_CLONE_SAMPLE_PREFIX}/{hashlib.sha256(voice_id.encode()).hexdigest()}"
+
+
+async def store_voice_clone_sample(*, key: str, data: bytes) -> str:
+    """Put one sealed clone sample. Raises when the store refuses."""
+    return await _put_document(
+        key=key,
+        data=data,
+        content_type="application/octet-stream",
+        log_event="voice_clone_sample_store_failed",
+        refusal="Object storage refused the voice clone sample",
+    )
+
+
+async def read_voice_clone_sample(key: str) -> bytes | None:
+    """A sealed clone sample, or None when it is gone."""
+    if not key.startswith(f"{VOICE_CLONE_SAMPLE_PREFIX}/"):
+        raise ValueError("not a voice clone sample key")
+    return await read_kb_object(key)
+
+
 # --- carrier compliance documents (reseller stage; evidence doc §5.2) ---------
 
 #: Where a tenant's CARRIER compliance paperwork lives. Its own prefix rather than a slot

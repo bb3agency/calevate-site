@@ -3402,6 +3402,11 @@ class AgentConfig(BaseModel):
     #: only)? True for a voice of that key, False for the engine's own voices; None on an
     #: engine with no per-agent switch, which sends nothing (D-688).
     engine_own_voice_key: bool | None = None
+    #: The client's own engine workspace a NEW vendor agent is created in (`org_…`, D-693),
+    #: resolved by `tenancy/engine_workspace.workspace_for_tenant`. None on every engine
+    #: without customer workspaces. Excluded from every dump, so the config other engines
+    #: store (`pipecat_agents.resolved_config`) and every digest over it stay byte-identical.
+    engine_workspace: str | None = Field(default=None, exclude=True)
     #: The business facts are in the engine's knowledge base, not in `system_prompt`, so the
     #: prompt tells the model to look them up (`FACTS_IN_KNOWLEDGE_GUIDANCE`). False on every
     #: engine that holds the facts in the prompt, which leaves its composition unchanged.
@@ -4154,6 +4159,11 @@ class ProvisionedNumber(BaseModel):
     #: engine does not say. Compared with `agents.engine_agent_ref` by the admin numbers
     #: screen; never written to our tables.
     answering_agent_ref: str | None = None
+    #: The engine's handle for the agent this number is LENT to for calling out (ThinnestAI's
+    #: `callingAgent`, which "may differ from `agent`", snapshots/2026-10-08/pages/
+    #: api-reference/phone-numbers/get-phone-number.md:405-418). Excluded from dumps so every
+    #: other engine's serialised number is unchanged.
+    calling_agent_ref: str | None = Field(default=None, exclude=True)
 
 
 class KBSourceRef(BaseModel):

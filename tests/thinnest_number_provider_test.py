@@ -177,8 +177,22 @@ async def test_the_record_route_takes_thinnest_only_on_thinnest(
         async def _unchanged(*_a: object, **_k: object) -> str:
             return "unchanged"
 
+        class _Numbers:
+            async def get_number(self, number: str) -> object:
+                from apps.api.engine.thinnest_numbers import EngineNumber
+
+                return EngineNumber(
+                    number=number,
+                    e164=body["e164"],
+                    rented=False,
+                    answering_agent=None,
+                    calling_agent=None,
+                )
+
         monkeypatch.setattr(engine_numbers, "vendor_numbers", _held)
         monkeypatch.setattr(engine_numbers, "sync_number_attachment", _unchanged)
+        # `callingAgent` is read from the single number (D-693): nobody calls out on it.
+        monkeypatch.setattr(engine_numbers, "thinnest_numbers", lambda: _Numbers())
         recorded = await http.post(NUMBERS.format(tenant_id=tenant_id), json=body, headers=headers)
     assert recorded.status_code in (200, 201), recorded.text
     async with tenant_session(tenant_id) as session:

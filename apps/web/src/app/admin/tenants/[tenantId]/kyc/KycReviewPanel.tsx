@@ -6,6 +6,7 @@ import { Card, FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox, PRIMARY_BUTTON, Proble
 import type { AdminAccess } from "@/app/admin/access";
 import { lookup } from "@/lib/lookup";
 import {
+  KycViewerBlockedError,
   openKycDocument,
   useAdminTenantKyc,
   useReviewKyc,
@@ -108,7 +109,13 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
           ))}
         </ul>
       )}
-      <ProblemNotice error={openError} />
+      {openError instanceof KycViewerBlockedError ? (
+        <p role="alert" className="mt-2 text-sm text-danger">
+          {openError.message}
+        </p>
+      ) : (
+        <ProblemNotice error={openError} />
+      )}
 
       {waiting && (
         <div className="mt-4 space-y-3">

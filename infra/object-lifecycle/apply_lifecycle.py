@@ -144,6 +144,12 @@ UNBOUNDED_PREFIXES: dict[str, str] = {
         "time, and holds no caller's or client's data. An expiry would silently take a live "
         "voice's preview off the picker."
     ),
+    "voice-clone-samples/": (
+        "One sealed recording per voice WE cloned (D-693), keyed by the voice, kept so the "
+        "clone can be made again in a client's own workspace: bounded by the number of clones "
+        "an operator makes, not by time. An expiry would silently stop a client agent on that "
+        "voice from being published."
+    ),
 }
 
 

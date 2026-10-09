@@ -81,6 +81,46 @@ class BoundedByConstruction:
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     # --- bounded by a constant or a registry in this repo ---------------------------
+    # --- D-693 a client's own voice workspace -----------------------------------------
+    "GET /v1/numbers/own/available": BoundedByConstruction(
+        by=(
+            "one page of the vendor's search, at most twenty numbers "
+            "(`phone-numbers/search-available-phone-numbers.md:7`); further pages by `cursor`."
+        )
+    ),
+    "GET /v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/available": (
+        BoundedByConstruction(by="the same one vendor search page of at most twenty numbers.")
+    ),
+    "GET /v1/numbers/own/cities": BoundedByConstruction(
+        by=(
+            "the vendor's list of Indian cities with numbers in stock, one page by definition "
+            "(`phone-numbers/list-available-cities.md:7`, `nextCursor` always null)."
+        )
+    ),
+    "GET /v1/admin/engine-workspaces/tenants/{tenant_id}/numbers/cities": (
+        BoundedByConstruction(by="the same one-page vendor city list, never more than one page.")
+    ),
+    "GET /v1/admin/engine-workspaces/tenants/{tenant_id}": BoundedByConstruction(
+        by=(
+            "`purchase_blockers` names at most the four purchase gates "
+            "(`engine_number_purchase._BLOCKER_STEP`)."
+        )
+    ),
+    "GET /v1/admin/engine-workspaces/summary": BoundedByConstruction(
+        by=(
+            "`failures` is cut at 50 in the handler and `by_status` has the six states of "
+            "the `tenant_engine_workspaces.status` CHECK."
+        )
+    ),
+    "POST /v1/admin/engine-workspaces/tenants/{tenant_id}/provision": BoundedByConstruction(
+        by=(
+            "`purchase_blockers` names at most the four purchase gates "
+            "(`engine_number_purchase._BLOCKER_STEP`)."
+        )
+    ),
+    "POST /v1/admin/engine-workspaces/tenants/{tenant_id}/offboard": BoundedByConstruction(
+        by="the same four-gate `purchase_blockers` list."
+    ),
     # --- D-692 KYC: `documents` is the CURRENT file per slot, and there are two slots ----
     "GET /v1/compliance/kyc": BoundedByConstruction(
         by=(

@@ -54,6 +54,7 @@ specifics into the one module that has none.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import random
 import re
@@ -62,8 +63,10 @@ from typing import Any, Final
 
 import httpx
 
+from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger, redact_text
+from apps.api.core.redis import get_redis
 from apps.api.engine.health import record_engine_failure
 
 log = get_logger(__name__)
@@ -192,6 +195,54 @@ def number_daily_limit_error() -> ProblemError:
         remediation="Try again tomorrow, or give the agent another number to call from.",
         failure_stage="CORE_LOGIC",
     )
+
+
+#: One `engine_number_daily_limit` alarm per calling number per window. A campaign keeps
+#: reaching for an exhausted number until its allowance resets, and every refusal after the
+#: first is the same news. Twelve hours because the vendor's day boundary is not documented.
+NUMBER_DAILY_LIMIT_ALERT_WINDOW_S: Final = 12 * 3600
+
+
+def _calling_number_ref(request_kwargs: dict[str, Any]) -> str:
+    """A stable reference to the `from` number a refused dial named, never the number.
+
+    The number is one of OUR rented calling lines (shown as caller ID on every call it
+    places), not a person's, so an unkeyed digest is enough to keep it out of logs and alert
+    bodies (hard rule 6) while letting an operator match two alarms. `unspecified` when the
+    request let the vendor choose."""
+    body = request_kwargs.get("json")
+    number = body.get("from") if isinstance(body, dict) else None
+    if not isinstance(number, str) or not number:
+        return "unspecified"
+    return hashlib.sha256(f"calling-number/v1\0{number}".encode()).hexdigest()[:16]
+
+
+async def _alert_number_daily_limit(*, engine: str, number_ref: str) -> None:
+    """Raise `engine_number_daily_limit` once per number per window. Fails towards alerting:
+    when Redis cannot answer, the alarm is raised and `alert()`'s own repeat window bounds
+    it."""
+    try:
+        first = bool(
+            await get_redis().set(
+                f"alert:{NUMBER_DAILY_LIMIT_CODE}:{number_ref}",
+                "1",
+                nx=True,
+                ex=NUMBER_DAILY_LIMIT_ALERT_WINDOW_S,
+            )
+        )
+    except Exception:
+        first = True
+    if first:
+        alert(
+            "CORE_LOGIC",
+            "engine_number_daily_limit",
+            detail=(
+                "a calling number has placed as many calls today as the voice platform "
+                "allows it; dials from it are refused until its allowance resets"
+            ),
+            engine=engine,
+            number_ref=number_ref,
+        )
 
 
 #: The code a dial is refused under when every line the account allows is in use. Raised
@@ -674,6 +725,7 @@ async def _vendor_response(
         limit_type = _throttle_details(response)[0]
         if limit_type == THINNEST_NUMBER_DAILY_LIMIT:
             log.warning("engine_number_daily_limit", extra={"engine": engine, "route": route})
+            await _alert_number_daily_limit(engine=engine, number_ref=_calling_number_ref(kwargs))
             raise number_daily_limit_error()
         if is_line_limit(limit_type):
             log.warning("carrier_lines_busy", extra={"engine": engine, "route": route})

@@ -31,6 +31,7 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
+from calevate_shared.engine import ProvisionedNumber
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
@@ -38,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service
 from apps.api.agents import service as agents_service
+from apps.api.billing.number_rental import RentalOutcome
 from apps.api.campaigns import engine_numbers, number_supply
 from apps.api.campaigns.engine_numbers import SyncOutcome
 from apps.api.campaigns.number_catalog import NumberDirection
@@ -53,6 +55,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.engine.hosted_platform import engine_number_console
 from apps.api.engine.thinnest_numbers import digits
+from apps.api.tenancy.engine_workspace import resolve_workspace
 
 router = APIRouter(prefix="/v1/admin/numbers", tags=["admin"])
 
@@ -179,6 +182,13 @@ class TenantNumberCostOut(BaseModel):
     agent_name: str | None
     monthly_rental_usd: str | None
     released: bool
+    #: A voice-platform number held in the platform account (our developer workspace) rather
+    #: than the client's own: recorded for testing only, never rented in the client's name
+    #: (D-693).
+    platform_held: bool = False
+    #: Held by this deployment's voice platform: released from the voice-workspace panel
+    #: (`engine_number_purchase.release_engine_number`), which this list's release refuses.
+    on_engine: bool = False
 
 
 @router.get(
@@ -384,7 +394,9 @@ async def set_engine_ref(
         "stops the monthly charge. The record survives, marked released, because a closed "
         "month's costs still refer to it. Refused with `number_not_ours_to_release` for a "
         "connection the client holds in their own name — they cancel that with their own "
-        "operator. Releasing an already-released number succeeds and changes nothing."
+        "operator, and with `number_released_in_voice_workspace` for a number the voice "
+        "platform holds, which is released from the client's voice workspace. Releasing an "
+        "already-released number succeeds and changes nothing."
     ),
 )
 async def release_number(
@@ -418,7 +430,7 @@ async def release_number(
 _TENANT_NUMBERS = (
     "SELECT n.id, n.e164, n.series, n.dlt_status, n.provider, n.engine_owned, "
     "n.engine_number_ref IS NOT NULL, n.agent_id, a.name, n.monthly_rental_usd, "
-    "n.released_at IS NOT NULL FROM phone_numbers n "
+    "n.released_at IS NOT NULL, n.engine_number_ref FROM phone_numbers n "
     "LEFT JOIN agents a ON a.id = n.agent_id AND a.deleted_at IS NULL "
     "ORDER BY n.created_at, n.id LIMIT :limit"
 )
@@ -456,6 +468,7 @@ async def tenant_numbers(
     await record_admin_tenant_read(
         session, request=request, principal=principal, tenant_id=tenant_id
     )
+    engine = engine_numbers.engine_number_provider()
     return [
         TenantNumberCostOut(
             id=row[0],
@@ -469,6 +482,8 @@ async def tenant_numbers(
             agent_name=row[8],
             monthly_rental_usd=str(row[9]) if row[9] is not None else None,
             released=row[10],
+            platform_held=(row[4] == engine and engine_numbers.is_platform_held(row[11])),
+            on_engine=engine is not None and row[4] == engine,
         )
         for row in rows
     ]
@@ -492,6 +507,10 @@ class EngineNumberOut(BaseModel):
     #: Our record of it for this client, once recorded (D-691). None offers "Record this
     #: number"; a number recorded for another client is refused at the record step.
     number_id: UUID | None = None
+    #: Held in the platform account (our developer workspace), not the client's own: it can
+    #: be recorded for this client for testing only, and answers only an agent that still
+    #: lives there (D-693).
+    platform_held: bool = False
 
 
 class EngineAgentOut(BaseModel):
@@ -580,15 +599,21 @@ async def tenant_engine_numbers(
             digits(str(row[1] or row[2])): row[0]
             for row in (await scoped.execute(text(_RECORDED_NUMBERS))).all()
         }
+        own_workspace = await resolve_workspace(scoped, tenant_id)
     await record_admin_tenant_read(
         session, request=request, principal=principal, tenant_id=tenant_id
     )
     ours = {str(row[2]): (row[0], str(row[1])) for row in rows}
-    held = await engine_numbers.vendor_numbers(engine_numbers.number_workspace(tenant_id))
+    # The client's own workspace first (D-693), then the platform account's numbers, which
+    # an operator may record for this client for testing.
+    held: list[tuple[ProvisionedNumber, bool]] = []
+    if own_workspace is not None:
+        held.extend((n, False) for n in await engine_numbers.vendor_numbers(own_workspace))
+    held.extend((n, True) for n in await engine_numbers.vendor_numbers(None))
     numbers: list[EngineNumberOut] = []
     other = 0
     answering: set[str] = set()
-    for number in held:
+    for number, platform_held in held:
         ref = number.answering_agent_ref
         if ref is not None and ref not in ours:
             other += 1
@@ -605,6 +630,7 @@ async def tenant_engine_numbers(
                 agent_name=agent[1] if agent else None,
                 unassigned=ref is None,
                 number_id=recorded.get(digits(number.engine_number_ref or number.e164)),
+                platform_held=platform_held,
             )
         )
     return EngineNumbersOut(
@@ -652,6 +678,11 @@ class RecordedEngineNumberOut(BaseModel):
     client_inr_per_month: Decimal | None
     #: Whether the platform now agrees which agent answers it and which calls out on it.
     platform_attachment: SyncOutcome
+    #: Held in the platform account, recorded for this client for testing only (D-693).
+    platform_held: bool = False
+    #: What became of the client's first month: `charged`, `invoiced`, `trial` (free),
+    #: `closed`, `replayed`, or null when the number is not priced.
+    first_period: RentalOutcome | None = None
 
 
 @router.post(
@@ -707,6 +738,8 @@ async def record_tenant_engine_number(
         series=recorded.series,
         client_inr_per_month=recorded.client_inr_per_month,
         platform_attachment=recorded.attachment,
+        platform_held=recorded.platform_held,
+        first_period=recorded.first_period,
     )
 
 

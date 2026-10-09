@@ -8,7 +8,13 @@ import type { SenderAttestation } from "@/lib/api/senderAttestation";
 import { expectNoA11yViolations } from "./a11y";
 import { readInfoTip } from "./infoTip";
 import { problem, renderClientPage, type Routes } from "./harness";
-import { KYC_NOT_STARTED, agentRow, prepaidWallet } from "./fixtures/sharedReads";
+import {
+  KYC_NOT_STARTED,
+  OWN_NUMBERS_OFF,
+  OWN_NUMBERS_STATUS_PATH,
+  agentRow,
+  prepaidWallet,
+} from "./fixtures/sharedReads";
 
 /**
  * THE OUTBOUND-SENDER CONFIRMATION, ON THE SCREEN WHERE A CLIENT ACCEPTS IT.
@@ -93,6 +99,7 @@ function routes(series: string, attestation: unknown, extra: Routes = {}): Route
     "/v1/agents": [agentRow()],
     "/v1/compliance/kyc": KYC_NOT_STARTED,
     "/v1/billing/wallet": prepaidWallet(),
+    [OWN_NUMBERS_STATUS_PATH]: OWN_NUMBERS_OFF,
     "/v1/numbers/available": problem(422, {
       kind: "business_rule",
       type: "https://calevate.tech/problems/number_purchase_is_operator_led",

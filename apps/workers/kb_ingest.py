@@ -794,7 +794,7 @@ async def _catch_up_agents(failures: list[str]) -> int:
             except Exception as exc:
                 _sweep_item_failed(failures, "catch_up", agent_id, exc)
                 continue
-            if result is not None and (result.attached or result.withdrawn):
+            if result is not None and (result.attached or result.replaced or result.withdrawn):
                 changed += 1
     return changed
 

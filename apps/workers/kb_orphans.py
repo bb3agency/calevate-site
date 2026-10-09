@@ -48,13 +48,22 @@ from __future__ import annotations
 from typing import Any
 
 from arq import Retry
+from calevate_shared.engine import (
+    AccountKBListing,
+    AccountKBObject,
+    ListingIncompleteReason,
+    VoiceEngine,
+)
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import untenanted_session
 from apps.api.engine import get_engine
+from apps.api.engine.thinnest_workspace import in_workspace
 from apps.api.kb.orphans import KbOrphanReport, reconcile_account_kb
+from apps.api.tenancy.engine_workspace import engine_has_workspaces
+from apps.workers.workspace_walk import all_workspaces
 
 log = get_logger(__name__)
 
@@ -62,6 +71,32 @@ log = get_logger(__name__)
 #: cron registration and the reasoning above cannot drift apart.
 ORPHAN_SWEEP_HOUR = frozenset({4})
 ORPHAN_SWEEP_MINUTE = frozenset({40})
+
+
+async def _every_workspace_listing(engine: VoiceEngine) -> AccountKBListing:
+    """The account-wide listing as ONE picture over every workspace (D-693): the developer
+    workspace and each client's own. Claims of every workspace are scored against it at
+    once, so a listing of one workspace would read every other client's knowledge as
+    stranded. Incomplete if any workspace's listing was."""
+    if not engine_has_workspaces(engine.name):
+        return await engine.list_account_kb()
+    objects: list[AccountKBObject] = []
+    complete = True
+    reason: ListingIncompleteReason | None = None
+    pages = 0
+    for visit in await all_workspaces():
+        with in_workspace(visit.workspace):
+            listing = await engine.list_account_kb()
+        objects.extend(listing.objects)
+        complete = complete and listing.complete
+        reason = reason or listing.incomplete_reason
+        pages += listing.pages_fetched
+    return AccountKBListing(
+        objects=objects,
+        complete=complete,
+        incomplete_reason=None if complete else reason or "partial_fan_out",
+        pages_fetched=max(1, pages),
+    )
 
 
 async def account_kb_report() -> KbOrphanReport | None:
@@ -78,7 +113,7 @@ async def account_kb_report() -> KbOrphanReport | None:
     engine = get_engine()
     if not engine.capabilities.has("knowledge_base"):
         return None
-    listing = await engine.list_account_kb()
+    listing = await _every_workspace_listing(engine)
     async with untenanted_session() as session:
         return await reconcile_account_kb(session, listing, engine=engine.name)
 

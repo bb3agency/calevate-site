@@ -48,6 +48,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any, Final
 from uuid import UUID
 
+from calevate_shared.engine_scope import scope_of
 from calevate_shared.worker_api import (
     MAX_IDENTIFIER,
     MAX_TOOL_TEXT,
@@ -62,6 +63,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -194,6 +196,20 @@ def _yes(value: str | None) -> bool:
     return (value or "").strip().lower() in {"yes", "true"}
 
 
+#: The header the platform adds to every action call naming the workspace it came from
+#: (`thinnest-findings/mirror/snapshots/2026-10-08/pages/agent/custom-api.md:116-119`).
+WORKSPACE_ID_HEADER: Final = "X-Workspace-Id"
+
+
+def workspace_matches(engine_agent_ref: str, header: str | None) -> bool:
+    """False only when the agent lives in a client's own workspace (D-693) and the platform
+    named a different one. The header is sent "when known", so its absence is not a
+    mismatch; an agent in our developer workspace has no workspace id of ours to compare."""
+    expected = scope_of(engine_agent_ref)
+    claimed = (header or "").strip()
+    return expected is None or not claimed or claimed == expected
+
+
 def named_call_id(header: str | None, body_call_id: str | None) -> str | None:
     """The call the platform says this action came from, or None when it names none or
     names two. The header is sent with every action call; the body's `call_id` is our
@@ -303,6 +319,21 @@ async def engine_action(
     route = await verify_agent_secret(engine, agent, request.headers.get(SECRET_HEADER))
     if route is None:
         log.warning("engine_action_unauthorised", extra={"engine": engine[:32]})
+        return JSONResponse(_UNAUTHORISED, status_code=401)
+    if not workspace_matches(agent, request.headers.get(WORKSPACE_ID_HEADER)):
+        # The secret is this agent's, yet the platform says the call came from another
+        # workspace: a misregistered or replayed action. Refused, and an operator told.
+        alert(
+            "ROUTE_HANDLER",
+            "engine_action_workspace_mismatch",
+            detail=(
+                "an in-call action arrived with this agent's secret but from a different voice "
+                "platform workspace than the agent lives in, and was refused. Republish the "
+                "agent to re-register its actions; if it recurs, rotate by republishing and "
+                "check the platform's console for a copied action."
+            ),
+            agent_id=str(route.agent_id),
+        )
         return JSONResponse(_UNAUTHORISED, status_code=401)
     if get_settings().engine != engine:
         raise refuse_wrong_engine()

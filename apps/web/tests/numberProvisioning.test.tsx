@@ -6,6 +6,7 @@ import type { Me } from "@/lib/api/client";
 import { PATHS } from "@/lib/api/numberProvisioning";
 
 import { expectNoA11yViolations } from "./a11y";
+import { OWN_NUMBERS_OFF, OWN_NUMBERS_STATUS_PATH } from "./fixtures/sharedReads";
 import { problem, renderClientPage, stillLoading, type Routes } from "./harness";
 
 /**
@@ -124,6 +125,7 @@ function routes(extra: Routes = {}): Routes {
     "/v1/billing/wallet": { prepaid: true, balance_inr: "200000.00" },
     [PATHS.available]: [offer()],
     [PATHS.holder]: holder(true),
+    [OWN_NUMBERS_STATUS_PATH]: OWN_NUMBERS_OFF,
     ...extra,
   };
 }
@@ -209,7 +211,7 @@ describe("browsing what is on offer", () => {
     expect(
       await screen.findByText(/registered to your business, not to Calevate/i),
     ).toBeTruthy();
-    expect(screen.getByText(/cannot be changed later/i)).toBeTruthy();
+    expect(await screen.findByText(/cannot be changed later/i)).toBeTruthy();
   });
 
   it("will not sell until the registrant is on file", async () => {
@@ -217,7 +219,8 @@ describe("browsing what is on offer", () => {
 
     const buy = await screen.findByRole("button", { name: /buy this number/i });
     expect(buy.hasAttribute("disabled")).toBe(true);
-    expect(buy.getAttribute("title")).toMatch(/registered to first/i);
+    // The reason arrives with the registrant read, a round trip after the offers.
+    await waitFor(() => expect(buy.getAttribute("title")).toMatch(/registered to first/i));
   });
 
   it("records the registrant once, with the type it was told", async () => {
@@ -256,9 +259,8 @@ describe("browsing what is on offer", () => {
     expect(
       await screen.findByText(/will not be able to make or take calls until your business is verified/i),
     ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: /buy this number/i }).hasAttribute("disabled"),
-    ).toBe(false);
+    const buy = screen.getByRole("button", { name: /buy this number/i });
+    await waitFor(() => expect(buy.hasAttribute("disabled")).toBe(false));
   });
 });
 
@@ -275,7 +277,10 @@ describe("buying", () => {
   async function openConfirmation(extra: Routes = {}) {
     const render = await renderClientPage(<PhoneNumberPage />, routes(extra));
     await screen.findByText(/₹1,49,900\.00 a month/);
-    fireEvent.click(screen.getByRole("button", { name: /buy this number/i }));
+    // Enabled once the registrant read lands, a round trip after the offers.
+    const buy = screen.getByRole("button", { name: /buy this number/i });
+    await waitFor(() => expect(buy.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(buy);
     return render;
   }
 
@@ -470,7 +475,11 @@ describe("choosing what a number is used for", () => {
     expect(select.value).toBe("agent-1");
     expect((screen.getByLabelText(/^both/i) as HTMLInputElement).checked).toBe(true);
 
-    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    // The page reads the agent list too, so the form can render from the cache before the
+    // write-access read lands; Save is enabled only once it has.
+    const save = screen.getByRole("button", { name: /^save$/i });
+    await waitFor(() => expect(save.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(save);
     await waitFor(() => {
       const post = calls.find((call) => call.path === PATHS.assign("num-1"));
       expect(JSON.parse(post?.body ?? "{}")).toEqual({ agent_id: "agent-1", direction: "both" });
@@ -564,5 +573,41 @@ describe("a number we supplied says which link is missing", () => {
     expect(screen.getByText("Not ready yet")).toBeTruthy();
     expect(container.textContent).toContain("A number with no agent on it cannot take calls.");
     expect(container.textContent).toContain("we are still connecting it");
+  });
+});
+
+describe("a number on an agent that only makes calls says so, not that we are connecting it", () => {
+  // `NumberOut` carries no agent direction; the screen reads it from `/v1/agents`. An
+  // outbound-only agent never answers a number, so "nothing for you to do" would be false.
+  const onDialler = {
+    id: "num-1",
+    e164: "+918041234567",
+    series: "standard",
+    dlt_status: "registered",
+    supplied_by_us: true,
+    answerable: false,
+    agent_id: "agent-out",
+    direction: "both",
+  };
+
+  it("explains that it places calls but does not answer them, and how to make it answer", async () => {
+    const { container } = await renderClientPage(
+      <PhoneNumberPage />,
+      routes({
+        "/v1/campaigns/numbers": [onDialler],
+        "/v1/agents": [
+          { id: "agent-out", name: "Dialler", status: "live", direction: "outbound" },
+        ],
+      }),
+    );
+
+    expect(await screen.findByText("Makes calls only")).toBeTruthy();
+    await waitFor(() =>
+      expect(container.textContent).toContain("places calls but does not answer them"),
+    );
+    expect(container.textContent).toContain("choose an agent that answers calls");
+    expect(container.textContent).not.toContain("we are still connecting it");
+    expect(container.textContent).not.toContain("nothing for you to do");
+    expect(screen.queryByText("Not ready yet")).toBeNull();
   });
 });

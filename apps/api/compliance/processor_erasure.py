@@ -86,6 +86,7 @@ __all__ = [
     "open_tasks_for_request",
     "overdue_tasks",
     "record_answer",
+    "record_engine_contact_progress",
     "record_request_sent",
     "settled_tasks",
 ]
@@ -329,6 +330,52 @@ async def record_request_sent(
         {"tid": str(task_id), "vref": vendor_reference},
     )
     return result.first() is not None
+
+
+def _progress_of(reference: str | None) -> dict[str, int]:
+    """`ct_a=2,ct_b=0` as `{contact id: recordings still pending}`; anything else, empty."""
+    progress: dict[str, int] = {}
+    for part in (reference or "").split(","):
+        contact, sep, pending = part.partition("=")
+        if sep and _ID_SHAPED.match(contact) and pending.isdigit():
+            progress[contact] = int(pending)
+    return progress
+
+
+async def record_engine_contact_progress(
+    session: AsyncSession, *, task_id: UUID, progress: dict[str, int]
+) -> dict[str, int]:
+    """Merge one attempt's contact erasures into the task, and return everything known.
+
+    A voice-platform contact erasure answers `recordingsPending` once, on the DELETE that
+    removed the contact; a retry finds the contact gone and learns nothing (`thinnest-
+    findings/mirror/snapshots/2026-10-08/pages/api-reference/contacts/delete-contact.md:7`).
+    So each contact's count is kept on the task as `<contact id>=<pending>` the moment it is
+    known, and an attempt's view is always this merged record, never its own. Moves an open
+    task to `requested`. Contact ids only (hard rule 6)."""
+    assert_vendor_refs_are_id_shaped(list(progress))
+    current = (
+        await session.execute(
+            text("SELECT vendor_reference FROM processor_erasure_tasks WHERE id = :tid FOR UPDATE"),
+            {"tid": str(task_id)},
+        )
+    ).scalar()
+    merged = {**_progress_of(current), **progress}
+    await session.execute(
+        text(
+            "UPDATE processor_erasure_tasks SET vendor_reference = :vref, "
+            "requested_at = COALESCE(requested_at, now()), "
+            "status = CASE WHEN status = 'open' THEN 'requested' ELSE status END, "
+            "updated_at = now() WHERE id = :tid"
+        ),
+        {
+            "tid": str(task_id),
+            # "no-contact" when nothing was ever found: the vendor reference an operator reads.
+            "vref": ",".join(f"{contact}={n}" for contact, n in sorted(merged.items()))
+            or "no-contact",
+        },
+    )
+    return merged
 
 
 async def record_answer(

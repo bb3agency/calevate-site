@@ -707,6 +707,14 @@ async def test_the_sweep_alarms_on_a_rate_that_no_longer_matches_the_invoice(
     alerts: list[tuple[str, str]] = []
     monkeypatch.setattr(engine_charges, "get_engine", lambda: _Engine())
     monkeypatch.setattr(engine_charges, "_compare", _compare)
+    # Only the developer workspace: the shared test database holds other tests' client
+    # workspaces, each of which this fake would answer with the same listing (D-693).
+    import apps.workers.workspace_walk as workspace_walk
+
+    async def _no_clients(**_kw: Any) -> list[Any]:
+        return []
+
+    monkeypatch.setattr(workspace_walk, "active_workspaces", _no_clients)
     monkeypatch.setattr(
         engine_charges, "alert", lambda kind, code, **_: alerts.append((kind, code))
     )

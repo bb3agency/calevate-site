@@ -38,7 +38,13 @@ from typing import Any, Final, Literal, NoReturn, cast
 from uuid import UUID
 
 from arq import Retry
-from calevate_shared.engine import ExecutionSnapshot, owned_runtime_agent_ref
+from calevate_shared.engine import (
+    ExecutionListing,
+    ExecutionSnapshot,
+    ListingIncompleteReason,
+    VoiceEngine,
+    owned_runtime_agent_ref,
+)
 from calevate_shared.events import TERMINAL_STATUSES
 from calevate_shared.extraction import ExtractionOutput, ExtractionSchemaSpec
 from sqlalchemy import text
@@ -129,6 +135,7 @@ from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.recording_source import EngineRecordingSource
+from apps.api.engine.thinnest_workspace import in_workspace
 from apps.api.ingest.service import normalize_phone
 from apps.api.insights import detection as gap_detection
 from apps.api.insights import service as gap_service
@@ -141,6 +148,7 @@ from apps.api.reliability.service import (
     mark_inbox_failed,
     mark_inbox_processed,
 )
+from apps.api.tenancy.engine_workspace import engine_has_workspaces
 from apps.api.worker.service import POSTCALL_DEDUPE_PREFIX, REMETER_DEDUPE_PREFIX
 from apps.workers import storage
 from apps.workers.engine_charges import reconcile_call_charge
@@ -157,6 +165,7 @@ from apps.workers.storage import (
     copy_recording,
     payload_key,
 )
+from apps.workers.workspace_walk import WalkReport, walk_workspaces
 
 log = get_logger(__name__)
 
@@ -4330,6 +4339,36 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
     return f"repaired={repaired} probed={probes} unreached={unreached} abandoned={abandoned}"
 
 
+async def _listing_over_workspaces(engine: VoiceEngine, since: datetime) -> ExecutionListing:
+    """`list_executions` over every workspace an engine with customer workspaces runs calls
+    in (D-693): the developer workspace, then each client's own, bounded and resumable
+    (`workers/workspace_walk.py`). A walk that left workspaces for a later tick is reported
+    incomplete, so the alert below says so. Unchanged on every other engine."""
+    if not engine_has_workspaces(engine.name):
+        return await engine.list_executions(since=since)
+    snapshots: list[ExecutionSnapshot] = []
+    complete = True
+    reason: ListingIncompleteReason | None = None
+    pages = 0
+    walk = WalkReport()
+    async for visit in walk_workspaces("executions", report=walk):
+        with in_workspace(visit.workspace):
+            part = await engine.list_executions(since=since)
+        snapshots.extend(part.snapshots)
+        complete = complete and part.complete
+        reason = reason or part.incomplete_reason
+        pages += part.pages_fetched
+    if walk.deferred:
+        complete = False
+        reason = reason or "page_cap_reached"
+    return ExecutionListing(
+        snapshots=snapshots,
+        complete=complete,
+        incomplete_reason=None if complete else reason,
+        pages_fetched=max(1, pages),
+    )
+
+
 async def reconcile_executions(ctx: dict[str, Any]) -> str:
     """The guarantee of record (D-31), not a safety net.
 
@@ -4367,7 +4406,7 @@ async def reconcile_executions(ctx: dict[str, Any]) -> str:
     engine = get_engine()
     since = datetime.now(UTC) - timedelta(minutes=30)
     try:
-        listing = await engine.list_executions(since=since)
+        listing = await _listing_over_workspaces(engine, since)
     except Exception as exc:  # engine down: the next tick retries
         alert("WORKER_DELIVERY", "reconciliation_fetch_failed", detail=type(exc).__name__)
         return "engine_unavailable"

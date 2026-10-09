@@ -19,6 +19,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.engine.thinnest_webhooks import ThinnestWebhooks, set_thinnest_webhooks
+from apps.api.reliability import engine_webhooks as registration_module
 from apps.api.reliability.engine_intake_keys import open_webhook_secret
 from apps.api.reliability.engine_webhooks import agent_webhook_url, ensure_agent_webhook
 from apps.workers import engine_webhooks as sweep
@@ -238,7 +239,9 @@ async def test_the_sweep_reenables_and_alarms(
     webhook_id = (await _ensure(tenant_id, ref)).webhook_id
     vendor.endpoints[webhook_id]["enabled"] = False
     alerts: list[tuple[str, dict[str, Any]]] = []
-    monkeypatch.setattr(sweep, "alert", lambda _s, code, **kw: alerts.append((code, kw)))
+    monkeypatch.setattr(
+        registration_module, "alert", lambda _s, code, **kw: alerts.append((code, kw))
+    )
     monkeypatch.setattr(get_settings(), "engine", ENGINE)
     # Older routes in this database first: the sweep orders by last check.
     async with tenant_session(tenant_id) as session:
@@ -284,7 +287,7 @@ async def test_the_sweep_asks_for_what_failed_to_be_sent_again_after_reenabling(
     webhook_id = (await _ensure(tenant_id, ref)).webhook_id
     vendor.endpoints[webhook_id]["enabled"] = False
     await _aged(tenant_id, ref, "2000-01-01")
-    monkeypatch.setattr(sweep, "alert", lambda *_a, **_k: None)
+    monkeypatch.setattr(registration_module, "alert", lambda *_a, **_k: None)
     monkeypatch.setattr(get_settings(), "engine", ENGINE)
 
     summary = await sweep.reconcile_engine_webhooks({})
@@ -310,7 +313,9 @@ async def test_a_refused_redelivery_alarms_and_the_endpoint_stays_on(
     vendor.redeliver_status = 409
     await _aged(tenant_id, ref, "2000-01-01")
     alerts: list[tuple[str, dict[str, Any]]] = []
-    monkeypatch.setattr(sweep, "alert", lambda _s, code, **kw: alerts.append((code, kw)))
+    monkeypatch.setattr(
+        registration_module, "alert", lambda _s, code, **kw: alerts.append((code, kw))
+    )
     monkeypatch.setattr(get_settings(), "engine", ENGINE)
 
     await sweep.reconcile_engine_webhooks({})
@@ -345,17 +350,44 @@ async def test_an_endpoint_registered_before_the_opt_out_event_is_resubscribed_i
     assert (await _ensure(tenant_id, ref)).outcome == "healthy"
 
 
-@pytest.mark.parametrize(
-    ("last_checked_ago", "expected_ago"),
-    [
-        (None, sweep.REDELIVERY_FLOOR),
-        (timedelta(minutes=20), timedelta(minutes=20) + sweep.REDELIVERY_TAIL),
-        (timedelta(days=30), sweep.REDELIVERY_FLOOR),
-    ],
-)
-def test_the_redelivery_window_reaches_past_the_retry_tail_but_never_past_seven_days(
-    last_checked_ago: timedelta | None, expected_ago: timedelta
-) -> None:
+def test_the_redelivery_window_is_always_the_whole_window_the_vendor_keeps() -> None:
+    """Audit fix 5: never "since we last looked", which every sweep refreshes while failures
+    build up; always back to the vendor's 7 days, a margin inside them."""
     now = datetime(2026, 10, 8, 12, 0, tzinfo=UTC)
-    last = None if last_checked_ago is None else now - last_checked_ago
-    assert sweep.redelivery_since(last, now=now) == now - expected_ago
+    assert registration_module.redelivery_since(now=now) == now - (
+        timedelta(days=7) - timedelta(minutes=30)
+    )
+
+
+async def test_an_endpoint_still_on_but_failing_is_asked_to_resend(
+    vendor: FakeThinnest,
+) -> None:
+    """Audit fix 5: `failuresInARow > 0` means events are running out of attempts."""
+    tenant_id, ref = await _route()
+    webhook_id = (await _ensure(tenant_id, ref)).webhook_id
+    vendor.endpoints[webhook_id]["delivery"]["failuresInARow"] = 2
+
+    result = await _ensure(tenant_id, ref)
+
+    assert (result.outcome, result.redelivered) == ("healthy", True)
+    ours = [body for wid, body in vendor.redelivered if wid == webhook_id]
+    since = datetime.fromisoformat(ours[0]["since"].replace("Z", "+00:00"))
+    assert timedelta(days=6) < datetime.now(UTC) - since < timedelta(days=7)
+
+
+async def test_a_publish_that_reenables_an_endpoint_resends_and_alarms(
+    vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audit fix 6: the re-enable branch itself re-sends and alarms, so a publish (which calls
+    `ensure_agent_webhook` directly, not the sweep) drops nothing."""
+    tenant_id, ref = await _route()
+    webhook_id = (await _ensure(tenant_id, ref)).webhook_id
+    vendor.endpoints[webhook_id]["enabled"] = False
+    alerts: list[str] = []
+    monkeypatch.setattr(registration_module, "alert", lambda _s, code, **_k: alerts.append(code))
+
+    result = await _ensure(tenant_id, ref)
+
+    assert (result.outcome, result.redelivered) == ("reenabled", True)
+    assert "engine_webhook_reenabled" in alerts
+    assert [wid for wid, _ in vendor.redelivered] == [webhook_id]

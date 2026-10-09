@@ -139,6 +139,14 @@ from apps.workers.engine_customer_data import erase_engine_contact, push_engine_
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
 from apps.workers.engine_signals import ingest_engine_notice, ingest_engine_opt_out
 from apps.workers.engine_webhooks import WEBHOOK_SWEEP_MINUTES, reconcile_engine_webhooks
+from apps.workers.engine_workspaces import (
+    offboard_engine_workspace,
+    provision_engine_workspace,
+    retire_moved_engine_agent,
+    retry_engine_workspaces,
+    submit_engine_business_details,
+    sweep_engine_workspaces,
+)
 from apps.workers.fleet_walk import WalkShape, bounded, every_tick, fleet_wide
 from apps.workers.fx_pull import PULL_MINUTES, pull_fx_rate
 from apps.workers.inbound_cutover import apply_inbound_credit_state
@@ -233,6 +241,13 @@ FUNCTIONS: list[Any] = [
         # (D-691): its do-not-call additions and a DPDP erasure of its contact.
         push_engine_dnc,
         erase_engine_contact,
+        # Each client's own voice platform workspace (D-693): made, its business details
+        # sent, offboarded when the account closes, and the old copy of an agent recreated
+        # in it deleted once the new one is live. All from the outbox.
+        provision_engine_workspace,
+        submit_engine_business_details,
+        offboard_engine_workspace,
+        retire_moved_engine_agent,
         run_post_call_pipeline,
         # The carrier's status/hangup callbacks (enqueued by voice-runtime under
         # `calevate_shared.carrier.CARRIER_EVENT_JOB`) and the CDR read a hangup queues.
@@ -759,9 +774,30 @@ CRON_JOBS = [
     # and changes nothing, deliberately (see the job).
     _cron(
         traced_job(reconcile_engine_numbers),
-        walk=bounded("one vendor listing against one untenanted read"),
+        walk=bounded(
+            "one vendor listing per workspace (developer and each active client workspace) "
+            "against one read per tenant"
+        ),
         hour={2},
         minute={35},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # EVERY CLIENT HAS ITS OWN VOICE WORKSPACE (D-693): a tenant without one (the backfill
+    # of tenants made before D-693) or whose provisioning is still owed is queued again,
+    # at most PROVISION_SWEEP_BUDGET a tick.
+    _cron(
+        traced_job(retry_engine_workspaces),
+        walk=bounded("one directory read, then at most 50 tenant sessions that queue a job"),
+        hour={2},
+        minute={52},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # And each client workspace read back: business details, our voice key, clone copies.
+    _cron(
+        traced_job(sweep_engine_workspaces),
+        walk=bounded("at most DEFAULT_WORKSPACE_BUDGET workspaces, resumed from a cursor"),
+        hour={3},
+        minute={8},
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE CLIENT'S HALF (D-665): debit each client-priced number's current rental period.

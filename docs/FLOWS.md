@@ -282,8 +282,10 @@ does not leave the call open, because the worker's settlement carries its final 
 ### 3a. The same call on `ENGINE=thinnest` (D-678, D-682)
 
 ThinnestAI hosts the agent and the call (`docs/THINNEST-INTEGRATION.md`), so voice-runtime
-answers nothing and no worker of ours is on the line. The number is ThinnestAI's own, rented
-and pointed at the agent in their console (Vobiz is never used on this engine).
+answers nothing and no worker of ours is on the line. The agent and the number live in the
+client's own ThinnestAI customer workspace (D-693); the number is ThinnestAI's own, bought
+from the client's Numbers page in the client's business name and pointed at the agent by us
+(`docs/THINNEST-INTEGRATION.md` §3a-§3b). Vobiz is never used on this engine.
 
 caller dials the client's number → ThinnestAI answers with the published agent →
 1. **Opening.** The agent's `greeting` is our opening line, verbatim (D-669); the

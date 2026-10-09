@@ -112,6 +112,26 @@ admin_users(id, clerk_user_id UNIQUE, email, name, role ENUM[superadmin,operator
   -- liveness rule once assumed raises 23503 for exactly the operators somebody would want
   -- removed. The row is evidence; the account ends, and its password, sessions and
   -- outstanding setup link are destroyed with it.
+tenant_engine_workspaces(id, tenant_id → organizations RESTRICT UNIQUE, engine,
+  external_ref UNIQUE, workspace_id UNIQUE NULL,
+  status ENUM[pending,active,plan_limit,failed,offboarding,deleted] DEFAULT 'pending',
+  last_error_code, attempts INT DEFAULT 0, provisioned_at, deleted_at,
+  business_status ENUM[none,draft,submitted,accepted,rejected,suspended,expired,unknown] NULL,
+  business_can_rent BOOL, business_review_note, business_submitted_at, business_checked_at,
+  business_document_id NULL, created_at, updated_at)
+  -- D-693, migration d93b6f2a4c18. Each client's own ThinnestAI customer workspace
+  -- (`POST /customers`, reached with `Thinnest-Workspace: org_…`,
+  -- `thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/customers.md:18-91`).
+  -- `external_ref` = `calevate-<tenant uuid>`, sent as the customer's `externalId`, so
+  -- provisioning finds a workspace it already made from the tenant id alone.
+  -- `workspace_id` is the `org_…` id once it exists. `business_*` is our last reading of
+  -- the workspace's business-details application (`phone-numbers/get-business-details.md:7`).
+  -- Read through ONE resolver, `tenancy/engine_workspace.resolve_workspace`, which answers
+  -- the id only while `status = 'active'` and never falls back to our developer workspace.
+  -- FORCEd §1 RLS, plus the untenanted READ arm `tenant_engine_workspaces_directory_read`
+  -- (`<guc> IS NULL`, never `true`, as c3f7b21a94e8 introduced): the provisioning and
+  -- reconciliation sweeps list every tenant's workspace from the directory session, while
+  -- a session scoped to one tenant still sees nothing of another. Writes stay strict.
 ```
 
 **The four AUTHENTICATION tables are NOT above, and they are not missing either** — they
@@ -273,6 +293,33 @@ phone_numbers(id, tenant_id, agent_id, e164 UNIQUE, series ENUM[140,160,standard
   -- vendor does not publish the price), and a state we cannot observe is a lie in a column.
   -- Interim control is procedural — nobody delists a number attached to a live agent —
   -- and gate 27 asks whether GET /phone-numbers/all exposes any verification status at all.
+  -- D-693: on `thinnest` a rented number's `engine_number_ref` carries its workspace,
+  -- `<number>@<org_…>` (`calevate_shared/engine_scope.py`) for a number in the client's own
+  -- customer workspace; an unscoped ref is a number held in our developer workspace
+  -- ("held in the platform account", testing only, `engine_numbers.is_platform_held`).
+engine_number_purchases(id, tenant_id → organizations RESTRICT, idempotency_key,
+  vendor_number, workspace_id, agent_id NULL, direction ENUM[inbound,outbound,both],
+  status ENUM[renting,recorded,refused,failed] DEFAULT 'renting', number_id NULL,
+  refusal_code NULL, requested_by ENUM[client,admin], created_at, updated_at,
+  UNIQUE(tenant_id, idempotency_key))
+  -- D-693, migration d93b6f2a4c18. One number-purchase request in a client's own
+  -- ThinnestAI workspace (`campaigns/engine_number_purchase.py`). Committed as `renting`
+  -- BEFORE the vendor rents, because the rent charges our balance at once and documents no
+  -- idempotency key (`thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/
+  -- phone-numbers/rent-phone-number.md:7,343-344`): a retry with the same key finds this
+  -- row and answers its outcome, and an unfinished one is resolved by reading the number
+  -- back, never by renting twice. The number itself is the `phone_numbers` row it points at.
+  -- FORCEd §1 RLS.
+engine_voice_clone_copies(id, tenant_id → organizations RESTRICT, voice_id,
+  workspace_id, vendor_voice_id, vendor_clone_id, created_at, updated_at,
+  UNIQUE(tenant_id, voice_id, workspace_id))
+  -- D-693, migration d93b6f2a4c18. A ThinnestAI clone belongs to the workspace that made
+  -- it, so a client agent on one of our clones speaks a copy made in the client's own
+  -- workspace from the admin's kept recording (`agents/clone_copies.py`); this maps our
+  -- catalogue `voice_id` to that copy's ids. FORCEd §1 RLS.
+platform_voice_catalog gains sample_object_key TEXT NULL (D-693, migration d93b6f2a4c18):
+  -- the sealed recording an admin clone was made from (`voice-clone-samples/
+  -- <sha256(voice_id)>`), kept so the clone can be made again in a client's workspace.
 ```
 
 `extraction_schemas.fields` shape (validated by Pydantic on write). `reason` is the

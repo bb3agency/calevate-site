@@ -427,6 +427,21 @@ class Settings(BaseSettings):
     #: the raised figure when they confirm it. The dial gate keeps `inbound_reserve_ratio`
     #: of it free for callers (`engine/carrier_pacing.outbound_line_pool`).
     thinnest_max_concurrent_calls: int = Field(default=5, ge=1, le=1000)
+    #: Which ThinnestAI plan our developer account is on, as an operator attests it (D-693). It
+    #: sets how many customer workspaces we may hold: 3 on pay-as-you-go, 100 on Pro, 1,000
+    #: on Scale, 10,000 on Enterprise, and a deleted one counts until it is erased
+    #: (`thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/customers.md:
+    #: 191-200`). Read for the ops dashboard's headroom and the plan-limit alarm; the vendor's
+    #: own 402 is what actually refuses a workspace over the cap.
+    thinnest_customer_plan: Literal["payg", "pro", "scale", "enterprise"] = "payg"
+    #: Our OWN (developer) workspace's id, `org_…` like every customer's (`GET /workspace`,
+    #: `thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/workspace/
+    #: get-workspace.md:327-351`). Never accepted as a client's own workspace: a person-level
+    #: write sent there would act on every legacy client at once (D-693). Read from the API by
+    #: the provisioning job too; this setting covers processes that have not read it.
+    thinnest_developer_workspace_id: str | None = Field(
+        default=None, max_length=128, pattern=r"^org_[^@\s]{1,120}$"
+    )
     #: The Gnani TTS key (D-618), read by `apps/voice-worker` and by nothing on this host.
     #:
     #: **A `Settings` FIELD THAT THIS DEPLOYMENT NEVER READS THE VALUE OF, FOR D-614's

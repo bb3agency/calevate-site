@@ -24,6 +24,7 @@ from typing import Any, Final, NoReturn, Protocol, runtime_checkable
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.engine_scope import scope_of
 from calevate_shared.events import EngineNotice
 from sqlalchemy import text
 
@@ -34,6 +35,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
+from apps.api.engine.thinnest_workspace import in_workspace
 from apps.api.reliability.engine_intake_keys import open_delivery
 from apps.api.reliability.service import mark_inbox_failed, mark_inbox_processed
 
@@ -215,7 +217,8 @@ async def _notice(payload: dict[str, Any]) -> str:
     engine = get_engine()
     if not isinstance(engine, ReadsNotices) or not isinstance(body, dict):
         raise _unreadable(f"the {engine.name} adapter cannot read a notice")
-    notice = engine.parse_notice(body)
+    with in_workspace(scope_of(str(payload["engine_agent_ref"]))):
+        notice = engine.parse_notice(body)
     if notice is None:
         raise _unreadable("the delivered document is not a notice")
     tenant_id = await _tenant_of(engine_name, str(payload["engine_agent_ref"]))

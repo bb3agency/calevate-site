@@ -18,12 +18,14 @@ is deleted and replaced rather than kept unverifiable.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Final, Literal
 from urllib.parse import urlencode
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings, is_public_callback_base
@@ -53,6 +55,64 @@ WebhookOutcome = Literal[
 class WebhookRegistration:
     outcome: WebhookOutcome
     webhook_id: str | None = None
+    #: A re-send of what failed was asked for, and the vendor took it.
+    redelivered: bool = False
+
+
+#: How far back a re-send reaches: the vendor keeps payloads 7 days and refuses a `since`
+#: outside them with a 400 (`thinnest-findings/mirror/snapshots/2026-10-08/pages/
+#: api-reference/webhooks/redeliver-webhook-events.md:7, :390-397`), so a margin inside it. Always
+#: the whole window, never "since we last looked": the sweep refreshes its own timestamp
+#: while failures build up, so anything narrower drops what failed before it. A re-sent
+#: delivery keeps its event id (`:7`), which the receiver's inbox has already settled or
+#: settles now, so asking for too much costs nothing.
+REDELIVERY_FLOOR: Final = timedelta(days=7) - timedelta(minutes=30)
+
+
+def redelivery_since(*, now: datetime) -> datetime:
+    """The `since` every re-send asks for."""
+    return now - REDELIVERY_FLOOR
+
+
+async def _redeliver(
+    webhooks: ThinnestWebhooks, *, engine: str, engine_agent_ref: str, webhook_id: str
+) -> bool:
+    """Ask for everything that failed in the window to be sent again. A refusal alarms and
+    does not fail the caller: the endpoint is on, and the call list settles the gap."""
+    try:
+        queued = await webhooks.redeliver_since(webhook_id, redelivery_since(now=datetime.now(UTC)))
+    except ProblemError as exc:
+        alert(
+            "WORKER_DELIVERY",
+            "engine_webhook_redelivery_failed",
+            detail=(
+                f"engine={engine}: the voice platform did not accept the request to re-send "
+                f"this agent's failed deliveries ({exc.code}). Re-send them from the endpoint "
+                "in the vendor console; the reconciliation re-drive settles the calls from the "
+                "call list meanwhile."
+            ),
+            engine_agent_ref=engine_agent_ref,
+        )
+        return False
+    log.info(
+        "engine_webhook_redelivery_requested",
+        extra={"engine": engine, "webhook_id": webhook_id, "queued": queued},
+    )
+    return True
+
+
+def _alarm_reenabled(engine: str, engine_agent_ref: str) -> None:
+    alert(
+        "WORKER_DELIVERY",
+        "engine_webhook_reenabled",
+        detail=(
+            f"engine={engine}: the vendor had switched this agent's webhook endpoint off after "
+            "repeated failed deliveries, and it is back on. What failed in the last 7 days has "
+            "been asked for again; older calls are settled by the reconciliation re-drive from "
+            "the engine's call record. Check why the receiver was failing."
+        ),
+        engine_agent_ref=engine_agent_ref,
+    )
 
 
 def agent_webhook_url(engine: str, engine_agent_ref: str) -> str:
@@ -218,20 +278,57 @@ async def ensure_agent_webhook(
     if resubscribed:
         await webhooks.subscribe(held, SUBSCRIBED_EVENTS)
     if not current.enabled:
+        # Switched off by the vendor: deliveries were being lost. Wherever this runs, a
+        # publish or the sweep, the re-enable re-sends what failed and an operator is told.
         await webhooks.enable(held)
         await _mark_checked(session, engine, engine_agent_ref)
-        return WebhookRegistration(outcome="reenabled", webhook_id=held)
+        _alarm_reenabled(engine, engine_agent_ref)
+        redelivered = await _redeliver(
+            webhooks, engine=engine, engine_agent_ref=engine_agent_ref, webhook_id=held
+        )
+        return WebhookRegistration(outcome="reenabled", webhook_id=held, redelivered=redelivered)
+    redelivered = False
+    if current.failures_in_a_row > 0:
+        # On, but failing: events whose attempts ran out are lost unless asked for again.
+        redelivered = await _redeliver(
+            webhooks, engine=engine, engine_agent_ref=engine_agent_ref, webhook_id=held
+        )
     await _mark_checked(session, engine, engine_agent_ref)
     return WebhookRegistration(
-        outcome="resubscribed" if resubscribed else "healthy", webhook_id=held
+        outcome="resubscribed" if resubscribed else "healthy",
+        webhook_id=held,
+        redelivered=redelivered,
     )
 
 
+async def retire_agent_webhook(
+    session: AsyncSession,
+    *,
+    engine: str,
+    engine_agent_ref: str,
+    client: ThinnestWebhooks | None = None,
+) -> bool:
+    """Remove the endpoint a retired vendor agent reported to (a recreated agent's old one,
+    D-693). The route row keeps the id and secret, so a late delivery from before the move
+    still verifies until the route is switched off. True when an endpoint was removed."""
+    if engine not in WEBHOOK_ENGINES:
+        return False
+    exists, held = await _held_endpoint(session, engine, engine_agent_ref)
+    if not exists or held is None:
+        return False
+    await (client or thinnest_webhooks()).delete(held)
+    log.info("engine_webhook_retired", extra={"engine": engine, "webhook_id": held})
+    return True
+
+
 __all__ = [
+    "REDELIVERY_FLOOR",
     "THINNEST",
     "WEBHOOK_ENGINES",
     "WebhookOutcome",
     "WebhookRegistration",
     "agent_webhook_url",
     "ensure_agent_webhook",
+    "redelivery_since",
+    "retire_agent_webhook",
 ]

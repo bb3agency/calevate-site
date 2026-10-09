@@ -1125,6 +1125,10 @@ class PlatformVoiceCatalogEntry(Base):
     #: ENGINE-HOSTED ROWS ONLY (D-687, `agents/hosted_voices.py`); NULL on every Pipecat row.
     #: The accent and description the engine's listing gives the voice.
     accent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Where the sealed recording behind one of OUR clones is kept (D-693), so the clone can
+    #: be made again in a client's own workspace: clones are per workspace. NULL on every
+    #: voice that is not a clone, and on a clone made before D-693.
+    sample_object_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: The engine's id for the CLONE behind a voice we cloned (not the voice id), which is
     #: what deleting it takes.
@@ -1279,3 +1283,24 @@ class OutboundSenderAttestation(PKMixin, Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class EngineVoiceCloneCopy(PKMixin, TimestampMixin, Base):
+    """One of our cloned voices, as cloned again into a client's own workspace (D-693).
+
+    A ThinnestAI clone belongs to the workspace that made it, so a client agent speaking one
+    of our clones needs its own copy, made from the sample we kept
+    (`platform_voice_catalog.sample_object_key`). `voice_id` is OUR catalogue id; the two
+    vendor ids are the copy's in `workspace_id`.
+    """
+
+    __tablename__ = "engine_voice_clone_copies"
+    __table_args__ = (UniqueConstraint("tenant_id", "voice_id", "workspace_id"),)
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    voice_id: Mapped[str] = mapped_column(Text, nullable=False)
+    workspace_id: Mapped[str] = mapped_column(Text, nullable=False)
+    vendor_voice_id: Mapped[str] = mapped_column(Text, nullable=False)
+    vendor_clone_id: Mapped[str] = mapped_column(Text, nullable=False)

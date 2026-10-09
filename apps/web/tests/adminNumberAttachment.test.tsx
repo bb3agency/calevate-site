@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
@@ -60,6 +60,8 @@ function number(overrides: Partial<TenantNumberCost> = {}): TenantNumberCost {
     agent_name: null,
     monthly_rental_usd: null,
     released: false,
+    platform_held: false,
+    on_engine: false,
     ...overrides,
   };
 }
@@ -377,6 +379,8 @@ describe("recording a number is on the numbers screen, not on a campaign screen"
     const calls: unknown[] = [];
     await render({
       ...healthy([]),
+      // The client's own workspace (D-693) is read on this engine; not the subject here.
+      [`/v1/admin/engine-workspaces/tenants/${TENANT}`]: { available: false },
       [`${COSTS_PATH}/engine`]: {
         managed_in_engine_console: true,
         platform: "ThinnestAI",
@@ -452,5 +456,57 @@ describe("an unpriced number is refused rather than bought at an invented price"
     expect(
       calls.some((call) => call.method === "POST" && call.path.endsWith("/buy")),
     ).toBe(false);
+  });
+});
+
+describe("a recorded number the voice platform has lost can have our record released here", () => {
+  // The voice-workspace panel lists only numbers the platform still holds, so this row is
+  // the only place a lost number's record (and the client's monthly charge) can be stopped.
+  const FORGET_PATH = `/v1/admin/engine-workspaces/tenants/${TENANT}/numbers/${NUMBER}/forget`;
+
+  it("offers 'Release our record' on a voice-platform row, confirms what it does, and posts confirm", async () => {
+    const calls: unknown[] = [];
+    await render({
+      ...healthy([number({ provider: "thinnest", engine_owned: true, on_engine: true })]),
+      [FORGET_PATH]: (call: { body: string | null }) => {
+        calls.push(JSON.parse(call.body ?? "null"));
+        return { number_id: NUMBER, released: true };
+      },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "More actions for +918041234567" }));
+    const menu = await screen.findByRole("menu");
+    // The generic release refuses a voice-platform number, so it is not offered beside it.
+    expect(within(menu).queryByRole("menuitem", { name: "Release" })).toBeNull();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Release our record" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/Stops our record and the client.s monthly charge/)).toBeTruthy();
+    expect(within(dialog).getByText(/Nothing is released at the voice\s+platform/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Release our record" }));
+
+    await waitFor(() => expect(calls).toEqual([{ confirm: true }]));
+  });
+
+  it("is not offered on a number outside the voice platform, nor on a released one", async () => {
+    await render(
+      healthy([
+        number({ engine_owned: true, on_engine: false }),
+        number({
+          id: "0192f0aa-7777-7000-8000-000000000444",
+          e164: "+918041234568",
+          provider: "thinnest",
+          engine_owned: true,
+          on_engine: true,
+          released: true,
+        }),
+      ]),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "More actions for +918041234567" }));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: "Release" })).toBeTruthy();
+    expect(within(menu).queryByRole("menuitem", { name: "Release our record" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "More actions for +918041234568" })).toBeNull();
   });
 });

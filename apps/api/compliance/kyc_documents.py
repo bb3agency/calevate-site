@@ -13,11 +13,13 @@ when the account is erased (`workers/retention.execute_tenant_erasure`).
 
 THE OWNER'S ID — manual path only, an Aadhaar or a PAN card, kept only until a reviewer
 decides. The founder's rule (8 Oct 2026): the file is deleted once an admin approves or
-rejects (`purge_owner_id`), and one never decided is deleted after `OWNER_ID_MAX_HOLD`
-(`workers/kyc_owner_id_purge`). What survives is the result and the MASKED identifier
-the client typed (`mask_pan`, `mask_aadhaar`). An Aadhaar upload must be the masked copy
-UIDAI issues; we cannot reliably tell a masked image from an unmasked one, so that rests
-on the client copy and the reviewer's instruction to reject an unmasked one.
+rejects (`request_owner_id_deletion`, then `delete_requested_documents`), and one never
+decided is deleted after `OWNER_ID_MAX_HOLD` (`workers/kyc_owner_id_purge`, which also
+retries every requested deletion that has not yet succeeded). What survives is the result
+and the MASKED identifier the client typed (`mask_pan`, `mask_aadhaar`). An Aadhaar upload
+must be the masked copy UIDAI issues; we cannot reliably tell a masked image from an
+unmasked one, so that rests on the client copy and the reviewer's instruction to reject an
+unmasked one.
 
 ENCRYPTED BEFORE IT LEAVES THE PROCESS. Every file is sealed with `core/envelope.
 seal_bytes` under a fresh DEK, wrapped by the platform KEK, with the tenant and document id
@@ -233,6 +235,7 @@ class KycDocumentRow:
     content_type: str
     size_bytes: int
     created_at: datetime
+    delete_requested_at: datetime | None
     purged_at: datetime | None
     payload_nonce: bytes
     dek_wrapped: bytes
@@ -248,10 +251,16 @@ class KycDocumentRow:
             kek_id=self.kek_version,
         )
 
+    @property
+    def held(self) -> bool:
+        """The file is ours to use: neither deleted nor due for deletion."""
+        return self.purged_at is None and self.delete_requested_at is None
+
 
 _CURRENT = (
     "SELECT id, slot, kind, object_key, filename, content_type, size_bytes, created_at, "
-    "purged_at, payload_nonce, dek_wrapped, dek_nonce, kek_version FROM kyc_documents "
+    "purged_at, payload_nonce, dek_wrapped, dek_nonce, kek_version, delete_requested_at "
+    "FROM kyc_documents "
     "WHERE tenant_id = :tid AND superseded_at IS NULL ORDER BY slot"
 )
 
@@ -274,9 +283,18 @@ async def current_documents(session: AsyncSession, *, tenant_id: UUID) -> dict[s
             dek_wrapped=bytes(row[10]),
             dek_nonce=bytes(row[11]),
             kek_version=int(row[12]),
+            delete_requested_at=row[13],
         )
         for row in rows
     }
+
+
+@dataclass(frozen=True, slots=True)
+class PendingDeletion:
+    """A file whose deletion was requested in a transaction that has committed."""
+
+    document_id: UUID
+    object_key: str
 
 
 async def record_document(
@@ -290,10 +308,11 @@ async def record_document(
     accepted: AcceptedFile,
     sealed: Envelope,
     uploaded_by_user_id: UUID,
-) -> list[str]:
+) -> list[PendingDeletion]:
     """Supersede the slot's current row and insert the new one, in the caller's
-    transaction. Returns the object keys of superseded rows whose bytes are still held, for
-    the caller to delete once this commits — only the current file of a slot is kept.
+    transaction. Returns the superseded files still held, whose deletion this requested, for
+    the caller to delete once this commits (`delete_requested_documents`) — only the current
+    file of a slot is kept.
 
     Supersede-then-insert under the partial unique index: two concurrent uploads to one
     slot cannot both become current; the loser's INSERT fails on the index.
@@ -301,10 +320,11 @@ async def record_document(
     superseded = (
         await session.execute(
             text(
-                "UPDATE kyc_documents SET superseded_at = now(), purged_at = now(), "
+                "UPDATE kyc_documents SET superseded_at = now(), "
+                "  delete_requested_at = COALESCE(delete_requested_at, now()), "
                 "  updated_at = now() "
                 "WHERE tenant_id = :tid AND slot = :slot AND superseded_at IS NULL "
-                "RETURNING object_key"
+                "RETURNING id, object_key, purged_at IS NULL"
             ),
             {"tid": tenant_id, "slot": slot},
         )
@@ -334,7 +354,9 @@ async def record_document(
             "kv": sealed.kek_id,
         },
     )
-    return [str(row[0]) for row in superseded]
+    return [
+        PendingDeletion(document_id=row[0], object_key=str(row[1])) for row in superseded if row[2]
+    ]
 
 
 def new_document_id() -> UUID:
@@ -342,10 +364,12 @@ def new_document_id() -> UUID:
 
 
 async def mark_purged(session: AsyncSession, *, document_id: UUID) -> bool:
-    """Record that a document's bytes were deleted. False if it was already purged."""
+    """Record that a document's bytes were deleted. Call only AFTER the object delete
+    succeeded. False if it was already purged."""
     result = await session.execute(
         text(
-            "UPDATE kyc_documents SET purged_at = now(), updated_at = now() "
+            "UPDATE kyc_documents SET purged_at = now(), "
+            "  delete_requested_at = COALESCE(delete_requested_at, now()), updated_at = now() "
             "WHERE id = :id AND purged_at IS NULL"
         ),
         {"id": document_id},
@@ -353,20 +377,45 @@ async def mark_purged(session: AsyncSession, *, document_id: UUID) -> bool:
     return rowcount_of(result) == 1
 
 
-async def purge_owner_id(session: AsyncSession, *, tenant_id: UUID) -> str | None:
-    """Mark this tenant's held owner-ID file purged and return its object key, for the
-    caller to delete. Called when a reviewer decides; None when there is nothing held."""
+async def request_owner_id_deletion(
+    session: AsyncSession, *, tenant_id: UUID
+) -> PendingDeletion | None:
+    """Request deletion of this tenant's held owner-ID file, for the caller to delete once
+    this commits. Called when a reviewer decides; None when there is nothing held.
+
+    It does NOT mark the file purged: that is written only after the delete succeeds, so a
+    delete that fails leaves a row the nightly purge retries."""
     row = (
         await session.execute(
             text(
-                "UPDATE kyc_documents SET purged_at = now(), updated_at = now() "
+                "UPDATE kyc_documents SET delete_requested_at = COALESCE(delete_requested_at, "
+                "  now()), updated_at = now() "
                 "WHERE tenant_id = :tid AND slot = 'owner_id' AND purged_at IS NULL "
-                "RETURNING object_key"
+                "RETURNING id, object_key"
             ),
             {"tid": tenant_id},
         )
     ).first()
-    return str(row[0]) if row is not None else None
+    return PendingDeletion(document_id=row[0], object_key=str(row[1])) if row else None
+
+
+async def delete_requested_documents(tenant_id: UUID, pending: list[PendingDeletion]) -> None:
+    """Delete files whose deletion a committed transaction requested, then mark each purged.
+
+    For a background task after the request committed. A failure is logged and not raised:
+    the rows still say "requested, not purged", which is exactly what the nightly purge
+    selects and retries (`workers/kyc_owner_id_purge`), alarming if it gives up."""
+    from apps.api.db.session import tenant_session
+    from apps.workers.storage import StorageUnavailableError, delete_objects
+
+    try:
+        await delete_objects([item.object_key for item in pending])
+    except StorageUnavailableError:
+        log.warning("kyc_document_delete_failed", extra={"count": len(pending)})
+        return
+    async with tenant_session(tenant_id) as session:
+        for item in pending:
+            await mark_purged(session, document_id=item.document_id)
 
 
 __all__ = [
@@ -380,10 +429,11 @@ __all__ = [
     "DocumentSlot",
     "KycDocumentRow",
     "OwnerIdType",
+    "PendingDeletion",
     "accept_upload",
     "assert_kind_fits_slot",
     "current_documents",
-    "delete_quietly",
+    "delete_requested_documents",
     "document_context",
     "mark_purged",
     "mask_aadhaar",
@@ -391,19 +441,7 @@ __all__ = [
     "masked_owner_id",
     "new_document_id",
     "open_document",
-    "purge_owner_id",
     "record_document",
+    "request_owner_id_deletion",
     "seal_document",
 ]
-
-
-async def delete_quietly(keys: list[str]) -> None:
-    """Delete objects whose rows already say they are gone, after the transaction that
-    said so committed. A failure is logged, not raised: the row is already purged and the
-    account-closure sweep still removes anything left under the tenant's prefix."""
-    from apps.workers.storage import StorageUnavailableError, delete_objects
-
-    try:
-        await delete_objects(keys)
-    except StorageUnavailableError:
-        log.warning("kyc_document_delete_failed", extra={"count": len(keys)})

@@ -16,6 +16,7 @@ import { OpsStatusStrip } from "./OpsStatusStrip";
 import { OutboxReplayPanel } from "./OutboxReplayPanel";
 import { TmRegistrationPanel } from "./TmRegistrationPanel";
 import { UnknownStatePanel } from "./UnknownStatePanel";
+import { WorkspacesSummaryPanel } from "./WorkspacesSummaryPanel";
 import { opsAccess } from "./opsAccess";
 import {
   deadLetterState,
@@ -334,8 +335,14 @@ export function OpsSurface() {
         </Card>
       </div>
 
-      {/* The voice platform's number application, read live (D-691). Renders nothing where
-          numbers are not the platform's. */}
+      {/* Every client's own customer workspace against the plan (D-693). Renders nothing
+          on an engine without per-client workspaces. */}
+      <div id="workspaces" className="scroll-mt-4">
+        <WorkspacesSummaryPanel access={mayRecover} />
+      </div>
+
+      {/* The PLATFORM account's number application, read live (D-691). Renders nothing
+          where numbers are not the platform's. */}
       <div id="business-details" className="scroll-mt-4">
         <BusinessDetailsPanel />
       </div>

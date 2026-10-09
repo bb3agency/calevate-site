@@ -1,31 +1,35 @@
-"""Numbers rented in the voice platform's own console: record, attach, reconcile (D-691).
+"""Numbers on the voice platform: rent, record, attach, release, reconcile (D-691, D-693).
 
-On ThinnestAI a number is RENTED in its console (renting has no API) but everything after
-that does: the workspace's numbers are listed, and who answers each and who calls out on each
-is set with `PATCH /phone-numbers/{number}` (`engine/thinnest_numbers.py` cites the pages).
-So the founder's flow is: rent in the console, then record the number here for the client it
-belongs to, and from then on WE decide which agent answers it.
+Each client has its own ThinnestAI customer workspace (D-693), and a client's numbers are
+rented THERE, in the client's own business name, once its business details are approved.
+Everything about a number happens in the workspace it lives in, and that workspace travels
+in the number's handle (`phone_numbers.engine_number_ref`, `<digits>@<org_…>`). A number
+rented in our developer workspace before D-693 has an unscoped handle: it is "held in the
+platform account", may be recorded against a client for testing only, and can answer only
+an agent that still lives in the developer workspace.
 
 **WE ARE THE MASTER OF THE ATTACHMENT.** `phone_numbers.agent_id` says which agent a number
-belongs to; the vendor's `agent` / `callingAgent` are made to agree with it, at the moment an
-operator records or attaches a number and again by the daily sweep, which repairs any drift
-(a console edit, an agent paused or archived since). The wanted state, from our rows:
+belongs to; the vendor's `agent` / `callingAgent` are made to agree with it, at the moment
+a number is recorded or attached and again by the daily sweep, which repairs any drift. The
+wanted state, from our rows:
 
 * a released number, or one bound to no live published agent: nobody answers, nobody calls;
 * an agent that answers (`inbound`, `both`): it is the number's line (`agent`). An agent can
   call out on its own line ("its own, or one lent to it", `calls/place-call.md:974`), so
   `callingAgent` is cleared rather than set to the same agent — which the vendor refuses
   (409, `phone-numbers/update-phone-number.md:401-405`);
-* an outbound-only agent: lent the number to call out on (`callingAgent`), answering nothing.
+* an outbound-only agent: lent the number to call out on (`callingAgent`), answering nothing;
+* an agent in another workspace than the number's: nobody answers. The vendor could not
+  find the agent there (`engine_number_other_workspace`).
 
 **NOTHING IS ADOPTED AUTOMATICALLY.** A number the vendor holds that we have no record of is
 alarmed, never recorded: which client it belongs to is an operator's decision.
 
 **A RENTED NUMBER IS PRICED FOR THE CLIENT WHEN IT IS RECORDED** from the operator-attested
-monthly rate (`number_pricing`, OPERATIONS §2 gate 26), never a constant, and its first period
-is collected in the same transaction, exactly as a client purchase's is (D-665), so the
-renewal job bills it from then on. A number brought on a carrier account is not priced: the
-vendor bills nothing for it.
+monthly rate (`number_pricing`, OPERATIONS §2 gate 26), never from the vendor's
+`monthlyPrice`, and its first period is collected in the same transaction (D-665); the
+renewal job bills it from then on. A purchase (`purchase_engine_number`) is this same
+record step run straight after the rent, so it has no charge path of its own.
 
 Ids and counts in every log line and alarm; never a phone number (hard rule 6).
 """
@@ -40,12 +44,14 @@ from uuid import UUID
 
 from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER
 from calevate_shared.engine import ProvisionedNumber
+from calevate_shared.engine_scope import scope_of
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import service as agents_service
 from apps.api.agents.models import series_for_e164
 from apps.api.billing.number_rental import (
+    RentalOutcome,
     collect_number_rental,
     ist_date,
     rental_period_start,
@@ -60,23 +66,31 @@ from apps.api.db.session import admin_session, tenant_session
 from apps.api.engine import get_engine
 from apps.api.engine.thinnest_numbers import (
     Attachment,
+    AvailableCity,
+    AvailablePage,
     BusinessDetails,
-    ThinnestNumbers,
     digits,
     thinnest_numbers,
+)
+from apps.api.engine.thinnest_workspace import in_workspace, workspace_not_provisioned
+from apps.api.tenancy.engine_workspace import (
+    active_workspaces,
+    resolve_workspace,
 )
 
 log = get_logger(__name__)
 
 #: Business-details states in which the platform will not rent a new Indian number
-#: (`phone-numbers/get-business-details.md:425-436`): each needs an operator to act.
+#: (`phone-numbers/get-business-details.md:425-436`): each needs somebody to act.
 LAPSED_BUSINESS_STATUSES: Final = frozenset({"rejected", "suspended", "expired"})
 
 #: Numbers read back and, where needed, re-pointed per sweep. The estate is a handful per
 #: client; the bound keeps one bad day from becoming a rate-limit incident.
 ATTACHMENT_SWEEP_BUDGET: Final = 100
 
-SyncOutcome = Literal["not_applicable", "unchanged", "applied", "partial", "refused"]
+SyncOutcome = Literal[
+    "not_applicable", "unchanged", "applied", "partial", "refused", "other_workspace"
+]
 
 
 def engine_number_provider() -> str | None:
@@ -98,60 +112,90 @@ def _refuse_off_engine() -> ProblemError:
     )
 
 
+def is_platform_held(engine_number_ref: str | None) -> bool:
+    """A number in our developer workspace ("held in the platform account"): testing only."""
+    return bool(engine_number_ref) and scope_of(engine_number_ref) is None
+
+
+def releasable_by(engine_number_ref: str, *, own_workspace: str | None, by_admin: bool) -> bool:
+    """May this number be released at the vendor by this caller? A platform-held number is
+    an operator's to release; any other only from the client's own workspace, the one its
+    handle names. The release route and the client's numbers list both ask this, so the
+    list never offers a Release the route refuses."""
+    if is_platform_held(engine_number_ref):
+        return by_admin
+    return own_workspace is not None and scope_of(engine_number_ref) == own_workspace
+
+
+def answers_calls(
+    *,
+    engine_number_ref: str | None,
+    agent_ref: str | None,
+    agent_status: str | None,
+    agent_direction: str | None,
+    agent_deleted: bool,
+) -> bool:
+    """Does our record put an answering agent on this number? The vendor's `agent` is made
+    to agree with exactly this (`wanted_attachment`, the crossed-workspace rule of
+    `sync_number_attachment`), and the daily sweep repairs drift, so it stands in for the
+    carrier binding the Pipecat engine records."""
+    if not engine_number_ref:
+        return False
+    agent, _calling = wanted_attachment(
+        released=False,
+        direction=agent_direction,
+        status=agent_status,
+        engine_agent_ref=agent_ref,
+        archived=agent_deleted,
+    )
+    return agent is not None and scope_of(agent) == scope_of(engine_number_ref)
+
+
 # --- THE ONE SEAM to the vendor's numbers -----------------------------------------------
 #
-# Every call about a vendor number goes through the four functions below, and each takes
-# the WORKSPACE the numbers live in. Today that is always our one developer workspace
-# (`None`, D-688). The founder has decided each client will get its own ThinnestAI customer
-# workspace (`Thinnest-Workspace` header), so its numbers and its business-details
-# application are in its own name; when that lands, `number_workspace` answers per tenant
-# and the client below sends the header — nothing else in this module changes.
-
-
-def number_workspace(tenant_id: UUID | None) -> str | None:
-    """The vendor workspace holding `tenant_id`'s numbers: the developer workspace today."""
-    return None
-
-
-def _numbers_client(workspace: str | None) -> ThinnestNumbers:
-    return thinnest_numbers()
+# Every call about a vendor number goes through the functions below. A number we hold
+# names its own workspace in its handle; a tenant's workspace for a NEW number comes from
+# `tenancy/engine_workspace.resolve_workspace`, which never falls back to the developer
+# workspace.
 
 
 async def vendor_numbers(workspace: str | None) -> list[ProvisionedNumber]:
-    """Every number `workspace` holds, as our model. Through the adapter's listing, which
-    the admin numbers screen also reads by this function."""
-    return list(await get_engine().list_engine_numbers())
+    """Every number `workspace` holds (None: our developer workspace), as our model with
+    handles scoped to it."""
+    with in_workspace(workspace):
+        return list(await get_engine().list_engine_numbers())
 
 
-async def _attach(
-    workspace: str | None, number: str, *, agent: str | None, calling_agent: str | None
-) -> Attachment:
-    return await _numbers_client(workspace).attach(number, agent=agent, calling_agent=calling_agent)
+async def _attach(number_ref: str, *, agent: str | None, calling_agent: str | None) -> Attachment:
+    return await thinnest_numbers().attach(number_ref, agent=agent, calling_agent=calling_agent)
 
 
-async def held_number(e164: str, *, tenant_id: UUID | None) -> ProvisionedNumber:
-    """The voice platform's own record of `e164`, or the refusal that it holds no such
-    number. Asked of the vendor's list every time: a hand-typed number is exactly the
-    value that must not be trusted."""
+async def held_number(e164: str, *, own_workspace: str | None) -> ProvisionedNumber:
+    """The voice platform's own record of `e164`: in the tenant's own workspace first, then in
+    our developer workspace (a platform-held number). Or the refusal that neither holds it.
+    Asked of the vendor's list every time: a hand-typed number is exactly the value that
+    must not be trusted."""
     wanted = digits(e164)
-    for number in await vendor_numbers(number_workspace(tenant_id)):
-        if digits(number.engine_number_ref or number.e164) == wanted:
-            return number
+    places: list[str | None] = [own_workspace] if own_workspace is not None else []
+    places.append(None)
+    for workspace in places:
+        for number in await vendor_numbers(workspace):
+            if digits(number.engine_number_ref or number.e164) == wanted:
+                return number
     raise ProblemError.business_rule(
         "engine_number_not_held",
         "The voice platform does not hold this number, so no call can be placed from it or "
         "answered on it.",
         remediation=(
-            "Rent the number in the voice platform's console first, or check the digits, "
-            "then record it again."
+            "Buy the number from the client's Numbers page, or check the digits, then record "
+            "it again."
         ),
     )
 
 
 async def _is_this_clients_agent(session: AsyncSession, engine_agent_ref: str) -> bool:
     """Is `engine_agent_ref` one of THIS client's agents? Asked under the tenant's own
-    policy, in the caller's session: any other agent — another client's, or one we never
-    published — is not this client's line to take."""
+    policy, in the caller's session."""
     found = (
         await session.execute(
             text("SELECT 1 FROM agents WHERE engine_agent_ref = :ref LIMIT 1"),
@@ -159,6 +203,50 @@ async def _is_this_clients_agent(session: AsyncSession, engine_agent_ref: str) -
         )
     ).first()
     return found is not None
+
+
+def _other_workspace_refusal() -> ProblemError:
+    return ProblemError.business_rule(
+        "engine_number_other_workspace",
+        "This number is held in the platform account and can only answer an agent that still "
+        "lives there; this agent lives in the client's own workspace.",
+        remediation=(
+            "Buy a number for this client from its Numbers page, or keep this number for "
+            "testing with an agent that has not been republished."
+        ),
+    )
+
+
+async def assert_same_workspace(
+    session: AsyncSession, *, number_ref: str, agent_id: UUID | None
+) -> None:
+    if agent_id is None:
+        return
+    ref = (
+        await session.execute(
+            text("SELECT engine_agent_ref FROM agents WHERE id = :aid AND deleted_at IS NULL"),
+            {"aid": agent_id},
+        )
+    ).scalar()
+    if isinstance(ref, str) and ref and scope_of(ref) != scope_of(number_ref):
+        raise _other_workspace_refusal()
+
+
+async def assert_number_can_answer(
+    session: AsyncSession, *, number_id: UUID, agent_id: UUID | None
+) -> None:
+    """Refuse binding a voice-platform number to an agent in another workspace (D-693): the
+    vendor could not find the agent there, so the binding would be ours alone."""
+    if engine_number_provider() is None or agent_id is None:
+        return
+    ref = (
+        await session.execute(
+            text("SELECT engine_number_ref FROM phone_numbers WHERE id = :nid AND provider = :p"),
+            {"nid": number_id, "p": engine_number_provider()},
+        )
+    ).scalar()
+    if isinstance(ref, str) and ref:
+        await assert_same_workspace(session, number_ref=ref, agent_id=agent_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +257,12 @@ class RecordedEngineNumber:
     #: What the client pays a month; None for a number the vendor bills nothing for.
     client_inr_per_month: Decimal | None
     attachment: SyncOutcome
+    #: Held in our developer workspace: assigned to this client for testing only.
+    platform_held: bool = False
+    #: What became of the client's first month (`billing/number_rental.RentalOutcome`):
+    #: `charged`, `invoiced`, `trial` (free), `closed`, `replayed`, or None when the number
+    #: is not priced. A screen words its sentence from this, never from the price alone.
+    first_period: RentalOutcome | None = None
 
 
 async def record_engine_number(
@@ -192,7 +286,7 @@ async def record_engine_number(
     provider = engine_number_provider()
     if provider is None:
         raise _refuse_off_engine()
-    held = await held_number(e164, tenant_id=tenant_id)
+    held = await held_number(e164, own_workspace=await resolve_workspace(session, tenant_id))
     vendor_ref = held.engine_number_ref or held.e164
     if engine_number_ref is not None and digits(engine_number_ref) != digits(vendor_ref):
         raise ProblemError.business_rule(
@@ -210,6 +304,23 @@ async def record_engine_number(
                 "agent in the voice platform's console first."
             ),
         )
+    # The agent it is LENT to for calling out counts too: recording it would hand that
+    # agent's caller ID to this client. `callingAgent` is documented on the single read only
+    # (`get-phone-number.md:405-418`; the list carries `agent` alone), so it is read here.
+    calling = (
+        held.calling_agent_ref or (await thinnest_numbers().get_number(vendor_ref)).calling_agent
+    )
+    if calling is not None and not await _is_this_clients_agent(session, calling):
+        raise ProblemError.conflict(
+            "engine_number_lent_to_other_client",
+            "An agent that is not one of this client's calls out on this number on the voice "
+            "platform.",
+            remediation=(
+                "Record it against the client whose agent calls out on it, or clear its "
+                "Outbound agent in the voice platform's console first."
+            ),
+        )
+    await assert_same_workspace(session, number_ref=vendor_ref, agent_id=agent_id)
     price = await require_attested_price_inr(session) if held.engine_owned else None
     declared = series or series_for_e164(held.e164) or "standard"
     number_id = await agents_service.provision_number(
@@ -224,6 +335,7 @@ async def record_engine_number(
         engine_number_ref=vendor_ref,
         engine_owned=bool(held.engine_owned),
     )
+    first_period: RentalOutcome | None = None
     if price is not None:
         recorded_at = (
             await session.execute(
@@ -236,7 +348,7 @@ async def record_engine_number(
         ).scalar_one()
         # THE FIRST PERIOD, in this transaction (D-665), anchored on the recording: the
         # renewal job computes its periods from the same `created_at`.
-        await collect_number_rental(
+        first_period = await collect_number_rental(
             session,
             tenant_id=tenant_id,
             number_id=number_id,
@@ -246,6 +358,7 @@ async def record_engine_number(
             inr_per_month=price.inr_per_month,
         )
     attachment = await sync_number_attachment(session, number_id=number_id)
+    platform_held = is_platform_held(vendor_ref)
     log.info(
         "engine_number_recorded",
         extra={
@@ -253,6 +366,7 @@ async def record_engine_number(
             "number_id": str(number_id),
             "priced": price is not None,
             "attachment": attachment,
+            "platform_held": platform_held,
         },
     )
     return RecordedEngineNumber(
@@ -261,6 +375,8 @@ async def record_engine_number(
         series=declared,
         client_inr_per_month=price.inr_per_month if price is not None else None,
         attachment=attachment,
+        platform_held=platform_held,
+        first_period=first_period,
     )
 
 
@@ -336,12 +452,15 @@ async def sync_number_attachment(session: AsyncSession, *, number_id: UUID) -> S
 
     A refusal or a partial apply ALARMS and does not raise: the record is ours and correct,
     the operator's request succeeded, and the daily sweep tries again. `not_applicable` for
-    a number that is not on this deployment's engine or has no vendor handle.
+    a number that is not on this deployment's engine or has no vendor handle;
+    `other_workspace` for a platform-held number bound to an agent that now lives in the
+    client's own workspace — nobody answers it, and the admin screen names why.
     """
     provider = engine_number_provider()
     row = (await session.execute(text(_ATTACHMENT_SQL), {"nid": number_id})).first()
     if provider is None or row is None or row[1] != provider or not row[0]:
         return "not_applicable"
+    number_ref = str(row[0])
     agent, calling = wanted_attachment(
         released=row[2] is not None,
         direction=row[3],
@@ -349,10 +468,14 @@ async def sync_number_attachment(session: AsyncSession, *, number_id: UUID) -> S
         engine_agent_ref=row[5],
         archived=row[6] is not None,
     )
+    crossed = any(
+        handle is not None and scope_of(handle) != scope_of(number_ref)
+        for handle in (agent, calling)
+    )
+    if crossed:
+        agent = calling = None
     try:
-        result = await _attach(
-            number_workspace(row[7]), str(row[0]), agent=agent, calling_agent=calling
-        )
+        result = await _attach(number_ref, agent=agent, calling_agent=calling)
     except ProblemError as exc:
         _attachment_failed(number_id, outcome="refused", refusal=exc.code)
         return "refused"
@@ -360,8 +483,10 @@ async def sync_number_attachment(session: AsyncSession, *, number_id: UUID) -> S
         _attachment_failed(number_id, outcome=result.outcome, refusal=result.refusal)
     log.info(
         "engine_number_attachment_synced",
-        extra={"number_id": str(number_id), "outcome": result.outcome},
+        extra={"number_id": str(number_id), "outcome": result.outcome, "crossed": crossed},
     )
+    if crossed and result.outcome in ("unchanged", "applied"):
+        return "other_workspace"
     return result.outcome
 
 
@@ -404,53 +529,51 @@ class NumberReconciliation:
     unchecked: int
     #: Rented numbers recorded before they were priced, priced now from the next renewal.
     priced: int = 0
+    #: Workspaces listed: the developer workspace and every active customer workspace.
+    workspaces: int = 0
+
+
+def _key(workspace: str | None, number: str) -> tuple[str | None, str]:
+    return workspace, digits(number)
 
 
 async def reconcile_engine_number_attachments() -> NumberReconciliation:
-    """Compare the vendor's numbers with ours, both ways, and put every attachment back to
-    our binding. Alarms; adopts nothing; deletes nothing.
+    """Compare every workspace's numbers with ours, both ways, and put every attachment back
+    to our binding. Alarms; adopts nothing; deletes nothing.
 
-    The directory is read under the admin role and nothing else is (`workers/number_rental`
-    argues the shape); each tenant's numbers are read, and re-pointed, in its own session.
+    PER WORKSPACE: the developer workspace (platform-held numbers) and each active customer
+    workspace are listed once; each of our numbers is matched in the workspace its handle
+    names. The directory is read under the admin role and nothing else is; each tenant's
+    numbers are read, and re-pointed, in its own session.
     """
     provider = engine_number_provider()
     if provider is None:
         return NumberReconciliation(0, 0, 0, 0, 0, 0, 0)
-    # PER TENANT, against the list of the workspace that tenant's numbers live in; each
-    # workspace is listed once. Unrecorded is per workspace: what it holds that none of the
-    # tenants in it has recorded.
-    listed: dict[str | None, dict[str, ProvisionedNumber]] = {}
-    recorded: dict[str | None, set[str]] = {}
-    held: dict[str, ProvisionedNumber] = {}
-    ours: dict[str, tuple[UUID, UUID]] = {}
-    missing: set[str] = set()
+    workspaces: list[str | None] = [None]
+    workspaces.extend(row.workspace_id for row in await active_workspaces())
+    listed: dict[tuple[str | None, str], ProvisionedNumber] = {}
+    for workspace in workspaces:
+        for number in await vendor_numbers(workspace):
+            listed[_key(workspace, number.engine_number_ref or number.e164)] = number
+    ours: dict[tuple[str | None, str], tuple[UUID, UUID]] = {}
+    missing: set[tuple[str | None, str]] = set()
     for tenant_id in await live_tenants():
-        workspace = number_workspace(tenant_id)
-        if workspace not in listed:
-            listed[workspace] = {
-                digits(n.engine_number_ref or n.e164): n for n in await vendor_numbers(workspace)
-            }
         async with tenant_session(tenant_id) as scoped:
             rows = (await scoped.execute(text(_ENGINE_ROWS), {"provider": provider})).all()
         for number_id, e164, ref in rows:
-            key = digits(str(ref or e164))
-            recorded.setdefault(workspace, set()).add(key)
-            if key in listed[workspace]:
+            handle = str(ref or e164)
+            key = _key(scope_of(handle), handle)
+            if key in listed:
                 ours[key] = (tenant_id, UUID(str(number_id)))
-                held[key] = listed[workspace][key]
             else:
                 missing.add(key)
-    unrecorded = {
-        key
-        for workspace, numbers in listed.items()
-        for key in numbers.keys() - recorded.get(workspace, set())
-    }
+    unrecorded = set(listed) - set(ours)
     repaired = failed = priced = 0
-    both = sorted(ours)
+    both = sorted(ours, key=lambda k: (k[0] or "", k[1]))
     for key in both[:ATTACHMENT_SWEEP_BUDGET]:
         tenant_id, number_id = ours[key]
         async with tenant_session(tenant_id) as scoped:
-            if held[key].engine_owned:
+            if listed[key].engine_owned:
                 priced += await price_recorded_number(scoped, number_id=number_id)
             outcome = await sync_number_attachment(scoped, number_id=number_id)
         repaired += outcome == "applied"
@@ -458,7 +581,7 @@ async def reconcile_engine_number_attachments() -> NumberReconciliation:
     unchecked = max(len(both) - ATTACHMENT_SWEEP_BUDGET, 0)
     _alarm_reconciliation(unrecorded=len(unrecorded), missing=len(missing), repaired=repaired)
     summary = NumberReconciliation(
-        vendor=sum(len(numbers) for numbers in listed.values()),
+        vendor=len(listed),
         ours=len(ours) + len(missing),
         unrecorded=len(unrecorded),
         missing_at_vendor=len(missing),
@@ -466,6 +589,7 @@ async def reconcile_engine_number_attachments() -> NumberReconciliation:
         failed=failed,
         unchecked=unchecked,
         priced=priced,
+        workspaces=len(workspaces),
     )
     log.info("engine_number_reconciliation", extra=asdict(summary))
     return summary
@@ -480,8 +604,8 @@ def _alarm_reconciliation(*, unrecorded: int, missing: int, repaired: int) -> No
                 f"{unrecorded} number(s) are held on the voice platform with no record here. "
                 "A rented one is charged to us every month and billed to nobody; none of them "
                 "is attached to an agent by us. Record each against its client from that "
-                "client's Numbers page (Record this number), or release it in the voice "
-                "platform's console. Nothing is recorded automatically."
+                "client's Numbers page (Record this number), or release it. Nothing is "
+                "recorded automatically."
             ),
             count=str(unrecorded),
         )
@@ -492,8 +616,8 @@ def _alarm_reconciliation(*, unrecorded: int, missing: int, repaired: int) -> No
             detail=(
                 f"{missing} number(s) recorded here are not held on the voice platform, so the "
                 "agents bound to them answer nothing on them and cannot call from them. Check "
-                "whether the rental lapsed or the number was released in the console, then "
-                "release our record or rent the number again."
+                "whether the rental lapsed or the number was released, then release our record "
+                "or rent the number again."
             ),
             count=str(missing),
         )
@@ -511,15 +635,20 @@ def _alarm_reconciliation(*, unrecorded: int, missing: int, repaired: int) -> No
         )
 
 
+# --- business details --------------------------------------------------------------------
+
+
 async def read_business_details(workspace: str | None = None) -> BusinessDetails | None:
     """`workspace`'s business-details application (the developer workspace by default), or
     None where numbers are not the engine's."""
     if engine_number_provider() is None:
         return None
-    return await _numbers_client(workspace).business_details()
+    return await thinnest_numbers().business_details(workspace)
 
 
-def alarm_lapsed_business_details(details: BusinessDetails) -> bool:
+def alarm_lapsed_business_details(
+    details: BusinessDetails, *, tenant_id: UUID | None = None
+) -> bool:
     """Alarm when the application is rejected, suspended or expired. True when it did."""
     if details.status not in LAPSED_BUSINESS_STATUSES:
         return False
@@ -528,13 +657,41 @@ def alarm_lapsed_business_details(details: BusinessDetails) -> bool:
         "engine_business_details_lapsed",
         detail=(
             f"the voice platform's business-details application is {details.status}, so it "
-            "will not rent a new Indian number for this workspace. Open the Phone Numbers "
-            "KYC tab in the platform's console, correct what the review asks for and send "
-            "the details again."
+            "will not rent a new Indian number for this workspace. A rejected one says what to "
+            "correct on the client's admin page: the client fixes it under Verify your "
+            "business and sends it again. An expired one is sent again automatically."
         ),
         status=details.status,
+        tenant_id=str(tenant_id) if tenant_id is not None else "platform",
     )
     return True
+
+
+# --- buying a number ----------------------------------------------------------------------
+
+
+async def _own(session: AsyncSession, tenant_id: UUID) -> str:
+    workspace = await resolve_workspace(session, tenant_id)
+    if workspace is None:
+        raise workspace_not_provisioned()
+    return workspace
+
+
+async def available_cities(session: AsyncSession, tenant_id: UUID) -> list[AvailableCity]:
+    workspace = await _own(session, tenant_id)
+    return await thinnest_numbers().cities(workspace)
+
+
+async def search_available(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    city: str | None,
+    pattern: str | None,
+    cursor: str | None,
+) -> AvailablePage:
+    workspace = await _own(session, tenant_id)
+    return await thinnest_numbers().search(workspace, city=city, pattern=pattern, cursor=cursor)
 
 
 __all__ = [
@@ -544,14 +701,20 @@ __all__ = [
     "RecordedEngineNumber",
     "SyncOutcome",
     "alarm_lapsed_business_details",
+    "answers_calls",
+    "assert_number_can_answer",
+    "assert_same_workspace",
+    "available_cities",
     "engine_number_provider",
     "held_number",
+    "is_platform_held",
     "live_tenants",
-    "number_workspace",
     "price_recorded_number",
     "read_business_details",
     "reconcile_engine_number_attachments",
     "record_engine_number",
+    "releasable_by",
+    "search_available",
     "sync_number_attachment",
     "vendor_numbers",
     "wanted_attachment",

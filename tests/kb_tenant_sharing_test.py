@@ -12,6 +12,8 @@ the real publish paths (`agents.service.publish_agent`, `kb.service.publish_sour
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import importlib.util
 import uuid
 from pathlib import Path
@@ -88,6 +90,47 @@ class _FailingEngine(_KbEngine):
             )
         await super().detach_kb(ref, kb, agent=agent)
         self.events.append(("detach", ref, kb))
+
+
+class _MintingEngine(_FailingEngine):
+    """Mints a NEW handle on every attach, as ThinnestAI does (an attach is a create), so a
+    re-publish of one source leaves two handles to reconcile. The base fake reuses one handle
+    per (agent, source) and so cannot show a copy left behind on its old content."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._held: dict[str, list[tuple[str, KBSourceRef]]] = {}
+
+    def _sync(self, ref: str) -> None:
+        self._kb[ref] = [source for _, source in self._held.get(ref, [])]
+
+    async def attach_kb(
+        self, ref: EngineAgentRef, source: KBSourceRef, *, agent: AgentConfig | None = None
+    ) -> EngineKBRef:
+        handle = f"kb_{uuid.uuid4().hex}"
+        self._held.setdefault(ref, []).append((handle, source))
+        self._sync(ref)
+        self.events.append(("attach", ref, source.title))
+        return handle
+
+    async def detach_kb(
+        self, ref: EngineAgentRef, kb: EngineKBRef, *, agent: AgentConfig | None = None
+    ) -> None:
+        held = self._held.get(ref, [])
+        if (
+            ref in self.refuse_detach
+            or kb in self.refuse_detach_handles
+            or all(handle != kb for handle, _ in held)
+        ):
+            raise ProblemError(
+                kind="dependency", code="engine_rejected", title="no", detail="refused"
+            )
+        self._held[ref] = [(handle, source) for handle, source in held if handle != kb]
+        self._sync(ref)
+        self.events.append(("detach", ref, kb))
+
+    async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]:
+        return [handle for handle, _ in self._held.get(ref, [])]
 
 
 async def _more_agents(tenant_id: uuid.UUID, count: int) -> list[uuid.UUID]:
@@ -307,6 +350,71 @@ async def test_the_sweep_catches_up_an_agent_nobody_republished(
     assert "Prices" in _titled(engine, ref)
 
 
+async def _route_digests(tenant_id: uuid.UUID, source_id: uuid.UUID) -> dict[uuid.UUID, str]:
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text("SELECT agent_id, digest FROM engine_kb_routes WHERE source_id = :s"),
+                {"s": source_id},
+            )
+        ).all()
+    return {uuid.UUID(str(row[0])): str(row[1]) for row in rows}
+
+
+async def test_the_catch_up_replaces_a_copy_a_republish_left_on_its_old_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A re-publish of the SAME source with new content that one agent refused to finish
+    leaves that agent's claim in place on the old digest. The catch-up must see the stale
+    digest and swap the copy, not count the claim as settled."""
+    raised: list[str] = []
+    monkeypatch.setattr(kb_service, "alert", lambda stage, code, **kw: raised.append(code))
+    engine = _MintingEngine()
+    tenant_id, agents = await _client_with_agents(engine, extra=1)
+    source_id = await _publish_text(tenant_id, engine, "Prices", PRICES)
+    stuck_agent, stuck_ref = agents[1]
+    old_handle = (await _routes(tenant_id, source_id))[stuck_agent]
+    old_digest = (await _route_digests(tenant_id, source_id))[stuck_agent]
+
+    # The same source now renders to different bytes (a changed upload, a renderer change).
+    payload = kb_service._publish_payload
+
+    async def moved(*args: Any, **kwargs: Any) -> tuple[bytes | None, str | None, str]:
+        document, url, digest = await payload(*args, **kwargs)
+        return document, url, hashlib.sha256(f"{digest}:moved".encode()).hexdigest()
+
+    monkeypatch.setattr(kb_service, "_publish_payload", moved)
+    engine.refuse_detach_handles.add(old_handle)
+    with _selected(engine):
+        async with tenant_session(tenant_id) as session:
+            await kb_service.publish_source(session, tenant_id=tenant_id, source_id=source_id)
+    assert raised == ["kb_fan_out_incomplete"]
+    digests = await _route_digests(tenant_id, source_id)
+    new_digest = digests[agents[0][0]]
+    assert new_digest != old_digest
+    assert digests[stuck_agent] == old_digest, "the refusing agent kept its old copy"
+
+    engine.refuse_detach_handles.clear()
+    with _selected(engine):
+        async with tenant_session(tenant_id) as session:
+            done = await kb_service.catch_up_agent(
+                session, tenant_id=tenant_id, agent_id=stuck_agent
+            )
+    assert done is not None and (done.replaced, done.attached) == (1, 0)
+    assert (await _route_digests(tenant_id, source_id))[stuck_agent] == new_digest
+    held = await engine.list_kb(stuck_ref)
+    assert old_handle not in held
+    assert (await _routes(tenant_id, source_id))[stuck_agent] in held
+    assert _titled(engine, stuck_ref).count("Prices") == 1, "never two copies"
+
+    with _selected(engine):
+        async with tenant_session(tenant_id) as session:
+            settled = await kb_service.catch_up_agent(
+                session, tenant_id=tenant_id, agent_id=stuck_agent
+            )
+    assert settled is not None and (settled.attached, settled.replaced) == (0, 0)
+
+
 async def test_a_catch_up_that_fails_is_recorded_and_the_tick_goes_on(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -405,6 +513,88 @@ async def test_archiving_survives_a_vendor_that_will_not_delete(
     assert result.status == "archived"
     assert raised == ["kb_retired_agent_copy_left"]
     assert gone_agent in await _routes(tenant_id, source_id), "the copy left behind stays claimed"
+
+
+async def _waiting_on_an_advisory_lock(timeout_s: float = 10.0) -> None:
+    """Return once some backend is queued behind an advisory lock, or fail."""
+    deadline = asyncio.get_running_loop().time() + timeout_s
+    while asyncio.get_running_loop().time() < deadline:
+        async with untenanted_session() as probe:
+            waiting = (
+                await probe.execute(
+                    text(
+                        "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted"
+                    )
+                )
+            ).scalar_one()
+        if waiting:
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError("nothing queued behind the tenant's knowledge lock")
+
+
+async def test_archiving_takes_the_knowledge_lock_before_the_agent_row() -> None:
+    """The lock order a knowledge publish relies on: tenant knowledge, then agent rows.
+
+    While the knowledge lock is held, an archive must queue on it WITHOUT having locked
+    its agent row — so the holder (standing in for a publish about to rewrite every agent
+    row) can still take that row. With the old order the archive held the row first and
+    the holder's NOWAIT fails, which is the deadlock with a timer instead of a cycle."""
+    engine = _FailingEngine()
+    tenant_id, agents = await _client_with_agents(engine, extra=1)
+    gone_agent, _ = agents[1]
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET status = 'paused' WHERE id = :a"), {"a": gone_agent}
+        )
+
+    async def archive() -> None:
+        async with tenant_session(tenant_id) as session:
+            await lifecycle.archive_agent(session, tenant_id=tenant_id, agent_id=gone_agent)
+
+    with _selected(engine):
+        async with tenant_session(tenant_id) as holder:
+            await kb_service.lock_tenant_knowledge(holder, tenant_id=tenant_id)
+            archiving = asyncio.create_task(archive())
+            await _waiting_on_an_advisory_lock()
+            await holder.execute(
+                text("SELECT 1 FROM agents WHERE id = :a FOR UPDATE NOWAIT"), {"a": gone_agent}
+            )
+        await asyncio.wait_for(archiving, timeout=10)
+
+    async with tenant_session(tenant_id) as session:
+        status = (
+            await session.execute(
+                text("SELECT status FROM agents WHERE id = :a"), {"a": gone_agent}
+            )
+        ).scalar_one()
+    assert status == "archived"
+
+
+async def test_a_publish_that_wrote_its_row_first_is_refused_while_knowledge_publishes() -> None:
+    """A settings writer updates the agent row and then publishes. Meeting a knowledge
+    publish in flight it must refuse, retryably, rather than wait for the lock while
+    holding the row the knowledge publish is about to write."""
+    from apps.api.agents.service import KNOWLEDGE_PUBLISH_IN_PROGRESS, publish_agent
+
+    engine = _FailingEngine()
+    tenant_id, agents = await _client_with_agents(engine, extra=0)
+    agent_id, _ = agents[0]
+    with _selected(engine):
+        async with tenant_session(tenant_id) as holder:
+            await kb_service.lock_tenant_knowledge(holder, tenant_id=tenant_id)
+            with pytest.raises(ProblemError) as refused:
+                async with tenant_session(tenant_id) as session:
+                    await session.execute(
+                        text("UPDATE agents SET updated_at = now() WHERE id = :a"),
+                        {"a": agent_id},
+                    )
+                    await asyncio.wait_for(
+                        publish_agent(session, tenant_id=tenant_id, agent_id=agent_id),
+                        timeout=10,
+                    )
+    assert refused.value.code == KNOWLEDGE_PUBLISH_IN_PROGRESS
+    assert refused.value.status == 409
 
 
 async def test_withdrawing_a_source_removes_it_from_every_agent() -> None:

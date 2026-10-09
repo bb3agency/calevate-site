@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { Disclosure, ProblemNotice, Skeleton } from "@/components/ui";
 import { useKycRecord } from "@/lib/api/kyc";
 import { usePeRegistration } from "@/lib/api/dltRegistration";
-import { useClientSession } from "@/lib/api/session";
+import { useClientRealm } from "@/lib/api/session";
 
 import { useVerificationCopilot } from "./copilot";
 import { DltDetails, dltItem } from "./DltRegistration";
@@ -70,7 +70,7 @@ import { KycSections, PhoneNumbers, WhatWeKeep, kycItem } from "./SubscriberVeri
  * the other: the client whose KYC read fails is often asking why campaigns are refused.
  */
 export default function VerificationPage() {
-  const session = useClientSession();
+  const { session, href } = useClientRealm();
   const kyc = useKycRecord(session);
   const dlt = usePeRegistration(session);
 
@@ -93,7 +93,7 @@ export default function VerificationPage() {
           <>
             What we hold about your business. To verify it, or to accept the no-cold-calls
             pledge, go to{" "}
-            <Link href={`/c/${session.orgSlug}/verify-business`} className="font-semibold underline">
+            <Link href={href(`/c/${session.orgSlug}/verify-business`)} className="font-semibold underline">
               Verify your business
             </Link>
             . Neither affects the calls coming in.

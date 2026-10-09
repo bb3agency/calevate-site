@@ -31,11 +31,13 @@ from typing import Any, Final, Protocol, runtime_checkable
 from uuid import UUID
 
 from calevate_shared.engine import ExecutionSnapshot, VoiceEngine
+from calevate_shared.engine_scope import scope_of
 from sqlalchemy import text
 
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
+from apps.api.engine.thinnest_workspace import in_workspace
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.reliability.engine_intake_keys import open_delivery, seal_delivery
 from apps.workers.storage import read_engine_payload
@@ -69,7 +71,9 @@ def snapshot_of_document(
         raise _unreadable("the delivered document is not JSON") from exc
     if not isinstance(payload, dict):
         raise _unreadable("the delivered document is not an object")
-    snapshot = engine.snapshot_from_delivery(payload)
+    # Read in the workspace the call was keyed in (D-693), so its ids come back as ours.
+    with in_workspace(scope_of(execution_id)):
+        snapshot = engine.snapshot_from_delivery(payload)
     if snapshot.engine_call_id != execution_id:
         raise _unreadable("the delivered document names a different call than its job")
     return snapshot.model_copy(update={"raw_document": document})

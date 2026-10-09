@@ -1,28 +1,27 @@
-"""D-688 left no way to write or read a workspace-scoped engine handle; this proves the audit
-that finds any already stored (`scripts/engine_handle_audit.py`) sees each column it names.
-"""
+"""The handle audit (D-693): a stored handle scoped to a workspace that is not its tenant's own
+is a fault; an unscoped one is an object still in the platform account, reported only."""
 
 from __future__ import annotations
 
-import importlib.util
 import uuid
 
 import pytest
 from apps.api.db.session import tenant_session
+from calevate_shared.engine_scope import scoped_handle
 from scripts import engine_handle_audit
 from sqlalchemy import text
 from tests.smoke_pipeline_test import _seed_tenant
+from tests.workspace_support import give_own_workspace
 
 
-def test_nothing_in_the_tree_can_compose_a_scoped_handle_any_more() -> None:
-    assert importlib.util.find_spec("calevate_shared.engine_scope") is None
-
-
-async def test_the_audit_finds_a_scoped_handle_in_each_column_it_names(
+async def test_the_audit_tells_a_foreign_handle_from_one_in_the_platform_account(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    tenant_id, agent_id = await _seed_tenant(f"ag_{uuid.uuid4().hex[:8]}@org_audit")
-    scoped = f"ag_{uuid.uuid4()}@org_audit"
+    legacy_ref = f"ag_{uuid.uuid4().hex[:8]}"
+    tenant_id, agent_id = await _seed_tenant(legacy_ref)
+    own = await give_own_workspace(tenant_id)
+    foreign = scoped_handle(f"ag_{uuid.uuid4()}", "org_someone-else")
+    mine = scoped_handle(f"out_{uuid.uuid4()}", own)
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
@@ -30,7 +29,7 @@ async def test_the_audit_finds_a_scoped_handle_in_each_column_it_names(
                 "active, created_at, updated_at) VALUES ('thinnest', :ref, :tid, :aid, true, "
                 "now(), now())"
             ),
-            {"ref": scoped, "tid": tenant_id, "aid": agent_id},
+            {"ref": foreign, "tid": tenant_id, "aid": agent_id},
         )
         await session.execute(
             text(
@@ -38,35 +37,29 @@ async def test_the_audit_finds_a_scoped_handle_in_each_column_it_names(
                 "created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, 'inbound', 'completed', "
                 "now(), now())"
             ),
-            {
-                "id": uuid.uuid4(),
-                "tid": tenant_id,
-                "aid": agent_id,
-                "ecid": f"out_{uuid.uuid4()}@org_audit",
-            },
+            {"id": uuid.uuid4(), "tid": tenant_id, "aid": agent_id, "ecid": mine},
         )
     try:
-        counts = await engine_handle_audit.scoped_handle_counts([tenant_id])
-        assert counts["engine_agent_routes.engine_agent_ref"] >= 1
-        assert counts["agents.engine_agent_ref"] == 1
-        assert counts["calls.engine_call_id"] == 1
-        assert "engine_kb_routes.engine_kb_ref" in counts
+        report = await engine_handle_audit.handle_report([tenant_id])
+        assert report["engine_agent_routes.engine_agent_ref"]["foreign"] == 1
+        assert report["agents.engine_agent_ref"] == {"platform_account": 1, "foreign": 0}
+        assert report["calls.engine_call_id"] == {"platform_account": 0, "foreign": 0}
 
-        async def _scoped(_tenants: object = None) -> dict[str, int]:
-            return counts
+        async def _report(_tenants: object = None) -> dict[str, dict[str, int]]:
+            return report
 
-        monkeypatch.setattr(engine_handle_audit, "scoped_handle_counts", _scoped)
+        monkeypatch.setattr(engine_handle_audit, "handle_report", _report)
         assert await engine_handle_audit.main() == 1
-        assert "FOUND agents.engine_agent_ref: 1" in capsys.readouterr().out
+        assert "FOUND engine_agent_routes.engine_agent_ref: foreign=1" in capsys.readouterr().out
 
-        async def _clean(_tenants: object = None) -> dict[str, int]:
-            return dict.fromkeys(counts, 0)
+        async def _clean(_tenants: object = None) -> dict[str, dict[str, int]]:
+            return {k: {"platform_account": 3, "foreign": 0} for k in report}
 
-        monkeypatch.setattr(engine_handle_audit, "scoped_handle_counts", _clean)
+        monkeypatch.setattr(engine_handle_audit, "handle_report", _clean)
         assert await engine_handle_audit.main() == 0
     finally:
         async with tenant_session(tenant_id) as session:
             await session.execute(
                 text("DELETE FROM engine_agent_routes WHERE engine_agent_ref = :ref"),
-                {"ref": scoped},
+                {"ref": foreign},
             )

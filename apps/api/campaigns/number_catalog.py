@@ -184,7 +184,7 @@ async def _vendor_quote_for(
     )
 
 
-async def _assert_can_afford(session: AsyncSession, *, tenant_id: UUID, amount: Decimal) -> None:
+async def assert_can_afford(session: AsyncSession, *, tenant_id: UUID, amount: Decimal) -> None:
     """Refuse a purchase the wallet cannot cover, BEFORE the vendor is called.
 
     ONLY FOR A PREPAID ACCOUNT. A managed client is invoiced against a retainer and has no
@@ -247,7 +247,7 @@ async def purchase_number(
     assert_number_supply_authorized()
     price = await require_attested_price_inr(session)
     holder = await require_holder(session)
-    await _assert_can_afford(session, tenant_id=tenant_id, amount=price.inr_per_month)
+    await assert_can_afford(session, tenant_id=tenant_id, amount=price.inr_per_month)
     quote = await _vendor_quote_for(engine, e164=e164, country=country, pattern=pattern)
 
     # VERIFIED HOLDERS GET A USABLE NUMBER IMMEDIATELY; everyone else gets one that cannot
@@ -351,6 +351,8 @@ async def assign_number_to_agent(
     if row is None:
         raise ProblemError.not_found("Number")
     activated_at, released_at = row
+    # A voice-platform number answers only an agent in its own workspace (D-693).
+    await engine_numbers.assert_number_can_answer(session, number_id=number_id, agent_id=agent_id)
     if agent_id is not None and released_at is None and activated_at is None:
         # RAISES on an unverified holder, in `provisioning.py` where the other two gates
         # live, so the three refusals a client can meet on a number are written once each.
@@ -384,6 +386,7 @@ __all__ = [
     "NumberDirection",
     "OfferedNumber",
     "PurchasedNumber",
+    "assert_can_afford",
     "assign_number_to_agent",
     "browse_numbers",
     "purchase_number",

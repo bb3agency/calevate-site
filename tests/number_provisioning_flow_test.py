@@ -176,7 +176,7 @@ def _pattern() -> str:
 async def _topup(tenant_id: uuid.UUID, amount: str = "5000.00") -> None:
     """Credit, so a purchase is not refused on the wallet it is not about.
 
-    Supplied rather than assumed away: `_assert_can_afford` refuses before the vendor is
+    Supplied rather than assumed away: `assert_can_afford` refuses before the vendor is
     called, so a fixture without this reports `number_insufficient_credit` in place of the
     property under test — the shape `accept_carrier_application` argues for.
     """

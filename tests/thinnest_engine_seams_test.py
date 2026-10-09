@@ -40,6 +40,7 @@ from tests.hosted_voice_fakes import (
     HostingEngine,
     selected,
 )
+from tests.workspace_support import give_own_workspace
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
@@ -223,7 +224,7 @@ async def test_the_chosen_voice_and_model_are_sent_and_nothing_when_none_is_chos
 
 async def test_a_studio_voice_is_set_through_the_own_key_route() -> None:
     """set-agent-byok-voice.md:322-460: `PUT /agents/{id}/byok-voice {voice}`; the agent body
-    names no catalogue voice and says `byok: workspace`. No workspace header (D-688)."""
+    names no catalogue voice and says `byok: workspace`, in the client's own workspace (D-693)."""
     seen: list[tuple[str, str, str | None, dict[str, Any]]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -237,15 +238,15 @@ async def test_a_studio_voice_is_set_through_the_own_key_route() -> None:
             return httpx.Response(200, json={"items": [], "nextCursor": None})
         return httpx.Response(201, json={"id": "ag_9", "voice": "cv-1"})
 
-    cfg = _cfg(engine_byok_voice_id="cv-1", engine_own_voice_key=True)
+    cfg = _cfg(engine_byok_voice_id="cv-1", engine_own_voice_key=True, engine_workspace="org_c9")
     ref = await _engine(handler).create_agent(cfg)
-    assert ref == "ag_9"
+    assert ref == "ag_9@org_c9"
     listing, create, voice, tools = seen
     assert tools[:2] == ("PATCH", "/agents/ag_9/tools")
-    assert listing[:3] == ("GET", "/agents", None)
-    assert create[:3] == ("POST", "/agents", None)
+    assert listing[:3] == ("GET", "/agents", "org_c9")
+    assert create[:3] == ("POST", "/agents", "org_c9")
     assert "voice" not in create[3]["voice"] and create[3]["byok"] == "workspace"
-    assert voice == ("PUT", "/agents/ag_9/byok-voice", None, {"voice": "cv-1"})
+    assert voice == ("PUT", "/agents/ag_9/byok-voice", "org_c9", {"voice": "cv-1"})
 
 
 async def test_two_voices_on_one_agent_are_refused() -> None:
@@ -468,6 +469,7 @@ async def _agent() -> tuple[uuid.UUID, uuid.UUID]:
     )
     tenant_id, agent_id = created["id"], created["agent_id"]
     await accept_agreements(uuid.UUID(str(tenant_id)))
+    await give_own_workspace(uuid.UUID(str(tenant_id)))
     async with tenant_session(tenant_id) as session:
         await prompts.write_prompt_version(
             session,

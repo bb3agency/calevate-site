@@ -41,9 +41,9 @@ from apps.api.compliance.kyc import (
 )
 from apps.api.compliance.kyc_documents import (
     current_documents,
-    delete_quietly,
+    delete_requested_documents,
     open_document,
-    purge_owner_id,
+    request_owner_id_deletion,
 )
 from apps.api.compliance.kyc_routes import KycDocumentOut, documents_out
 from apps.api.compliance.outbound_pledge import PLEDGE_VERSION, read_pledge
@@ -258,7 +258,7 @@ async def download_kyc_document(
             ),
             None,
         )
-        if row is None or row.purged_at is not None:
+        if row is None or not row.held:
             raise ProblemError.not_found("Document")
         ciphertext = await read_kb_object(row.object_key)
         if ciphertext is None:
@@ -375,7 +375,7 @@ async def review_kyc(
             await record_kyc(
                 scoped, tenant_id=tenant_id, status="rejected", rejection_reason=body.reason
             )
-        held_owner_id = await purge_owner_id(scoped, tenant_id=tenant_id)
+        held_owner_id = await request_owner_id_deletion(scoped, tenant_id=tenant_id)
         await write_audit(
             scoped,
             action="kyc.reviewed",
@@ -387,11 +387,11 @@ async def review_kyc(
             summary={
                 "decision": body.decision,
                 "owner_id_type": record.owner_id_type,
-                "owner_id_file_deleted": held_owner_id is not None,
+                "owner_id_file_deletion_requested": held_owner_id is not None,
             },
         )
     if held_owner_id is not None:
-        tasks.add_task(delete_quietly, [held_owner_id])
+        tasks.add_task(delete_requested_documents, tenant_id, [held_owner_id])
     return await _load(tenant_id)
 
 

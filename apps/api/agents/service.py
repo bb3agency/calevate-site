@@ -104,6 +104,7 @@ from calevate_shared.engine import (
     openai_base_url,
     truthful_answer_directive,
 )
+from calevate_shared.engine_scope import scope_of
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -173,6 +174,7 @@ from apps.api.engine.carrier_pacing import (
     start_dial_backoff,
 )
 from apps.api.engine.hosted_platform import hosted_agent_limits
+from apps.api.engine.thinnest_workspace import workspace_not_provisioned
 from apps.api.engine.vendor_http import (
     NUMBER_DAILY_LIMIT_CODE,
     RECIPIENT_OPTED_OUT_CODE,
@@ -183,6 +185,7 @@ from apps.api.legal.service import assert_agreements_accepted
 from apps.api.ops.maintenance import read_open_window
 from apps.api.reliability.engine_actions import ensure_agent_actions, retire_agent_actions
 from apps.api.reliability.engine_webhooks import ensure_agent_webhook
+from apps.api.tenancy.engine_workspace import engine_has_workspaces, resolve_workspace
 from apps.api.tenancy.lifecycle import assert_account_open
 
 # THE ONE READER OF THE THREE `azure_openai_*` CREDENTIAL FIELDS, imported rather than
@@ -2226,6 +2229,133 @@ async def _settle_inbound_silence(
     await _stamp_inbound_silence(session, agent_id=agent_id, reason=INBOUND_SILENCE_CREDITS)
 
 
+#: The job that deletes the vendor agent an agent was recreated FROM (D-693), after the
+#: publish that recreated it committed (`apps/workers/engine_workspaces.py`).
+RETIRE_MOVED_AGENT_JOB = "retire_moved_engine_agent"
+
+
+async def _in_client_workspace(
+    session: AsyncSession,
+    engine: VoiceEngine,
+    *,
+    tenant_id: UUID,
+    agent: AgentRow,
+    config: AgentConfig,
+) -> AgentConfig:
+    """`config` with the client's own workspace, where a NEW vendor agent is made, and the
+    voice as that workspace names it (D-693). Unchanged on an engine without customer
+    workspaces. A tenant whose workspace is not active is refused: nothing of a client's is
+    ever created in our developer workspace."""
+    if not engine_has_workspaces(engine.name):
+        return config
+    workspace = await resolve_workspace(session, tenant_id)
+    if workspace is None:
+        raise workspace_not_provisioned()
+    update: dict[str, Any] = {"engine_workspace": workspace}
+    catalogue_voice = agent.get("engine_voice_id")
+    if config.engine_voice_id and isinstance(catalogue_voice, str):
+        from apps.api.agents.clone_copies import workspace_voice_id
+
+        copy = await workspace_voice_id(
+            session,
+            engine,
+            tenant_id=tenant_id,
+            voice_id=catalogue_voice,
+            workspace=workspace,
+        )
+        if copy is not None:
+            update["engine_voice_id"] = copy
+    return config.model_copy(update=update)
+
+
+def _moves_workspace(existing_ref: str | None, config: AgentConfig) -> bool:
+    """Does the vendor agent behind `existing_ref` live outside the workspace `config` is for?
+    An agent cannot move between workspaces, so it is recreated in the right one."""
+    return (
+        bool(existing_ref)
+        and config.engine_workspace is not None
+        and scope_of(existing_ref) != config.engine_workspace
+    )
+
+
+async def _after_workspace_move(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, old_ref: str
+) -> None:
+    """The agent now answers from its client's own workspace under a new vendor id. In the
+    publish's transaction, before its knowledge converges:
+
+    * the claims on the OLD agent's knowledge copies go — those copies are deleted with the
+      old agent (`DELETE /agents/{id}` "takes the agent's knowledge with it", agents.md:82) —
+      so the D-689 catch-up this publish runs attaches every live source to the new one;
+    * the old agent's deletion is owed through the outbox, so it runs only after this
+      transaction commits. Its route stays active until then, so a late delivery for a call
+      it took before the move still verifies; the retire job switches it off.
+    """
+    await session.execute(
+        text("DELETE FROM engine_kb_routes WHERE agent_id = :aid AND tenant_id = :tid"),
+        {"aid": agent_id, "tid": tenant_id},
+    )
+    from apps.api.reliability.service import enqueue_outbox
+
+    await enqueue_outbox(
+        session,
+        job=RETIRE_MOVED_AGENT_JOB,
+        payload={"tenant_id": str(tenant_id), "agent_id": str(agent_id), "old_ref": old_ref},
+    )
+    log.warning("engine_agent_moved_to_client_workspace", extra={"agent_id": str(agent_id)})
+
+
+async def _resync_agent_numbers(session: AsyncSession, *, agent_id: UUID) -> None:
+    """Point every number bound to a recreated agent at its new vendor id. A number in the
+    agent's new workspace now answers it; a number left in the platform account cannot."""
+    from apps.api.campaigns.engine_numbers import sync_number_attachment
+
+    numbers = (
+        await session.execute(
+            text(
+                "SELECT id FROM phone_numbers WHERE agent_id = :aid AND released_at IS NULL "
+                "ORDER BY created_at, id"
+            ),
+            {"aid": agent_id},
+        )
+    ).scalars()
+    for number_id in list(numbers):
+        await sync_number_attachment(session, number_id=UUID(str(number_id)))
+
+
+#: The publish refusal while another transaction is changing the tenant's knowledge.
+KNOWLEDGE_PUBLISH_IN_PROGRESS: Final = "kb_publish_in_progress"
+
+
+async def _hold_tenant_knowledge(session: AsyncSession, *, tenant_id: UUID) -> None:
+    """Take the tenant's knowledge lock BEFORE `_load_agent` locks the agent row.
+
+    LOCK ORDER IS TENANT KNOWLEDGE, THEN AGENTS. A knowledge publish holds
+    `kb/service.lock_tenant_knowledge` and then writes every agent row (`recompile_t0`, the
+    pack refresh); a publish that locked its agent row first and then waited for the tenant
+    lock (`engine_facts.sync_business_facts`) closed a cycle, PostgreSQL aborted one side
+    with 40P01, and nothing retried it — an aborted knowledge publish leaves the vendor
+    holding copies our rows do not record.
+
+    TRY, NOT WAIT: a caller that already wrote the agent row in this transaction (the
+    settings writers in `agents/publishing.py`) would otherwise still wait while holding
+    the row. The lock is re-entrant, so a caller that took it first — `agents/lifecycle`'s
+    movers, a knowledge publish republishing its agents — passes straight through; any
+    other caller meeting a publish in flight is refused as retryable, and its rollback
+    releases the row the publish needs.
+    """
+    # Imported here: `kb.service` imports `agents.t0`, which imports this module.
+    from apps.api.kb.service import try_lock_tenant_knowledge
+
+    if await try_lock_tenant_knowledge(session, tenant_id=tenant_id):
+        return
+    raise ProblemError.conflict(
+        KNOWLEDGE_PUBLISH_IN_PROGRESS,
+        "This account's knowledge is being updated on the voice platform right now.",
+        remediation="Try again in a minute, once the update has finished.",
+    )
+
+
 async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> str:
     """Create or update the agent on the engine, VERIFY it, then record the mapping.
 
@@ -2259,6 +2389,7 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     # agent at the vendor with nothing pointing at it. `suspended` is deliberately allowed
     # through — see the predicate, which argues why a billing stop is not an access stop.
     await assert_account_open(session, tenant_id=tenant_id)
+    await _hold_tenant_knowledge(session, tenant_id=tenant_id)
 
     # AND THE PLATFORM MUST NOT BE IN A MAINTENANCE WINDOW (D-544).
     #
@@ -2439,7 +2570,16 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
         session, engine, voice_id=voice_choice, model_id=model_choice
     )
 
+    config = await _in_client_workspace(
+        session, engine, tenant_id=tenant_id, agent=agent, config=config
+    )
     existing_ref = agent["engine_agent_ref"]
+    # AN AGENT MADE IN OUR DEVELOPER WORKSPACE BEFORE D-693 is recreated in its client's own
+    # workspace on this publish, under a new vendor id. The old one keeps answering until
+    # this transaction commits, and is deleted only after (`_after_workspace_move`).
+    moved_from: str | None = None
+    if isinstance(existing_ref, str) and _moves_workspace(existing_ref, config):
+        moved_from, existing_ref = existing_ref, None
     created = not (isinstance(existing_ref, str) and existing_ref)
     if isinstance(existing_ref, str) and existing_ref:
         await engine.update_agent(existing_ref, config)
@@ -2543,6 +2683,10 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
         ),
         {"engine": engine.name, "ref": ref, "tid": tenant_id, "aid": agent_id},
     )
+    if moved_from is not None:
+        await _after_workspace_move(
+            session, tenant_id=tenant_id, agent_id=agent_id, old_ref=moved_from
+        )
     await _ensure_results_webhook(
         engine, ref=ref, agent_id=agent_id, created=created, session=session, rate_key=rate_key
     )
@@ -2557,6 +2701,8 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
         created=created,
         live_handover=handoff is not None,
     )
+    if moved_from is not None:
+        await _resync_agent_numbers(session, agent_id=agent_id)
     # THE INBOUND HALF OF PUBLISHING (D-420). Publishing is "make the engine hold what our
     # database says", and until now that covered the agent and stopped short of the one
     # fact that decides whether a client's number rings anything at all. It runs AFTER the
@@ -2786,6 +2932,14 @@ async def publish_variant(
     rate_key = await engine_rate_key_for(
         session, engine, voice_id=voice_choice, model_id=model_choice
     )
+    config = await _in_client_workspace(
+        session, engine, tenant_id=tenant_id, agent=agent, config=config
+    )
+    # An arm made in our developer workspace is recreated in the client's own, as its agent
+    # is (D-693); the old arm is deleted after this transaction commits.
+    moved_from: str | None = None
+    if existing_ref and _moves_workspace(existing_ref, config):
+        moved_from, existing_ref = existing_ref, None
     if existing_ref:
         await engine.update_agent(existing_ref, config)
         ref = existing_ref
@@ -2836,6 +2990,18 @@ async def publish_variant(
         ),
         {"engine": engine.name, "ref": ref, "tid": tenant_id, "aid": agent_id},
     )
+    if moved_from is not None:
+        from apps.api.reliability.service import enqueue_outbox
+
+        await enqueue_outbox(
+            session,
+            job=RETIRE_MOVED_AGENT_JOB,
+            payload={
+                "tenant_id": str(tenant_id),
+                "agent_id": str(agent_id),
+                "old_ref": moved_from,
+            },
+        )
     # An arm is its own vendor agent and its calls report through their own endpoint.
     await _ensure_results_webhook(
         engine,
@@ -4182,6 +4348,7 @@ __all__ = [
     "INBOUND_SILENCE_PRECEDENCE",
     "INBOUND_SILENCE_REASONS",
     "INBOUND_SILENCE_TRUTHFUL_ANSWER",
+    "KNOWLEDGE_PUBLISH_IN_PROGRESS",
     "NUMBER_INBOUND_ONLY_REASON",
     "NUMBER_INBOUND_ONLY_RULE",
     "NUMBER_NOT_ON_CARRIER_REASON",

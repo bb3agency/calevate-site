@@ -96,6 +96,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.actions.routes import router as actions_router
     from apps.api.admin.account_routes import router as tenant_account_router
     from apps.api.admin.closure_routes import router as tenant_closure_router
+    from apps.api.admin.engine_workspace_routes import router as engine_workspace_router
     from apps.api.admin.health_routes import router as client_health_router
     from apps.api.admin.holds_routes import router as hold_queue_router
     from apps.api.admin.members_routes import router as tenant_members_router
@@ -135,6 +136,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.trial_routes import router as trials_admin_router
     from apps.api.billing.wallet_routes import router as wallet_router
     from apps.api.callbacks.routes import router as callbacks_router
+    from apps.api.campaigns.engine_number_routes import router as own_numbers_router
     from apps.api.campaigns.number_pricing_routes import (
         router as number_pricing_router,
     )
@@ -248,6 +250,7 @@ def _mount_routers(application: FastAPI) -> None:
     # about a client. The tenant-scoped operations carry the tenant in their path
     # under this prefix instead.
     application.include_router(number_supply_router)
+    application.include_router(engine_workspace_router)
     # The client health board, for the same reason and with the same hazard in mind: it
     # is a cross-tenant exception report, so it gets its own `/v1/admin/client-health`
     # prefix rather than a segment under `/v1/admin/tenants/{tenant_id}`.
@@ -295,6 +298,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(campaigns_router)
     # `/v1/numbers` — its own prefix, so nothing above can swallow it. It lives in the
     # campaigns package because that module owns `phone_numbers`.
+    application.include_router(own_numbers_router)
     application.include_router(numbers_router)
     application.include_router(sender_attestation_router)
     # What a number-month costs a client, attested by an operator. Admin realm, its own

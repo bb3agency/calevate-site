@@ -1,15 +1,22 @@
-"""Switching Studio voices on and off in our one ThinnestAI workspace (D-688).
+"""Switching Studio voices on and off (D-688), for every client workspace at once (D-693).
 
 Studio is our Cartesia key, installed as the developer workspace's voice-only own key (BYOK
 scope `voice`), and spoken by every agent whose `byok` is `workspace`; Clear agents are set to
 `off` and stay on ThinnestAI's own voices whatever the workspace does (LIVE-DOCS
 `docs.thinnest.ai/api-reference/agents/update-agent`, 8 Oct 2026; evaluation §12 item 1).
+Each client's own customer workspace inherits the developer workspace's keys and scope while
+it brings none of its own, and turning BYOK off in the developer workspace turns it off for
+every customer that inherits it (`thinnest-findings/mirror/snapshots/2026-10-08/pages/
+api-reference/bring-your-own-keys.md:128-133`). So the switch is made once, here, and the
+per-agent `byok: off` is set on every published agent in EVERY workspace: the route table
+names each one, and its handle names its workspace.
 
 The ORDER of `enable_studio_voices` is the safety property. Turning voice-only BYOK on moves
 every agent that is not `off` onto Cartesia at the Studio rate (evaluation §12, "What changes
 for Calevate"), so every published agent that is not on a Studio voice is set to `off` and read
 back FIRST, and nothing is switched on while any of them is not. Then our key is installed,
-unless the workspace already holds a Cartesia voice key, then switched on, then read back.
+unless the workspace already holds a Cartesia voice key, then switched on, then read back, and
+each client workspace is read to confirm it inherits (`using: developer`).
 """
 
 from __future__ import annotations
@@ -30,6 +37,8 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.engine.catalogue import HostsVoices, OwnVoiceKeyState
+from apps.api.engine.thinnest_workspace import in_workspace
+from apps.api.tenancy.engine_workspace import active_workspaces
 
 log = get_logger(__name__)
 
@@ -63,6 +72,8 @@ class StudioSwitchResult:
     agents_kept_off: int
     #: Our Cartesia key was installed by this call (False: the workspace already held one).
     key_installed: bool
+    #: Client workspaces that do not report running on our keys after the switch (D-693).
+    workspaces_not_inheriting: int = 0
 
 
 def _agents_not_kept_off(count: int) -> ProblemError:
@@ -87,6 +98,19 @@ def _no_cartesia_key() -> ProblemError:
         detail="Studio voices speak on our Cartesia key, and none is set on this deployment.",
         remediation="Install the Cartesia API key in the ops console, then run this again.",
     )
+
+
+async def workspaces_not_inheriting(engine: HostsVoices) -> int:
+    """How many active client workspaces do NOT run on our keys: each must answer `GET /byok`
+    with `using: developer` (inheriting ours) or `own` (`api-reference/bring-your-own-keys/
+    get-byok-status.md:465-473`; customers inherit, `bring-your-own-keys.md:128-133`)."""
+    count = 0
+    for row in await active_workspaces():
+        with in_workspace(row.workspace_id):
+            state = await engine.own_key_state()
+        if state.using not in ("developer", "own"):
+            count += 1
+    return count
 
 
 async def enable_studio_voices(
@@ -121,15 +145,22 @@ async def enable_studio_voices(
         installed = True
     await engine.enable_own_voice_key()
     state = await engine.own_key_state()
+    not_inheriting = await workspaces_not_inheriting(engine)
     log.info(
         "studio_voices_enabled",
         extra={
             "agents_kept_off": len(routes),
             "key_installed": installed,
             "ready": own_voice_key_ready(state),
+            "workspaces_not_inheriting": not_inheriting,
         },
     )
-    return StudioSwitchResult(state=state, agents_kept_off=len(routes), key_installed=installed)
+    return StudioSwitchResult(
+        state=state,
+        agents_kept_off=len(routes),
+        key_installed=installed,
+        workspaces_not_inheriting=not_inheriting,
+    )
 
 
 async def disable_studio_voices(session: AsyncSession, engine: HostsVoices) -> OwnVoiceKeyState:
@@ -146,4 +177,5 @@ __all__ = [
     "disable_studio_voices",
     "enable_studio_voices",
     "published_routes",
+    "workspaces_not_inheriting",
 ]

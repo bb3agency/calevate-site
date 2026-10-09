@@ -801,9 +801,13 @@ class KycDocument(PKMixin, TimestampMixin, Base):
 
     The bytes are in object storage under `kyc-documents/{tenant}/`. One CURRENT row per
     `(tenant, slot)`; a replacement stamps `superseded_at` on the old row, so the file an
-    admin reviewed stays identifiable after the client uploads another. `purged_at` is set
-    when the bytes are deleted (an owner ID once its review is decided) while the row stays
-    as the record that it existed.
+    admin reviewed stays identifiable after the client uploads another.
+
+    `delete_requested_at` is set when the file is due to go (an owner ID once its review is
+    decided, a superseded upload) and `purged_at` only after the object delete succeeded,
+    so a failed delete is a row the nightly purge retries (`workers/kyc_owner_id_purge`,
+    migration b4d8e1f3a6c9) rather than one reading "deleted" over a file still held. The
+    row stays as the record that the file existed.
     """
 
     __tablename__ = "kyc_documents"
@@ -820,6 +824,9 @@ class KycDocument(PKMixin, TimestampMixin, Base):
         CheckConstraint("size_bytes > 0 AND size_bytes <= 5242880", name="size_bounded"),
         CheckConstraint("char_length(filename) BETWEEN 1 AND 99", name="filename_bounded"),
         CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="sha256_hex"),
+        CheckConstraint(
+            "purged_at IS NULL OR delete_requested_at IS NOT NULL", name="purged_after_requested"
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -841,6 +848,7 @@ class KycDocument(PKMixin, TimestampMixin, Base):
     dek_nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     kek_version: Mapped[int] = mapped_column(Integer, nullable=False)
     superseded_at: Mapped[datetime | None]
+    delete_requested_at: Mapped[datetime | None]
     purged_at: Mapped[datetime | None]
 
 

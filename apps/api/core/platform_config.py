@@ -536,6 +536,10 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # Read inside every ThinnestAI dial's intent transaction (`agents/service.dispatch_call`)
     # and once per dispatch tick for the outbound pool, like `carrier_concurrency`.
     "thinnest_max_concurrent_calls": AppliesRule(LIVE),
+    # Read by the ops dashboard and the provisioning alarm each time (D-693).
+    "thinnest_customer_plan": AppliesRule(LIVE),
+    # Compared on every workspace header and every own-workspace check (D-693).
+    "thinnest_developer_workspace_id": AppliesRule(LIVE),
     # Where ThinnestAI's in-call actions call us. Written into each action at publish
     # (`reliability/engine_actions.py`); the drift check repairs a live agent's actions on
     # its next pass, and a republish does it at once.

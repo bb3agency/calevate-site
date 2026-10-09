@@ -49,6 +49,7 @@ from calevate_shared.engine import (
 )
 from sqlalchemy import text
 from tests.conftest import accept_agreements
+from tests.workspace_support import give_own_workspace
 
 OPENING = "Idi AI assistant. Ee call record avutundi."
 
@@ -204,6 +205,7 @@ async def _agent_with_script(script: str) -> tuple[uuid.UUID, uuid.UUID]:
     )
     tenant_id, agent_id = created["id"], created["agent_id"]
     await accept_agreements(uuid.UUID(str(tenant_id)))
+    await give_own_workspace(uuid.UUID(str(tenant_id)))
     async with tenant_session(tenant_id) as session:
         await prompts.write_prompt_version(
             session,

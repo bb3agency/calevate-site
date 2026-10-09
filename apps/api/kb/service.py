@@ -969,12 +969,13 @@ async def lock_tenant_knowledge(session: AsyncSession, *, tenant_id: UUID) -> No
     other tenant waits, and the sweeps take the TRY form so a long publish costs them one
     skipped tick.
 
-    LOCK ORDER. The agent publish path takes an `agents` row lock before this one
-    (`agents/service.publish_agent` writes the row, then `engine_facts.sync_business_facts`
-    takes this lock), while a KB publish holding this lock re-publishes each live agent
-    through `recompile_t0`, which writes that row. The two orders can meet on one agent;
-    PostgreSQL detects the cycle and aborts one transaction (40P01), which the caller
-    retries. The same inversion existed per agent before D-689.
+    LOCK ORDER: THIS LOCK, THEN `agents` ROWS. A publish holding this lock writes every
+    agent row of the tenant (`recompile_t0`, the pack refresh), so a transaction that locked
+    an agent row and then waited here would close a cycle; PostgreSQL would abort one side
+    with 40P01 and nothing retries it. So the agent side takes this lock first:
+    `agents/lifecycle`'s movers with this blocking form, and `agents/service.publish_agent`
+    with the TRY form before it loads its row `FOR UPDATE` — refusing, rather than waiting,
+    when a caller already wrote the row and the lock is busy.
     """
     await session.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
@@ -2059,6 +2060,8 @@ class CatchUp:
     """What `converge_agent_knowledge` did to one vendor agent."""
 
     attached: int = 0
+    #: Live copies older than their source's current one, swapped for the current one.
+    replaced: int = 0
     withdrawn: int = 0
     #: True when the agent holds a copy no row of ours names, and nothing was changed.
     skipped_unaccounted: bool = False
@@ -2081,13 +2084,16 @@ async def converge_agent_knowledge(
     (`workers/kb_gloss.py`).
 
     WHAT IT TOUCHES, AND WHAT IT NEVER DOES. It attaches a live source that has NO claim on
-    this agent, and withdraws a copy WE recorded of a version that is no longer live. It
-    never deletes a vendor object our rows do not name and never re-uploads a recorded copy
-    the vendor stopped listing — those are drifts a human decides on
-    (`kb/reconciliation.py`, D-121). And when the agent holds a copy no row of ours names it
-    changes nothing at all: attaching beside an unaccounted copy is the stacking
-    `kb_engine_out_of_sync` exists to refuse, and refusing here would fail an agent publish
-    over a knowledge divergence.
+    this agent, withdraws a copy WE recorded of a version that is no longer live, and
+    replaces a live copy whose recorded digest is older than the source's current one (a
+    re-publish of the same source that could not complete on this agent): the current copy
+    is attached first and the old one withdrawn after, and if the withdrawal fails the new
+    copy comes down again so the agent never holds two. It never deletes a vendor object our
+    rows do not name and never re-uploads a recorded copy the vendor stopped listing — those
+    are drifts a human decides on (`kb/reconciliation.py`, D-121). And when the agent holds a
+    copy no row of ours names it changes nothing at all: attaching beside an unaccounted copy
+    is the stacking `kb_engine_out_of_sync` exists to refuse, and refusing here would fail an
+    agent publish over a knowledge divergence.
 
     The caller holds the tenant's knowledge lock. An attach that fails takes down the copies
     this call already added and re-raises; a withdrawal that fails is logged and left for
@@ -2095,15 +2101,29 @@ async def converge_agent_knowledge(
     """
     if not engine.capabilities.has("knowledge_base"):
         return CatchUp()
+    # `newest` is the digest the latest completed publish of that source handed the vendor,
+    # read from the route it wrote last: a publish that could not complete on this agent
+    # left this agent's route on the older digest while the others moved on.
     held = (
         await session.execute(
             text(
-                f"SELECT r.source_id, r.engine_kb_ref, s.is_active {_ROUTE_JOIN} r.agent_id = :aid"
+                "SELECT r.source_id, r.engine_kb_ref, s.is_active, r.digest, "
+                "  (SELECT o.digest FROM engine_kb_routes o WHERE o.source_id = r.source_id "
+                "   ORDER BY o.updated_at DESC, o.agent_id LIMIT 1) "
+                f"{_ROUTE_JOIN} r.agent_id = :aid"
             ),
             {"aid": agent_id},
         )
     ).all()
     held_ids = {UUID(str(row[0])) for row in held}
+    # A live copy older than the source's current one is replaced: attach the current copy,
+    # then withdraw this one, as a publish would have.
+    outdated = {
+        UUID(str(row[0])): str(row[1])
+        for row in held
+        if row[2] and row[4] is not None and row[3] != row[4]
+    }
+    held_digest = {UUID(str(row[0])): row[3] for row in held}
     live = (
         await session.execute(
             text(
@@ -2116,8 +2136,9 @@ async def converge_agent_knowledge(
     missing = [
         (UUID(str(row[0])), str(row[1])) for row in live if UUID(str(row[0])) not in held_ids
     ]
+    replace = [(UUID(str(row[0])), str(row[1])) for row in live if UUID(str(row[0])) in outdated]
     stale = [(UUID(str(row[0])), str(row[1])) for row in held if not row[2]]
-    if not missing and not stale:
+    if not missing and not stale and not replace:
         # Settled, and decided from our own rows: no vendor call on the common path.
         return CatchUp()
     attached_now = await _listing_or_none(engine, ref, agent_id=agent_id)
@@ -2127,10 +2148,12 @@ async def converge_agent_knowledge(
         return CatchUp(skipped_unaccounted=True)
 
     config = await _publish_config(session, tenant_id, agent_id)
-    minted: list[tuple[UUID, str]] = []
+    minted: list[tuple[UUID, str, str]] = []
     try:
-        for source_id, name in missing:
+        for source_id, name in [*missing, *replace]:
             document, source_url, digest = await _publish_payload(session, source_id, name=name)
+            if source_id in outdated and digest == held_digest[source_id]:
+                continue  # what this agent holds is what the source renders to now
             payload = _Payload(
                 chunks=await _chunks_of(session, source_id),
                 document=document,
@@ -2138,12 +2161,37 @@ async def converge_agent_knowledge(
                 digest=digest,
             )
             handle = await engine.attach_kb(ref, payload.ref(source_id, name), agent=config)
-            minted.append((source_id, handle))
-            await _remember_engine_kb_ref(session, source_id, agent_id, handle, digest=digest)
+            minted.append((source_id, handle, digest))
+            if source_id not in outdated:
+                await _remember_engine_kb_ref(session, source_id, agent_id, handle, digest=digest)
     except Exception:
-        for source_id, handle in minted:
+        for source_id, handle, _ in minted:
             await _undo_attach(engine, ref, agent=config, attached_ref=handle, source_id=source_id)
         raise
+
+    replaced = 0
+    for source_id, handle, digest in minted:
+        if source_id not in outdated:
+            continue
+        try:
+            # Clears this source's route on success, so the new handle is recorded after.
+            await _detach_superseded(
+                session,
+                engine,
+                ref,
+                source_id,
+                outdated[source_id],
+                agent_id=agent_id,
+                agent=config,
+                attached=attached_now,
+            )
+        except ProblemError:
+            # Both copies would otherwise be attached with one recorded; the next pass
+            # tries the replacement again.
+            await _undo_attach(engine, ref, agent=config, attached_ref=handle, source_id=source_id)
+            continue
+        await _remember_engine_kb_ref(session, source_id, agent_id, handle, digest=digest)
+        replaced += 1
 
     withdrawn = 0
     for source_id, handle in stale:
@@ -2161,11 +2209,17 @@ async def converge_agent_knowledge(
         except ProblemError:
             continue
         withdrawn += 1
+    attached = sum(1 for source_id, _, _ in minted if source_id not in outdated)
     log.info(
         "kb_agent_caught_up",
-        extra={"agent_id": str(agent_id), "attached": len(minted), "withdrawn": withdrawn},
+        extra={
+            "agent_id": str(agent_id),
+            "attached": attached,
+            "replaced": replaced,
+            "withdrawn": withdrawn,
+        },
     )
-    return CatchUp(attached=len(minted), withdrawn=withdrawn)
+    return CatchUp(attached=attached, replaced=replaced, withdrawn=withdrawn)
 
 
 async def withdraw_agent_knowledge(

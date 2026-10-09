@@ -58,6 +58,8 @@ from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.charges import EngineCharge, ReportsCharges
+from apps.api.engine.thinnest_workspace import in_workspace
+from apps.workers.workspace_walk import WalkReport, walk_workspaces
 
 log = get_logger(__name__)
 
@@ -259,9 +261,22 @@ async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None 
     if not isinstance(engine, ReportsCharges) or not engine.holds_credentials():
         return "engine_without_charges"
     since = ((now or datetime.now(UTC)) - timedelta(days=CHARGE_LOOKBACK_DAYS)).date()
-    listing = await engine.list_call_charges(since=since)
+    # PER WORKSPACE (D-693): each client's calls are charged in its own customer workspace,
+    # and the developer workspace holds the calls of agents made before D-693. The balance
+    # charged is always ours; `costMicro` is read where each call ran.
+    charges: list[EngineCharge] = []
+    complete = True
+    other_currency = 0
+    walk = WalkReport()
+    async for visit in walk_workspaces("engine_charges", report=walk):
+        with in_workspace(visit.workspace):
+            listing = await engine.list_call_charges(since=since)
+        charges.extend(listing.charges)
+        complete = complete and listing.complete
+        other_currency += listing.other_currency
+    complete = complete and walk.deferred == 0
     tally = _Tally()
-    for charge in listing.charges:
+    for charge in charges:
         try:
             await _compare(engine.name, charge, tally)
         except Exception as exc:
@@ -297,20 +312,21 @@ async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None 
                 "has been metered yet or the log's call ids are not the ones we store."
             ),
         )
-    if not listing.complete or tally.unreached:
+    if not complete or tally.unreached:
         log.warning(
             "engine_charge_sweep_incomplete",
             extra={
                 "engine": engine.name,
-                "listing_complete": listing.complete,
-                "other_currency": listing.other_currency,
+                "listing_complete": complete,
+                "other_currency": other_currency,
+                "workspaces_deferred": walk.deferred,
                 "unreached": tally.unreached,
             },
         )
     return (
         f"compared={tally.compared} matched={tally.matched} unmatched={tally.unmatched} "
         f"unpriced={tally.unpriced} mismatched={len(tally.mismatched)} "
-        f"unreached={tally.unreached} complete={listing.complete}"
+        f"unreached={tally.unreached} complete={complete} workspaces={walk.visited}"
     )
 
 

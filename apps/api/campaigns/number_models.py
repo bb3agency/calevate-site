@@ -34,7 +34,9 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -103,3 +105,50 @@ class NumberPriceAttestation(PKMixin, Base):
 
 
 __all__ = ["HOLDER_TYPES", "NumberHolder", "NumberPriceAttestation"]
+
+
+class EngineNumberPurchase(PKMixin, Base):
+    """One request to rent a number in a client's own ThinnestAI workspace (D-693).
+
+    Keyed by the caller's idempotency key, per tenant, so a double-click or a retried request
+    buys one number. The row is committed in `renting` BEFORE the vendor is asked, and moved
+    to `recorded` (with the `phone_numbers` row) or `refused` after; a row left in `renting`
+    by a lost response is finished by reading the number back from the vendor, never by
+    renting again.
+    """
+
+    __tablename__ = "engine_number_purchases"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('renting', 'recorded', 'refused', 'failed')", name="status_enum"
+        ),
+        CheckConstraint("direction IN ('inbound', 'outbound', 'both')", name="direction_enum"),
+        CheckConstraint("requested_by IN ('client', 'admin')", name="requested_by_enum"),
+        CheckConstraint("idempotency_key ~ '^[A-Za-z0-9_-]{8,100}$'", name="idempotency_key_shape"),
+        CheckConstraint("vendor_number ~ '^[0-9]{8,15}$'", name="vendor_number_digits"),
+        CheckConstraint(
+            "status <> 'recorded' OR number_id IS NOT NULL", name="recorded_has_number"
+        ),
+        UniqueConstraint("tenant_id", "idempotency_key"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
+    vendor_number: Mapped[str] = mapped_column(Text, nullable=False)
+    workspace_id: Mapped[str] = mapped_column(Text, nullable=False)
+    agent_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    direction: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'renting'"))
+    number_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("phone_numbers.id", ondelete="RESTRICT"), nullable=True
+    )
+    refusal_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_by: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

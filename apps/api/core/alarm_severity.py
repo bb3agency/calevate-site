@@ -353,6 +353,21 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # erasure already did their part; the remaining copy is one task for an operator.
     "engine_dnc_push_failed": "attention",
     "engine_contact_erasure_failed": "attention",
+    # D-693, each client's own ThinnestAI customer workspace. A client without one cannot
+    # publish or buy a number, which is one client and recoverable in the day by an operator
+    # (a plan upgrade, a retry): attention, never a page. A workspace left holding rented
+    # numbers after an offboarding is money leaking monthly, still one operator task.
+    "engine_workspace_plan_limit": "attention",
+    "engine_workspace_provisioning_failed": "attention",
+    "engine_workspace_offboarding_failed": "attention",
+    "engine_workspace_byok_not_inherited": "attention",
+    "engine_business_details_submit_failed": "attention",
+    "engine_agent_retire_failed": "attention",
+    "engine_action_workspace_mismatch": "attention",
+    "engine_number_rent_unfunded": "attention",
+    # A purchase the vendor did not answer clearly. Nothing charged; the client's repeat of the
+    # same request finishes it or says it did not happen. A trend, not a page.
+    "engine_number_purchase_unconfirmed": "record",
     "engine_call_settled_without_delivery": "attention",
     # D-678 phase 2, call lifecycle. The vendor deleted (or pointed away) a recording we
     # had not copied: unrecoverable against our 90-day floor.

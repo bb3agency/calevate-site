@@ -346,6 +346,16 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "registration row. MATERIAL: a stored document class that revision 13 said "
                 "we never hold.",
             ),
+            Revision(
+                "15",
+                True,
+                "Section 4's DigiLocker route now says we receive the whole record the owner "
+                "chose (which can include date of birth, gender, address and contact details, "
+                "a photo link and the full PAN), read it in memory and keep only the name on "
+                "it, whether that name matches the OWNER the client named (not the business) "
+                "and the masked number; the kept list gains that name. MATERIAL: a reader "
+                "learns we receive more than revision 14 said.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -788,6 +798,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 True,
                 "D-692: adds the identity-verification category (DigiLocker), configured, "
                 "not enabled until its credentials are set. MATERIAL: a new sub-processor.",
+            ),
+            Revision(
+                "15",
+                True,
+                "The identity-verification row now says we receive the whole record the owner "
+                "chose (which can include date of birth, gender, address and contact details, "
+                "a photo link and the full PAN), read it in memory and keep only the name, a "
+                "masked number and the reference. MATERIAL: we receive more than revision 14 "
+                "said.",
             ),
         ),
         effective_date="2026-09-02",

@@ -374,6 +374,12 @@ async def close_account(
         "account_closed",
         extra={"tenant_id": str(tenant_id), "grace_days": grace_days},
     )
+    # The client's own voice workspace is offboarded with the account (D-693): its numbers
+    # released (our rental stops with the closure; the vendor's would not), its agents
+    # deleted, the customer deleted. In this transaction, through the outbox.
+    from apps.api.tenancy.engine_workspace import queue_workspace_offboarding
+
+    await queue_workspace_offboarding(session, tenant_id=tenant_id)
     return _record(tenant_id, row)
 
 
@@ -436,6 +442,11 @@ async def restore_account(
         return await read_closure(session, tenant_id=tenant_id)
 
     log.warning("account_restored", extra={"tenant_id": str(tenant_id), "status": to_status})
+    # A restored account gets its voice workspace back: the deleted customer is restored
+    # while the vendor still holds it, or a new one is made (D-693).
+    from apps.api.tenancy.engine_workspace import queue_workspace_provisioning
+
+    await queue_workspace_provisioning(session, tenant_id=tenant_id, reopen=True)
     return _record(tenant_id, row)
 
 

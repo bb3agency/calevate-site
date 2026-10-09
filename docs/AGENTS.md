@@ -23,16 +23,23 @@ D-681's "Clear = Premium band" and its "Studio on hold", and D-687's Studio work
   `docs.thinnest.ai/api-reference/agents/update-agent`, evaluation §12 item 1). Switched on
   once per deployment by Voices, "Enable Studio voices", which keeps every Clear agent `off`
   first.
-- **Knowledge belongs to the client** and every agent of that client carries it (D-689).
+- **Knowledge belongs to the client** and every agent of that client carries it, on both
+  engines: Pipecat agents share it too (D-689, founder 9 Oct 2026).
 - **The adapter follows ThinnestAI's 8 Oct docs** (D-690, D-691): built-in tools pinned at
   publish, `voice.language`, `answersCalls` pause, caller memory `recap`/`fresh`, signed
   (v2) webhooks deduped on the event id, numbers recorded and attached in our console, DNC
   and contact erasure pushed only into a client's OWN workspace, never the developer one.
 - **Outbound needs no DLT** (D-692): a verified KYC record (manual review or DigiLocker,
   Aadhaar or PAN) and an accepted no-cold-calls pledge. Inbound is never gated.
-- **One ThinnestAI customer workspace per client** is the founder's decision (8 Oct 2026), so
-  numbers are rented in the client's name; it replaces D-688's single developer workspace
-  for tenant resources and is being built (`docs/THINNEST-INTEGRATION.md`).
+- **One ThinnestAI customer workspace per client (D-693, built 9 Oct 2026).** Each client's
+  agents, calls, numbers, contacts and do-not-call list live in its own customer workspace
+  (`Thinnest-Workspace: org_…`), resolved only by `tenancy/engine_workspace.resolve_workspace`
+  and sent only by `engine/thinnest_workspace.workspace_headers`; handles carry the workspace as
+  `<id>@<org_…>`. Clients buy numbers in their own business name once KYC is verified and
+  their business details are approved. The developer workspace keeps our account, plan, BYOK
+  keys (customers inherit them), the voice catalogue, and objects made before D-693 until
+  their next publish recreates them. Never fall back to the developer workspace for a client
+  resource. Plan cap: 3 customers on pay-as-you-go (OPERATIONS T-8).
 - **Clients never clone**; they pick and preview voices the admin added and enabled.
 - **Gnani is not used on ThinnestAI**, and client-facing text names no provider (D-679).
 

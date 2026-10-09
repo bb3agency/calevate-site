@@ -119,6 +119,8 @@ import {
   prepaidWallet,
   voiceCatalogue,
   LIVE_CALLS_PATH,
+  OWN_NUMBERS_OFF,
+  OWN_NUMBERS_STATUS_PATH,
   clientLlmTiers,
 } from "./fixtures/sharedReads";
 
@@ -2639,6 +2641,9 @@ const CLIENT_SCREENS: Screen[] = [
         holder_name: null,
         holder_email: null,
       },
+      // Not a deployment that rents numbers in the client's own account (D-693), so the
+      // older purchase panel above is what renders; `ownNumbers.test.tsx` sweeps the other.
+      [OWN_NUMBERS_STATUS_PATH]: OWN_NUMBERS_OFF,
     },
   },
   {
@@ -2880,6 +2885,9 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       "/v1/compliance/kyc": KYC_RECORD_D692,
       "/v1/compliance/outbound-pledge": PLEDGE,
+      // The phone-numbers step card (D-693), on a deployment that does not show it; its
+      // populated states are swept by `ownNumbers.test.tsx`.
+      [OWN_NUMBERS_STATUS_PATH]: OWN_NUMBERS_OFF,
     },
   },
   {
@@ -3787,12 +3795,35 @@ const ADMIN_SCREENS: Screen[] = [
         steps: ["Open Phone Numbers.", "Set Inbound to the agent."],
         notes: ["Releasing a rented number is permanent."],
         numbers: [
-          { e164: "+918012345678", provider: "ThinnestAI", engine_owned: true, agent_id: "a1", agent_name: "Front desk", unassigned: false, number_id: "num-1" },
+          // Held in the platform account, so the testing-only flag is swept (D-693).
+          { e164: "+918012345678", provider: "ThinnestAI", engine_owned: true, agent_id: "a1", agent_name: "Front desk", unassigned: false, number_id: "num-1", platform_held: true },
           // Not recorded yet: renders "Record this number" (D-691).
           { e164: "+918012345679", provider: "ThinnestAI", engine_owned: true, agent_id: null, agent_name: null, unassigned: true, number_id: null },
         ],
         other_numbers: 1,
         agents: [{ agent_id: "a1", name: "Front desk", engine_agent_ref: "ag_123", answers_a_number: true }],
+      },
+      // The client's own workspace (D-693) at the plan's cap with a rejected application,
+      // the state that renders the most notices and every operator control.
+      "/v1/admin/engine-workspaces/tenants/t1": {
+        available: true,
+        status: "plan_limit",
+        workspace_id: null,
+        last_error_code: "engine_plan_customer_limit",
+        attempts: 2,
+        provisioned_at: null,
+        business_details: {
+          status: "rejected",
+          can_rent: false,
+          review_note: "The name on the certificate does not match.",
+          submitted_at: "2026-10-08T09:41:12Z",
+          checked_at: "2026-10-08T10:00:00Z",
+        },
+        purchase_step: "workspace",
+        purchase_blockers: ["engine_workspace_not_provisioned", "business_details_not_approved"],
+        client_inr_per_month: "499.00",
+        numbers: { own_workspace: 0, platform_held: 1 },
+        agents_in_platform_account: 1,
       },
       "/v1/admin/numbers/tenants/t1": [
         {

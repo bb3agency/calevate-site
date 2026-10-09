@@ -9,6 +9,7 @@ import type { KycRecord } from "@/lib/api/kyc";
 import type { ClientLlmDefaults } from "@/lib/api/llmModels";
 import type { ClientMaintenance } from "@/lib/api/maintenance";
 import type { HostedVoices } from "@/lib/api/opsHostedVoices";
+import type { OwnNumbersStatus } from "@/lib/api/ownNumbers";
 import type { Lanes } from "@/lib/api/publishing";
 import type { OfferedVoice, VoiceCatalogue } from "@/lib/api/voices";
 import type { WalletLots } from "@/app/c/[slug]/billing/lots";
@@ -487,3 +488,23 @@ export const NOT_HOSTED = {
   bands: {},
   plan_note: null,
 } satisfies HostedVoices;
+
+/** `GET /v1/numbers/own/status` — the path every screen that reads it is asked on. */
+export const OWN_NUMBERS_STATUS_PATH = "/v1/numbers/own/status";
+
+/**
+ * A deployment that does not rent numbers in each client's own calling account (D-693):
+ * `available: false`, every other field empty, and the screens hide the journey.
+ */
+export const OWN_NUMBERS_OFF = {
+  available: false,
+  step: null,
+  blocker: null,
+  account_setup: null,
+  kyc_status: null,
+  business_status: null,
+  business_review_note: null,
+  business_submitted_at: null,
+  can_send_business_details: false,
+  inr_per_month: null,
+} satisfies OwnNumbersStatus;

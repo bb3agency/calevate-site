@@ -23,8 +23,9 @@
  */
 
 import { useState } from "react";
-import { PhoneOff } from "lucide-react";
+import { FileX, PhoneOff } from "lucide-react";
 
+import { ConfirmDialog } from "@/components/confirmDialog";
 import { RowMenu } from "@/components/console/rowMenu";
 import {
   FIELD_INLINE,
@@ -39,6 +40,7 @@ import {
   useSetNumberEngineRef,
   type TenantNumberCost,
 } from "@/lib/api/numbers";
+import { useWorkspaceForget } from "@/lib/api/engineWorkspaces";
 
 import { StatePill } from "../statePill";
 
@@ -67,7 +69,9 @@ export function NumberRow({
 }) {
   const attach = useSetNumberAgent(tenantId);
   const link = useSetNumberEngineRef(tenantId);
+  const forget = useWorkspaceForget(tenantId);
   const [ref, setRef] = useState("");
+  const [forgetting, setForgetting] = useState(false);
 
   // Only an agent that ANSWERS incoming calls can hold a number: the server refuses the
   // rest by name (`agent_does_not_answer_inbound`), and offering them here would be a
@@ -89,7 +93,35 @@ export function NumberRow({
             : ""}
           {number.released ? " · released — no longer charged" : ""}
         </span>
-        {number.engine_owned && !number.released && canWrite && (
+        {number.platform_held && (
+          <span className="rounded-full border border-warn-line bg-warn-soft px-2 py-0.5 text-xs font-medium text-ink">
+            Held in the platform account (testing only)
+          </span>
+        )}
+        {/* A number the voice platform holds is released from its workspace panel
+            (`EngineNumberActions`), the one path that also checks which workspace holds it.
+            That panel lists only numbers the platform still holds, so a number it has lost
+            can only have our record released here. */}
+        {!number.released && number.on_engine && canWrite && (
+          <span className="ml-auto">
+            <RowMenu
+              label={number.e164}
+              items={[
+                {
+                  id: "forget",
+                  label: "Release our record",
+                  tone: "danger",
+                  icon: <FileX aria-hidden className="h-4 w-4" />,
+                  onSelect: () => {
+                    forget.reset();
+                    setForgetting(true);
+                  },
+                },
+              ]}
+            />
+          </span>
+        )}
+        {number.engine_owned && !number.released && !number.on_engine && canWrite && (
           <span className="ml-auto">
             <RowMenu
               label={number.e164}
@@ -106,6 +138,25 @@ export function NumberRow({
           </span>
         )}
       </div>
+
+      {forgetting && (
+        <ConfirmDialog
+          title={`Release our record of ${formatPhone(number.e164)}`}
+          confirmLabel="Release our record"
+          pendingLabel="Releasing…"
+          pending={forget.isPending}
+          error={forget.error}
+          onCancel={() => setForgetting(false)}
+          onConfirm={() => forget.mutate(number.id, { onSuccess: () => setForgetting(false) })}
+        >
+          <p>
+            Stops our record and the client&apos;s monthly charge. Nothing is released at the voice
+            platform. For a number the voice platform no longer holds, or a test number held in
+            the platform account. A number the client&apos;s own workspace still holds is refused:
+            release it from the voice workspace panel instead.
+          </p>
+        </ConfirmDialog>
+      )}
 
       {!number.released && (
         <div className="space-y-2">

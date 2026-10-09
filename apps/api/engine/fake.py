@@ -55,6 +55,7 @@ from calevate_shared.engine import (
     WebhookVerdict,
     compose_engine_prompt,
 )
+from calevate_shared.engine_scope import scoped_handle
 from calevate_shared.events import (
     TERMINAL_STATUSES,
     CallDirection,
@@ -591,7 +592,11 @@ class FakeEngine:
     async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef:
         self._assert_this_engine_hosts_agents()
         self._assert_speech_is_ours(cfg)
-        ref = self._stable_id("fakeagent", cfg.tenant_id, cfg.agent_id)
+        # Scoped like a real adapter's on an engine with customer workspaces (D-693); a
+        # config with no workspace (every other engine) keeps the bare id it always had.
+        ref = scoped_handle(
+            self._stable_id("fakeagent", cfg.tenant_id, cfg.agent_id), cfg.engine_workspace
+        )
         self._agents[ref] = cfg
         return ref
 

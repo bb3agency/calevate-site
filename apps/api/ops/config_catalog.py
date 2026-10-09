@@ -357,6 +357,22 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Inbound and outbound together; set it to the ceiling ThinnestAI has confirmed.",
         _THINNEST,
     ),
+    "thinnest_customer_plan": _m(
+        "voice-engine",
+        "thinnest",
+        "ThinnestAI plan",
+        "The plan our ThinnestAI account is on. It decides how many clients can have their "
+        "own voice workspace: 3 on pay-as-you-go, 100 on Pro, 1,000 on Scale.",
+        _THINNEST,
+    ),
+    "thinnest_developer_workspace_id": _m(
+        "voice-engine",
+        "thinnest",
+        "ThinnestAI developer workspace id",
+        "Our own ThinnestAI workspace id (org_…, Settings → General in their console). It is "
+        "never treated as a client's own workspace.",
+        _THINNEST,
+    ),
     "inbound_reserve_ratio": _m(
         "calling-limits",
         "limits",

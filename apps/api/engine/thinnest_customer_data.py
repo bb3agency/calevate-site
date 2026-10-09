@@ -12,8 +12,9 @@ VERIFIED-VENDOR-DOCS, `thinnest-findings/mirror/snapshots/2026-10-08/pages/`:
   `workspace/data-and-erasure.md:14-56`).
 
 EVERY REQUEST CARRIES `Thinnest-Workspace`, AND ONE WITHOUT A CUSTOMER WORKSPACE IS REFUSED
-HERE, BEFORE IT IS BUILT. Without the header these act on our developer workspace, which
-every client shares (`tenancy/engine_workspace.py`).
+BEFORE IT IS BUILT: these are tenant-only routes in `engine/thinnest_workspace.py`, the one
+builder of the header. Without it they would act on our developer workspace, which holds
+every legacy client's data.
 """
 
 from __future__ import annotations
@@ -22,31 +23,16 @@ from typing import Any, Final
 
 import httpx
 
-from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import NO_CREDENTIALS_REASON, engine_not_configured
 from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL
-from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, vendor_request
-from apps.api.tenancy.engine_workspace import is_own_workspace
+from apps.api.engine.thinnest_workspace import WORKSPACE_HEADER, workspace_headers
+from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, EngineRejectedError, vendor_request
 
 ENGINE: Final = "thinnest"
-WORKSPACE_HEADER: Final = "Thinnest-Workspace"
 
 #: Why we added a number, in the vendor's 200-character `reason`.
 DNC_REASON: Final = "Opted out with this business (Calevate do-not-call list)"
-
-
-def _not_own_workspace() -> ProblemError:
-    return ProblemError(
-        kind="validation",
-        code="engine_workspace_not_provisioned",
-        title="This client has no workspace of its own on the voice platform",
-        detail=(
-            "Nothing was sent about this person, because the client has no workspace "
-            "of its own yet."
-        ),
-        remediation="Provision the client's own voice platform workspace first.",
-    )
 
 
 class ThinnestCustomerData:
@@ -77,15 +63,14 @@ class ThinnestCustomerData:
     async def _request(
         self, workspace: str, method: str, path: str, *, route: str, **kwargs: Any
     ) -> dict[str, Any]:
-        if not is_own_workspace(workspace):
-            raise _not_own_workspace()
+        headers = workspace_headers(method, route, workspace)
         response = await vendor_request(
             self._http(),
             method,
             path,
             engine=ENGINE,
             route=route,
-            headers={WORKSPACE_HEADER: workspace},
+            headers=headers,
             **kwargs,
         )
         return response or {}
@@ -114,13 +99,17 @@ class ThinnestCustomerData:
 
     async def delete_contact(self, workspace: str, contact_id: str) -> int:
         """Erase one contact. Returns the recordings still queued (0 when all are gone)."""
-        payload = await self._request(
-            workspace,
-            "DELETE",
-            f"/contacts/{contact_id}",
-            route="/contacts/{id}",
-            absent_is_success=True,
-        )
+        try:
+            payload = await self._request(
+                workspace, "DELETE", f"/contacts/{contact_id}", route="/contacts/{id}"
+            )
+        except EngineRejectedError as exc:
+            # A 404 for the CONTACT (`not_found`) is the erasure's postcondition: it is
+            # gone. A 404 for the WORKSPACE (`workspace_not_found`, errors.md:90) erased
+            # nothing and must not read as erased.
+            if exc.vendor_status == 404 and exc.vendor_code != "workspace_not_found":
+                return 0
+            raise
         pending = payload.get("recordingsPending")
         return pending if isinstance(pending, int) and not isinstance(pending, bool) else 0
 

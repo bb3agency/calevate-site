@@ -174,11 +174,24 @@ operator's statement that the developer workspace runs on all three of its own k
 `engine_actions_base_url` (needs republish; the public API origin its in-call actions call)
 and `thinnest_clear_voice_band` (added by D-688, 8 Oct 2026, needs republish, default
 `premium`: the ThinnestAI voice band sold as Clear, `premium` or `studio`; Studio voices and
-clones need ThinnestAI Pro). D-687's `thinnest_studio_workspace_id` is removed: every agent
-lives in the developer workspace and says per agent whether it speaks on our voice key.
+clones need ThinnestAI Pro). D-687's `thinnest_studio_workspace_id` is removed; each agent
+says whether it speaks on our voice key (its `byok`). Since D-693 every client has its own
+ThinnestAI customer workspace, and two settings support that, both applying live:
+`thinnest_customer_plan` (`payg` default, `pro`, `scale` or `enterprise`) is the plan our
+ThinnestAI account is on as an operator states it, and sets the customer-workspace cap the
+ops dashboard's headroom and the `engine_workspace_plan_limit` alarm quote (3, 100, 1,000,
+10,000; a deleted customer counts until it is erased,
+`thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/customers.md:191-200`) —
+the vendor's own 402 is what actually refuses a workspace over the cap, so change it after
+the plan changes, never before; `thinnest_developer_workspace_id` (optional, `org_…`) is our
+own developer workspace's id, which is `org_…` like every customer's
+(`api-reference/workspace/get-workspace.md:327-351`) and is therefore never accepted as a
+client's own workspace (`tenancy/engine_workspace.is_own_workspace`). Provisioning also reads
+it from `GET /workspace`; the setting covers a process that has not (OPERATIONS §2 gate T-16).
 `ENGINE_INTAKE_KEK` is env-only, in `ENV_ONLY_REASONS`. No BYOK provider key is stored
 under a ThinnestAI setting: full (`scope: all`) BYOK is not on sale (D-681), and the Studio
-rung's voice-only BYOK sends our Cartesia key to ThinnestAI's developer workspace (on
+rung's voice-only BYOK sends our Cartesia key to ThinnestAI's developer workspace, which the
+client workspaces inherit (on
 "Enable Studio voices", and again through the outbox when `cartesia_api_key` is rotated),
 where it is stored encrypted (`thinnest-findings/mirror/snapshots/2026-10-07b/pages/
 api-reference/bring-your-own-keys.md:77-78`; `docs/THINNEST-INTEGRATION.md` §4a).

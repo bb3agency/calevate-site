@@ -65,6 +65,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import service as agents_service
 from apps.api.agents.models import series_for_e164
 from apps.api.billing.number_rental import record_number_rental
+from apps.api.campaigns.engine_numbers import engine_number_provider
 from apps.api.campaigns.provisioning import (
     PURCHASABLE_SERIES,
     assert_number_supply_authorized,
@@ -297,11 +298,21 @@ async def release_number(session: AsyncSession, engine: VoiceEngine, *, number_i
     needs, it is what stops the monthly meter, and deleting it would break `e164`'s global
     uniqueness as a record of who once held what.
     """
-    assert_number_supply_authorized()
     row = (await session.execute(text(_NUMBER_FOR_RELEASE), {"id": number_id})).first()
     if row is None:
         raise ProblemError.not_found("Number")
     e164, series, provider, engine_number_ref, engine_owned, released_at = row
+    # A number the voice platform holds is released in the workspace its handle names
+    # (`engine_number_purchase.release_engine_number`), which also stops our rental; this
+    # path would release it without either check.
+    if provider is not None and provider == engine_number_provider():
+        raise ProblemError.business_rule(
+            "number_released_in_voice_workspace",
+            "This number is held by the voice platform, so it is released from the client's "
+            "voice workspace, not here.",
+            remediation="Use Release on the number in the Numbers on the voice platform panel.",
+        )
+    assert_number_supply_authorized()
     if not engine_owned:
         raise ProblemError.business_rule(
             "number_not_ours_to_release",

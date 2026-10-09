@@ -379,12 +379,16 @@ export const PRIVACY_POLICY: LegalDocument = {
                     "last four digits masked), our team reviews it and we delete the file " +
                     "as soon as they decide, or after 30 days if nobody has. If you verify " +
                     "through DigiLocker, you authenticate on a licensed intermediary's " +
-                    "page, not ours; we read back only the name, whether it matches your " +
-                    "business, and the masked number, and store no document or image. By " +
-                    "either route we keep only the type of document, the masked number " +
-                    "(the last four digits of an Aadhaar, or a PAN with its first five and " +
-                    "last characters hidden), the name check, the intermediary's " +
-                    "reference, your consent and the date. We never store a full Aadhaar " +
+                    "page, not ours. We receive the record you chose from the intermediary " +
+                    "— which can include the date of birth, gender, address and contact " +
+                    "details, a photo link and, for a PAN, the full number — read it in " +
+                    "memory, and keep only the name on it, whether that name matches the " +
+                    "owner you named, and the masked number; we store no document or " +
+                    "image. By either route we keep only the type of document, the masked " +
+                    "number (the last four digits of an Aadhaar, or a PAN with its first " +
+                    "five and last characters hidden), the name the DigiLocker record " +
+                    "carries, the name check, the intermediary's reference, your consent " +
+                    "and the date. We never store a full Aadhaar " +
                     "number: section 29 of the Aadhaar (Targeted Delivery of Financial and " +
                     "Other Subsidies, Benefits and Services) Act 2016 restricts what may be " +
                     "done with Aadhaar information once it is held, and not holding it is " +

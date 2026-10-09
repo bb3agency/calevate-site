@@ -1595,6 +1595,8 @@ _VENDOR_ONLY_KEYS = frozenset(
         # Their per-call charge in integer micro-units (usage call log). Ours is
         # `unit_cost_paid` in NUMERIC rupees; the vendor field never crosses the adapter.
         "costMicro",
+        # The agent a ThinnestAI number is lent to for calling out (D-693).
+        "callingAgent",
         # ThinnestAI voices, clones and own keys (D-687): camelCase
         # nouns only they spell. Ours are `voice_id`, a stored preview, `engine_own_voice_key`.
         "movedAgents",

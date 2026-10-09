@@ -639,6 +639,16 @@ VIEW_AS_WITHHELD_ACTS: Mapping[str, str] = MappingProxyType(
             "client to file it from their console — confirming that one has been done is "
             "a read and stays available to you."
         ),
+        "compliance.kyc_documents": (
+            "Verification documents are the business's own evidence about itself, and an "
+            "upload records who at the business supplied them. Ask the client to upload "
+            "them from their own console."
+        ),
+        "compliance.outbound_pledge": (
+            "The no-cold-calls pledge is an undertaking by a named person at the business. "
+            "Ask the client to accept it from their own console — an operator accepting it "
+            "would evidence nothing about what they agreed to."
+        ),
         "leads.saved_view": (
             "A saved view belongs to one signed-in person of this account, and a view-as "
             "session is not one of them — there is no `users` row for it to belong to."

@@ -193,9 +193,11 @@ Founder decisions and what stays open:
 
 ## 9. One workspace for every tenant, or a customer workspace per tenant
 
-Calevate runs today with **one ThinnestAI workspace for every tenant**: one API key, every client's agents side by side, a webhook per agent, and the tenant found from our own route table. ThinnestAI now documents a second shape, built for exactly this product: a **customer workspace per tenant** (`api-reference/customers.md`, `guides/build-a-platform.md`). This is a founder decision. Nothing below is built.
+**DECIDED (founder, 8 Oct 2026; D-693, built 9 Oct 2026): a customer workspace per tenant.** Every Calevate client gets its own ThinnestAI customer workspace; its agents, calls, numbers, contacts and do-not-call list live there and its numbers are rented in its own business name. The developer workspace keeps our account and plan, the BYOK keys customers inherit (`snapshots/2026-10-08/pages/api-reference/bring-your-own-keys.md:129-133`), the platform voice catalogue, and objects made before D-693 until they move. The build is described in `docs/THINNEST-INTEGRATION.md` §3a-§3b; open questions are OPERATIONS §2 gates T-8 and T-15..T-21. The comparison below is the record the decision was made from; two of its rows read differently against the 8 Oct snapshot, noted after the table.
 
-| | One workspace (today) | Customer workspace per tenant |
+Before D-693 Calevate ran with **one ThinnestAI workspace for every tenant**: one API key, every client's agents side by side, a webhook per agent, and the tenant found from our own route table. ThinnestAI documents a second shape, built for exactly this product: a **customer workspace per tenant** (`api-reference/customers.md`, `guides/build-a-platform.md`).
+
+| | One workspace (D-688, superseded) | Customer workspace per tenant (chosen, D-693) |
 |---|---|---|
 | Isolation | Ours alone: the route table maps a vendor agent to a tenant. A bug on our side, or one leaked agent id, reaches another tenant's agent with the same key. | ThinnestAI's too: each request runs inside one customer (`Thinnest-Workspace`, `customers.md:70`); another customer's id answers 404. A key can be minted for one customer only (`customers.md:183`). |
 | Per-tenant BYOK | Not possible: BYOK is workspace-wide. | Possible: a customer may hold its own complete set of three keys, overriding ours (`bring-your-own-keys.md:74-76`). Still all three legs; no voice-only BYOK. |
@@ -207,9 +209,17 @@ Calevate runs today with **one ThinnestAI workspace for every tenant**: one API 
 | White label | Compatible with their white-label console programme. | **Not compatible**: a workspace with API customers cannot resell their console under a brand (`customers.md:14-15`). We do not use their console for clients, so this costs us nothing today. |
 | Migration | — | Every published agent, knowledge document, webhook and number would move into its tenant's customer; our route rows would carry a workspace id; the adapter would send the header on every call. |
 
+**How the decision was built (D-693), against the rows above.**
+- **Per-tenant BYOK:** the "still all three legs; no voice-only BYOK" reading was the 7 Oct morning snapshot. The 8 Oct snapshot says customers inherit the developer's keys AND its scope, all three or only the voice (`snapshots/2026-10-08/pages/api-reference/bring-your-own-keys.md:129-133`), and that per-agent `byok` applies to a customer's own agents (`:79-80`). So client workspaces inherit our voice-only Cartesia key; per-agent `byok` inside a customer workspace is VENDOR-DOCS-STATED and untested live (gate T-15).
+- **Plan cap:** chosen with the cap in view; the fourth tenant needs Pro or a raise (gate T-8).
+- **Webhooks:** the single `includeCustomers` endpoint was not adopted; per-agent endpoints are registered in each agent's own workspace and the receiver keeps resolving the tenant from our agent route.
+- **Erasure:** account closure releases the client's numbers, deletes its agents and deletes the customer, which the vendor erases 30 days later (`snapshots/2026-10-08/pages/api-reference/customers.md:136-161`). Person-level erasure stays `DELETE /contacts/{id}` in the client's workspace (D-691).
+- **Migration:** no way to move an agent between workspaces is documented (nothing under `api-reference/agents/`), so each pre-D-693 agent is recreated in its client's workspace on its next publish under a new id, and the old one is deleted after commit once no call is connected on it (what a delete does to a connected call is UNKNOWN, gate T-17). Numbers rented in the developer workspace cannot follow; they stay "held in the platform account", testing only (gate T-21).
+- **Business approval:** one application per customer workspace (`snapshots/2026-10-08/pages/api-reference/phone-numbers/get-business-details.md:7`), sent from each client's verified KYC record (D-692); approval through the API per customer is untested live (gate T-20).
+
 Their white-label console programme (`white-label/*.md`) is a different product: branded console, domain, Razorpay and per-client plans, for an agency whose clients log in to ThinnestAI's console. Calevate's clients log in to Calevate, so the programme offers us nothing we use, and the snapshot is self-contradictory on whether it runs on pay-as-you-go (`white-label/overview.md:14` says every paid plan; `:104` lists "White label on pay-as-you-go" as not available yet). D-679's "used under their white-label programme" is therefore a description of the commercial relationship, not of any console feature we depend on.
 
-Questions for ThinnestAI that decide the choice are in `docs/OPERATIONS.md` §2 (T-series).
+The questions that remain after the choice are in `docs/OPERATIONS.md` §2 (T-series: T-8, T-15..T-21).
 
 ## 10. ThinnestAI's answers, 7 Oct 2026, and what the docs confirm
 
@@ -300,10 +310,10 @@ What the docs say, and what follows from it:
 | 9 | DPDP, residency, training | Governed by the DPDP Act, stored in Mumbai. Never trained on for Pro and Scale; on PAYG a copy may be kept for model improvement, switched off on request for our workspaces and every customer workspace under us, deleting copies already made. Retention follows the plan. | VENDOR-STATED. Still ask in writing for training off (founder action) until the plan is Pro |
 
 **What changes for Calevate.**
-- **The shared Studio customer workspace (D-687) is no longer needed.** Per-agent `byok` lets Clear and Studio agents share our developer workspace: voice-only BYOK on with our Cartesia key, Clear agents `byok: off`, Studio agents `byok: workspace`. That also removes the clone-sharing problem (clones live in the same workspace) and the rung-switch-means-recreate rule (a switch is a field change, applied at the next call). Re-design is a founder-approved build item; until it ships, Studio stays not offered.
+- **The shared Studio customer workspace (D-687) is no longer needed.** Per-agent `byok` lets Clear and Studio agents share one workspace (D-693 later gave each client its own, inheriting our voice-only BYOK, §9): voice-only BYOK on with our Cartesia key, Clear agents `byok: off`, Studio agents `byok: workspace`. That also removes the clone-sharing problem (clones live in the same workspace) and the rung-switch-means-recreate rule (a switch is a field change, applied at the next call). Re-design is a founder-approved build item; until it ships, Studio stays not offered.
 - **Turning on voice-only BYOK in the developer workspace changes every existing agent that is not `off`,** and customer workspaces inherit the developer's keys. Every live Clear agent must be set to `off` before the switch, or its calls start speaking Cartesia at ₹1.50/min.
 - **Live transfer** can now be built on the hand-over tool (hard rule 5's truthful answers are unaffected).
-- **Business approval** can be automated per client workspace if per-client workspaces are ever used; with one developer workspace, Calevate is the approved business.
+- **Business approval** can be automated per client workspace if per-client workspaces are ever used; with one developer workspace, Calevate is the approved business. (D-693 chose per-client workspaces; each client is now the approved business for its own numbers, §9.)
 - **Error handling** can key on `code` instead of matching sentences; the adapter's 403/429 handling should move to it.
 - **Erasure**: our DPDP erasure path should call `DELETE /contacts/{id}` and record `recordingsPending`.
 - **Margin**: `costMicro` excludes the top-up fee, so our cost per call is `costMicro × (1 + top-up fee)`.

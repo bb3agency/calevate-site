@@ -337,7 +337,7 @@ async def charge_number_rental(
     `allow_negative=True` on both paths. At renewal because the number is still renewing
     at the carrier, exactly the argument `charge_for_call` makes. At purchase because the
     carrier has already been paid when this runs: refusing here would roll back the row
-    of a number we hold and pay for, and `_assert_can_afford` has already refused the
+    of a number we hold and pay for, and `assert_can_afford` has already refused the
     purchase the wallet could not cover before any money moved.
 
     A zero or negative price is refused rather than written (`record_number_rental`'s

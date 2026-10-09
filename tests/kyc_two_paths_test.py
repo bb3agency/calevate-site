@@ -65,7 +65,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
-from apps.workers.kyc_owner_id_purge import purge_stale_owner_ids
+from apps.workers.kyc_owner_id_purge import KycPurgeIncompleteError, purge_due_kyc_documents
 from apps.workers.retention import execute_tenant_erasure
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -869,11 +869,121 @@ async def test_an_owner_id_nobody_decided_on_is_deleted_after_thirty_days(s3: Fa
             ),
             {"tid": tenant_id},
         )
-    assert await purge_stale_owner_ids() >= 1
+    assert await purge_due_kyc_documents() >= 1
     assert not [k for k in s3.objects if k.startswith(f"kyc-documents/{tenant_id}/")]
     async with tenant_session(tenant_id) as session:
         owner = (await current_documents(session, tenant_id=tenant_id))["owner_id"]
     assert owner.purged_at is not None
+
+
+async def _document_state(tenant_id: UUID, slot: str) -> list[tuple[bool, bool, bool]]:
+    """(superseded, deletion requested, purged) for every row of a slot, oldest first."""
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT superseded_at IS NOT NULL, delete_requested_at IS NOT NULL, "
+                    "purged_at IS NOT NULL FROM kyc_documents "
+                    "WHERE tenant_id = :t AND slot = :s ORDER BY created_at, id"
+                ),
+                {"t": tenant_id, "s": slot},
+            )
+        ).all()
+    return [(bool(r[0]), bool(r[1]), bool(r[2])) for r in rows]
+
+
+async def test_a_decided_owner_id_whose_delete_failed_is_retried_and_then_purged(
+    s3: FakeS3,
+) -> None:
+    org = await _tenant()
+    tenant_id = UUID(str(org["id"]))
+    await _manual_submission(org, s3)
+    s3.fail = True
+    async with _client() as http:
+        approved = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/kyc/review",
+            headers=await _admin_headers(),
+            json={"decision": "approve"},
+        )
+    assert approved.status_code == 200, approved.text
+    owner_after = next(d for d in approved.json()["documents"] if d["slot"] == "owner_id")
+    assert owner_after["held"] is False, "a decided file is not offered for use"
+    assert await _document_state(tenant_id, "owner_id") == [(False, True, False)], (
+        "the delete failed, so the row must say requested and NOT purged"
+    )
+    assert any(k.endswith(".png") for k in s3.objects if f"/{tenant_id}/" in k)
+
+    with pytest.raises(KycPurgeIncompleteError):
+        await purge_due_kyc_documents()
+    assert await _document_state(tenant_id, "owner_id") == [(False, True, False)]
+
+    s3.fail = False
+    assert await purge_due_kyc_documents() >= 1
+    assert await _document_state(tenant_id, "owner_id") == [(False, True, True)]
+    assert not [k for k in s3.objects if f"/{tenant_id}/" in k and k.endswith(".png")]
+
+
+async def test_a_replaced_upload_whose_delete_failed_is_retried_by_the_sweep(
+    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from apps.workers import storage
+
+    org = await _tenant()
+    tenant_id = UUID(str(org["id"]))
+    headers = await _headers(org)
+
+    async def refuse(keys: Any) -> int:
+        raise storage.StorageUnavailableError("down")
+
+    async with _client() as http:
+        for name in ("udyam.pdf", "udyam-new.pdf"):
+            if name == "udyam-new.pdf":
+                monkeypatch.setattr(storage, "delete_objects", refuse)
+            uploaded = await http.post(
+                f"{KYC}/documents",
+                headers=headers,
+                data={"slot": "business", "kind": "udyam"},
+                files={"file": (name, PDF_BYTES, "application/pdf")},
+            )
+            assert uploaded.status_code == 201, uploaded.text
+    monkeypatch.undo()
+    monkeypatch.setattr(storage, "_client", lambda: s3)
+    assert await _document_state(tenant_id, "business") == [
+        (True, True, False),
+        (False, False, False),
+    ]
+    assert len([k for k in s3.objects if f"/{tenant_id}/" in k]) == 2
+
+    assert await purge_due_kyc_documents() >= 1
+    assert await _document_state(tenant_id, "business") == [
+        (True, True, True),
+        (False, False, False),
+    ]
+    assert len([k for k in s3.objects if f"/{tenant_id}/" in k]) == 1, "the current file stays"
+
+
+async def test_an_upload_whose_row_cannot_be_written_takes_its_object_down(
+    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from apps.api.compliance import kyc_routes
+
+    org = await _tenant()
+    tenant_id = UUID(str(org["id"]))
+
+    async def lost_the_race(*args: Any, **kwargs: Any) -> Any:
+        raise ProblemError.conflict("kyc_document_raced", "Another upload won.")
+
+    monkeypatch.setattr(kyc_routes, "record_document", lost_the_race)
+    async with _client() as http:
+        refused = await http.post(
+            f"{KYC}/documents",
+            headers=await _headers(org),
+            data={"slot": "business", "kind": "udyam"},
+            files={"file": ("udyam.pdf", PDF_BYTES, "application/pdf")},
+        )
+    assert refused.status_code == 409, refused.text
+    assert not [k for k in s3.objects if f"/{tenant_id}/" in k], "no object without a row"
+    assert await _document_state(tenant_id, "business") == []
 
 
 async def test_the_business_certificate_is_destroyed_by_the_account_erasure(s3: FakeS3) -> None:
@@ -1289,7 +1399,10 @@ async def test_a_kek_rotation_rewraps_kyc_files_and_they_still_open() -> None:
         record_document,
     )
     from apps.api.core.envelope import build_ring
-    from apps.api.ops.secret_service import rewrap_tenant_credentials
+    from apps.api.ops.secret_service import (
+        count_tenant_credential_keks,
+        rewrap_tenant_credentials,
+    )
 
     def ring(active: bytes, retired: bytes | None = None) -> Any:
         def encode(seed: bytes) -> str:
@@ -1326,9 +1439,12 @@ async def test_a_kek_rotation_rewraps_kyc_files_and_they_still_open() -> None:
             uploaded_by_user_id=owner,
         )
 
-    moved = await rewrap_tenant_credentials(
-        ring=ring(b"\x72", retired=b"\x71"), tenant_ids=[tenant_id]
-    )
+    rotating = ring(b"\x72", retired=b"\x71")
+    before = await count_tenant_credential_keks(ring=rotating, tenant_ids=[tenant_id])
+    assert (before.total, before.pending) == (1, 1), "the progress count includes KYC files"
+    moved = await rewrap_tenant_credentials(ring=rotating, tenant_ids=[tenant_id])
+    settled = await count_tenant_credential_keks(ring=rotating, tenant_ids=[tenant_id])
+    assert (settled.total, settled.pending) == (1, 0)
     assert moved.unreadable == ()
     assert moved.rewrapped >= 1
     async with tenant_session(tenant_id) as session:

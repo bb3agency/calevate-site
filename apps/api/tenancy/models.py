@@ -333,3 +333,63 @@ class AdminUser(PKMixin, TimestampMixin, Base):
     #: deactivated alike and no caller can tell which. It is the same shape `users` has
     #: carried since 769a9152cb06, which is what makes the two realms readable side by side.
     deactivated_at: Mapped[datetime | None]
+
+
+class TenantEngineWorkspace(PKMixin, TimestampMixin, Base):
+    """The tenant's own ThinnestAI customer workspace (D-693; migration d93b6f2a4c18).
+
+    ONE ROW PER TENANT. `external_ref` is OUR reference, sent as the customer's `externalId`,
+    so provisioning finds a workspace it already made before creating one
+    (`api-reference/customers/list-customers.md:20-30`). `workspace_id` is the vendor's `org_`
+    id once it exists; `tenancy/engine_workspace.workspace_for_tenant` answers it only while
+    `status = 'active'`, and nothing ever falls back to our developer workspace for a client
+    resource. The `business_*` columns are the workspace's business-details application as
+    last read (`phone-numbers/get-business-details.md:412-470`); the vendor is the truth.
+    """
+
+    __tablename__ = "tenant_engine_workspaces"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'active', 'plan_limit', 'failed', 'offboarding', 'deleted')",
+            name="status_enum",
+        ),
+        CheckConstraint(
+            "business_status IS NULL OR business_status IN ('none', 'draft', 'submitted', "
+            "'accepted', 'rejected', 'suspended', 'expired', 'unknown')",
+            name="business_status_enum",
+        ),
+        CheckConstraint(
+            "workspace_id IS NULL OR workspace_id ~ '^org_[^@[:space:]]{1,120}$'",
+            name="workspace_id_shape",
+        ),
+        CheckConstraint(
+            "status <> 'active' OR workspace_id IS NOT NULL", name="active_has_workspace"
+        ),
+        CheckConstraint("external_ref ~ '^[A-Za-z0-9._:-]{1,128}$'", name="external_ref_shape"),
+        CheckConstraint(
+            "last_error_code IS NULL OR char_length(last_error_code) <= 64",
+            name="error_code_bounded",
+        ),
+        CheckConstraint(
+            "business_review_note IS NULL OR char_length(business_review_note) <= 2000",
+            name="review_note_bounded",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, unique=True
+    )
+    engine: Mapped[str] = mapped_column(Text, nullable=False)
+    external_ref: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    workspace_id: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
+    last_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    provisioned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    business_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    business_can_rent: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    business_review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    business_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    business_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    business_document_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True), nullable=True)

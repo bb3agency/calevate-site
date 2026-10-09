@@ -3,6 +3,7 @@
 import { ProblemNotice, Skeleton, formatPhone } from "@/components/ui";
 import { useTenantEngineNumbers } from "@/lib/api/numbers";
 
+import { EngineNumberActions } from "./EngineNumberActions";
 import { RecordEngineNumber } from "./RecordEngineNumber";
 
 /**
@@ -61,6 +62,11 @@ export function EngineNumbersPanel({
               {number.provider && (
                 <span className="text-xs text-ink-muted">{number.provider}</span>
               )}
+              {number.platform_held && (
+                <span className="rounded-full border border-warn-line bg-warn-soft px-2 py-0.5 text-xs font-medium text-ink">
+                  Held in the platform account (testing only)
+                </span>
+              )}
               <span className="ml-auto text-ink-muted">
                 {number.agent_name
                   ? `Answered by ${number.agent_name}`
@@ -69,7 +75,15 @@ export function EngineNumbersPanel({
                     : "Answered by an agent outside this client"}
               </span>
               {number.number_id ? (
-                <span className="w-full text-xs text-ink-muted">Recorded for this client.</span>
+                <div className="w-full space-y-2">
+                  <span className="block text-xs text-ink-muted">Recorded for this client.</span>
+                  <EngineNumberActions
+                    tenantId={tenantId}
+                    numberId={number.number_id}
+                    e164={number.e164}
+                    canWrite={canWrite}
+                  />
+                </div>
               ) : (
                 <div className="w-full">
                   <RecordEngineNumber

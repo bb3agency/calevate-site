@@ -16,10 +16,11 @@ import {
   FIELD_LABEL,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
-  formatINR,
 } from "@/components/ui";
 import { useRecordEngineNumber, type RecordedEngineNumber } from "@/lib/api/numbers";
 import type { components } from "@/lib/api/schema";
+
+import { firstPeriodPhrase } from "./firstPeriod";
 
 type Agent = components["schemas"]["EngineAgentOut"];
 type Direction = "inbound" | "outbound" | "both";
@@ -115,10 +116,13 @@ function recordedSentence(recorded: RecordedEngineNumber): string {
   const price =
     recorded.client_inr_per_month === null
       ? "Brought on a carrier account, so there is no monthly charge."
-      : `Charged at ${formatINR(recorded.client_inr_per_month)} a month from today.`;
+      : firstPeriodPhrase(recorded.first_period, recorded.client_inr_per_month);
   const platform =
     recorded.platform_attachment === "partial" || recorded.platform_attachment === "refused"
       ? " The voice platform did not take which agent answers it yet; the daily number check tries again."
-      : "";
-  return `Recorded. ${price}${platform}`;
+      : recorded.platform_attachment === "other_workspace"
+        ? " It is held in the platform account and the agent lives in the client's own workspace, so nobody answers it."
+        : "";
+  const held = recorded.platform_held ? " Held in the platform account (testing only)." : "";
+  return `Recorded. ${price}${platform}${held}`;
 }

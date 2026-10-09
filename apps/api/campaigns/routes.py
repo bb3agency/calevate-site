@@ -26,12 +26,13 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstrai
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.campaigns import scheduling, service
+from apps.api.campaigns import engine_numbers, scheduling, service
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
+from apps.api.tenancy.engine_workspace import engine_has_workspaces, read_workspace_state
 
 router = APIRouter(prefix="/v1/campaigns", tags=["campaigns"])
 
@@ -373,10 +374,12 @@ class NumberOut(Strict):
     dlt_status: str
     #: Did Calevate supply this number, or did the client bring their own connection?
     supplied_by_us: bool = False
-    #: Will a call to this number reach an agent? All three links of the chain: an agent on
-    #: it, the voice platform's record of the number (`engine_number_ref`), and the
-    #: carrier's binding of it to our answer URL (`carrier_binding_id`, the Vobiz
-    #: Application). Any one missing and the call rings nothing of ours.
+    #: Will a call to this number reach an agent? Every link of the chain: an agent on it,
+    #: the voice platform's record of the number (`engine_number_ref`), and the routing of
+    #: the number to that agent. On Pipecat that routing is the carrier's binding to our
+    #: answer URL (`carrier_binding_id`, the Vobiz Application); where the voice platform
+    #: holds the number itself it is the answering agent our record gives it
+    #: (`engine_numbers.answers_calls`). Any one missing and the call rings nothing of ours.
     answerable: bool = False
     #: WHICH AGENT IS ON IT (`phone_numbers.agent_id`). Null means nothing rings: the
     #: outbound caller ID and the inbound answer are both resolved from this binding
@@ -395,6 +398,10 @@ class NumberOut(Strict):
     #: to an agent until the holder's identity is verified
     #: (`campaigns/number_catalog.assign_number_to_agent`).
     activated: bool = False
+    #: Will `POST /v1/numbers/own/{id}/release` accept it from this account? Only a number
+    #: rented in this account's own calling account; one we lent it for testing, or a line
+    #: on another carrier, is not the client's to give up.
+    releasable: bool = False
 
 
 class TemplateOut(Strict):
@@ -433,39 +440,67 @@ async def list_campaigns(
 )
 async def list_numbers(
     session: Session,
-    _: Principal = Depends(requires("org:read")),
+    principal: Principal = Depends(requires("org:read")),
 ) -> list[NumberOut]:
+    assert principal.tenant_id is not None
     rows = (
         await session.execute(
             text(
-                "SELECT id, e164, series, dlt_status, engine_owned, "
-                "(engine_number_ref IS NOT NULL AND carrier_binding_id IS NOT NULL "
-                "AND agent_id IS NOT NULL), "
-                "agent_id, direction, client_inr_per_month, "
-                "activated_at IS NOT NULL FROM phone_numbers "
+                "SELECT n.id, n.e164, n.series, n.dlt_status, n.engine_owned, "
+                "(n.engine_number_ref IS NOT NULL AND n.carrier_binding_id IS NOT NULL "
+                "AND n.agent_id IS NOT NULL), "
+                "n.agent_id, n.direction, n.client_inr_per_month, "
+                "n.activated_at IS NOT NULL, n.provider, n.engine_number_ref, "
+                "a.engine_agent_ref, a.status, a.direction, a.deleted_at IS NOT NULL "
+                "FROM phone_numbers n LEFT JOIN agents a ON a.id = n.agent_id "
                 # A released number is not one this account may dial from or be answered
                 # on: the vendor has it back. The ROW survives because a closed month's
                 # costs still refer to it, which is exactly why this list has to exclude
                 # it rather than relying on the row being gone.
-                "WHERE released_at IS NULL ORDER BY created_at"
+                "WHERE n.released_at IS NULL ORDER BY n.created_at"
             )
         )
     ).all()
-    return [
-        NumberOut(
-            id=r[0],
-            e164=r[1],
-            series=r[2],
-            dlt_status=r[3],
-            supplied_by_us=r[4],
-            answerable=r[5],
-            agent_id=r[6],
-            direction=r[7],
-            inr_per_month=r[8],
-            activated=r[9],
+    engine = engine_numbers.engine_number_provider()
+    own_workspace: str | None = None
+    if engine_has_workspaces() and any(r[10] == engine for r in rows):
+        own_workspace = (await read_workspace_state(session, principal.tenant_id)).workspace_id
+    out: list[NumberOut] = []
+    for r in rows:
+        on_engine = engine is not None and r[10] == engine
+        answerable = (
+            engine_numbers.answers_calls(
+                engine_number_ref=r[11],
+                agent_ref=r[12],
+                agent_status=r[13],
+                agent_direction=r[14],
+                agent_deleted=bool(r[15]),
+            )
+            if on_engine
+            else bool(r[5])
         )
-        for r in rows
-    ]
+        out.append(
+            NumberOut(
+                id=r[0],
+                e164=r[1],
+                series=r[2],
+                dlt_status=r[3],
+                supplied_by_us=r[4],
+                answerable=answerable,
+                agent_id=r[6],
+                direction=r[7],
+                inr_per_month=r[8],
+                activated=r[9],
+                releasable=(
+                    on_engine
+                    and bool(r[11])
+                    and engine_numbers.releasable_by(
+                        str(r[11]), own_workspace=own_workspace, by_admin=False
+                    )
+                ),
+            )
+        )
+    return out
 
 
 @router.get(

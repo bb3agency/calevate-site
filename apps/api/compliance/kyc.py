@@ -366,6 +366,15 @@ async def record_kyc(
         ),
         params,
     )
+    if verified:
+        # A verified business may now have its details sent to its own voice workspace
+        # for numbers (D-693); the job sends nothing until that workspace is active.
+        # Imported here: the sender imports this module.
+        from apps.api.campaigns.engine_business_details import (
+            queue_business_details_submission,
+        )
+
+        await queue_business_details_submission(session, tenant_id=tenant_id)
 
 
 #: The admin's "deeper verification" override (D-692), in the client's words.

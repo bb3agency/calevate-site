@@ -242,6 +242,18 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:9f71baee2e9036d8741ba9aeef83be392796f5c0fefa9c4177bdf494dc30bbfb",
       },
+      // Section 4's DigiLocker route said we read back only the name, the match and the
+      // masked number, and that the name was matched against the business. We receive the
+      // whole record (date of birth, gender, address, contact details, photo link, the full
+      // PAN), read it in memory and keep the name on it, the match against the OWNER the
+      // client named and the masked number; the kept list gains that name. MATERIAL: a
+      // reader learns we receive more than revision 14 said.
+      {
+        revision: "15",
+        material: true,
+        contentHash:
+          "sha256:4da94cb8561dce14548bcba0abd6fe352ad78b6a69ac98d786fc6c7853f5eea2",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -616,6 +628,17 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash:
           "sha256:c7f067f1456e649fcf610b02a9f13efb2f5ae2690d35034f7912a1fb4036c952",
+      },
+      // The identity-verification row said we receive the name, a masked number and the
+      // reference. We receive the whole record the owner chose (date of birth, gender,
+      // address, contact details, photo link, the full PAN), read it in memory and keep
+      // the name, a masked number and the reference. MATERIAL: we receive more than
+      // revision 14 said.
+      {
+        revision: "15",
+        material: true,
+        contentHash:
+          "sha256:c4d692949406d4046bf367655044adef26e7df046930acf034bcc6dd9a1775ed",
       },
     ],
     effectiveDate: "2026-09-02",

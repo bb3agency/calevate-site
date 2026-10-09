@@ -81,6 +81,7 @@ import {
 
 import { EngineNumbersPanel } from "./EngineNumbersPanel";
 import { NumberRow } from "./NumberRow";
+import { WorkspacePanel } from "./WorkspacePanel";
 
 type Series = ProvisionNumberBody["series"];
 type Carrier = ProvisionNumberBody["provider"];
@@ -167,6 +168,16 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
       {/* Only on a voice platform that rents and attaches numbers in its own console;
           renders nothing otherwise. */}
       <EngineNumbersPanel tenantId={tenantId} canWrite={write.allowed} />
+
+      {/* The client's own ThinnestAI workspace (D-693). Only an engine that rents numbers in
+          its own console has per-client workspaces, so nothing is asked elsewhere. */}
+      {engineHeld && (
+        <WorkspacePanel
+          tenantId={tenantId}
+          canWrite={write.allowed}
+          agents={engineNumbers.data?.agents}
+        />
+      )}
 
       {held.error ? (
         <ProblemNotice error={held.error} onRetry={() => held.refetch()} />

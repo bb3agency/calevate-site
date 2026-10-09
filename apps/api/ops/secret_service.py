@@ -524,7 +524,8 @@ async def count_tenant_credential_keks(
     budget_s: float = TENANT_WALK_BUDGET_S,
     tenant_ids: Sequence[uuid.UUID] | None = None,
 ) -> TenantCredentialKekCounts:
-    """Per-tenant `count(*)` of saved credentials and of those not under the active KEK.
+    """Per-tenant `count(*)` of sealed rows (saved credentials and KYC files) and of those
+    not under the active KEK.
 
     Counts by the `kek_version` LABEL, the same reporting field `/kek` already counts
     `platform_secrets` by. The rewrap itself never trusts the label (`rewrap_all`'s D-96
@@ -547,9 +548,12 @@ async def count_tenant_credential_keks(
             # An ungrouped aggregate always returns exactly one row, so `.one()`.
             row = (
                 await session.execute(
+                    # Every table `rewrap_tenant_credentials` walks, so the progress figure
+                    # counts the same rows the rewrap moves.
                     text(
                         "SELECT count(*), count(*) FILTER (WHERE kek_version <> :active) "
-                        "FROM integration_credentials"
+                        "FROM (SELECT kek_version FROM integration_credentials "
+                        "UNION ALL SELECT kek_version FROM kyc_documents) AS sealed"
                     ),
                     {"active": active},
                 )

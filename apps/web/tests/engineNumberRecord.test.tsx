@@ -27,6 +27,23 @@ const TENANT_PATH = `/v1/admin/tenants/${TENANT}`;
 const COSTS_PATH = `/v1/admin/numbers/tenants/${TENANT}`;
 const ENGINE_PATH = `${COSTS_PATH}/engine`;
 const RECORD_PATH = `${ENGINE_PATH}/record`;
+const WORKSPACE_PATH = `/v1/admin/engine-workspaces/tenants/${TENANT}`;
+
+/** No per-client workspace for these cases (D-693); `adminWorkspace.test.tsx` has them. */
+const NO_WORKSPACE = {
+  available: false,
+  status: null,
+  workspace_id: null,
+  last_error_code: null,
+  attempts: 0,
+  provisioned_at: null,
+  business_details: null,
+  purchase_step: null,
+  purchase_blockers: [],
+  client_inr_per_month: null,
+  numbers: null,
+  agents_in_platform_account: 0,
+};
 
 const SUPERADMIN: AdminMe = {
   realm: "admin",
@@ -84,6 +101,7 @@ function routes(extra: Routes = {}): Routes {
       ],
     },
     "/v1/agents": [],
+    [WORKSPACE_PATH]: NO_WORKSPACE,
     ...extra,
   };
 }
@@ -118,6 +136,8 @@ describe("recording a number the voice platform holds", () => {
           series: "standard",
           client_inr_per_month: "499.00",
           platform_attachment: "applied",
+          platform_held: false,
+          first_period: "charged",
         };
       },
     });
@@ -130,8 +150,10 @@ describe("recording a number the voice platform holds", () => {
     await waitFor(() =>
       expect(calls).toEqual([{ e164: "+918012345671", direction: "inbound", agent_id: AGENT }]),
     );
-    expect(await screen.findByText(/Recorded\. Charged at ₹499(\.00)? a month from today\./))
-      .toBeTruthy();
+    expect(
+      await screen.findByText(/Recorded\. ₹499(\.00)? charged now for the first month, then monthly\./),
+    ).toBeTruthy();
+    expect(screen.queryByText(/from today/)).toBeNull();
   });
 
   it("says when the platform did not take the attachment, and that a brought number is free", async () => {
@@ -142,6 +164,8 @@ describe("recording a number the voice platform holds", () => {
         series: "standard",
         client_inr_per_month: null,
         platform_attachment: "partial",
+        platform_held: false,
+        first_period: null,
       },
     });
 
@@ -150,6 +174,52 @@ describe("recording a number the voice platform holds", () => {
 
     expect(await screen.findByText(/there is no monthly charge/)).toBeTruthy();
     expect(screen.getByText(/did not take which agent answers it yet/)).toBeTruthy();
+  });
+});
+
+describe("what recording a rented number did to the client's account", () => {
+  const cases: [string | null, RegExp][] = [
+    ["invoiced", /₹499(\.00)? a month, first month invoiced\./],
+    ["trial", /₹499(\.00)? a month, free during the trial; charging starts at the first renewal after it\./],
+    ["closed", /Account closed: nothing charged\./],
+    ["replayed", /Already charged for this period\./],
+    [null, /Recorded\. ₹499(\.00)? a month\./],
+  ];
+
+  it.each(cases)("words first_period %s from the server and claims no charge it did not make", async (period, wording) => {
+    await render({
+      [RECORD_PATH]: {
+        number_id: "0192f0aa-7777-7000-8000-000000000888",
+        e164: "+918012345671",
+        series: "standard",
+        client_inr_per_month: "499.00",
+        platform_attachment: "applied",
+        platform_held: false,
+        first_period: period,
+      },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Record this number" }));
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    expect(await screen.findByText(wording)).toBeTruthy();
+    expect(screen.queryByText(/charged now/)).toBeNull();
+  });
+
+  it("says when a platform-held number cannot be answered by the client's own agent", async () => {
+    await render({
+      [RECORD_PATH]: {
+        number_id: "0192f0aa-7777-7000-8000-000000000999",
+        e164: "+918012345671",
+        series: "standard",
+        client_inr_per_month: "499.00",
+        platform_attachment: "other_workspace",
+        platform_held: true,
+        first_period: "charged",
+      },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Record this number" }));
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    expect(await screen.findByText(/nobody answers it/)).toBeTruthy();
+    expect(screen.getByText(/Held in the platform account \(testing only\)\./)).toBeTruthy();
   });
 });
 
@@ -169,7 +239,7 @@ describe("the voice platform's business details on the ops page", () => {
       },
     });
 
-    expect(await screen.findByText("ThinnestAI business details")).toBeTruthy();
+    expect(await screen.findByText("Platform account: ThinnestAI business details")).toBeTruthy();
     expect(screen.getByText("Approval withdrawn")).toBeTruthy();
     expect(screen.getByText("Console Clinic LLP")).toBeTruthy();
     expect(screen.getByText(/No new number can be rented/)).toBeTruthy();

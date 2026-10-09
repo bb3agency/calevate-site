@@ -3,11 +3,14 @@
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { Card, ProblemNotice, Skeleton, formatPhone } from "@/components/ui";
+import { useAgents } from "@/lib/api/agents";
 import { useCampaignNumbers, type CampaignNumber } from "@/lib/api/campaigns";
+import { useOwnNumbersStatus } from "@/lib/api/ownNumbers";
 import { useClientSession } from "@/lib/api/session";
 
 import { BuyNumber } from "./BuyNumber";
 import { NumberAssignment } from "./NumberAssignment";
+import { OwnNumbersJourney, ReleaseOwnNumber } from "./OwnNumbers";
 import { SenderAttestation } from "./SenderAttestation";
 
 /**
@@ -39,13 +42,36 @@ export function PhoneNumberScreen() {
   const ours = rows?.filter((number) => number.supplied_by_us) ?? [];
   const theirs = rows?.filter((number) => !number.supplied_by_us) ?? [];
   const none = rows !== undefined && rows.length === 0;
+  // `NumberOut` does not carry the agent's direction, so it is read from the agent list
+  // (the same query `NumberAssignment` already makes). An agent that only makes calls never
+  // answers a number, so "we are still connecting it" would be false for it; until the list
+  // is read neither sentence is said.
+  const agents = useAgents(session);
+  const outboundOnly = (number: CampaignNumber): boolean =>
+    agents.data?.some((agent) => agent.id === number.agent_id && agent.direction === "outbound") ===
+    true;
+  const waiting = (number: CampaignNumber): boolean =>
+    !number.answerable && number.agent_id != null && agents.data !== undefined && !outboundOnly(number);
+  // Where numbers are rented in the business's own calling account (D-693), the three-step
+  // journey replaces the older purchase panel; elsewhere the older panel stays.
+  const own = useOwnNumbersStatus(session);
+  const ownNumbers = own.data?.available === true;
+  const getNumber = own.isLoading ? (
+    <Skeleton rows={3} label="Loading how to get a number" />
+  ) : own.error || !own.data ? (
+    <ProblemNotice error={own.error} onRetry={() => void own.refetch()} />
+  ) : ownNumbers ? (
+    <OwnNumbersJourney status={own.data} />
+  ) : (
+    <BuyNumber />
+  );
 
   return (
     <div className="space-y-6 pb-12">
       <PageHeader description="The numbers your agents answer and call from." />
 
       {/* With no number yet, getting one IS the job, so it comes first. */}
-      {none && <BuyNumber />}
+      {none && getNumber}
 
       {numbers.error && <ProblemNotice error={numbers.error} onRetry={() => numbers.refetch()} />}
       {numbers.isLoading || !rows ? (
@@ -80,7 +106,16 @@ export function PhoneNumberScreen() {
                   before you set the forwarding up, or callers will reach silence.
                 </p>
               )}
-              {ours.some((number) => !number.answerable && number.agent_id) && (
+              {ours.some((number) => !number.answerable && outboundOnly(number)) && (
+                <p className="text-sm text-ink-muted">
+                  A number on an agent that only makes calls places calls but does not answer
+                  them. To have it answer, choose an agent that answers calls on its card below,
+                  or change that agent&apos;s <em>What it does</em> to <em>Answer calls</em> or{" "}
+                  <em>Both</em>. Wait until it says <em>Ready to answer</em> before you set the
+                  forwarding up, or callers will reach silence.
+                </p>
+              )}
+              {ours.some(waiting) && (
                 <p className="text-sm text-ink-muted">
                   A number with an agent on it is not ready to take calls yet — we are still
                   connecting it. Please wait until it says <em>Ready to answer</em> before you
@@ -89,7 +124,12 @@ export function PhoneNumberScreen() {
                 </p>
               )}
               {ours.map((number) => (
-                <NumberCard key={number.id} number={number} />
+                <NumberCard
+                  key={number.id}
+                  number={number}
+                  releasable={ownNumbers && number.releasable === true}
+                  outboundOnly={outboundOnly(number)}
+                />
               ))}
             </section>
           )}
@@ -107,26 +147,37 @@ export function PhoneNumberScreen() {
                 Do not forward these anywhere — they are what your agents call out from.
               </p>
               {theirs.map((number) => (
-                <NumberCard key={number.id} number={number} />
+                <NumberCard key={number.id} number={number} releasable={ownNumbers && number.releasable === true} />
               ))}
             </section>
           )}
         </>
       )}
 
-      {!none && <BuyNumber />}
+      {!none && getNumber}
     </div>
   );
 }
 
 /** One number: what it is, whether it is live, which agent uses it, and its sender status. */
-function NumberCard({ number }: { number: CampaignNumber }) {
+function NumberCard({
+  number,
+  releasable,
+  outboundOnly = false,
+}: {
+  number: CampaignNumber;
+  releasable: boolean;
+  /** On an agent that only makes calls, so it cannot answer whatever else is in place. */
+  outboundOnly?: boolean;
+}) {
   const status = number.supplied_by_us
     ? number.answerable
       ? { text: "Ready to answer", tone: "bg-brand-soft text-brand-strong" }
       : !number.agent_id
         ? { text: "No agent on it yet", tone: "border border-line text-ink-muted" }
-        : { text: "Not ready yet", tone: "border border-line text-ink-muted" }
+        : outboundOnly
+          ? { text: "Makes calls only", tone: "border border-line text-ink-muted" }
+          : { text: "Not ready yet", tone: "border border-line text-ink-muted" }
     : number.dlt_status === "registered"
       ? { text: "Registered for calling out", tone: "bg-ink/[0.06] text-ink" }
       : { text: "Registration still in progress", tone: "border border-line text-ink-muted" };
@@ -146,6 +197,7 @@ function NumberCard({ number }: { number: CampaignNumber }) {
           currentDirection={number.direction}
         />
         <SenderAttestation numberId={number.id} />
+        {releasable && <ReleaseOwnNumber numberId={number.id} e164={number.e164} />}
       </div>
     </Card>
   );

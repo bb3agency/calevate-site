@@ -183,3 +183,57 @@ export function outboundSteps(record: KycRecord, pledge: OutboundPledge | undefi
   }
   return steps;
 }
+
+/**
+ * A started DigiLocker run's reference, kept while the client is at DigiLocker so the page
+ * can finish it on return. Keyed by account: one tab can hold two accounts' consoles, and
+ * an unscoped key once finished one account's run on another's page. Storage can be
+ * unavailable (a private window, blocked site data), so every access is guarded and a
+ * missing value falls back to the `provider_ref` the return URL carries.
+ */
+const PENDING_RUN_PREFIX = "calevate.kyc.pendingRun";
+
+export function pendingRunKey(orgSlug: string): string {
+  return `${PENDING_RUN_PREFIX}:${orgSlug}`;
+}
+
+export function rememberPendingRun(orgSlug: string, providerRef: string): void {
+  try {
+    window.sessionStorage.setItem(pendingRunKey(orgSlug), providerRef);
+  } catch {
+    // The return URL still carries the reference.
+  }
+}
+
+export function readPendingRun(orgSlug: string): string | null {
+  try {
+    return window.sessionStorage.getItem(pendingRunKey(orgSlug));
+  } catch {
+    return null;
+  }
+}
+
+/** Forget the run once it has an outcome, so a reload does not ask about it again. */
+export function forgetPendingRun(orgSlug: string): void {
+  try {
+    window.sessionStorage.removeItem(pendingRunKey(orgSlug));
+    // The unscoped key an earlier build wrote; it named no account, so it is never read.
+    window.sessionStorage.removeItem(PENDING_RUN_PREFIX);
+  } catch {
+    // Nothing to clean up.
+  }
+}
+
+/** What a finished DigiLocker run means for the client, where the record alone does not say. */
+export const DIGILOCKER_OUTCOME: Readonly<Record<string, { tone: "warn" | "neutral"; title: string; body: string }>> = {
+  expired: {
+    tone: "warn",
+    title: "That DigiLocker visit expired",
+    body: "It was not finished in time, so nothing was recorded. Start DigiLocker again below.",
+  },
+  replay: {
+    tone: "neutral",
+    title: "That DigiLocker visit was already recorded",
+    body: "Nothing changed. What it found is shown on this page.",
+  },
+};

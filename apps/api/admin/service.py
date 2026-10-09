@@ -45,6 +45,7 @@ from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.reliability.service import enqueue_outbox
+from apps.api.tenancy.engine_workspace import queue_workspace_provisioning
 from apps.api.tenancy.lifecycle import assert_account_open
 from apps.api.tenancy.models import DEFAULT_PLAN_TIER as _DEFAULT_PLAN_TIER
 
@@ -415,6 +416,10 @@ async def _write_tenant_root(
                 ),
                 {"id": uuid7(), "tid": tenant_id, "uid": owner_user_id},
             )
+        # ITS OWN VOICE WORKSPACE IS OWED FROM BIRTH (D-693), in the birth transaction and
+        # through the outbox, so no tenant exists without its provisioning queued. A no-op
+        # on an engine without customer workspaces.
+        await queue_workspace_provisioning(session, tenant_id=tenant_id)
         if on_created is not None:
             await on_created(session, tenant_id)
     return agent_id

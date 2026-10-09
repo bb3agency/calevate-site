@@ -44,6 +44,10 @@ def _engine(handler: Handler, **kwargs: Any) -> ThinnestEngine:
     )
 
 
+#: The client's own customer workspace every new agent is created in (D-693).
+WS = "org_client-test"
+
+
 def _cfg(**update: Any) -> AgentConfig:
     base = AgentConfig(
         tenant_id="0199a0b0-0000-7000-8000-000000000001",
@@ -53,6 +57,7 @@ def _cfg(**update: Any) -> AgentConfig:
         language_primary="te-IN",
         system_prompt="You are the receptionist.",
         opening_line="Idi AI assistant. Ee call record avutundi.",
+        engine_workspace=WS,
     )
     return base.model_copy(update=update)
 
@@ -131,7 +136,7 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
             ("POST", "/agents"): httpx.Response(201, json={"id": "ag_1"}),
         }
     )
-    assert await _engine(handler).create_agent(_cfg()) == "ag_1"
+    assert await _engine(handler).create_agent(_cfg()) == f"ag_1@{WS}"
     body = _body(_agent_write(seen))
     assert "Ee call record avutundi." in body["instructions"]
     assert body["greeting"] == "Idi AI assistant. Ee call record avutundi."
@@ -184,7 +189,7 @@ async def test_a_retried_create_adopts_the_agent_it_already_made() -> None:
             ("PATCH", "/agents/ag_old"): httpx.Response(200, json={"id": "ag_old"}),
         }
     )
-    assert await _engine(handler).create_agent(cfg) == "ag_old"
+    assert await _engine(handler).create_agent(cfg) == f"ag_old@{WS}"
     assert [r.method for r in seen] == ["GET", "PATCH", "PATCH"]
     assert len(tagged) <= 60 and tagged.startswith("Sunrise Clinic receptionist #cv-")
 
@@ -199,7 +204,7 @@ async def test_another_tenants_agent_of_the_same_name_is_not_adopted() -> None:
             ("POST", "/agents"): httpx.Response(201, json={"id": "ag_new"}),
         }
     )
-    assert await _engine(handler).create_agent(_cfg()) == "ag_new"
+    assert await _engine(handler).create_agent(_cfg()) == f"ag_new@{WS}"
     assert [r.method for r in seen] == ["GET", "POST", "PATCH"]
 
 
@@ -409,16 +414,16 @@ async def test_a_fetched_call_is_mapped_into_our_vocabulary() -> None:
 )
 def test_a_missed_call_is_refined_by_its_hangup(hangup: str, status: str) -> None:
     engine = _engine(_recorder({})[0])
-    assert engine._snapshot(_call(status="missed", hangup=hangup)).status == status
+    assert engine._snapshot(_call(status="missed", hangup=hangup), workspace=None).status == status
 
 
 def test_an_inbound_call_swaps_the_numbers() -> None:
-    snapshot = _engine(_recorder({})[0])._snapshot(_call(direction="inbound"))
+    snapshot = _engine(_recorder({})[0])._snapshot(_call(direction="inbound"), workspace=None)
     assert (snapshot.from_e164, snapshot.to_e164) == ("+919876543210", "+918045678901")
 
 
 def test_a_call_is_not_billable_until_its_results_are_final() -> None:
-    snapshot = _engine(_recorder({})[0])._snapshot(_call(analysedAt=None))
+    snapshot = _engine(_recorder({})[0])._snapshot(_call(analysedAt=None), workspace=None)
     assert snapshot.terminal and not snapshot.billable_ready
 
 
