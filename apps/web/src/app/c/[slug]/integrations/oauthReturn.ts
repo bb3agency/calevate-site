@@ -35,6 +35,16 @@ interface Start {
   slug: string;
   kind: OAuthKind;
   at: number;
+  /** The consent page was opened in a popup. Recorded here because the callback page
+   * cannot ask `window.opener`: Google's pages send Cross-Origin-Opener-Policy, which cuts
+   * the popup off from its opener for good once it has visited them. */
+  popup: boolean;
+}
+
+/** Where the callback page sends the person, and whether it is the popup to close. */
+export interface OAuthReturnRoute {
+  back: string;
+  popup: boolean;
 }
 
 export interface OAuthResult {
@@ -69,22 +79,25 @@ function drop(key: string): void {
   }
 }
 
-/** Called by the screen just before it opens the consent page. */
-export function beginOAuthReturn(slug: string, kind: OAuthKind): void {
-  write(OAUTH_START_KEY, { slug, kind, at: Date.now() } satisfies Start);
+/** Called by the screen as it opens the consent page, saying whether that is a popup. */
+export function beginOAuthReturn(slug: string, kind: OAuthKind, popup: boolean): void {
+  write(OAUTH_START_KEY, { slug, kind, at: Date.now(), popup } satisfies Start);
 }
 
 /**
  * Called by the callback page: where to send the person back to, after noting the result.
  * Null when no connection was started here (or it is too old), and nothing is noted.
  */
-export function noteOAuthReturn(provider: string, result: Omit<OAuthResult, "kind">): string | null {
+export function noteOAuthReturn(
+  provider: string,
+  result: Omit<OAuthResult, "kind">,
+): OAuthReturnRoute | null {
   const start = read<Start>(OAUTH_START_KEY);
   const kinds = lookup(PROVIDER_KINDS, provider);
   if (!start || !kinds?.includes(start.kind) || Date.now() - start.at > MAX_AGE_MS) return null;
   const kind = start.kind;
   write(OAUTH_RETURN_KEY, { ...result, kind, slug: start.slug, at: Date.now() });
-  return `/c/${encodeURIComponent(start.slug)}/integrations`;
+  return { back: `/c/${encodeURIComponent(start.slug)}/integrations`, popup: start.popup === true };
 }
 
 /** Called by the screen: the result waiting for this account, taken once. */

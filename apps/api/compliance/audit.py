@@ -69,7 +69,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.context import Principal
-from apps.api.core.logging import get_logger, redact_mapping
+from apps.api.core.logging import get_logger, redact_mapping, safe_extra
 from apps.api.core.settings import get_settings, resolve_hmac_key
 from apps.api.db.base import uuid7
 
@@ -386,7 +386,7 @@ async def write_audit(
         # summary column, and hashing a field the row does not carry would make the
         # chain unverifiable. The summary goes to the log stream (the JSONL artifact
         # §7 describes), keyed by the same entry id.
-        log.info("audit", extra={"entry_id": str(entry_id), **redact_mapping(summary)})
+        log.info("audit", extra=safe_extra({"entry_id": str(entry_id), **redact_mapping(summary)}))
 
     # Read-then-write on the chain head: the lock has to come first and stay held
     # through COMMIT, or two writers chain onto the same entry (module docstring).

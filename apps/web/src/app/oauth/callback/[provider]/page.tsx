@@ -8,10 +8,13 @@
  * It holds no session and calls no API. It notes the code, the `state` and Zoho's
  * `accounts-server` next to the record the Integrations screen left when it opened the
  * consent page (`integrations/oauthReturn.ts`), takes them out of the address bar, and then
- * either closes itself (it was the popup: the opener finishes the connection) or sends this
- * tab back to the Integrations screen, which finishes it. The server checks the `state`.
+ * either closes itself (it was the popup: the screen that opened it finishes the connection
+ * from storage) or sends this tab back to the Integrations screen, which finishes it. The
+ * server checks the `state`. Whether it is the popup comes from that record, not from
+ * `window.opener`, which Google's Cross-Origin-Opener-Policy has already cut.
  */
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { Providers } from "@/app/providers";
@@ -22,6 +25,9 @@ import { noteOAuthReturn } from "../../../c/[slug]/integrations/oauthReturn";
 
 export default function OAuthCallbackPage({ params }: { params: Promise<{ provider: string }> }) {
   const [problem, setProblem] = useState<string | null>(null);
+  // Set when this popup could not close itself (a browser may refuse): say so, and offer
+  // the way back, rather than loading the console inside the small window.
+  const [leftOpen, setLeftOpen] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,13 +44,17 @@ export default function OAuthCallbackPage({ params }: { params: Promise<{ provid
         setProblem("The connection was cancelled or did not complete. Start it again from Integrations.");
         return;
       }
-      const back = noteOAuthReturn(provider, { code, state, accountsServer });
-      if (!back) {
+      const route = noteOAuthReturn(provider, { code, state, accountsServer });
+      if (!route) {
         setProblem("This connection was not started from this browser, or it took too long. Start it again from Integrations.");
         return;
       }
-      if (window.opener) window.close();
-      else window.location.replace(back);
+      if (!route.popup) {
+        window.location.replace(route.back);
+        return;
+      }
+      window.close();
+      setLeftOpen(route.back);
     });
     return () => {
       cancelled = true;
@@ -57,6 +67,15 @@ export default function OAuthCallbackPage({ params }: { params: Promise<{ provid
         {problem ? (
           <NoticeBox tone="warn" title="Not connected">
             {problem}
+          </NoticeBox>
+        ) : leftOpen ? (
+          <NoticeBox tone="ok" title="Connected">
+            You can close this window; the Integrations screen finishes the connection. If it
+            is no longer open,{" "}
+            <Link className="font-medium underline underline-offset-2" href={leftOpen}>
+              go back to Integrations
+            </Link>
+            .
           </NoticeBox>
         ) : (
           <Skeleton rows={2} label="Finishing the connection…" />

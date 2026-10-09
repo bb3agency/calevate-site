@@ -30,6 +30,7 @@ import json
 import logging
 import re
 import sys
+from collections.abc import Mapping
 from typing import Any
 
 from calevate_shared.carrier import CALLBACK_SECRET_PARAM
@@ -330,6 +331,14 @@ _RESERVED = frozenset(logging.LogRecord("", 0, "", 0, "", None, None).__dict__) 
 }
 
 
+def safe_extra(fields: Mapping[str, Any]) -> dict[str, Any]:
+    """`fields` as a logging `extra`, with any key the log record itself owns renamed
+    `<key>_`. The stdlib raises KeyError on such a key ("Attempt to overwrite 'name' in
+    LogRecord"), so a caller passing keys it does not control (an audit summary with a
+    `name`, a metric label) would fail its whole request at the log line."""
+    return {(f"{key}_" if key in _RESERVED else key): value for key, value in fields.items()}
+
+
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
@@ -397,4 +406,5 @@ __all__ = [
     "redact_exception",
     "redact_mapping",
     "redact_text",
+    "safe_extra",
 ]

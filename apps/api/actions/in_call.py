@@ -27,8 +27,11 @@ undone) and admits the rest.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, Final
 from uuid import UUID
+
+from calevate_shared.calling_window import today_in_india
 
 from apps.api.actions.execution import CallFacts, ExecutionResult, execute_action
 from apps.api.actions.schema import SheetsConfig
@@ -160,11 +163,21 @@ _REFUSAL_SAY: Final[dict[str, str]] = {
 }
 
 
-def say_for(result: ExecutionResult) -> str:
+#: Refusals that ask the agent to work out a day: they carry today's date, which the voice
+#: platform does not otherwise give the model.
+TIME_REFUSALS: Final = frozenset(
+    {"unreadable_time", "time_in_past", "no_start_time", "no_end_time"}
+)
+
+
+def say_for(result: ExecutionResult, *, now: datetime | None = None) -> str:
     """The platform sentence for one outcome. An unlisted failure is the honest default."""
     if result.ok:
         return _OK_SAY.get(result.status, "Done. Use the answer to reply to the caller.")
-    return _REFUSAL_SAY.get(result.status, NOT_AVAILABLE_SAY)
+    said = _REFUSAL_SAY.get(result.status, NOT_AVAILABLE_SAY)
+    if result.status in TIME_REFUSALS:
+        said = f"{said} {today_in_india(now or datetime.now(UTC))}"
+    return said
 
 
 async def _within_limit(tool: LoadedTool, call: CallFacts) -> bool:

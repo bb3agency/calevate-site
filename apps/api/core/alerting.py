@@ -111,7 +111,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
 from apps.api.core.alarm_severity import Severity, is_emailed, severity_of
-from apps.api.core.logging import get_logger, redact_mapping
+from apps.api.core.logging import get_logger, redact_mapping, safe_extra
 
 if TYPE_CHECKING:  # `alert_records` imports psycopg; keep it off the ack path's imports.
     from apps.api.core.alert_records import RecordOutcome
@@ -768,7 +768,7 @@ def _flush_on_exit() -> None:
 def _record(name: str, value: float, **labels: str) -> None:
     """One structured log line. Read the section comment above before adding a caller:
     this reaches a log and no metrics pipeline, and no alarm may be built on it."""
-    metrics_log.info("metric", extra={"metric": name, "value": value, **labels})
+    metrics_log.info("metric", extra=safe_extra({"metric": name, "value": value, **labels}))
 
 
 def record_webhook_ack_ms(ms: float, *, provider: str) -> None:

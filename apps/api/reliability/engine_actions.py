@@ -42,7 +42,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions.schema import ParamSpec
-from apps.api.actions.service import in_call_tools
+from apps.api.actions.service import LoadedTool, in_call_tools
 from apps.api.core.alerting import alert
 from apps.api.core.envelope import Envelope, seal, unseal
 from apps.api.core.errors import ProblemError
@@ -244,6 +244,23 @@ def too_many_client_actions(count: int) -> ProblemError:
     )
 
 
+#: Appended to a calendar action's time parameters: the executor reads ISO 8601 only, and
+#: the model needs the shape before its first call rather than after a refusal.
+CALENDAR_TIME_FORMAT: Final = (
+    " Give it as YYYY-MM-DDTHH:MM in Indian time, never the caller's words. If you do not "
+    "know today's date, call anyway: the answer tells you the date."
+)
+
+
+def _param_description(tool: LoadedTool, name: str, description: str) -> str:
+    if tool.kind == "calendar" and name in (
+        tool.config.get("start_param"),
+        tool.config.get("end_param"),
+    ):
+        return description.strip() + CALENDAR_TIME_FORMAT
+    return description
+
+
 async def client_definitions(
     session: AsyncSession, engine: str, engine_agent_ref: str, agent_id: UUID
 ) -> tuple[ActionDefinition, ...]:
@@ -256,7 +273,9 @@ async def client_definitions(
     out: list[ActionDefinition] = []
     for tool in tools:
         params = tuple(
-            ActionParam(spec.name, spec.description, spec.required)
+            ActionParam(
+                spec.name, _param_description(tool, spec.name, spec.description), spec.required
+            )
             for spec in (ParamSpec.model_validate(raw) for raw in tool.params)
             if spec.source == "ai"
         )
@@ -319,6 +338,23 @@ async def sync_client_actions_now(session: AsyncSession, *, agent_id: UUID) -> s
                 "a client changed an agent's actions and the voice platform could not be "
                 f"updated ({exc.code}); the drift sweep will retry. Until then a removed "
                 "action answers 'cannot be done right now' and a new one is not offered."
+            ),
+            agent_id=str(agent_id),
+        )
+        return "deferred"
+    except Exception as exc:
+        # Not only our own refusals: a transport error, a vendor answer we cannot read or a
+        # workspace guard would otherwise turn a saved action into a 500 the client retries.
+        log.exception(
+            "client_actions_sync_failed",
+            extra={"agent_id": str(agent_id), "error": type(exc).__name__},
+        )
+        alert(
+            "CORE_LOGIC",
+            "client_actions_not_synced",
+            detail=(
+                "a client changed an agent's actions and updating the voice platform failed "
+                f"unexpectedly ({type(exc).__name__}); the drift sweep will retry."
             ),
             agent_id=str(agent_id),
         )

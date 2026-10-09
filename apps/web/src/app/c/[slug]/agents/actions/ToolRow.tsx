@@ -188,6 +188,12 @@ function TestPanel({
   const [values, setValues] = useState<Record<string, string>>({});
   const [testPhone, setTestPhone] = useState("");
   const needsPhone = NEEDS_TEST_PHONE.includes(tool.kind);
+  // A calendar action's times are read as YYYY-MM-DDTHH:MM (India time), which is exactly
+  // what a datetime-local input produces; a free-text box let "tomorrow 5pm" through.
+  const timeParams =
+    tool.kind === "calendar"
+      ? [tool.config.start_param, tool.config.end_param].filter((v) => typeof v === "string")
+      : [];
 
   return (
     <div className="mt-3 rounded-card border border-line bg-surface p-3">
@@ -219,12 +225,14 @@ function TestPanel({
         ) : null}
         {aiParams.map((p) => {
           const nm = String(p.name);
+          const isTime = timeParams.includes(nm);
           return (
             <div key={nm}>
               <label className="block">
-                <span className={FIELD_LABEL}>{nm}</span>
+                <span className={FIELD_LABEL}>{isTime ? `${nm} (India time)` : nm}</span>
                 <input
                   className={FIELD}
+                  type={isTime ? "datetime-local" : "text"}
                   value={values[nm] ?? ""}
                   onChange={(e) => setValues((v) => ({ ...v, [nm]: e.target.value }))}
                 />

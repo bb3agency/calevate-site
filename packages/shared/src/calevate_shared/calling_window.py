@@ -148,6 +148,19 @@ def _spoken(at_ist: datetime) -> str:
     return f"{at_ist:%A} {at_ist.day} {at_ist:%B} at {hour}:{at_ist:%M} {meridiem}"
 
 
+def today_in_india(now: datetime) -> str:
+    """Today's date and the time in India, as a sentence an agent can work from.
+
+    The voice platform gives the model no reliable date, so "tomorrow at 5" cannot become a
+    calendar date without one; every answer that asks the agent to resolve a day carries it.
+    """
+    at = ist_wall_clock(now)
+    return (
+        f"Today is {at:%A} {at.day} {at:%B} {at.year} and it is {at:%H:%M} in India, so "
+        f"today's date is {at:%Y-%m-%d}."
+    )
+
+
 def resolve_slot(
     date_text: str | None,
     time_text: str | None,
@@ -182,7 +195,7 @@ def resolve_slot(
             code="unreadable_time",
             say=(
                 "I did not catch the day and time. Ask the caller which day and what time "
-                "suits them, then try again with the full date."
+                f"suits them, then try again with the full date. {today_in_india(now)}"
             ),
         )
     try:
@@ -192,8 +205,9 @@ def resolve_slot(
         return SlotRefusal(
             code="unreadable_time",
             say=(
-                "I could not read that day and time. Ask the caller to say the day and the "
-                "hour again, and be clear whether they mean morning or evening."
+                "I could not read that day and time. Give the date as YYYY-MM-DD and the time "
+                "as HH:MM, 24-hour. Ask the caller again if you are unsure, and be clear "
+                f"whether they mean morning or evening. {today_in_india(now)}"
             ),
         )
 
@@ -206,7 +220,7 @@ def resolve_slot(
             code="too_soon",
             say=(
                 "That time has already gone by. Ask the caller for a later time, or offer "
-                "to keep talking now."
+                f"to keep talking now. {today_in_india(now)}"
             ),
         )
     if at_utc > now_utc + MAX_AHEAD:
@@ -244,5 +258,6 @@ __all__ = [
     "ist_wall_clock",
     "next_window_opening",
     "resolve_slot",
+    "today_in_india",
     "within_window",
 ]

@@ -111,8 +111,8 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
   function signIn(kind: OAuthKind) {
     connect.mutate(kind, {
       onSuccess: (r) => {
-        beginOAuthReturn(session.orgSlug, kind);
         const popup = window.open(r.authorize_url, "calevate-connect", "width=520,height=720");
+        beginOAuthReturn(session.orgSlug, kind, popup !== null);
         // A blocked popup: go there in this tab; the callback page brings the client back.
         if (!popup) window.location.assign(r.authorize_url);
       },
