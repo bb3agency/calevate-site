@@ -89,7 +89,7 @@ async def place_trial_call(
     agent_id: UUID,
     number: str,
     idempotency_key: str,
-    ip: str | None,
+    ip: str | None = None,
 ) -> TrialCallResult:
     """Gate, then place, one test call. `blocked` is an answer, not an exception.
 

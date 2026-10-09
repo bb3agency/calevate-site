@@ -413,11 +413,6 @@ export default async function PricingPage() {
               </MockStage>
             </section>
           </div>
-          <p className="mt-6 max-w-2xl text-sm text-pretty text-ink-muted">
-            Illustrations of the billing screens, not a real account. Rupee amounts are
-            hidden in them: the only prices this page shows are the ones on the published
-            rate card.
-          </p>
         </div>
       </section>
 

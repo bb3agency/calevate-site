@@ -21,16 +21,14 @@ export function PageHero({
   lede,
   nav,
   product,
-  caption = "An illustration of the product, not a recording, a real customer or a measurement of how well it does it.",
 }: {
   label: string;
   title: string;
   lede: string;
   /** In-page links under the lede, for a page a reader jumps around in. */
   nav?: ReactNode;
-  /** The product shot. Rendered with the illustration caption under it. */
+  /** The product shot. */
   product?: ReactNode;
-  caption?: string;
 }) {
   return (
     <section className="relative isolate overflow-hidden border-b border-line">
@@ -71,9 +69,6 @@ export function PageHero({
         {product && (
           <div className="relative mx-auto mt-12 max-w-6xl sm:mt-16">
             {product}
-            <p className="mx-auto mt-6 max-w-xl text-center text-base text-pretty text-ink-muted">
-              {caption}
-            </p>
           </div>
         )}
       </div>

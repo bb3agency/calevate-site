@@ -661,7 +661,6 @@ async def _execute_call_place(
         agent_id=parsed.agent_id,
         context_note=parsed.note,
         idempotency_key=f"copilot:{parsed.attempt}",
-        ip=None,
         audit_extra={"via": "copilot"},
     )
     if result.status == "blocked":
@@ -2989,7 +2988,6 @@ async def _execute_test_call(
         agent_id=parsed.agent_id,
         number=phone,
         idempotency_key=f"copilot:{parsed.attempt}",
-        ip=None,
     )
     if result.status == "blocked":
         return Executed(

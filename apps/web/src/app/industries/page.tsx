@@ -95,9 +95,6 @@ export default function IndustriesPage() {
                 >
                   <IndustryCallMock id={industry.id} />
                 </MockStage>
-                <p className="mt-4 text-sm text-pretty text-ink-muted">
-                  An illustration of one lead. Nobody in it is a customer of ours.
-                </p>
               </div>
 
               <div className="flex min-w-0 flex-col gap-8">

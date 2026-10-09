@@ -391,9 +391,6 @@ function SolutionSection({
         <MockStage label={solution.figureLabel} className="mt-10 sm:mt-14">
           {solution.figure}
         </MockStage>
-        <p className="mt-4 text-sm text-pretty text-ink-muted">
-          An illustration of the product, not a recording, a real customer or a measurement.
-        </p>
 
         <div className="mt-10 grid gap-4 sm:mt-12 md:grid-cols-2">
           <div className={CARD}>

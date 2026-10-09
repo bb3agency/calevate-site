@@ -25,7 +25,6 @@ export function AuthShowcase() {
         <CallCard turns={2} />
         <LeadCapturedCard className="ml-8" />
       </div>
-      <p className="text-xs text-ink-muted">Illustration, not a real customer.</p>
     </div>
   );
 }

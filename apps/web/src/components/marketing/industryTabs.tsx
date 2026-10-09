@@ -183,13 +183,6 @@ export function IndustryTabs() {
               <p className="mt-6 border-t border-line pt-5 text-lg text-pretty text-ink">
                 {industry.advantage}
               </p>
-              {/* `-muted` since 9 Sep 2026: this panel sits on `bg-app/60` over the
-                  homepage's brand-tinted chapter, where `--text-faint` measures 4.47:1
-                  (axe, real Chromium). The token is held to 4.5:1 against `--surface` and
-                  `--app`, and a tint under it is outside what that guarantees. */}
-              <p className="mt-4 text-sm text-ink-muted">
-                An illustration of one lead, not a customer of ours.
-              </p>
             </div>
           </div>
         </div>

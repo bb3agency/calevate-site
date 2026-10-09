@@ -54,7 +54,7 @@ async def place_lead_call(
     agent_id: UUID,
     context_note: str | None,
     idempotency_key: str,
-    ip: str | None,
+    ip: str | None = None,
     audit_extra: dict[str, Any] | None = None,
 ) -> CallLeadOut:
     """Gate, then dial, one lead. `blocked` is an answer, not an exception.

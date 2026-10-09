@@ -208,10 +208,6 @@ export default function SecurityPage() {
               <LaunchCheckMock />
             </MockStage>
           </div>
-          <p className={`mt-8 text-ink-muted ${HOME.bodySm}`}>
-            The screens on this page are illustrations, not a real customer or a
-            measurement.
-          </p>
         </Band>
       </Chapter>
 

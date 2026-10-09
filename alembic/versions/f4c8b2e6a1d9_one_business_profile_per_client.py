@@ -217,12 +217,9 @@ def upgrade() -> None:
     )
 
     if not probe_skipped_offline(
-        "offline `--sql`: moving each client's answers into business_profiles and their
-"
-        "handover members onto contacts was NOT run. The SET NOT NULL on
-"
-        "agent_handoff_members.contact_id below then fails on a database holding any, so
-"
+        "offline `--sql`: moving each client's answers into business_profiles and their\n"
+        "handover members onto contacts was NOT run. The SET NOT NULL on\n"
+        "agent_handoff_members.contact_id below then fails on a database holding any, so\n"
         "apply this revision online."
     ):
         _move_everything(op.get_bind())

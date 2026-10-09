@@ -172,9 +172,6 @@ export default function WhyCalevatePage() {
               </section>
             ))}
           </div>
-          <p className={`mt-6 text-ink-muted ${HOME.bodySm}`}>
-            The screens are illustrations, not a real customer or a measurement.
-          </p>
         </Band>
       </Chapter>
 

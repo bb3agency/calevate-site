@@ -120,10 +120,6 @@ export function Hero() {
 
         <div className="relative mx-auto mt-12 max-w-7xl sm:mt-16">
           <HeroProduct />
-          <p className="mx-auto mt-6 max-w-xl text-center text-base text-pretty text-ink-muted">
-            An illustration of the product, not a recording, a real customer or a measurement
-            of how well it does it.
-          </p>
         </div>
       </div>
     </section>

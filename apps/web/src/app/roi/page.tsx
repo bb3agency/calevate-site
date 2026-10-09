@@ -224,10 +224,6 @@ export default async function RoiPage() {
           <div className="mt-10 rounded-2xl bg-[radial-gradient(circle_at_50%_0%,var(--brand-soft),transparent_70%)] p-3 sm:mt-12 sm:p-6">
             <RoiConsoleMock voiceLabel={offeredVoice} />
           </div>
-          <p className="mt-6 max-w-2xl text-sm text-pretty text-ink-muted">
-            An illustration of the console for a sample clinic, not a real customer or a
-            measurement. Rupee amounts are hidden in it.
-          </p>
         </div>
       </section>
 
