@@ -596,7 +596,7 @@ def refuse(reason: str, *, carrier: str, surface: str) -> ProblemError:
         detail="The URL does not carry an owned-runtime agent ref.",
         remediation=(
             "Point the number at the answer URL the agent's screen shows, from an address "
-            "in the carrier's published range (docs/PIPECAT-MIGRATION.md §6 step 6)."
+            "in the carrier's published range (docs/PIPECAT-MIGRATION.md)."
         ),
     )
 
@@ -867,7 +867,7 @@ def _stream_base_url() -> str:
             ),
             remediation=(
                 "Set PIPECAT_STREAM_BASE_URL to the deployed voice worker's wss:// base "
-                "(docs/PIPECAT-MIGRATION.md §6 step 6)."
+                "(docs/PIPECAT-MIGRATION.md)."
             ),
         )
     return base
@@ -893,7 +893,7 @@ def _unsigned_outbound_refusal(carrier: str, *, call_id: str, tenant_id: UUID) -
         detail="CARRIER_CLAIM_SECRET is not usable, so the call could not be handed to the worker.",
         remediation=(
             "Set the same CARRIER_CLAIM_SECRET (at least 32 bytes) on the VPS and in the "
-            "Pipecat worker's secret set (docs/DEPLOYMENT.md §12.2)."
+            "Pipecat worker's secret set (docs/DEPLOYMENT.md)."
         ),
     )
 

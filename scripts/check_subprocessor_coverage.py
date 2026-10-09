@@ -146,6 +146,10 @@ VENDOR_OF: dict[str, str | None] = {
     # `google_oauth_client_secret` the Sheets and Calendar legs.
     "gemini": "Google",
     "google_oauth": "Google",
+    # The platform's CRM OAuth apps (D-700): each client connects its own Zoho or HubSpot.
+    "zoho_oauth": "Zoho",
+    "zoho_accounts": "Zoho",
+    "hubspot_oauth": "HubSpot",
     # Both Meta legs: the Cloud API credential and the Lead Ads page tokens.
     "whatsapp_cloud": "Meta",
     "meta_page": "Meta",

@@ -13,6 +13,7 @@ import type { TenantProfile } from "@/lib/api/tenantProfile";
 import { closureConfirmation } from "@/lib/api/closure";
 import { noticeAddressConfirmation } from "@/lib/api/tenantProfile";
 import type { Routes } from "./harness";
+import { adminBusinessProfileFixture, OWNER_JOINED } from "./businessProfileFixture";
 
 import { problem, stillLoading } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
@@ -75,6 +76,7 @@ const OPEN: Closure = {
   erased_at: null,
   restorable: false,
   days_remaining: null,
+  forfeited_credit_inr: "0.00",
 };
 
 const CLOSED: Closure = {
@@ -87,6 +89,7 @@ const CLOSED: Closure = {
   erased_at: null,
   restorable: true,
   days_remaining: 13,
+  forfeited_credit_inr: "0.00",
 };
 
 const PROFILE: TenantProfile = {
@@ -105,6 +108,8 @@ function renderClosure(routes: Partial<Routes> = {}) {
     {
       [ADMIN_ME_PATH]: ME,
       [TENANT_PATH]: SUMMARY,
+      [`${TENANT_PATH}/business-profile`]: adminBusinessProfileFixture(),
+      [`${TENANT_PATH}/owner-status`]: OWNER_JOINED,
       [CLOSURE_PATH]: OPEN,
       // A closed account's screen also carries the erasure panel, which reads this.
       [ERASURE_PATH]: [],
@@ -119,6 +124,7 @@ function renderProfile(routes: Partial<Routes> = {}) {
     {
       [ADMIN_ME_PATH]: ME,
       [PROFILE_PATH]: PROFILE,
+      [`${TENANT_PATH}/business-profile`]: adminBusinessProfileFixture(),
       ...routes,
     },
   );
@@ -130,6 +136,8 @@ function renderInvitations(routes: Partial<Routes> = {}) {
     {
       [ADMIN_ME_PATH]: ME,
       [TENANT_PATH]: SUMMARY,
+      [`${TENANT_PATH}/business-profile`]: adminBusinessProfileFixture(),
+      [`${TENANT_PATH}/owner-status`]: OWNER_JOINED,
       [INVITES_PATH]: [],
       [`${TENANT_PATH}/members`]: [],
       [`${TENANT_PATH}/whatsapp-alerts`]: stillLoading(),

@@ -101,7 +101,7 @@ async def test_action_tool_rls_zero_rows_across_tenants() -> None:
             kind="custom_api",
             provider=None,
             name="get_status",
-            description="when asked",
+            description="when asked about it",
             trigger="during_call",
             pre_call_message=None,
             credential_id=None,
@@ -111,6 +111,44 @@ async def test_action_tool_rls_zero_rows_across_tenants() -> None:
     async with tenant_session(b) as sb:
         # RLS: tenant B lists tenant A's agent's tools as zero rows.
         assert await service.list_tools(sb, agent_id=agent_a) == []
+
+
+@pytest.mark.asyncio
+async def test_action_invocation_rls_zero_rows_across_tenants() -> None:
+    """D-700's per-action run log is tenant data: a neighbour reads none of it."""
+    from apps.workers.action_audit import _record_invocation
+
+    a, b = await _tenant("runs-a"), await _tenant("runs-b")
+    async with tenant_session(a) as sa:
+        agent_a = await agent_lifecycle.create_agent(
+            sa, tenant_id=a, name="Recept", direction="inbound", language_primary="te-IN"
+        )
+        tool = await service.create_tool(
+            sa,
+            tenant_id=a,
+            agent_id=agent_a,
+            kind="custom_api",
+            provider=None,
+            name="get_status",
+            description="when asked about it",
+            trigger="during_call",
+            pre_call_message=None,
+            credential_id=None,
+            params=[],
+            config={"method": "GET", "url": "https://api.example.com/o"},
+        )
+        await _record_invocation(
+            sa,
+            tenant_id=a,
+            payload={"tool_id": str(tool.id), "status": "http_200", "source": "test"},
+        )
+        assert (
+            await sa.execute(text("SELECT count(*) FROM action_invocations"))
+        ).scalar_one() == 1
+    async with tenant_session(b) as sb:
+        assert (
+            await sb.execute(text("SELECT count(*) FROM action_invocations"))
+        ).scalar_one() == 0
 
 
 @pytest.mark.asyncio
@@ -220,7 +258,7 @@ async def _agent_with_tool(session, tenant: UUID, *, name: str) -> tuple[UUID, U
         kind="custom_api",
         provider=None,
         name="get_status",
-        description="when asked",
+        description="when asked about it",
         trigger="during_call",
         pre_call_message=None,
         credential_id=None,

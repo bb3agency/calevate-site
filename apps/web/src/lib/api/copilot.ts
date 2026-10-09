@@ -29,7 +29,7 @@
  * here would be ceremony over a guard that already holds.
  */
 
-import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { lookup } from "@/lib/lookup";
 
@@ -68,6 +68,8 @@ export const COPILOT_CONFIRM_PATH = "/v1/copilot/confirm";
  */
 const INVALIDATES: Record<string, readonly string[][]> = {
   lead_set_status: [["leads"], ["lead"], ["lead-timeline"], ["lead-facets"], ["dashboard"]],
+  agent_create: [["agents"], ["agent"], ["dashboard"]],
+  agent_rename: [["agents"], ["agent"]],
   dnc_add: [["dnc"], ["leads"], ["lead"], ["campaign"], ["campaigns"]],
   campaign_pause: [["campaign"], ["campaigns"], ["dashboard"]],
 };
@@ -100,19 +102,81 @@ export function refreshAfterConfirm(
  * "already confirmed" — a refusal about our own retry, shown to a person whose change
  * actually succeeded.
  */
-export function useConfirmProposal(session: Session) {
+export function useConfirmProposal(
+  session: Session,
+  realm: "client" | "admin" = "client",
+  confirmAction: string | null = null,
+) {
   const client = useQueryClient();
   return useMutation<CopilotConfirmOut, unknown, string>({
     mutationFn: (token: string) =>
-      apiRequest<CopilotConfirmOut>(session, COPILOT_CONFIRM_PATH, {
-        method: "POST",
-        body: { token } satisfies CopilotConfirmIn,
-      }),
+      apiRequest<CopilotConfirmOut>(
+        session,
+        realm === "admin" ? ADMIN_COPILOT_CONFIRM_PATH : COPILOT_CONFIRM_PATH,
+        {
+          method: "POST",
+          body: { token } satisfies CopilotConfirmIn,
+          // An admin action whose console button asks for step-up asks for it here too
+          // (D-694): the proposal names the string, and the server also wants a fresh
+          // second factor, which it says so in its refusal when it is missing.
+          ...(confirmAction === null ? {} : { confirmAction }),
+        },
+      ),
     onSuccess: (result) => {
       // Only when something MOVED. `applied: false` means the row was already in that
       // state, so there is nothing on screen that has gone stale, and refetching the
       // leads table to learn that would be a round trip for no change.
       if (result.applied) refreshAfterConfirm(client, session.orgSlug, result.tool);
+    },
+  });
+}
+
+/** The admin realm's confirm door (D-694): admin actions, with the button's step-up. */
+export const ADMIN_COPILOT_CONFIRM_PATH = "/v1/admin/copilot/confirm";
+
+export type CopilotUndoOut = Schemas["CopilotUndoOut"];
+export type CopilotJobOut = Schemas["CopilotJobOut"];
+
+/** Where an Undo goes, per realm. */
+export function undoPath(realm: "client" | "admin", actionId: string): string {
+  const base = realm === "admin" ? "/v1/admin/copilot/actions" : "/v1/copilot/actions";
+  return `${base}/${encodeURIComponent(actionId)}/undo`;
+}
+
+/**
+ * Take back one action the assistant ran without a click (D-694).
+ *
+ * Not retried, for `useConfirmProposal`'s reason: a second post after the first landed is
+ * answered "already undone", a refusal about our own retry. A `409` names why it could not
+ * be undone — usually that somebody changed the record since — and is shown as it comes.
+ */
+export function useUndoAction(session: Session, realm: "client" | "admin") {
+  const client = useQueryClient();
+  return useMutation<CopilotUndoOut, unknown, string>({
+    mutationFn: (actionId: string) =>
+      apiRequest<CopilotUndoOut>(session, undoPath(realm, actionId), { method: "POST" }),
+    onSuccess: (result) => refreshAfterConfirm(client, session.orgSlug, result.tool),
+  });
+}
+
+/** How often a background job card re-reads its job while it runs. */
+export const JOB_POLL_MS = 2_000;
+
+/**
+ * One background job, polled while it is queued or running and left alone once it has
+ * finished (D-694). Polling rather than the job's event stream: the panel already polls
+ * nothing else, and one small read every two seconds while a job runs is the D-24 shape.
+ */
+export function useCopilotJob(session: Session, jobId: string) {
+  return useQuery<CopilotJobOut>({
+    queryKey: ["copilot-job", session.orgSlug, jobId],
+    queryFn: () =>
+      apiRequest<CopilotJobOut>(session, `/v1/copilot/jobs/${encodeURIComponent(jobId)}`),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === undefined || status === "queued" || status === "running"
+        ? JOB_POLL_MS
+        : false;
     },
   });
 }

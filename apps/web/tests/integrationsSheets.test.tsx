@@ -103,6 +103,13 @@ async function choose(destination: "webhook" | "sheet"): Promise<HTMLElement> {
 function render(over: Partial<Routes> = {}) {
   return renderClientPage(<IntegrationsPage />, {
     "/v1/me": OWNER,
+    "/v1/integrations/credentials": [],
+    "/v1/integrations/connections/status": {
+      google_calendar: false,
+      zoho_crm: false,
+      hubspot: false,
+      sheets_share_with: null,
+    },
     "/v1/integrations/endpoints": [],
     "/v1/integrations/deliveries": [],
     [EVENTS_PATH]: OPTIONS,

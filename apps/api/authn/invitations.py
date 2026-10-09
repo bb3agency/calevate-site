@@ -183,7 +183,8 @@ async def accept_with_password(
         row = (
             await lookup.execute(
                 text(
-                    "SELECT tenant_id, email FROM invitations WHERE token_hash = :hash "
+                    "SELECT tenant_id, email, invitee_name, invitee_phone FROM invitations "
+                    "WHERE token_hash = :hash "
                     "AND used_at IS NULL AND expires_at > now()"
                 ),
                 {"hash": token_hash},
@@ -195,7 +196,10 @@ async def accept_with_password(
     tenant_id = UUID(str(row[0]))
     invited_email = str(row[1]).strip()
 
-    user_id, created = await _find_or_create_user(email=invited_email, name=name, at=at)
+    # The name typed at acceptance wins; the operator's copy fills a blank one (D-695).
+    user_id, created = await _find_or_create_user(
+        email=invited_email, name=name or row[2], phone=row[3], at=at
+    )
 
     # D-185. The one condition on reuse. Reached ONLY when this redemption did not create
     # the row and the row already carries a credential — i.e. somebody has signed in as this
@@ -279,7 +283,9 @@ async def accept_with_password(
     )
 
 
-async def _find_or_create_user(*, email: str, name: str | None, at: datetime) -> tuple[UUID, bool]:
+async def _find_or_create_user(
+    *, email: str, name: str | None, at: datetime, phone: str | None = None
+) -> tuple[UUID, bool]:
     """The `users` row for this address, creating it if this is a new person.
 
     UNDERSCORED, AND IT STAYS UNDERSCORED. It has two callers outside this module —
@@ -335,15 +341,15 @@ async def _find_or_create_user(*, email: str, name: str | None, at: datetime) ->
                     # `email_verified_at` is absent from the column list, not written as
                     # NULL: the default IS NULL, and naming it would read as a deliberate
                     # value rather than as the absence of a fact (D-185).
-                    "INSERT INTO users (id, email, name, created_at, updated_at) "
-                    "VALUES (:id, :email, :name, :at, :at) "
+                    "INSERT INTO users (id, email, name, phone, created_at, updated_at) "
+                    "VALUES (:id, :email, :name, :phone, :at, :at) "
                     # The index predicate is repeated so Postgres can INFER the partial
                     # unique index; without it the statement is rejected outright rather
                     # than silently matching a different constraint.
                     "ON CONFLICT (lower(email)) WHERE deactivated_at IS NULL DO NOTHING "
                     "RETURNING id"
                 ),
-                {"id": user_id, "email": email, "name": name, "at": at},
+                {"id": user_id, "email": email, "name": name, "phone": phone, "at": at},
             )
         ).first()
         if inserted is None:

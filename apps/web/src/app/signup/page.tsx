@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { ArrowRight, CircleAlert, Lock, Mail, ShieldCheck } from "lucide-react";
+import { ArrowRight, CircleAlert, Mail, ShieldCheck } from "lucide-react";
 
 import { Providers } from "@/app/providers";
 import {
@@ -15,6 +15,8 @@ import {
   ProblemNotice,
   SECONDARY_BUTTON,
 } from "@/components/ui";
+import { AuthPageFrame } from "@/components/authPage";
+import { AuthShowcase } from "@/components/authn/authShowcase";
 import { useFormValidation } from "@/components/formValidation";
 import { ApiProblem } from "@/lib/api/client";
 import { CLIENT_ACCOUNT_PATH, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
@@ -149,22 +151,7 @@ export default function SignupPage() {
     // sign-in prompt, which is the demand-with-no-context this page exists to avoid.
     <ClientSessionProvider>
       <Providers>
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-app">
-          <header className="border-b border-line bg-surface">
-            <div className="mx-auto flex max-w-xl items-center justify-between gap-4 px-5 py-4 sm:px-6">
-              <Link
-                href="/"
-                className="rounded-md text-base font-semibold tracking-tight text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-              >
-                Calevate
-              </Link>
-              <span className="flex items-center gap-1.5 text-xs text-ink-faint">
-                <Lock aria-hidden className="h-3.5 w-3.5" />
-                Nothing here places a call
-              </span>
-            </div>
-          </header>
-          <main className="mx-auto w-full max-w-xl flex-1 px-5 py-10 sm:px-6 sm:py-14">
+        <AuthPageFrame realmLabel="Nothing here places a call" aside={<AuthShowcase />} width="wide">
             {/* The kill switch is checked FIRST, above both the form and the account
                 gate: on a deployment that opens no workspaces, sending a stranger off to
                 create an account would be walking them one screen further into a door
@@ -177,8 +164,7 @@ export default function SignupPage() {
             ) : (
               <SignupOrInvitation />
             )}
-          </main>
-        </div>
+        </AuthPageFrame>
       </Providers>
     </ClientSessionProvider>
   );

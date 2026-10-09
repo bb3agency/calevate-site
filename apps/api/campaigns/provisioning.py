@@ -287,7 +287,7 @@ def provisioning_not_configured(reason: str | None) -> ProblemError:
             "so a number cannot be bought from here."
         ),
         remediation=(
-            "Record a number on Calevate's own carrier account with Vobiz for this client "
+            "Ask your account manager to record a number on Calevate's own carrier account "
             "instead: the client opens no operator account and issues us no credentials."
         ),
     )

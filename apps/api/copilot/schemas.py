@@ -313,6 +313,10 @@ class CopilotProposalEvent(BaseModel):
     #: When the token stops verifying. The browser disables its own button here rather than
     #: letting a person click into a refusal.
     expires_at: datetime
+    #: THE STEP-UP STRING the confirm door will demand, or `None` (D-694, admin realm). An
+    #: admin action whose console button asks for a second factor asks for it here too; the
+    #: browser sends this value as `X-Confirm-Action` with the confirm request.
+    confirm_action: str | None = None
 
 
 class CopilotStepEvent(BaseModel):
@@ -380,6 +384,31 @@ class CopilotActionEvent(BaseModel):
     #: Where the result lives, as a person would find it ("under Agents in your dashboard").
     #: The founder's cross-screen rule: act from wherever they are, then say where it went.
     where: str
+    #: The activity-log row this action wrote (D-694); `POST /v1/copilot/actions/{id}/undo`
+    #: takes it back. `None` only on a receipt replayed from before the log existed.
+    action_id: str | None = None
+    #: Until when Undo is offered, or `None` when there is nothing to undo (the world was
+    #: already in that state). The browser hides its Undo button after this instant.
+    undoable_until: datetime | None = None
+
+
+class CopilotJobEvent(BaseModel):
+    """`event: job` — the request was handed to a BACKGROUND JOB (D-694).
+
+    Sent when the assistant decides a request is bigger than one answer can hold. The job
+    keeps working after this response ends; read its progress from
+    `GET /v1/copilot/jobs/{job_id}` (poll) or `GET /v1/copilot/jobs/{job_id}/events`
+    (stream). Anything irreversible it reaches waits in the Approvals inbox.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: str
+    status: Literal["queued", "running", "done", "failed", "cancelled"]
+    #: What the job is doing, in the assistant's words after redaction.
+    goal: str
+    #: The server's own sentence for the panel.
+    detail: str
 
 
 class CopilotNavigateEvent(BaseModel):
@@ -530,6 +559,96 @@ class CopilotConversationClearedOut(BaseModel):
     cleared: int
 
 
+class CopilotActionOut(BaseModel):
+    """One row of the assistant's activity log, or of the Approvals inbox (D-694).
+
+    `args` are the arguments AFTER redaction — for reading, never for running. `can_undo`
+    is the server's own verdict (a `done` row inside its undo window); the browser shows
+    an Undo button exactly when it is true.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    realm: Literal["client", "admin"]
+    tool: str
+    tier: Literal["immediate", "confirm"]
+    status: Literal["done", "undone", "refused", "pending_approval", "rejected", "expired"]
+    source: Literal["interactive", "job"]
+    object_type: str
+    object_id: str | None
+    args: dict[str, object] | None
+    summary: str | None
+    refusal_reason: str | None
+    can_undo: bool
+    undoable_until: datetime | None
+    undone_at: datetime | None
+    decided_at: datetime | None
+    job_id: str | None
+    #: Who undid it, and who approved or declined it — both people on this account.
+    undone_by: str | None = None
+    decided_by: str | None = None
+    created_at: datetime
+
+
+class CopilotActionPageOut(BaseModel):
+    """One page of the activity log, newest first. Pass the oldest `created_at` you hold
+    as `before` to read further back."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actions: list[CopilotActionOut] = []
+    has_more: bool = False
+
+
+class CopilotUndoOut(BaseModel):
+    """What an Undo did. `detail` is the sentence to show."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action_id: str
+    tool: str
+    detail: str
+
+
+class CopilotJobProgressOut(BaseModel):
+    """One entry of a background job's progress."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    at: str
+    kind: Literal["step", "action", "approval", "text", "note"]
+    text: str
+    #: The action-log row an `action` or `approval` entry points at.
+    action_id: str | None = None
+
+
+class CopilotJobOut(BaseModel):
+    """One background job (D-694): its state, its progress so far and, once finished, the
+    assistant's account of what it did."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    status: Literal["queued", "running", "done", "failed", "cancelled"]
+    goal: str
+    screen_route: str
+    progress: list[CopilotJobProgressOut] = []
+    result: str | None = None
+    error_code: str | None = None
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class CopilotJobPageOut(BaseModel):
+    """This person's recent background jobs, newest first."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    jobs: list[CopilotJobOut] = []
+
+
 #: THE SSE FRAMES OF `POST /v1/copilot/ask`, BY EVENT NAME — the one declaration of a
 #: contract that is otherwise written down twice.
 #:
@@ -554,6 +673,7 @@ STREAM_FRAMES: Final[Mapping[str, type[BaseModel]]] = {
     "proposal": CopilotProposalEvent,
     "action": CopilotActionEvent,
     "navigate": CopilotNavigateEvent,
+    "job": CopilotJobEvent,
     "step": CopilotStepEvent,
     "done": CopilotDoneEvent,
 }
@@ -566,6 +686,8 @@ __all__ = [
     "MAX_OPTIONS",
     "STREAM_FRAMES",
     "CopilotActionEvent",
+    "CopilotActionOut",
+    "CopilotActionPageOut",
     "CopilotAskIn",
     "CopilotConfirmIn",
     "CopilotConfirmOut",
@@ -577,6 +699,10 @@ __all__ = [
     "CopilotFieldType",
     "CopilotFillEvent",
     "CopilotFillItem",
+    "CopilotJobEvent",
+    "CopilotJobOut",
+    "CopilotJobPageOut",
+    "CopilotJobProgressOut",
     "CopilotNavigateEvent",
     "CopilotOption",
     "CopilotProposalEvent",
@@ -585,5 +711,6 @@ __all__ = [
     "CopilotStoredTurnOut",
     "CopilotTextEvent",
     "CopilotTurn",
+    "CopilotUndoOut",
     "CopilotValue",
 ]

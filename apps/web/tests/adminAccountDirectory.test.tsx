@@ -9,6 +9,7 @@ import type { TenantSummary } from "@/lib/api/admin";
 import type { ActivityEntry, ReadinessRow } from "@/lib/api/adminAccount";
 
 import { problem, renderAdminPage, type Routes } from "./harness";
+import { NO_UNFINISHED } from "./businessProfileFixture";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 
 /**
@@ -101,6 +102,7 @@ describe("the client directory scales", () => {
   it("prints the matching total rather than the size of the page", async () => {
     const { container } = renderAdminPage(<AdminClientsPage />, {
       [ADMIN_ME_PATH]: ME,
+      "/v1/admin/onboarding/unfinished": NO_UNFINISHED,
       [DIRECTORY]: page([tenant()], 312),
     });
 
@@ -113,6 +115,7 @@ describe("the client directory scales", () => {
   it("asks the server for the next page rather than slicing one it already has", async () => {
     const { calls } = renderAdminPage(<AdminClientsPage />, {
       [ADMIN_ME_PATH]: ME,
+      "/v1/admin/onboarding/unfinished": NO_UNFINISHED,
       [DIRECTORY]: page([tenant()], 312),
       [`${DIRECTORY}?offset=25&limit=25`]: page([tenant({ name: "Next Page Motors" })], 312, 25),
     });
@@ -127,6 +130,7 @@ describe("the client directory scales", () => {
   it("sends the search to the server and goes back to the first page", async () => {
     const { calls } = renderAdminPage(<AdminClientsPage />, {
       [ADMIN_ME_PATH]: ME,
+      "/v1/admin/onboarding/unfinished": NO_UNFINISHED,
       [DIRECTORY]: page([tenant()], 312),
       [`${DIRECTORY}?offset=25&limit=25`]: page([tenant()], 312, 25),
       [`${DIRECTORY}?q=motors`]: page([tenant({ name: "Deccan Motors" })], 1),
@@ -147,6 +151,7 @@ describe("the client directory scales", () => {
   it("says nothing matched rather than that there are no clients", async () => {
     const { container } = renderAdminPage(<AdminClientsPage />, {
       [ADMIN_ME_PATH]: ME,
+      "/v1/admin/onboarding/unfinished": NO_UNFINISHED,
       [DIRECTORY]: page([tenant()], 312),
       [`${DIRECTORY}?q=zzz`]: page([], 0),
     });
@@ -162,6 +167,7 @@ describe("the client directory scales", () => {
   it("narrows by state through the server", async () => {
     const { calls } = renderAdminPage(<AdminClientsPage />, {
       [ADMIN_ME_PATH]: ME,
+      "/v1/admin/onboarding/unfinished": NO_UNFINISHED,
       [DIRECTORY]: page([tenant()], 312),
       [`${DIRECTORY}?status=suspended`]: page([tenant({ name: "Halted Traders" })], 1),
     });

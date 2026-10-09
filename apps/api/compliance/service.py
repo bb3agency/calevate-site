@@ -76,6 +76,7 @@ from apps.api.agents.reconciliation import (
     TRUTHFUL_ANSWER_VERDICT_TTL_S,
 )
 from apps.api.agents.service import agent_registered_numbers
+from apps.api.billing.dispute_hold import DISPUTE_HOLD_REASON, dispute_hold_active
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
 from apps.api.billing.trials import trial_billing_active
@@ -107,6 +108,12 @@ from apps.api.compliance.models import (
     DNC_REMOVABLE_SOURCES,
 )
 from apps.api.compliance.outbound_pledge import pledge_blocker
+from apps.api.compliance.trial_access import (
+    NOT_ON_TRIAL_REASON,
+    NOT_ON_TRIAL_RULE,
+    TRIAL_REFUSALS,
+    read_trial_access,
+)
 from apps.api.core.alerting import record_compliance_block
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
@@ -854,6 +861,7 @@ async def check_dispatch(
     agent_id: UUID,
     phone_e164: str,
     dlt_governed: bool = True,
+    trial_call: bool = False,
 ) -> DispatchDecision:
     """Returns a decision rather than raising, so callers can render *why* a button is
     disabled — SURFACES §2b asks for blocked features to be visibly explained instead
@@ -868,7 +876,15 @@ async def check_dispatch(
     money, hours, DNC, consent, and the India-only destination) still runs, and the flag
     defaults to the stricter voice regime so a forgotten caller gets MORE checks, not
     fewer. The messaging leg's own consent gate (`resolve_escalation_destination`'s
-    opt-in) runs at its call site, beside this one."""
+    opt-in) runs at its call site, beside this one.
+
+    `trial_call` marks a FREE-TRIAL TEST CALL (D-697, `agents/trial_calls.py`). A trial
+    account is refused every other outbound call, and only a trial account may place a
+    test call. A test call is not asked for KYC (it unlocks only after payment), the
+    autodialer notice or the carrier application (it rings from Calevate's own shared
+    number, not the client's); it is still asked the halt, the drain, the account, the
+    agent and its truthful answers (hard rule 5), the pledge, the agreements, the spend cap,
+    calling hours, the India-only destination, the do-not-call list and consent."""
     platform = await get_platform_status()
     if platform.outbound_halted:
         return DispatchDecision(
@@ -964,10 +980,23 @@ async def check_dispatch(
         rule, reason = truthful
         return DispatchDecision(allowed=False, rule=rule, reason=reason)
 
+    # A FREE-TRIAL ACCOUNT PLACES TEST CALLS AND NOTHING ELSE (D-697), and only it does.
+    # After the agent checks, so a test call still meets hard rule 5; before the paperwork,
+    # because KYC is not open to a trial account and must not be the refusal it reads.
+    trial = await read_trial_access(session, tenant_id=tenant_id)
+    if trial_call and trial is None:
+        return DispatchDecision(allowed=False, rule=NOT_ON_TRIAL_RULE, reason=NOT_ON_TRIAL_REASON)
+    if trial is not None and not trial_call:
+        rule, reason = TRIAL_REFUSALS["live_outbound"]
+        return DispatchDecision(allowed=False, rule=rule, reason=reason)
+    if trial is not None and trial.blocker is not None:
+        rule, reason = trial.blocker
+        return DispatchDecision(allowed=False, rule=rule, reason=reason)
+
     # Before the money questions on purpose: "we do not know who you are" outranks "you
     # have run out of credit", and answering in the other order would tell an unverified
     # account to top up when topping up will not let them dial.
-    blocked_on_kyc = await kyc_blocker(session, tenant_id=tenant_id)
+    blocked_on_kyc = None if trial_call else await kyc_blocker(session, tenant_id=tenant_id)
     if blocked_on_kyc is not None:
         rule, reason = blocked_on_kyc
         return DispatchDecision(allowed=False, rule=rule, reason=reason)
@@ -999,6 +1028,15 @@ async def check_dispatch(
             allowed=False,
             rule="spend_cap",
             reason=SPEND_CAP_REASON,
+        )
+
+    # A disputed payment pauses OUTBOUND only (D-699); it is asked after
+    # `agent_inbound_only` above, so an answering line is untouched.
+    if await dispute_hold_active(session, tenant_id=tenant_id):
+        return DispatchDecision(
+            allowed=False,
+            rule="payment_dispute",
+            reason=DISPUTE_HOLD_REASON,
         )
 
     # Credits gate every PREPAID account (D-34, and D-521 which made that the
@@ -1151,7 +1189,7 @@ async def check_dispatch(
     # a separate obligation D-692 did not decide on, so it still binds. Skipped for
     # WhatsApp (`dlt_governed=False`), which is a Meta-BSP channel with no carrier notice
     # (LEGAL-OPS-PLAYBOOK §11). `compliance/autodialer.py` carries the evidence class.
-    if dlt_governed:
+    if dlt_governed and not trial_call:
         notice_block = await autodialer_notice_blocker(
             session,
             tenant_id=tenant_id,
@@ -1169,8 +1207,10 @@ async def check_dispatch(
     # us, and it binds whatever regime the call is under. The WhatsApp escalation path
     # passes `dlt_governed=False` and has no `phone_numbers` row of ours to match, so it
     # is unaffected by construction rather than by exemption.
-    carrier_block = await carrier_application_blocker(
-        session, tenant_id=tenant_id, agent_id=agent_id
+    carrier_block = (
+        None
+        if trial_call
+        else await carrier_application_blocker(session, tenant_id=tenant_id, agent_id=agent_id)
     )
     if carrier_block is not None:
         rule, reason = carrier_block

@@ -12,6 +12,7 @@ import type { Agent } from "@/lib/api/agents";
 import type { PendingState } from "@/lib/api/publishing";
 
 import { problem, renderClientPage } from "./harness";
+import { businessProfileFixture } from "./businessProfileFixture";
 import { LANES, LEGAL_READY, clientLlmTiers, prepaidWallet, voiceCatalogue } from "./fixtures/sharedReads";
 
 /*
@@ -259,6 +260,7 @@ function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": OWNER,
     "/v1/agents/agent-1": agent(),
+    "/v1/business-profile": businessProfileFixture(),
     "/v1/agents/agent-1/pending": settled(),
     "/v1/kb/sources": [],
     "/v1/organization/llm-defaults": LLM_DEFAULTS,

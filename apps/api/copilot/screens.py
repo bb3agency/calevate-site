@@ -223,6 +223,16 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         permission="calls:read",
     ),
     Screen(
+        route="/c/{slug}/assistant",
+        name="Assistant",
+        group=None,
+        summary=(
+            "The assistant's own page: past conversations, tasks running in the background, "
+            "the approvals waiting for you, routines, and everything it did with an Undo."
+        ),
+        aliases=("approvals", "routines", "activity log", "tasks", "undo"),
+    ),
+    Screen(
         route="/c/{slug}/quality",
         name="Quality",
         group="Reports & reviews",
@@ -301,6 +311,30 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         group="Compliance & data",
         summary="The privacy notice this business shows its own callers.",
         aliases=("privacy policy", "privacy notice", "caller notice"),
+    ),
+    Screen(
+        route="/c/{slug}/settings/business",
+        name="Business profile",
+        group=SETTINGS_GROUP,
+        summary="The business's hours, address, services and prices, common questions, "
+        "staff, booking rules, people who take calls and languages — what every agent says.",
+        aliases=(
+            "business details",
+            "opening hours",
+            "address",
+            "prices",
+            "price list",
+            "escalation contacts",
+            "business info",
+        ),
+    ),
+    Screen(
+        route="/c/{slug}/setup",
+        name="Business setup",
+        group=SETTINGS_GROUP,
+        summary="A step-by-step walk through the business profile, one topic at a time, "
+        "every step skippable.",
+        aliases=("setup", "onboarding", "getting started", "setup wizard"),
     ),
     Screen(
         route="/c/{slug}/settings/team",

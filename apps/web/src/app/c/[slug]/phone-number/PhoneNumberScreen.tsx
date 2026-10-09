@@ -12,6 +12,7 @@ import { BuyNumber } from "./BuyNumber";
 import { NumberAssignment } from "./NumberAssignment";
 import { OwnNumbersJourney, ReleaseOwnNumber } from "./OwnNumbers";
 import { SenderAttestation } from "./SenderAttestation";
+import { TrialLockNotice } from "../TrialLockNotice";
 
 /**
  * THE NUMBERS THIS BUSINESS ANSWERS AND CALLS FROM (D-537).
@@ -69,6 +70,7 @@ export function PhoneNumberScreen() {
   return (
     <div className="space-y-6 pb-12">
       <PageHeader description="The numbers your agents answer and call from." />
+      <TrialLockNotice lock="numbers" />
 
       {/* With no number yet, getting one IS the job, so it comes first. */}
       {none && getNumber}

@@ -149,6 +149,13 @@ KB_INGESTION_FEATURES = (
     "supermemory_ingest",
 )
 
+#: AI features that are FREE to the account (D-694): metered on this ledger at our cost —
+#: the platform brake and the assistant's daily fair-use cap read these rows — but never
+#: counted against the monthly AI allowance, so they can never put a client at a ceiling
+#: or in front of an overage purchase. Spelled here for `KB_INGESTION_FEATURES`' import-cycle
+#: reason; `copilot/fair_use_test.py` pins it to `crm/assist.ASSIST_FEATURE_COPILOT`.
+FREE_ASSIST_FEATURES = ("copilot",)
+
 # WHO PAYS FOR A ROW OF THIS UNIT — the one question every reader of `usage_events` has
 # to answer, and until now the only place it was answered was a NEGATIVE predicate in
 # `billing/service.py` (`_NOT_AI_UNITS`). Negative is the safe DIRECTION — a unit added
@@ -655,21 +662,10 @@ class CreditLedgerEntry(PKMixin, Base):
     a FUTURE writer that forgets the lock — which is the failure mode an advisory lock
     can never cover, since it is only as good as every caller remembering it.
 
-    **`refund` HAS THAT BACKSTOP GAP TODAY, AND IT IS NAMED HERE RATHER THAN LEFT TO BE
-    REDISCOVERED.** Five reasons exist; three are covered by the index above and `bonus`
-    by `ux_credit_ledger_bonus_ref` (migration c3a9f1e6b820, partial on
-    `reason = 'bonus'`). `refund` is covered by NEITHER, and it is not keyless — a
-    `payments.credit_refund` row carries the PROVIDER'S REFUND ID as its `ref`, which is
-    a perfectly good unique key (partial refunds carry different refund ids, so they
-    separate exactly as two top-ups do). The reason for the gap is chronological, not
-    principled: `f9c2b41a8e57` predates the refund writer. Nothing is loose today —
-    `credit_refund` takes `lock_tenant_credits` BEFORE its `find_entry_by_ref` and is the
-    only writer of the reason — so the exposure is precisely the one the paragraph above
-    says the index exists for, and no more. Closing it is a partial unique index on
-    `(tenant_id, ref) WHERE reason = 'refund' AND ref IS NOT NULL`, in its own migration.
-    `tests/credit_ledger_unique_index_test.py` carries both halves: the pin that refund is
-    absent from the older predicate, and the pin that its rows really do carry a ref — the
-    fact whose earlier denial is what let this look harmless.
+    `bonus` is covered by `ux_credit_ledger_bonus_ref` (migration c3a9f1e6b820) and
+    `refund` by `ux_credit_ledger_refund_ref` on `(tenant_id, ref) WHERE reason =
+    'refund'` (migration 817842cf3b97), keyed on the provider's refund id, so partial
+    refunds of one payment separate exactly as two top-ups do.
     """
 
     __tablename__ = "credit_ledger"
@@ -1223,7 +1219,12 @@ class RefundIntent(PKMixin, Base):
 #: whenever nothing has run recently — the screen decides how old is old. "Cancelled"
 #: would be the browser's word for closing a window, and the browser is not a source of
 #: truth about a payment (`billing/payment_routes.py`).
-TOPUP_ATTEMPT_STATUSES: tuple[str, ...] = ("created", "captured", "failed")
+#:
+#: `authorized` (D-699, migration e1a7c93b5d24): the bank approved the payment and
+#: Razorpay has not captured it yet. Auto-capture normally follows within moments, and a
+#: payment never captured within the capture window is refunded by Razorpay itself
+#: (`payments/payments/capture-settings.md`, read 9 Oct 2026). The client sees "verifying".
+TOPUP_ATTEMPT_STATUSES: tuple[str, ...] = ("created", "authorized", "captured", "failed")
 
 
 class TopUpAttempt(PKMixin, TimestampMixin, Base):
@@ -1349,6 +1350,12 @@ class TenantTrial(PKMixin, TimestampMixin, Base):
         # D-536): days are the only bound this arrangement has, so they are bounded twice.
         CheckConstraint("days >= 1 AND days <= 365", name="days_range"),
         CheckConstraint("ends_at > started_at", name="ends_after_start"),
+        # The free minutes a trial carries (D-697): test-call minutes, bounded like the days.
+        # NULL only on a trial opened before D-697, which has no minutes cap.
+        CheckConstraint(
+            "free_minutes IS NULL OR (free_minutes >= 1 AND free_minutes <= 1000)",
+            name="free_minutes_range",
+        ),
         # `active` and "not yet ended" are ONE fact, so they are stored once and asserted
         # equal. Without this a row can read `expired` with no `ended_at` — which the
         # erasure sweep would then schedule from a NULL and skip for ever.
@@ -1426,6 +1433,9 @@ class TenantTrial(PKMixin, TimestampMixin, Base):
     started_by: Mapped[UUID | None] = mapped_column(
         ForeignKey("admin_users.id", ondelete="SET NULL")
     )
+    #: The test-call minutes this trial carries (D-697). The trial ends at its end date or
+    #: when these are used, whichever comes first, and at once when the client pays.
+    free_minutes: Mapped[int | None] = mapped_column(Integer)
 
 
 # Referenced (not yet modeled — M2): invoices, engine_capacity.

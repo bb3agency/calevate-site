@@ -99,7 +99,7 @@ export function useCampaignsCopilotSurface({
           value: option.value,
           label: option.label,
         })),
-        help: "Decides which number series may dial (DATA-MODEL §6). Promotional needs a 140-series number.",
+        help: "Decides which number series may dial. Promotional needs a 140-series number.",
       },
       {
         id: "campaign-number",

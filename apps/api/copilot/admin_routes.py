@@ -50,34 +50,53 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, Query, Request
+from fastapi import APIRouter, Body, Depends, Header, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from sqlalchemy import text
 
 from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.billing.platform_ai import require_platform_ai
 from apps.api.compliance.audit import write_audit
-from apps.api.copilot import admin_memory, memory, service, session_run, transcript, write_tools
+from apps.api.copilot import (
+    action_log,
+    admin_actions,
+    admin_memory,
+    memory,
+    model_tiers,
+    service,
+    session_run,
+    transcript,
+    undo,
+    write_tools,
+)
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot.context import live_state_block
+from apps.api.copilot.routes import action_out
 from apps.api.copilot.sanitize import assert_redacted
 from apps.api.copilot.schemas import (
     AdminCopilotAskIn,
+    CopilotActionPageOut,
+    CopilotConfirmIn,
+    CopilotConfirmOut,
     CopilotConversationClearedOut,
     CopilotConversationOut,
     CopilotDoneEvent,
     CopilotFact,
     CopilotFillEvent,
     CopilotTextEvent,
+    CopilotUndoOut,
 )
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
+from apps.api.core.settings import get_settings
+from apps.api.core.stepup import StepUpGate
 from apps.api.crm.assist import ASSIST_FEATURE_ADMIN_COPILOT, meter_platform_assist
 from apps.api.db.session import admin_session, untenanted_session
 
@@ -109,9 +128,10 @@ the impersonated account, which is proven by the grant rather than claimed in a 
 
 Streams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents —
 `text`, `fill`, `step`, `proposal`, `action`, `done`, `error`. A `proposal` is NOT a
-change and, in this realm today, neither a `proposal` nor an `action` will be offered: the
-write tools need an account-scoped identity that an admin session does not carry, and
-inside a view-as session they are refused outright because impersonation is read-only.
+change. The admin realm proposes its OWN platform actions (D-694; today: halting all
+outbound calling), confirmed on `POST /v1/admin/copilot/confirm` with the same step-up the
+console button asks for, and may answer with `navigate` to open an admin screen. The
+client account tools still need an account-scoped identity an admin session does not carry.
 
 **BILLING: this never touches a client's AI allowance.** Operator spend is metered to the
 platform's own ledger under the cost name `admin_copilot`. It is still bounded by the
@@ -440,12 +460,12 @@ async def ask_admin_copilot(
     try:
         async for event in service.run_copilot(
             payload,
-            # NO `tenant_leg`. D-478's per-account model choice is a CLIENT's setting about
-            # a CLIENT's own spend; an operator's question runs on the platform's own Azure
-            # leg, which is what `assist_capability` selects when no account leg is passed.
-            # Reading the viewed account's leg would put a client's model preference in
-            # front of an operator's question and price it off that client's model.
-            tenant_leg=None,
+            # THE CONSOLE TIER, never the viewed account's model (D-694): an operator's
+            # question runs on the platform's own assistant model, chosen by the same
+            # deterministic rule as the client's (`model_tiers.route_tier`), and is priced
+            # off that model on the platform ledger.
+            tenant_leg=model_tiers.tier_leg(model_tiers.route_tier(payload.question)),
+            allow_azure=get_settings().copilot_azure_fallback,
             # `require_platform_ai` RAISES at the brake, so this is False on every path that
             # reaches here. Written as the read so the caller stays correct if the gate ever
             # learns to answer instead of raise.
@@ -516,6 +536,11 @@ async def ask_admin_copilot(
                 # defect class CLAUDE.md names.
                 acted.append(event.action.tool)
                 yield ServerSentEvent(event="action", data=event.action)
+            if event.navigate is not None:
+                # THE ADMIN REALM CAN OPEN ITS OWN SCREENS (D-694). The route is a constant
+                # from `admin_screens.ADMIN_SCREENS`; the browser checks it against its own
+                # sidebar list before it moves.
+                yield ServerSentEvent(event="navigate", data=event.navigate)
             if event.spend is not None:
                 spends.append(event.spend)
         completed = True
@@ -661,6 +686,89 @@ async def clear_admin_copilot_conversation(
             summary={"turns_cleared": cleared},
         )
     return CopilotConversationClearedOut(cleared=cleared)
+
+
+#: `copilot:admin` at the door, as on the ask route. The ACTION's own permission is checked
+#: inside (`admin_actions.confirm_admin`), against the console button's.
+AdminConfirmUser = Annotated[Principal, Depends(requires("copilot:admin", realm="admin"))]
+
+
+@router.post(
+    "/copilot/confirm",
+    response_model=CopilotConfirmOut,
+    openapi_extra=permission_meta("copilot:admin"),
+    summary="Do the platform change the admin assistant proposed — step-up confirmed",
+    description=(
+        "Post back the `token` from an admin `event: proposal` frame, unchanged. When the "
+        "proposal carries `confirm_action`, send it as `X-Confirm-Action` and have a fresh "
+        "second factor — the same step-up the console's own button asks for. A token works "
+        "once, for the operator it was minted for, for five minutes. Every change writes an "
+        "audit row naming the operator."
+    ),
+)
+async def confirm_admin_copilot_proposal(
+    payload: Annotated[CopilotConfirmIn, Body()],
+    request: Request,
+    # Resolved BEFORE the handler body, so the freshness read never happens inside an open
+    # transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
+    principal: AdminConfirmUser,
+    x_confirm_action: Annotated[str | None, Header()] = None,
+) -> CopilotConfirmOut:
+    """The admin realm's human-in-the-loop door (D-694)."""
+    async with untenanted_session() as session:
+        return await admin_actions.confirm_admin(
+            session,
+            payload.token,
+            principal=principal,
+            # THE BUTTON'S STEP-UP, demanded here where the gate is declared: the action's
+            # confirmation string is only known once the token is verified, so the confirm
+            # door calls back into this before it burns the token or executes anything.
+            require_step_up=lambda action: step_up.require(x_confirm_action, action),
+            ip=client_request_ip(request),
+        )
+
+
+@router.get(
+    "/copilot/actions",
+    response_model=CopilotActionPageOut,
+    openapi_extra=permission_meta("copilot:admin"),
+    summary="What the admin assistant did for you — newest first",
+)
+async def list_admin_copilot_actions(
+    principal: AdminCopilotUser,
+    limit: Annotated[int, Query(ge=1, le=action_log.PAGE_MAX)] = action_log.PAGE_DEFAULT,
+    before: Annotated[datetime | None, Query()] = None,
+) -> CopilotActionPageOut:
+    operator = _operator_id(principal)
+    async with untenanted_session() as session:
+        rows, has_more = await action_log.list_actions(
+            session, realm="admin", actor_id=operator, limit=limit, before=before
+        )
+    return CopilotActionPageOut(
+        actions=[action_out(row, realm="admin") for row in rows], has_more=has_more
+    )
+
+
+@router.post(
+    "/copilot/actions/{action_id}/undo",
+    response_model=CopilotUndoOut,
+    openapi_extra=permission_meta("copilot:admin"),
+    summary="Undo something the admin assistant did",
+)
+async def undo_admin_copilot_action(
+    action_id: UUID,
+    request: Request,
+    principal: AdminCopilotUser,
+) -> CopilotUndoOut:
+    """The admin twin of `POST /v1/copilot/actions/{id}/undo`. Every admin action is
+    confirm-tier today, so this answers `409 copilot_action_not_undoable` for each of them —
+    and `404` for an id that is not this operator's — and is where a reversible admin action
+    lands without a second mechanism."""
+    del request
+    _operator_id(principal)
+    async with untenanted_session() as session:
+        return await undo.undo_admin_action(session, action_id, principal=principal)
 
 
 __all__ = ["router"]

@@ -178,8 +178,13 @@ export function LiveActivity({
     return () => observer.disconnect();
   }, [activity, expanded, apply]);
 
+  // Keyed on identity and phase only. A progress tick (`update`) is a new object every
+  // time, and keying on the object restarted the peek on every tick, so a busy task never
+  // collapsed back to its compact face.
+  const activityId = activity?.id;
+  const activityPhase = activity?.phase;
   useEffect(() => {
-    if (!activity) {
+    if (activityId === undefined) {
       setPeeking(false);
       setHovered(false);
       setFocused(false);
@@ -192,7 +197,7 @@ export function LiveActivity({
       peekTimer.current = null;
       setPeeking(false);
     }, PEEK_FOR);
-  }, [activity?.id, activity?.phase, activity]);
+  }, [activityId, activityPhase]);
 
   useEffect(
     () => () => {
@@ -286,6 +291,12 @@ export function LiveActivity({
               // measured/target width; this only clamps what actually paints.
               maxWidth: `min(${width}px, calc(100vw - 24px))`,
             }}
+            // FOCUSABLE ITSELF, so a keyboard can open it. The compact face holds no
+            // control, and a face that turns `inert` once expanded cannot hold the focus
+            // that expanded it.
+            tabIndex={0}
+            role="group"
+            aria-label={`${activity.title}, details`}
             onPointerEnter={enter}
             onPointerLeave={leave}
             onFocusCapture={() => setFocused(true)}
@@ -297,8 +308,11 @@ export function LiveActivity({
             onKeyDown={(e) => {
               if (e.key !== "Escape") return;
               e.preventDefault();
-              if (phase === "running") setHovered(false);
-              else onDismiss?.();
+              if (phase === "running") {
+                setHovered(false);
+                setFocused(false);
+                setPeeking(false);
+              } else onDismiss?.();
             }}
             className="pointer-events-auto relative overflow-hidden rounded-[11px] border border-line bg-surface shadow-[inset_0_1.5px_0_rgba(255,255,255,0.95),0_1px_2px_rgba(28,25,23,0.07),0_16px_36px_-18px_rgba(28,25,23,0.5)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_2px_12px_rgba(0,0,0,0.55)]"
           >
@@ -330,7 +344,7 @@ export function LiveActivity({
               initial={false}
               animate={{ opacity: expanded ? 1 : 0 }}
               transition={reduced ? INSTANT : CROSSFADE}
-              style={{ width }}
+              style={{ width: `min(${width}px, calc(100vw - 24px))` }}
               className={`absolute left-0 top-0 px-3.5 py-3 ${face(expanded)}`}
             >
               <div className="flex items-center gap-2">
@@ -354,7 +368,7 @@ export function LiveActivity({
                     tabIndex={expanded ? 0 : -1}
                     aria-label={dismissLabel}
                     onClick={onDismiss}
-                    className="grid size-[22px] shrink-0 place-items-center rounded-[6px] text-ink-faint transition-colors duration-150 hover:bg-ink/[0.06] hover:text-ink focus-visible:bg-brand/[0.06] focus-visible:shadow-[inset_0_0_0_1px_#16a05d] focus-visible:outline-none dark:focus-visible:bg-brand-bright/[0.1] dark:focus-visible:shadow-[inset_0_0_0_1px_#22c55e]"
+                    className="grid size-[22px] shrink-0 place-items-center rounded-[6px] text-ink-faint transition-colors duration-150 hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand"
                   >
                     <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden>
                       <path
@@ -376,7 +390,14 @@ export function LiveActivity({
 
               {percent !== null && phase !== "error" ? (
                 <div className="mt-2.5 flex items-center gap-2 pl-[26px]">
-                  <div className="min-w-0 flex-1 rounded-[4px] bg-ink/[0.06] p-[2px] shadow-[inset_0_1px_2px_rgba(28,25,23,0.1)] dark:shadow-[inset_0_1px_2px_rgba(0,0,0,0.45)]">
+                  <div
+                    role="progressbar"
+                    aria-label={`${activity.title} progress`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={percent ?? 0}
+                    className="min-w-0 flex-1 rounded-[4px] bg-ink/[0.06] p-[2px] shadow-[inset_0_1px_2px_rgba(28,25,23,0.1)] dark:shadow-[inset_0_1px_2px_rgba(0,0,0,0.45)]"
+                  >
                     <div className="relative h-[4px] overflow-hidden rounded-[2px]">
                       <motion.span
                         aria-hidden

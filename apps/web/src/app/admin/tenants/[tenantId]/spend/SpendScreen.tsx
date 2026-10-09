@@ -95,7 +95,7 @@ export function SpendScreen({ tenantId }: { tenantId: string }) {
             label: "Do the cost figures rest on a currency the VENDOR stated",
             value: data.cost_currency_stated
               ? `yes — ${data.cost_currency ?? "unnamed"}`
-              : "NO. We chose the currency because the vendor's payload names none, so every cost and margin above is scaled by our assumption (OPERATIONS §2 gate 7).",
+              : "NO. We chose the currency because the vendor's payload names none, so every cost and margin above is scaled by our assumption.",
           },
           {
             // D-608: the KNOWLEDGE half of the absorbed AI cost is what an operator asks

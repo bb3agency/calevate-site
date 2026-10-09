@@ -4034,6 +4034,11 @@ class CallContext(BaseModel):
     #: status callbacks name the row the intent was recorded on. `None` on an engine that
     #: has no use for it; an engine that needs it refuses a dial without it.
     call_id: str | None = None
+    #: THE LONGEST THIS ONE CALL MAY RUN, in seconds, or None for the agent's own limit.
+    #: Set only for a free-trial test call (D-697), and trial calls are placed only on
+    #: ThinnestAI (`agents/trial_calls.py` refuses every other engine before dialling), whose
+    #: adapter sends it as the per-call `maxCallSeconds` override.
+    max_call_seconds: int | None = Field(default=None, ge=60, le=1200)
 
 
 class NumberSearch(BaseModel):

@@ -302,6 +302,7 @@ async def test_a_confirmable_card_is_stripped_by_the_event_and_not_by_its_planne
         plan=_sloppy,
         execute=tool.execute,
         where=tool.where,
+        undo=tool.undo,
     )
     write_tools._BY_NAME[tool.name] = patched
     try:

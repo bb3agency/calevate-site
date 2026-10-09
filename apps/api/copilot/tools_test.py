@@ -22,7 +22,7 @@ import pytest
 from sqlalchemy import text
 
 from apps.api.admin import service as admin_service
-from apps.api.copilot import admin_tools, tools, write_tools
+from apps.api.copilot import admin_tools, console_reads, tools, write_tools
 from apps.api.copilot import service as copilot_service
 from apps.api.copilot.schemas import CopilotAskIn
 from apps.api.db.base import uuid7
@@ -973,7 +973,10 @@ def test_the_admin_array_is_a_strict_superset_of_the_client_read_tools() -> None
     """
     client_names = [tool.name for tool in copilot_service.realm_read_tools("client")]
     admin_names = [tool.name for tool in copilot_service.realm_read_tools("admin")]
-    assert client_names == [tool.name for tool in tools.READ_TOOLS]
+    assert client_names == [
+        *[tool.name for tool in tools.READ_TOOLS],
+        *[tool.name for tool in console_reads.CONSOLE_READ_TOOLS],
+    ]
     assert admin_names[-len(client_names) :] == client_names
     assert set(admin_names[: -len(client_names)]) == admin_tools.ADMIN_READ_TOOL_NAMES
     # Disjoint namespaces: a name in both registries would make `_read_tool_registry`'s
@@ -990,7 +993,7 @@ def test_a_client_realm_caller_cannot_even_name_a_platform_tool() -> None:
     could plausibly hold the permission.
     """
     registry = copilot_service._read_tool_registry("client")
-    assert set(registry) == tools.READ_TOOL_NAMES
+    assert set(registry) == tools.READ_TOOL_NAMES | console_reads.CONSOLE_READ_TOOL_NAMES
     assert "platform_tenants" not in registry
 
 
@@ -1004,10 +1007,10 @@ def test_the_array_offers_set_fields_then_every_read_tool_then_every_write_tool(
     cacheable prefix — a reordering costs a cache miss on every request and no test that
     only compared sets would notice."""
     names = [schema["function"]["name"] for schema in copilot_service.tool_array("client")]
-    read_names = [tool.name for tool in tools.READ_TOOLS]
+    read_names = [tool.name for tool in copilot_service.realm_read_tools("client")]
     write_names = [schema["function"]["name"] for schema in write_tools.write_tool_schemas()]
-    assert names == ["set_fields", *read_names, *write_names, "open_screen"]
-    assert set(read_names) == tools.READ_TOOL_NAMES
+    assert names == ["set_fields", *read_names, *write_names, "open_screen", "run_in_background"]
+    assert set(read_names) == tools.READ_TOOL_NAMES | console_reads.CONSOLE_READ_TOOL_NAMES
     # The three families are disjoint: a name in two registries would make dispatch in
     # `_run_tool_loop` depend on which check ran first.
     assert len(set(names)) == len(names)

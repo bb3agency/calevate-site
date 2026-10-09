@@ -235,6 +235,9 @@ INGEST_JOB = "ingest_engine_event"
 # `settings.FUNCTIONS`, which is now what the guard actually checks these against.
 HOT_LEAD_JOB = "notify_hot_lead"
 OUTBOUND_WEBHOOK_JOB = "deliver_outbound_webhook"
+#: The client's after-call actions for one finished call (D-700), registered in
+#: `workers/settings.py` from `workers/client_actions.run_after_call_actions`.
+AFTER_CALL_ACTIONS_JOB = "run_after_call_actions"
 
 # Hot-lead rule (FLOWS §6): these reach the owner within 2 minutes. The trigger is a
 # match on the extracted FIELDS below — not the lead's status column, which this
@@ -1498,6 +1501,16 @@ async def _post_call_stages(
             # never owed a fan-out.
             if written:
                 await _mark_crm_notified(session, call_id)
+
+            # STEP 8b — the client's AFTER-call actions (D-700): once per call, through the
+            # outbox, so a thank-you WhatsApp or a CRM record is neither lost to a crash nor
+            # sent twice by an overlapping run. Only for a call that completed, like step 8.
+            await enqueue_outbox_once(
+                session,
+                job=AFTER_CALL_ACTIONS_JOB,
+                payload={"tenant_id": str(tenant_id), "call_id": str(call_id)},
+                dedupe_key=f"after_call_actions:{call_id}",
+            )
 
         # STEP 9 — the DPDP obligation this run may have just broken (D-310).
         #

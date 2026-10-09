@@ -1,10 +1,9 @@
-"""FLOWS §3's after-hours flag — the reader `agents.business_hours` never had.
+"""FLOWS §3's after-hours flag, read from the business's own hours.
 
 FLOWS.md:100 is one sentence: *"agent runs 24/7 by default; `after_hours` flag set from
-business_hours → dashboard 'after-hours captured' metric"*. The writer existed
-(`admin.intake.record_intake`), the column existed (DATA-MODEL §3), and nothing on the
-read side had ever opened it — the dashboard tile counted a hardcoded 09:00-21:00 IST
-window, which is the right answer only for a client who happens to keep those hours.
+business_hours → dashboard 'after-hours captured' metric"*. The hours are the business
+profile's (D-695); with none recorded the dashboard tile falls back to a 09:00-21:00 IST
+window and says so.
 
 The cases below are the ones that make a naive implementation wrong:
 
@@ -36,6 +35,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.conftest import SET_BUSINESS_HOURS_SQL
 
 _IST_OFFSET = timedelta(hours=5, minutes=30)
 
@@ -146,19 +146,13 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
 
 
 async def _record_hours(
-    session: AsyncSession, agent_id: uuid.UUID, hours: dict[str, object]
+    session: AsyncSession, tenant_id: uuid.UUID, hours: dict[str, object]
 ) -> None:
-    """The column exactly as `admin.intake._hours_map` writes it.
-
-    Written directly rather than through `record_intake`: that path is the WRITER, it
-    has its own readiness rules about branches and escalation contacts, and this file
-    is a test of the READER. `tests/intake_test.py` is where the stored shape is pinned
-    to what the wizard produces — if these two ever disagree, that test is the one that
-    says so.
-    """
+    """The business's hours, exactly as the profile writer stores them (D-695). Written
+    directly: this file tests the READER, and `tests/business_profile_test.py` pins the
+    stored shape to what the profile writer produces."""
     await session.execute(
-        text("UPDATE agents SET business_hours = CAST(:h AS jsonb) WHERE id = :aid"),
-        {"h": json.dumps(hours), "aid": agent_id},
+        text(SET_BUSINESS_HOURS_SQL), {"tid": tenant_id, "hours": json.dumps(hours)}
     )
 
 
@@ -186,7 +180,7 @@ async def test_the_after_hours_captured_metric_counts_by_the_clients_own_hours()
     a 09:00-21:00 hardcoded window — which is exactly the call the old count missed."""
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
-        await _record_hours(session, agent_id, CLINIC)
+        await _record_hours(session, tenant_id, CLINIC)
         await _call(session, tenant_id, agent_id, _ist(2026, 8, 10, 11, 0))  # mon, open
         await _call(session, tenant_id, agent_id, _ist(2026, 8, 10, 20, 0))  # mon, closed
         await _call(session, tenant_id, agent_id, _ist(2026, 8, 9, 11, 0))  # sun, closed
@@ -194,8 +188,8 @@ async def test_the_after_hours_captured_metric_counts_by_the_clients_own_hours()
     assert counted == 2, "one evening call and one Sunday call"
 
 
-async def test_the_metric_ignores_agents_with_no_hours_recorded() -> None:
-    """24/7 by default (FLOWS §3): an agent nobody gave hours to captures no
+async def test_the_metric_counts_nothing_for_a_business_with_no_hours() -> None:
+    """24/7 by default (FLOWS §3): a business nobody gave hours for captures no
     'after-hours' calls, rather than every call it ever took."""
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
@@ -222,7 +216,7 @@ async def test_the_tile_uses_the_clients_hours_and_says_that_it_did() -> None:
     tenant_id, agent_id = await _tenant()
     closed_all_week = dict.fromkeys(("mon", "tue", "wed", "thu", "fri", "sat", "sun"))
     async with tenant_session(tenant_id) as session:
-        await _record_hours(session, agent_id, closed_all_week)
+        await _record_hours(session, tenant_id, closed_all_week)
         await _call(session, tenant_id, agent_id, datetime.now(UTC) - timedelta(hours=1))
         tile = await dashboard(session)
 
@@ -230,7 +224,7 @@ async def test_the_tile_uses_the_clients_hours_and_says_that_it_did() -> None:
     assert tile.after_hours_captured_7d == 1
 
 
-async def test_a_client_who_has_not_done_the_intake_gets_the_fallback_and_is_told_so() -> None:
+async def test_a_client_who_has_not_given_hours_gets_the_fallback_and_is_told_so() -> None:
     """The tile does not drop to zero for a client with no hours — it falls back to the
     09:00-21:00 IST window and admits that is what it did. A silent fallback would let
     a guess and a fact render identically."""

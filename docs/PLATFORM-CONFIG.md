@@ -188,6 +188,13 @@ own developer workspace's id, which is `org_…` like every customer's
 (`api-reference/workspace/get-workspace.md:327-351`) and is therefore never accepted as a
 client's own workspace (`tenancy/engine_workspace.is_own_workspace`). Provisioning also reads
 it from `GET /workspace`; the setting covers a process that has not (OPERATIONS §2 gate T-16).
+Free-trial test calls (D-697, 9 Oct 2026) add three console-managed settings, all applying
+live, under Calling limits, Free-trial test calls: `trial_caller_number` (optional, +91 form)
+is the shared number every test call rings from, held in our developer workspace and
+recorded against no client (OPERATIONS §2 gate T-22; unset, the client's Trial panel says
+test calls are not available yet); `trial_daily_call_cap` (default 10) is how many test calls
+one trial account may place per IST day; `trial_call_max_seconds` (default 180, 60..1200) is
+the per-call `maxCallSeconds` each test call carries (THINNEST-INTEGRATION §3c).
 `ENGINE_INTAKE_KEK` is env-only, in `ENV_ONLY_REASONS`. No BYOK provider key is stored
 under a ThinnestAI setting: full (`scope: all`) BYOK is not on sale (D-681), and the Studio
 rung's voice-only BYOK sends our Cartesia key to ThinnestAI's developer workspace, which the
@@ -198,6 +205,17 @@ api-reference/bring-your-own-keys.md:77-78`; `docs/THINNEST-INTEGRATION.md` §4a
 The ThinnestAI keys appear in the console's Calling section with plain labels, and
 `/healthz/ready` names `THINNEST_API_KEY`, `ENGINE_INTAKE_KEK`, `WEBHOOK_BASE_URL` and
 `ENGINE_ACTIONS_BASE_URL` on `ENGINE=thinnest` when one is missing or unusable (D-682).
+The auto-healer (D-701, 9 Oct 2026) adds six console-managed settings, all applying live.
+Under Auto-healer: `healer_enabled` (default on) is the global kill switch, which stops every
+automatic repair, line hold and scheduled repair sweep except the agent settings check that
+also enforces the truthful-answer rule; `healer_paused_playbooks` (comma-separated playbook
+keys, `apps/api/healer/playbooks.py`) pauses individual playbooks, and the healer page flags
+a key no playbook has; `healer_founder_whatsapp` (optional, E.164) is where alarm pages go on
+WhatsApp, and is messaged only when it was set here, which is the founder's opt-in record.
+Under Notifications, WhatsApp: `whatsapp_template_healer_page`,
+`whatsapp_template_line_notice` and `whatsapp_template_line_restored` name the three utility
+templates (OPERATIONS §2 gate H-1). No new secret: the healer sends through the WhatsApp
+credentials D-91 already declared.
 
 ## 5. Data model
 

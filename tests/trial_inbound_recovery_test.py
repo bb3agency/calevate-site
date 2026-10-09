@@ -61,7 +61,7 @@ from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.engine.fake import FakeEngine
 from apps.workers.inbound_cutover import apply_inbound_credit_state
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, mark_paid_for_tests
 
 pytestmark = pytest.mark.asyncio
 
@@ -158,6 +158,7 @@ async def test_opening_a_trial_brings_a_silenced_client_back() -> None:
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
         await record_entry(session, tenant_id=tenant_id, delta=Decimal("500"), reason="topup")
+    await mark_paid_for_tests(tenant_id)  # a paying client (D-697): its trial is the D-536 gift
     ref = await _publish(tenant_id, agent_id)
     own_greeting, own_prompt = await _live_script(ref)
 

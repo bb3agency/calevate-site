@@ -78,6 +78,8 @@ export function LaunchGate({
   /** Where a client goes to clear a rule, for the rules whose fix lives on another screen. */
   const destination = (rule: string): { href: string; label: string } | undefined => {
     const at = (path: string) => href(`/c/${session.orgSlug}${path}`);
+    if (rule === "trial_campaigns_unavailable")
+      return { href: at("/billing?tab=credits"), label: "Add credit to go live" };
     if (rule === "no_credits") return { href: at("/billing?tab=credits"), label: "Add calling credit" };
     if (rule === "spend_cap")
       return { href: at("/billing?tab=usage"), label: "See your monthly spending limit" };

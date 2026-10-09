@@ -912,6 +912,9 @@ class AgentHandoffMember(PKMixin, TimestampMixin, Base):
             "position",
             unique=True,
         ),
+        # One contact appears once in an agent's list: a person listed twice is a rung
+        # that can never be reached.
+        Index("uq_agent_handoff_members_contact", "agent_id", "contact_id", unique=True),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -921,7 +924,17 @@ class AgentHandoffMember(PKMixin, TimestampMixin, Base):
     agent_id: Mapped[UUID] = mapped_column(
         ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
+    #: WHICH BUSINESS CONTACT this rung is (D-695). The list is a selection from the
+    #: client's one roster; CASCADE because removing somebody from the business removes
+    #: them from every agent's list.
+    contact_id: Mapped[UUID] = mapped_column(
+        ForeignKey("business_contacts.id", ondelete="CASCADE"), nullable=False
+    )
     position: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: `label` and `phone_e164` are the CONTACT's, copied here and refreshed in the same
+    #: transaction by the one writer (`tenancy/profile_service.save_contacts`), so the
+    #: dialling path keeps reading one row. Hard rule 8's first step: the next release
+    #: reads them through `contact_id` and drops both.
     label: Mapped[str] = mapped_column(Text, nullable=False)
     #: PII (hard rule 6): a member of the client's staff, on their personal mobile.
     phone_e164: Mapped[str] = mapped_column(Text, nullable=False)

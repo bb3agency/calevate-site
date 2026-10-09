@@ -54,6 +54,7 @@ from apps.api.campaigns.engine_numbers import (
 from apps.api.campaigns.number_catalog import NumberDirection, assert_can_afford
 from apps.api.campaigns.number_pricing import attested_price_inr, require_attested_price_inr
 from apps.api.compliance.kyc import read_kyc
+from apps.api.compliance.trial_access import ADD_CREDIT_STEP, TRIAL_REFUSALS, trial_blocker
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -66,10 +67,16 @@ from apps.api.tenancy.lifecycle import assert_account_open
 
 log = get_logger(__name__)
 
-PurchaseStep = Literal["workspace", "verify_business", "business_details", "price", "ready"]
+#: The trial refusal's rule, as every number gate names it (D-697).
+TRIAL_NUMBERS_RULE: Final = TRIAL_REFUSALS["numbers"][0]
+
+PurchaseStep = Literal[
+    "add_credit", "workspace", "verify_business", "business_details", "price", "ready"
+]
 
 #: Where the client stands, in the order the screen walks them through.
 _BLOCKER_STEP: Final[dict[str, PurchaseStep]] = {
+    TRIAL_NUMBERS_RULE: "add_credit",
     "engine_workspace_not_provisioned": "workspace",
     "kyc_not_verified": "verify_business",
     "business_details_not_approved": "business_details",
@@ -99,6 +106,10 @@ async def purchase_readiness(session: AsyncSession, *, tenant_id: UUID) -> Purch
     kyc = await read_kyc(session, tenant_id=tenant_id)
     price = await attested_price_inr(session)
     blockers: list[str] = []
+    # A free-trial account buys no number until it pays (D-697); it is asked first because
+    # every step after it opens only then.
+    if await trial_blocker(session, tenant_id=tenant_id, locked="numbers") is not None:
+        blockers.append(TRIAL_NUMBERS_RULE)
     if not state.active:
         blockers.append("engine_workspace_not_provisioned")
     if not kyc.is_verified:
@@ -123,9 +134,11 @@ async def purchase_readiness(session: AsyncSession, *, tenant_id: UUID) -> Purch
 
 
 _REFUSALS: Final[dict[str, tuple[str, str]]] = {
+    TRIAL_NUMBERS_RULE: (TRIAL_REFUSALS["numbers"][1], ADD_CREDIT_STEP),
     "engine_workspace_not_provisioned": (
-        "This account's voice workspace is still being set up, so no number can be bought yet.",
-        "Try again shortly. If it persists, contact us.",
+        "No number can be bought until this account is set up for calls.",
+        "If you have just set it up, try again in a few minutes. Otherwise your Calevate "
+        "contact can finish the setup.",
     ),
     "kyc_not_verified": (
         "Your business has to be verified before a number can be bought in its name.",

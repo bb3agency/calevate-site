@@ -1,43 +1,27 @@
-"""The client's handover screen, over HTTP (D-533).
+"""The client's handover screen, over HTTP (D-533, D-695).
 
-The two things worth asserting through the route rather than through the service:
+The list is a SELECTION from the business's one escalation roster: names and numbers are
+kept on the business profile, and each agent says only who of them it may put a caller
+through to, in what order. Two things are worth asserting through the route:
 
 * **The whole list is one write**, so a re-order and a removal land together or not at all.
-  Four requests over rows can half-apply, and the half-applied states are two people at
-  position 1 (which the unique index refuses, so a sensible edit becomes a 500) or a roster
-  that is briefly empty — which, if a call lands in that instant, is a caller told nobody
-  is available.
 * **The read answers "and is it working right now"**, which is the question the screen is
-  for. A list of names does not tell a shop owner whether their next caller will reach a
-  person: that depends on the switch, on who is active, and on a clock.
+  for: it depends on the switch, on who is active, and on a clock.
 """
 
 from __future__ import annotations
 
-import json
 import uuid
 from typing import Any
 
-import pytest
 from apps.api.admin import service as admin_service
-from apps.api.agents.handoff import (
-    HANDOFF_NUMBER_NOT_INDIA,
-    HANDOFF_TRIGGER_DEFAULT,
-    MAX_HANDOFF_MEMBERS,
-)
+from apps.api.agents.handoff import HANDOFF_TRIGGER_DEFAULT, MAX_HANDOFF_MEMBERS
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
-
-pytestmark = pytest.mark.asyncio
-
-OPEN_ALL_WEEK = {
-    day: {"opens": "00:00", "closes": "23:59"}
-    for day in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-}
+from tests.conftest import accept_agreements, business_contact
 
 
 def _client() -> AsyncClient:
@@ -45,6 +29,8 @@ def _client() -> AsyncClient:
 
 
 async def _account(role: str = "owner") -> tuple[uuid.UUID, uuid.UUID, dict[str, str]]:
+    """A client whose business profile is open round the clock (`accept_agreements`), so
+    "who is on duty" is decided by the roster rather than by the hour this suite runs."""
     reset_engine_cache()
     created = await admin_service.create_organization(
         name="Handoff routes",
@@ -74,75 +60,68 @@ async def _account(role: str = "owner") -> tuple[uuid.UUID, uuid.UUID, dict[str,
             ),
             {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "role": role},
         )
-        # Open all week, so "who is on duty" is decided by the roster rather than by the
-        # hour this suite happens to run at.
-        await session.execute(
-            text("UPDATE agents SET business_hours = CAST(:h AS jsonb) WHERE id = :aid"),
-            {"h": json.dumps(OPEN_ALL_WEEK), "aid": agent_id},
-        )
     return tenant_id, agent_id, {"Authorization": f"Bearer dev:client:{user_id}"}
 
 
-def _member(label: str, phone: str, **kw: Any) -> dict[str, Any]:
-    return {"label": label, "phone_e164": phone, **kw}
+async def _member(tenant_id: uuid.UUID, label: str, phone: str, **kw: Any) -> dict[str, Any]:
+    contact_id = await business_contact(tenant_id, phone=phone, label=label)
+    return {"contact_id": str(contact_id), **kw}
 
 
-async def test_the_roster_round_trips_and_the_order_is_the_order_typed() -> None:
-    _tenant_id, agent_id, headers = await _account()
+async def test_the_roster_round_trips_and_the_order_is_the_order_chosen() -> None:
+    tenant_id, agent_id, headers = await _account()
+    members = [
+        await _member(tenant_id, "Ravi", "+919000000001"),
+        await _member(tenant_id, "Priya", "+919000000002"),
+    ]
     async with _client() as client:
         response = await client.put(
             f"/v1/agents/{agent_id}/handoff",
-            json={
-                "enabled": True,
-                "members": [
-                    _member("Ravi", "+919000000001"),
-                    _member("Priya", "+919000000002"),
-                ],
-            },
+            json={"enabled": True, "members": members},
             headers=headers,
         )
     assert response.status_code == 200, response.text
     body = response.json()
     assert [m["label"] for m in body["members"]] == ["Ravi", "Priya"]
+    assert [m["contact_id"] for m in body["members"]] == [m["contact_id"] for m in members]
     assert [m["position"] for m in body["members"]] == [0, 1]
-    # POSITION 0 IS WHO ANSWERS. The later rung is reached because the earlier one is off
-    # duty or switched off — never because they did not pick up.
+    # POSITION 0 IS WHO ANSWERS.
     assert body["on_duty_member_id"] == body["members"][0]["id"]
     assert body["members"][0]["on_duty"] is True
     assert body["members"][1]["on_duty"] is False
     assert body["unavailable_reason"] is None
-    # The default trigger is SHOWN rather than left as an empty box implying nothing
-    # happens.
     assert body["trigger"] is None
     assert body["effective_trigger"] == HANDOFF_TRIGGER_DEFAULT
     assert body["spoken_line"]
 
 
+async def test_an_agent_may_take_a_subset_of_the_business_roster() -> None:
+    tenant_id, agent_id, headers = await _account()
+    ravi = await _member(tenant_id, "Ravi", "+919000000001")
+    await _member(tenant_id, "Priya", "+919000000002")
+    async with _client() as client:
+        response = await client.put(
+            f"/v1/agents/{agent_id}/handoff",
+            json={"enabled": True, "members": [ravi]},
+            headers=headers,
+        )
+    assert [m["label"] for m in response.json()["members"]] == ["Ravi"]
+
+
 async def test_a_reorder_and_a_removal_are_one_write() -> None:
-    """ "Move Priya above Ravi and take Ravi off while he is away" is ONE intention."""
-    _tenant_id, agent_id, headers = await _account()
+    tenant_id, agent_id, headers = await _account()
+    ravi = await _member(tenant_id, "Ravi", "+919000000001")
+    priya = await _member(tenant_id, "Priya", "+919000000002")
+    sunil = await _member(tenant_id, "Sunil", "+919000000003")
     async with _client() as client:
         await client.put(
             f"/v1/agents/{agent_id}/handoff",
-            json={
-                "enabled": True,
-                "members": [
-                    _member("Ravi", "+919000000001"),
-                    _member("Priya", "+919000000002"),
-                    _member("Sunil", "+919000000003"),
-                ],
-            },
+            json={"enabled": True, "members": [ravi, priya, sunil]},
             headers=headers,
         )
         response = await client.put(
             f"/v1/agents/{agent_id}/handoff",
-            json={
-                "enabled": True,
-                "members": [
-                    _member("Priya", "+919000000002"),
-                    _member("Ravi", "+919000000001", active=False),
-                ],
-            },
+            json={"enabled": True, "members": [priya, {**ravi, "active": False}]},
             headers=headers,
         )
     assert response.status_code == 200, response.text
@@ -152,29 +131,20 @@ async def test_a_reorder_and_a_removal_are_one_write() -> None:
     assert body["on_duty_member_id"] == body["members"][0]["id"]
 
 
-async def test_the_same_number_twice_is_refused_rather_than_normalised() -> None:
-    """One person cannot be two rungs of a hunt list, and whichever copy is second is
-    unreachable — so the client is told, on a screen where a person is looking."""
-    _tenant_id, agent_id, headers = await _account()
+async def test_the_same_person_twice_is_refused_rather_than_normalised() -> None:
+    tenant_id, agent_id, headers = await _account()
+    ravi = await _member(tenant_id, "Ravi", "+919000000001")
     async with _client() as client:
         response = await client.put(
             f"/v1/agents/{agent_id}/handoff",
-            json={
-                "enabled": True,
-                "members": [
-                    _member("Ravi", "+919000000001"),
-                    _member("Ravi's other phone", "+919000000001"),
-                ],
-            },
+            json={"enabled": True, "members": [ravi, ravi]},
             headers=headers,
         )
     assert response.status_code == 422
-    assert response.json()["type"].endswith("handoff_duplicate_number")
+    assert response.json()["type"].endswith("handoff_duplicate_contact")
 
 
 async def test_switching_it_on_with_nobody_on_the_list_is_refused() -> None:
-    """An agent that promises a caller a person and has none is the state this refusal
-    exists to make unreachable."""
     _tenant_id, agent_id, headers = await _account()
     async with _client() as client:
         response = await client.put(
@@ -187,74 +157,41 @@ async def test_switching_it_on_with_nobody_on_the_list_is_refused() -> None:
 
 
 async def test_an_eleventh_person_is_refused_at_the_boundary() -> None:
-    """A bounded list, because the roster is read on every publish and a pasted contact
-    export must not turn one publish into a thousand-row scan."""
-    _tenant_id, agent_id, headers = await _account()
+    tenant_id, agent_id, headers = await _account()
+    members = [
+        await _member(tenant_id, f"P{i}", f"+9190000001{i:02d}")
+        for i in range(MAX_HANDOFF_MEMBERS + 1)
+    ]
     async with _client() as client:
         response = await client.put(
             f"/v1/agents/{agent_id}/handoff",
-            json={
-                "enabled": True,
-                "members": [
-                    _member(f"P{i}", f"+9190000001{i:02d}") for i in range(MAX_HANDOFF_MEMBERS + 1)
-                ],
-            },
+            json={"enabled": True, "members": members},
             headers=headers,
         )
     assert response.status_code == 422
 
 
-async def test_a_number_that_is_not_e164_never_reaches_the_column() -> None:
-    """Doubled with the column's own CHECK deliberately: this number is DIALLED."""
-    _tenant_id, agent_id, headers = await _account()
-    async with _client() as client:
-        response = await client.put(
-            f"/v1/agents/{agent_id}/handoff",
-            json={"enabled": True, "members": [_member("Ravi", "9000000001")]},
-            headers=headers,
-        )
-    assert response.status_code == 422
-
-
-async def test_a_number_outside_india_is_refused_at_registration_and_nothing_is_written() -> None:
-    """The India-only freeze, where the number is typed.
-
-    The transfer provider refuses a non-`+91` bridged leg at call time, because a handover
-    leg is a call we place and pay for; without this the roster would accept a number that
-    no caller can ever be put through to, and the owner would learn it from a caller.
-    """
-    _tenant_id, agent_id, headers = await _account()
+async def test_a_contact_that_is_not_on_file_is_refused_and_nothing_is_written() -> None:
+    tenant_id, agent_id, headers = await _account()
+    ravi = await _member(tenant_id, "Ravi", "+919000000001")
     async with _client() as client:
         refused = await client.put(
             f"/v1/agents/{agent_id}/handoff",
-            json={
-                "enabled": True,
-                "members": [
-                    _member("Ravi", "+919000000001"),
-                    _member("Abroad", "+447700900123"),
-                ],
-            },
+            json={"enabled": True, "members": [ravi, {"contact_id": str(uuid.uuid4())}]},
             headers=headers,
         )
         after = await client.get(f"/v1/agents/{agent_id}/handoff", headers=headers)
-    assert refused.status_code == 422, refused.text
-    problem = refused.json()
-    by_field = {f["field"]: f["message"] for f in problem["fields"]}
-    assert set(by_field) == {"members.1.phone_e164"}
-    assert by_field["members.1.phone_e164"] == HANDOFF_NUMBER_NOT_INDIA
-    assert problem["detail"] == HANDOFF_NUMBER_NOT_INDIA
+    assert refused.status_code == 404, refused.text
     assert after.json()["members"] == []
 
 
 async def test_the_read_says_why_nobody_is_on_duty_and_what_to_do_about_it() -> None:
-    """Five causes, four of them a minute's work for the client. A screen that collapsed
-    them into one silence would leave them with a feature that does not work and no
-    sentence explaining it."""
-    _tenant_id, agent_id, headers = await _account()
+    tenant_id, agent_id, headers = await _account()
+    ravi = await _member(tenant_id, "Ravi", "+919000000001")
     async with _client() as client:
         await client.put(
             f"/v1/agents/{agent_id}/handoff",
-            json={"enabled": False, "members": [_member("Ravi", "+919000000001")]},
+            json={"enabled": False, "members": [ravi]},
             headers=headers,
         )
         response = await client.get(f"/v1/agents/{agent_id}/handoff", headers=headers)
@@ -266,16 +203,13 @@ async def test_the_read_says_why_nobody_is_on_duty_and_what_to_do_about_it() -> 
 
 
 async def test_a_staff_member_may_read_the_list_and_not_rewrite_it() -> None:
-    """`agents:read` to see it, `org:manage` to change it. Putting a named person's
-    personal mobile on a list that will be DIALLED is an owner's decision — and `org:manage`
-    is what every other client-realm agent-configuration write already declares, so the
-    boundary here is the product's existing one rather than a new opinion."""
-    _tenant_id, agent_id, headers = await _account(role="staff")
+    tenant_id, agent_id, headers = await _account(role="staff")
+    ravi = await _member(tenant_id, "Ravi", "+919000000001")
     async with _client() as client:
         read = await client.get(f"/v1/agents/{agent_id}/handoff", headers=headers)
         write = await client.put(
             f"/v1/agents/{agent_id}/handoff",
-            json={"enabled": True, "members": [_member("Ravi", "+919000000001")]},
+            json={"enabled": True, "members": [ravi]},
             headers=headers,
         )
     assert read.status_code == 200
@@ -283,8 +217,6 @@ async def test_a_staff_member_may_read_the_list_and_not_rewrite_it() -> None:
 
 
 async def test_another_tenants_agent_is_not_reachable_through_the_path() -> None:
-    """`assert_visible` before anything else, so naming a neighbour's agent is a 404 rather
-    than an edit."""
     _first_tenant, first_agent, _first_headers = await _account()
     _second_tenant, _second_agent, second_headers = await _account()
     async with _client() as client:

@@ -46,6 +46,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.workers.number_rental import renew_number_rentals
 from sqlalchemy import text
+from tests.conftest import mark_paid_for_tests
 from tests.number_provisioning_flow_test import (  # noqa: F401 - `authorized` is a fixture
     _attest_price,
     _pattern,
@@ -714,6 +715,7 @@ async def test_a_purchase_during_a_trial_debits_nothing_then_or_at_renewal() -> 
     await _attest_price("999.00")
     org = await _purchasing_tenant()
     tenant_id = uuid.UUID(str(org["id"]))
+    await mark_paid_for_tests(tenant_id)  # a paying client given a trial (D-697)
     await _with_holder(tenant_id)
     await _trial(tenant_id, started_days_ago=1, ends_in_days=13)
     async with tenant_session(tenant_id) as session:

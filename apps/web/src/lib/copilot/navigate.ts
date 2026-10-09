@@ -29,6 +29,7 @@
  * one.
  */
 
+import { ADMIN_NAV } from "@/app/admin/adminNav";
 import { clientNavigation } from "@/lib/clientNav";
 
 /** The token a route template carries where the account's slug goes. */
@@ -50,4 +51,14 @@ export function resolveDestination(route: string, slug: string): string | null {
   const candidate = route.split(SLUG).join(slug);
   const known = clientNavigation(slug).flatMap((group) => group.items.map((item) => item.href));
   return known.includes(candidate) ? candidate : null;
+}
+
+/**
+ * The admin console's twin (D-694): the server sends an admin route CONSTANT
+ * (`apps/api/copilot/admin_screens.py`), and it is accepted only if it is one of the admin
+ * sidebar's own entries — the same two-closed-lists argument as above.
+ */
+export function resolveAdminDestination(route: string): string | null {
+  const known = ADMIN_NAV.flatMap((group) => group.items.map((item) => item.href));
+  return known.includes(route) ? route : null;
 }

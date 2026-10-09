@@ -36,6 +36,8 @@ import { lookup } from "@/lib/lookup";
  */
 export const AUTHN_CODES = {
   alreadyBootstrapped: "already_bootstrapped",
+  /** A sign-in, step-up or account code that outlived its ten minutes (401). */
+  codeExpired: "code_expired",
   crossSiteRequest: "cross_site_request",
   disabled: "first_party_auth_disabled",
   invalidBootstrapToken: "invalid_bootstrap_token",
@@ -60,6 +62,8 @@ export const AUTHN_CODES = {
   /** A change that changes nothing — the new password equals the current one (422). */
   passwordUnchanged: "password_unchanged",
   rateLimited: "rate_limited",
+  /** A sign-in code resent inside the server's cooldown (429, with `Retry-After`). */
+  resendTooSoon: "resend_too_soon",
   reauthenticationRequired: "reauthentication_required",
   secondFactorRequired: "second_factor_required",
   tooManyAttempts: "too_many_attempts",
@@ -146,6 +150,10 @@ const SIGN_IN_COPY: Record<string, string> = {
     "That code did not match. Check the latest email and try again, or send a new code.",
   [AUTHN_CODES.invalidCode]:
     "That code did not match. Check the latest email and try again, or send a new code.",
+  [AUTHN_CODES.codeExpired]:
+    "That code has expired. Send a new code and enter the one from the latest email.",
+  [AUTHN_CODES.resendTooSoon]:
+    "We sent a code moments ago. Use the one in your latest email, or send another when the timer ends.",
   [AUTHN_CODES.tooManyAttempts]:
     "Too many attempts. Wait a few minutes before trying again.",
   [AUTHN_CODES.rateLimited]: "Too many requests. Wait a moment and try again.",
@@ -224,6 +232,17 @@ export function signInMessage(error: unknown): string | null {
   // bare index walks the prototype chain — a refusal carrying `code: "constructor"` would
   // resolve to the `Object` function and be rendered into the page. `src/lib/lookup.ts` is
   // this repo's one answer to that, and `tests/wireLookupGuard.test.ts` enforces it.
+  // The failure budget states its own wait; saying it beats "a few minutes", which leaves
+  // a person retrying into a refusal. Minutes rounded up, so the stated time is never short.
+  if (
+    codeOf(error) === AUTHN_CODES.tooManyAttempts &&
+    error instanceof ApiProblem &&
+    error.retryAfterSeconds !== undefined &&
+    error.retryAfterSeconds > 0
+  ) {
+    const minutes = Math.ceil(error.retryAfterSeconds / 60);
+    return `Too many attempts. Try again in ${minutes === 1 ? "a minute" : `${minutes} minutes`}.`;
+  }
   // `?? null` rather than a default sentence, for the reason above.
   return lookup(SIGN_IN_COPY, codeOf(error)) ?? null;
 }

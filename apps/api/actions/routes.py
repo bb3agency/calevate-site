@@ -1,16 +1,21 @@
-"""ACTIONS routes — the client-realm config API.
+"""ACTIONS routes — the client-realm config API (the Actions and Connections screens).
 
-Everything under `/v1/agents/{agent_id}/actions` and `/v1/integrations/credentials` is the
-CLIENT realm — the Actions tab. `org:manage` on the writes (configuring what an agent may do
-mid-call is an account-level decision), `org:read` on the reads.
+`/v1/agents/{agent_id}/actions` is an agent's Actions area; `/v1/integrations/credentials`
+and `/v1/integrations/oauth/*` are the account's connections. `org:manage` on the writes,
+`org:read` on the reads, so only the account OWNER changes them (D-700).
 
-There is no engine-facing execution route here. `POST /v1/actions/invoke/{engine}/{tool_id}`
-was the rented engine's, gated on that engine's egress allowlist, and D-639 deleted it with
-the engine: no remaining engine could pass the gate. After-call actions and the Test button
-run through `execution.execute_action` from this module and the post-call pipeline.
+VIEW-AS (D-587, D-700). An operator viewing the account may set actions up and switch them
+OFF, never connect an account (`integrations.connect`) or switch an action ON
+(`actions.switch_on`): both are the owner's decisions, and a credential is never shown to
+anyone in any case — `CredentialOut` has a fingerprint, never a value.
 
-Secrets never appear in a response (credentials show a fingerprint) and never reach an
-engine (the credential is applied by the executor, not the engine config).
+THE VOICE PLATFORM FOLLOWS. Every change to an agent's actions, and every removed
+connection, re-syncs that agent's vendor actions at once when it is live on an engine that
+hosts them (`reliability/engine_actions.sync_client_actions_now`), so a switched-off action
+leaves the live agent in the same request. Every change is audited.
+
+Secrets never appear in a response and never reach an engine: the executor applies the
+credential, on our side.
 """
 
 from __future__ import annotations
@@ -18,34 +23,41 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+import httpx
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions import credentials as creds
-from apps.api.actions import service
+from apps.api.actions import oauth, service
+from apps.api.actions import payment_links as rzp
+from apps.api.actions import sheets as gsheets
 from apps.api.actions.calendar import (
-    authorize_url,
     calendar_configured,
+    calendar_state_refused,
     calendar_unavailable,
-    mint_oauth_state,
-    token_exchange_request,
-    verify_oauth_state,
 )
-from apps.api.actions.execution import execute_action
+from apps.api.actions.crm import zoho_api_domain
+from apps.api.actions.execution import CallFacts, execute_action
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
+from apps.api.db.base import uuid7
+from apps.api.integrations.egress_guard import egress_client
+from apps.api.reliability.engine_actions import sync_client_actions_now
 
 log = get_logger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["actions"])
 Session = Annotated[AsyncSession, Depends(db)]
+
+#: How many runs the per-action call log shows.
+INVOCATION_LOG_LIMIT = 50
 
 
 class Strict(BaseModel):
@@ -56,7 +68,9 @@ class Strict(BaseModel):
 
 
 class CreateCredentialIn(Strict):
-    kind: Literal["aisensy", "meta_cloud", "interakt", "custom_api", "google_calendar"]
+    # The OAuth kinds (`zoho_crm`, `hubspot`) are created only by their consent flow;
+    # `google_calendar` stays accepted for the screens that pasted a token before D-700.
+    kind: Literal["aisensy", "meta_cloud", "interakt", "custom_api", "google_calendar", "razorpay"]
     label: str = Field(min_length=1, max_length=200)
     secret: str = Field(min_length=1, max_length=8192)
     non_secret: dict[str, Any] | None = None
@@ -91,6 +105,34 @@ def _cred_out(r: creds.CredentialRecord) -> CredentialOut:
     )
 
 
+def _owner_only(principal: Principal) -> UUID:
+    """The tenant, after refusing an operator in view-as: connecting is the owner's act."""
+    assert principal.tenant_id is not None
+    assert_view_as_may(principal, "integrations.connect")
+    return principal.tenant_id
+
+
+def _checked_non_secret(kind: str, non_secret: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The non-secret half a kind needs: a Razorpay key pair is a key id beside the secret."""
+    if kind != "razorpay":
+        return non_secret
+    key_id = str((non_secret or {}).get("key_id") or "").strip()
+    if not key_id or len(key_id) > 64 or not key_id.isascii():
+        raise ProblemError(
+            kind="validation",
+            code="razorpay_key_id_required",
+            title="Add your Razorpay Key ID",
+            detail="A Razorpay connection needs the Key ID as well as the Key Secret.",
+            remediation="Copy both from Razorpay Dashboard → Account & Settings → API Keys.",
+        )
+    return {"key_id": key_id}
+
+
+async def _resync(session: AsyncSession, agent_ids: list[UUID]) -> None:
+    for agent_id in agent_ids:
+        await sync_client_actions_now(session, agent_id=agent_id)
+
+
 @router.get(
     "/integrations/credentials",
     response_model=list[CredentialOut],
@@ -108,7 +150,7 @@ async def list_credentials(
     response_model=CredentialOut,
     status_code=201,
     openapi_extra=permission_meta("org:manage"),
-    summary="Save a reusable integration credential (envelope-encrypted)",
+    summary="Save a reusable integration credential (envelope-encrypted, shown once)",
 )
 async def create_credential(
     payload: CreateCredentialIn,
@@ -116,20 +158,20 @@ async def create_credential(
     request: Request,
     principal: Principal = Depends(requires("org:manage")),
 ) -> CredentialOut:
-    assert principal.tenant_id is not None
+    tenant_id = _owner_only(principal)
     record = await creds.create_credential(
         session,
-        tenant_id=principal.tenant_id,
+        tenant_id=tenant_id,
         kind=payload.kind,
         label=payload.label,
         secret=payload.secret,
-        non_secret=payload.non_secret,
+        non_secret=_checked_non_secret(payload.kind, payload.non_secret),
     )
     await write_audit(
         session,
         action="integration_credential.created",
         actor=principal,
-        tenant_id=principal.tenant_id,
+        tenant_id=tenant_id,
         object_type="integration_credential",
         object_id=str(record.id),
         ip=client_request_ip(request),
@@ -151,10 +193,10 @@ async def rotate_credential(
     request: Request,
     principal: Principal = Depends(requires("org:manage")),
 ) -> CredentialOut:
-    assert principal.tenant_id is not None
+    tenant_id = _owner_only(principal)
     record = await creds.rotate_credential(
         session,
-        tenant_id=principal.tenant_id,
+        tenant_id=tenant_id,
         credential_id=credential_id,
         secret=payload.secret,
         expected_version=payload.expected_version,
@@ -163,7 +205,7 @@ async def rotate_credential(
         session,
         action="integration_credential.rotated",
         actor=principal,
-        tenant_id=principal.tenant_id,
+        tenant_id=tenant_id,
         object_type="integration_credential",
         object_id=str(credential_id),
         ip=client_request_ip(request),
@@ -172,11 +214,36 @@ async def rotate_credential(
     return _cred_out(record)
 
 
+async def _revoke_at_vendor(resolved: creds.ResolvedCredential | None) -> None:
+    """Withdraw our access at the vendor, best effort: the row is gone either way, and a
+    vendor that did not answer still holds a token nothing of ours can use."""
+    if resolved is None or resolved.kind not in oauth.OAUTH_KINDS:
+        return
+    accounts = resolved.non_secret.get("accounts_server")
+    request = oauth.revoke_request(
+        resolved.kind,
+        refresh_token=resolved.secret,
+        accounts_server=accounts if isinstance(accounts, str) else None,
+    )
+    if request is None:
+        return
+    try:
+        async with egress_client(timeout=5.0) as http:
+            response = await http.request(
+                request.method, request.url, headers=request.headers, data=request.form_body
+            )
+        log.info("oauth_revoked", extra={"kind": resolved.kind, "status": response.status_code})
+    except httpx.HTTPError as exc:
+        log.warning(
+            "oauth_revoke_failed", extra={"kind": resolved.kind, "error": type(exc).__name__}
+        )
+
+
 @router.delete(
     "/integrations/credentials/{credential_id}",
     status_code=204,
     openapi_extra=permission_meta("org:manage"),
-    summary="Delete a saved credential (tools using it become visibly broken)",
+    summary="Disconnect an account: its actions leave the live agents and say they cannot help",
 )
 async def delete_credential(
     credential_id: UUID,
@@ -184,19 +251,274 @@ async def delete_credential(
     request: Request,
     principal: Principal = Depends(requires("org:manage")),
 ) -> None:
-    assert principal.tenant_id is not None
-    if await creds.delete_credential(session, credential_id=credential_id):
-        await write_audit(
-            session,
-            action="integration_credential.deleted",
-            actor=principal,
-            tenant_id=principal.tenant_id,
-            object_type="integration_credential",
-            object_id=str(credential_id),
-            ip=client_request_ip(request),
+    tenant_id = _owner_only(principal)
+    agents = await service.agents_using_credential(session, credential_id=credential_id)
+    try:
+        resolved = await creds.resolve_credential(
+            session, tenant_id=tenant_id, credential_id=credential_id
         )
-    else:
+    except creds.CredentialUnusableError:
+        resolved = None
+    if not await creds.delete_credential(session, credential_id=credential_id):
         raise ProblemError.not_found("Credential")
+    await write_audit(
+        session,
+        action="integration_credential.deleted",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="integration_credential",
+        object_id=str(credential_id),
+        ip=client_request_ip(request),
+        summary={"agents_resynced": len(agents)},
+    )
+    await _resync(session, agents)
+    await _revoke_at_vendor(resolved)
+
+
+class CredentialTestOut(Strict):
+    ok: bool
+    #: What the client is told, in their words.
+    message: str
+
+
+@router.post(
+    "/integrations/credentials/{credential_id}/test",
+    response_model=CredentialTestOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Check a connection works without sending anything to anyone",
+)
+async def test_credential(
+    credential_id: UUID, session: Session, principal: Principal = Depends(requires("org:manage"))
+) -> CredentialTestOut:
+    """A read-only proof per kind: Razorpay lists one payment, an OAuth connection mints an
+    access token. A WhatsApp key cannot be proved without sending, so it says to use the
+    action's "send a test WhatsApp to my number" instead."""
+    assert principal.tenant_id is not None
+    try:
+        resolved = await creds.resolve_credential(
+            session, tenant_id=principal.tenant_id, credential_id=credential_id
+        )
+    except creds.CredentialUnusableError:
+        return CredentialTestOut(
+            ok=False, message="This connection can't be read. Connect it again."
+        )
+    if resolved is None:
+        raise ProblemError.not_found("Credential")
+    async with egress_client(timeout=8.0) as http:
+        if resolved.kind == "razorpay":
+            req = rzp.probe(
+                key_id=str(resolved.non_secret.get("key_id") or ""), key_secret=resolved.secret
+            )
+            response = await http.request(req.method, req.url, headers=req.headers)
+            ok = response.status_code == 200
+            message = (
+                "Razorpay accepted these keys."
+                if ok
+                else "Razorpay did not accept these keys. Check the Key ID and Key Secret."
+            )
+            return CredentialTestOut(ok=ok, message=message)
+        if resolved.kind in oauth.OAUTH_KINDS:
+            accounts = resolved.non_secret.get("accounts_server")
+            req = oauth.refresh_request(
+                resolved.kind,
+                refresh_token=resolved.secret,
+                accounts_server=accounts if isinstance(accounts, str) else None,
+            )
+            response = await http.request(
+                req.method, req.url, data=req.form_body, headers=req.headers
+            )
+            ok = response.status_code == 200
+            label = oauth.label(resolved.kind)
+            message = (
+                f"{label} is connected."
+                if ok
+                else f"{label} no longer accepts this connection. Disconnect it and connect again."
+            )
+            return CredentialTestOut(ok=ok, message=message)
+    return CredentialTestOut(
+        ok=True,
+        message=(
+            "This key is saved. To check it end to end, use the test on an action that uses it."
+        ),
+    )
+
+
+# ======================================================== oauth connections ====
+
+
+class ConnectOut(Strict):
+    authorize_url: str
+
+
+class OAuthCallbackIn(Strict):
+    code: str = Field(min_length=1, max_length=2048)
+    #: The `state` the connect step put in the consent URL. Required: a signed-in session
+    #: alone does not stop a planted code — the attack is getting THIS session to redeem a
+    #: code from somebody else's consent.
+    state: str = Field(min_length=1, max_length=2048)
+    label: str | None = Field(default=None, min_length=1, max_length=200)
+    #: Zoho's `accounts-server` from the redirect; checked against Zoho's own hosts.
+    accounts_server: str | None = Field(default=None, max_length=256)
+
+
+OAuthKindPath = Literal["google_calendar", "zoho_crm", "hubspot"]
+
+
+@router.get(
+    "/integrations/oauth/{kind}/connect",
+    response_model=ConnectOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Begin connecting Google Calendar, Zoho CRM or HubSpot — returns the consent URL",
+)
+async def oauth_connect(
+    kind: OAuthKindPath, principal: Principal = Depends(requires("org:manage"))
+) -> ConnectOut:
+    tenant_id = _owner_only(principal)
+    assert principal.user_id is not None
+    oauth.require_configured(kind)
+    state = oauth.mint_state(kind, tenant_id=tenant_id, user_id=principal.user_id)
+    return ConnectOut(authorize_url=oauth.authorize_url(kind, state=state))
+
+
+async def complete_oauth(
+    session: AsyncSession,
+    request: Request,
+    principal: Principal,
+    *,
+    kind: oauth.OAuthKind,
+    payload: OAuthCallbackIn,
+    refusal: ProblemError | None = None,
+) -> CredentialOut:
+    """Exchange the code and seal the refresh token as this account's connection. The state
+    is checked BEFORE the exchange, so a code from a consent this person did not start is
+    never redeemed at all."""
+    tenant_id = _owner_only(principal)
+    assert principal.user_id is not None
+    oauth.verify_state(
+        kind,
+        payload.state,
+        tenant_id=tenant_id,
+        user_id=principal.user_id,
+        refusal=refusal or oauth.state_refused(kind),
+    )
+    accounts = oauth.zoho_accounts_server(payload.accounts_server) if kind == "zoho_crm" else None
+    if kind == "zoho_crm" and payload.accounts_server and accounts is None:
+        raise ProblemError(
+            kind="validation",
+            code="zoho_accounts_server_unknown",
+            title="Zoho sent you back from an address we don't recognise",
+            detail="The connection was not completed.",
+            remediation="Start the connection again from the Connections screen.",
+        )
+    req = oauth.exchange_request(kind, code=payload.code, accounts_server=accounts)
+    async with egress_client(timeout=10.0) as http:
+        resp = await http.post(req.url, headers=req.headers, data=req.form_body)
+    label = oauth.label(kind)
+    if resp.status_code != 200:
+        log.info("oauth_exchange_refused", extra={"kind": kind, "status": resp.status_code})
+        if kind == "google_calendar":
+            raise ProblemError(
+                kind="dependency",
+                code="calendar_oauth_failed",
+                title=f"{label} did not accept the connection",
+                detail=f"The {label} authorization could not be completed.",
+                remediation="Try connecting again.",
+            )
+        # The CRMs refuse a code for ordinary reasons (it expired, it was used twice); a
+        # refusal the client retries, not a page.
+        raise ProblemError(
+            kind="business_rule",
+            code="crm_oauth_failed",
+            title=f"{label} did not accept the connection",
+            detail=f"The {label} authorization could not be completed.",
+            remediation="Try connecting again.",
+        )
+    body = resp.json()
+    refresh_token = str(body.get("refresh_token") or "")
+    if not refresh_token:
+        raise ProblemError(
+            kind="business_rule",
+            code=f"{'calendar' if kind == 'google_calendar' else kind}_no_refresh_token",
+            title=f"{label} returned no long-lived connection",
+            detail="The connection did not include a refresh token.",
+            remediation=(
+                f"Remove Calevate from your {label} account's connected apps, then connect again."
+            ),
+        )
+    non_secret: dict[str, Any] = {"scope": str(body.get("scope") or body.get("scopes") or "")}
+    if kind == "zoho_crm":
+        domain = zoho_api_domain(body.get("api_domain"))
+        if domain is None:
+            raise ProblemError(
+                kind="business_rule",
+                code="zoho_api_domain_unknown",
+                title="Zoho answered from an address we don't recognise",
+                detail="The connection was not saved.",
+                remediation="Contact us with the reference on this message.",
+            )
+        non_secret |= {"api_domain": domain, "accounts_server": accounts or ""}
+    if kind == "hubspot" and body.get("hub_id") is not None:
+        non_secret["hub_id"] = str(body.get("hub_id"))
+    record = await creds.create_credential(
+        session,
+        tenant_id=tenant_id,
+        kind=kind,
+        label=payload.label or label,
+        secret=refresh_token,
+        non_secret=non_secret,
+    )
+    await write_audit(
+        session,
+        action="integration_credential.created",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="integration_credential",
+        object_id=str(record.id),
+        ip=client_request_ip(request),
+        summary={"kind": kind},
+    )
+    return _cred_out(record)
+
+
+@router.post(
+    "/integrations/oauth/{kind}/callback",
+    response_model=CredentialOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Finish connecting Google Calendar, Zoho CRM or HubSpot",
+)
+async def oauth_callback(
+    kind: OAuthKindPath,
+    payload: OAuthCallbackIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> CredentialOut:
+    return await complete_oauth(session, request, principal, kind=kind, payload=payload)
+
+
+class ConnectionsStatusOut(Strict):
+    """Which connections this deployment can offer, for the Connections screen."""
+
+    google_calendar: bool
+    zoho_crm: bool
+    hubspot: bool
+    #: The address a client shares their Google Sheet with; None when sheets are off.
+    sheets_share_with: str | None
+
+
+@router.get(
+    "/integrations/connections/status",
+    response_model=ConnectionsStatusOut,
+    openapi_extra=permission_meta("org:read"),
+    summary="Which accounts can be connected on this deployment",
+)
+async def connections_status(_: Principal = Depends(requires("org:read"))) -> ConnectionsStatusOut:
+    return ConnectionsStatusOut(
+        google_calendar=oauth.configured("google_calendar"),
+        zoho_crm=oauth.configured("zoho_crm"),
+        hubspot=oauth.configured("hubspot"),
+        sheets_share_with=gsheets.robot_email(),
+    )
 
 
 # =================================================================== tools ====
@@ -213,17 +535,18 @@ class ParamIn(Strict):
 
 
 class ToolIn(Strict):
-    kind: Literal["custom_api", "whatsapp", "calendar"]
+    kind: Literal[
+        "custom_api", "whatsapp", "calendar", "sheets", "payment_link", "crm", "caller_lookup"
+    ]
     provider: str | None = None
     name: str = Field(min_length=1, max_length=64)
     description: str = Field(min_length=1, max_length=2000)
     trigger: Literal["during_call", "after_call"] = "during_call"
-    pre_call_message: str | None = Field(default=None, max_length=500)
+    pre_call_message: str | None = Field(default=None, max_length=200)
     credential_id: UUID | None = None
     # A tool's parameters are a hand-authored binding list, but still caller-controlled, and
     # `ToolOut.params` echoes them in full — so the count is bounded on the request model
-    # rather than left to grow (`scripts/check_list_bounds.py`, D-302). Generous vs any real
-    # action; a request past it is a misuse, not a shape we materialise.
+    # rather than left to grow (`scripts/check_list_bounds.py`, D-302).
     params: list[ParamIn] = Field(default_factory=list, max_length=service.MAX_TOOL_PARAMS)
     config: dict[str, Any]
 
@@ -310,7 +633,7 @@ async def list_agent_actions(
     "/agents/{agent_id}/actions/enabled",
     response_model=ActionsSettingsOut,
     openapi_extra=permission_meta("org:manage"),
-    summary="The master 'Enable API actions' switch — applies to live calls at next publish",
+    summary="The master 'Enable actions' switch — live calls follow at once",
 )
 async def set_master_switch(
     agent_id: UUID,
@@ -321,6 +644,8 @@ async def set_master_switch(
 ) -> ActionsSettingsOut:
     assert principal.tenant_id is not None
     await _assert_agent(session, agent_id)
+    if payload.enabled:
+        assert_view_as_may(principal, "actions.switch_on")
     await service.set_actions_enabled(session, agent_id=agent_id, enabled=payload.enabled)
     await write_audit(
         session,
@@ -332,6 +657,7 @@ async def set_master_switch(
         ip=client_request_ip(request),
         summary={"enabled": str(payload.enabled)},
     )
+    await sync_client_actions_now(session, agent_id=agent_id)
     return await list_agent_actions(agent_id, session, principal)
 
 
@@ -340,7 +666,7 @@ async def set_master_switch(
     response_model=ToolOut,
     status_code=201,
     openapi_extra=permission_meta("org:manage"),
-    summary="Add an in-call action to an agent",
+    summary="Add an in-call action to an agent (off when set up in view-as)",
 )
 async def create_action(
     agent_id: UUID,
@@ -364,6 +690,8 @@ async def create_action(
         credential_id=payload.credential_id,
         params=[p.model_dump() for p in payload.params],
         config=payload.config,
+        # An operator may set an action up; switching it on is the owner's.
+        enabled=not principal.impersonating,
     )
     await write_audit(
         session,
@@ -373,8 +701,9 @@ async def create_action(
         object_type="action_tool",
         object_id=str(tool.id),
         ip=client_request_ip(request),
-        summary={"kind": tool.kind, "name": tool.name},
+        summary={"kind": tool.kind, "name": tool.name, "enabled": str(tool.enabled)},
     )
+    await sync_client_actions_now(session, agent_id=agent_id)
     return _tool_out(tool)
 
 
@@ -394,6 +723,8 @@ async def update_action(
 ) -> ToolOut:
     assert principal.tenant_id is not None
     await _assert_agent(session, agent_id)
+    if await service.get_agent_tool(session, agent_id=agent_id, tool_id=tool_id) is None:
+        raise ProblemError.not_found("Action")
     tool = await service.update_tool(
         session,
         tool_id=tool_id,
@@ -417,6 +748,7 @@ async def update_action(
         ip=client_request_ip(request),
         summary={"kind": tool.kind, "name": tool.name},
     )
+    await sync_client_actions_now(session, agent_id=agent_id)
     return _tool_out(tool)
 
 
@@ -424,20 +756,34 @@ async def update_action(
     "/agents/{agent_id}/actions/{tool_id}/enabled",
     response_model=ToolOut,
     openapi_extra=permission_meta("org:manage"),
-    summary="Enable or disable one action",
+    summary="Switch one action on or off — live calls follow at once",
 )
 async def set_action_enabled(
     agent_id: UUID,
     tool_id: UUID,
     payload: EnableIn,
     session: Session,
-    _: Principal = Depends(requires("org:manage")),
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
 ) -> ToolOut:
+    assert principal.tenant_id is not None
     await _assert_agent(session, agent_id)
+    if payload.enabled:
+        assert_view_as_may(principal, "actions.switch_on")
     if not await service.set_enabled(
         session, agent_id=agent_id, tool_id=tool_id, enabled=payload.enabled
     ):
         raise ProblemError.not_found("Action")
+    await write_audit(
+        session,
+        action="action_tool.enabled" if payload.enabled else "action_tool.disabled",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="action_tool",
+        object_id=str(tool_id),
+        ip=client_request_ip(request),
+    )
+    await sync_client_actions_now(session, agent_id=agent_id)
     tool = await service.get_agent_tool(session, agent_id=agent_id, tool_id=tool_id)
     assert tool is not None
     return _tool_out(tool)
@@ -458,27 +804,30 @@ async def delete_action(
 ) -> None:
     assert principal.tenant_id is not None
     await _assert_agent(session, agent_id)
-    if await service.delete_tool(session, agent_id=agent_id, tool_id=tool_id):
-        await write_audit(
-            session,
-            action="action_tool.deleted",
-            actor=principal,
-            tenant_id=principal.tenant_id,
-            object_type="action_tool",
-            object_id=str(tool_id),
-            ip=client_request_ip(request),
-        )
-    else:
+    if not await service.delete_tool(session, agent_id=agent_id, tool_id=tool_id):
         raise ProblemError.not_found("Action")
+    await write_audit(
+        session,
+        action="action_tool.deleted",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="action_tool",
+        object_id=str(tool_id),
+        ip=client_request_ip(request),
+    )
+    await sync_client_actions_now(session, agent_id=agent_id)
 
 
 # ============================================================= test harness ====
 
 
 class TestActionIn(Strict):
-    """Sample values for the AI/lead-var params, to run the action before saving it live."""
+    """Sample values for the agent-filled params, to run the action before a caller does."""
 
-    values: dict[str, Any] = Field(default_factory=dict)
+    values: dict[str, Any] = Field(default_factory=dict, max_length=service.MAX_TOOL_PARAMS)
+    #: The number a test treats as the caller's: one of the business's own contact numbers
+    #: for a WhatsApp or payment-link test ("send a test WhatsApp to my number").
+    test_phone: str | None = Field(default=None, max_length=20)
 
 
 class TestActionOut(Strict):
@@ -491,7 +840,7 @@ class TestActionOut(Strict):
     "/agents/{agent_id}/actions/{tool_id}/test",
     response_model=TestActionOut,
     openapi_extra=permission_meta("org:manage"),
-    summary="Run an action with sample values before it goes live (no audit as in-call)",
+    summary="Run an action once for real with sample values (audited as a test)",
 )
 async def test_action(
     agent_id: UUID,
@@ -500,19 +849,64 @@ async def test_action(
     session: Session,
     _: Principal = Depends(requires("org:manage")),
 ) -> TestActionOut:
-    """The 'Test API' tab. Executes the real external call with the operator's sample
-    values so a misconfiguration is caught before a caller ever triggers it. Audited as a
-    test invocation (`source="test"`) so a live WhatsApp send in testing is still on file.
-    """
+    """The Test button. Executes the real external call with the client's sample values so a
+    misconfiguration is caught before a caller triggers it, audited as `source="test"`. A
+    WhatsApp or payment-link test goes only to one of the business's own contact numbers."""
     await _assert_agent(session, agent_id)
     tool = await service.get_agent_tool(session, agent_id=agent_id, tool_id=tool_id)
     if tool is None:
         raise ProblemError.not_found("Action")
-    result = await execute_action(session, tool=tool, received=payload.values, source="test")
+    result = await execute_action(
+        session,
+        tool=tool,
+        received=payload.values,
+        source="test",
+        call=CallFacts(
+            call_ref=f"test-{uuid7()}", caller_e164=payload.test_phone, direction="test"
+        ),
+    )
     return TestActionOut(ok=result.ok, status=result.status, payload=result.payload)
 
 
+class InvocationOut(Strict):
+    at: str
+    source: str
+    status: str
+    duration_ms: int | None
+
+
+@router.get(
+    "/agents/{agent_id}/actions/{tool_id}/log",
+    response_model=list[InvocationOut],
+    openapi_extra=permission_meta("org:read"),
+    summary="The most recent runs of one action: when, from where, and the outcome",
+)
+async def action_log(
+    agent_id: UUID,
+    tool_id: UUID,
+    session: Session,
+    limit: Annotated[int, Query(ge=1, le=INVOCATION_LOG_LIMIT)] = INVOCATION_LOG_LIMIT,
+    _: Principal = Depends(requires("org:read")),
+) -> list[InvocationOut]:
+    await _assert_agent(session, agent_id)
+    rows = (
+        await session.execute(
+            text(
+                "SELECT created_at, source, status, duration_ms FROM action_invocations "
+                "WHERE tool_id = :tool AND agent_id = :agent ORDER BY created_at DESC LIMIT :n"
+            ),
+            {"tool": tool_id, "agent": agent_id, "n": limit},
+        )
+    ).all()
+    return [
+        InvocationOut(at=r[0].isoformat(), source=str(r[1]), status=str(r[2]), duration_ms=r[3])
+        for r in rows
+    ]
+
+
 # ============================================================= calendar oauth ==
+# The Calendar connection's original routes, kept for the screens that call them; both
+# are the generic OAuth flow above for `google_calendar`.
 
 
 class CalendarConnectOut(Strict):
@@ -522,29 +916,20 @@ class CalendarConnectOut(Strict):
 @router.get(
     "/actions/calendar/connect",
     response_model=CalendarConnectOut,
-    openapi_extra=permission_meta("org:read"),
+    openapi_extra=permission_meta("org:manage"),
     summary="Begin Google Calendar OAuth — returns the consent URL",
 )
 async def calendar_connect(
-    principal: Principal = Depends(requires("org:read")),
+    principal: Principal = Depends(requires("org:manage")),
 ) -> CalendarConnectOut:
-    """Start the OAuth flow. `state` is signed and bound to this account and this person
-    (`calendar.mint_oauth_state`); the callback refuses a code that arrives without it."""
-    assert principal.tenant_id is not None
-    assert principal.user_id is not None
     if not calendar_configured():
-        # ONE wording, in `calendar.py` — this site used to carry its own copy of the
-        # sentence, addressed to an operator, on a screen only a client reaches.
         raise calendar_unavailable()
-    state = mint_oauth_state(tenant_id=principal.tenant_id, user_id=principal.user_id)
-    return CalendarConnectOut(authorize_url=authorize_url(state=state))
+    out = await oauth_connect("google_calendar", principal)
+    return CalendarConnectOut(authorize_url=out.authorize_url)
 
 
 class CalendarCallbackIn(Strict):
     code: str = Field(min_length=1, max_length=2048)
-    #: Google echoes back the `state` the connect step put in the consent URL. Required: an
-    #: authenticated `org:manage` session alone does not stop a planted code, because the
-    #: attack is getting THIS session to redeem a code from somebody else's consent.
     state: str = Field(min_length=1, max_length=2048)
     label: str = Field(default="Google Calendar", min_length=1, max_length=200)
 
@@ -561,56 +946,14 @@ async def calendar_callback(
     request: Request,
     principal: Principal = Depends(requires("org:manage")),
 ) -> CredentialOut:
-    """Exchange the authorization code and save the refresh token as a `google_calendar`
-    credential. The `state` is checked BEFORE the code is exchanged, so a code from a consent
-    this person did not start is never redeemed at all."""
-    assert principal.tenant_id is not None
-    assert principal.user_id is not None
-    verify_oauth_state(payload.state, tenant_id=principal.tenant_id, user_id=principal.user_id)
-    import httpx
-
-    req = token_exchange_request(code=payload.code)
-    async with httpx.AsyncClient(timeout=10.0) as http:
-        resp = await http.post(req.url, headers=req.headers, data=req.form_body)
-    if resp.status_code != 200:
-        raise ProblemError(
-            kind="dependency",
-            code="calendar_oauth_failed",
-            title="Google did not accept the authorization",
-            detail="The Google authorization code could not be exchanged.",
-            remediation="Try connecting again.",
-        )
-    body = resp.json()
-    refresh_token = str(body.get("refresh_token") or "")
-    if not refresh_token:
-        # No refresh token means Google returned only an access token — usually a re-consent
-        # without `prompt=consent`. `authorize_url` sets it, so this is a real failure.
-        raise ProblemError(
-            kind="business_rule",
-            code="calendar_no_refresh_token",
-            title="Google returned no long-lived token",
-            detail="The connection did not include a refresh token.",
-            remediation="Disconnect the app in your Google account, then connect again.",
-        )
-    record = await creds.create_credential(
+    return await complete_oauth(
         session,
-        tenant_id=principal.tenant_id,
+        request,
+        principal,
         kind="google_calendar",
-        label=payload.label,
-        secret=refresh_token,
-        non_secret={"scope": str(body.get("scope") or "")},
+        payload=OAuthCallbackIn(code=payload.code, state=payload.state, label=payload.label),
+        refusal=calendar_state_refused(),
     )
-    await write_audit(
-        session,
-        action="integration_credential.created",
-        actor=principal,
-        tenant_id=principal.tenant_id,
-        object_type="integration_credential",
-        object_id=str(record.id),
-        ip=client_request_ip(request),
-        summary={"kind": "google_calendar"},
-    )
-    return _cred_out(record)
 
 
 __all__ = ["router"]

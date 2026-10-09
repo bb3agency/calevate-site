@@ -9,7 +9,7 @@
  */
 
 import { useState } from "react";
-import { FlaskConical, Pencil, Trash2 } from "lucide-react";
+import { FlaskConical, History, Pencil, Trash2 } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
 import {
@@ -17,6 +17,7 @@ import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
+  formatIST,
   NoticeBox,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
@@ -26,6 +27,9 @@ import {
 import {
   ACTION_KIND_LABELS,
   PROVIDER_LABELS,
+  RUN_SOURCE_LABELS,
+  RUN_STATUS_LABELS,
+  useActionLog,
   useDeleteAction,
   useSetActionEnabled,
   useTestAction,
@@ -35,9 +39,11 @@ import type { Session } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
 
 import { ActionForm } from "./ActionForm";
-import type { Kind } from "./params";
+import { KINDS } from "./params";
 
-const KINDS: readonly Kind[] = ["custom_api", "whatsapp", "calendar"];
+// The kinds whose test needs a number to stand in for the caller's: one of the business's
+// own (the server refuses any other for a WhatsApp or payment-link test).
+const NEEDS_TEST_PHONE: readonly string[] = ["whatsapp", "payment_link", "crm", "caller_lookup"];
 
 export function ToolRow({
   tool,
@@ -51,6 +57,7 @@ export function ToolRow({
   const setEnabled = useSetActionEnabled(session, agentId);
   const remove = useDeleteAction(session, agentId);
   const [testing, setTesting] = useState(false);
+  const [showingRuns, setShowingRuns] = useState(false);
   const [editing, setEditing] = useState(false);
   // A kind this build has no form for is listed and removable, never offered for editing.
   const editableKind = KINDS.find((k) => k === tool.kind);
@@ -59,13 +66,13 @@ export function ToolRow({
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
   const kindLabel = lookup(ACTION_KIND_LABELS, tool.kind) ?? tool.kind;
   const label =
-    tool.kind === "whatsapp" && tool.provider
+    tool.provider && tool.kind !== "calendar"
       ? `${kindLabel} · ${lookup(PROVIDER_LABELS, tool.provider) ?? tool.provider}`
       : kindLabel;
 
   return (
     <li className="rounded-card border border-line bg-app p-3">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <p title={tool.name} className="truncate text-sm font-medium text-ink">
             {tool.name}
@@ -74,7 +81,7 @@ export function ToolRow({
             {label} · {tool.trigger === "after_call" ? "After the call" : "During the call"}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {editableKind ? (
             <button
               type="button"
@@ -91,9 +98,20 @@ export function ToolRow({
             type="button"
             className={SECONDARY_BUTTON_SM}
             onClick={() => setTesting((v) => !v)}
+            aria-expanded={testing}
           >
             <FlaskConical className="mr-1 inline h-3.5 w-3.5" />
             Test
+          </button>
+          <button
+            type="button"
+            className={SECONDARY_BUTTON_SM}
+            onClick={() => setShowingRuns((v) => !v)}
+            aria-expanded={showingRuns}
+            aria-label={`Recent runs of ${tool.name}`}
+          >
+            <History className="mr-1 inline h-3.5 w-3.5" />
+            Runs
           </button>
           <label className="flex items-center gap-1 text-xs text-ink-muted">
             <input
@@ -149,6 +167,7 @@ export function ToolRow({
         </div>
       ) : null}
       {testing ? <TestPanel tool={tool} agentId={agentId} session={session} /> : null}
+      {showingRuns ? <RunsPanel tool={tool} agentId={agentId} session={session} /> : null}
     </li>
   );
 }
@@ -165,16 +184,39 @@ function TestPanel({
   const test = useTestAction(session, agentId);
   // `tool.params` is a list of open dicts on the wire; read fields defensively (String())
   // rather than asserting onto a generated type (the wire-fixture guard bans that).
-  const aiParams = tool.params.filter((p) => p.source !== "static");
+  const aiParams = tool.params.filter((p) => p.source === "ai");
   const [values, setValues] = useState<Record<string, string>>({});
+  const [testPhone, setTestPhone] = useState("");
+  const needsPhone = NEEDS_TEST_PHONE.includes(tool.kind);
 
   return (
     <div className="mt-3 rounded-card border border-line bg-surface p-3">
       <p className="text-xs font-medium text-ink">Test with sample values</p>
       <p className={FIELD_HINT}>
-        This runs the real call — a WhatsApp test really sends, a booking really books.
+        This runs it for real — a WhatsApp test really sends, a booking really books, a CRM
+        record is really saved.
       </p>
       <div className="mt-2 space-y-2">
+        {needsPhone ? (
+          <div>
+            <label className="block">
+              <span className={FIELD_LABEL}>Your number (stands in for the caller)</span>
+              <input
+                className={FIELD}
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                value={testPhone}
+                onChange={(e) => setTestPhone(e.target.value)}
+                placeholder="+91 98765 43210"
+              />
+            </label>
+            <span className={FIELD_HINT}>
+              WhatsApp and payment-link tests go only to one of your business&rsquo;s own
+              contact numbers.
+            </span>
+          </div>
+        ) : null}
         {aiParams.map((p) => {
           const nm = String(p.name);
           return (
@@ -195,13 +237,18 @@ function TestPanel({
         type="button"
         className={`${PRIMARY_BUTTON_SM} mt-2`}
         disabled={test.isPending}
-        onClick={() => test.mutate({ toolId: tool.id, values })}
+        onClick={() =>
+          test.mutate({ toolId: tool.id, values, testPhone: testPhone.trim() || null })
+        }
       >
         {test.isPending ? "Running…" : "Run test"}
       </button>
       {test.isError ? <ProblemNotice error={test.error} /> : null}
       {test.data ? (
-        <NoticeBox tone={test.data.ok ? "ok" : "warn"} title={`Result: ${test.data.status}`}>
+        <NoticeBox
+          tone={test.data.ok ? "ok" : "warn"}
+          title={lookup(RUN_STATUS_LABELS, test.data.status) ?? `Result: ${test.data.status}`}
+        >
           <ScrollRegion className="max-h-64" label="Test result">
             <pre className="whitespace-pre-wrap break-words text-xs">
               {JSON.stringify(test.data.payload, null, 2)}
@@ -209,6 +256,45 @@ function TestPanel({
           </ScrollRegion>
         </NoticeBox>
       ) : null}
+    </div>
+  );
+}
+
+/** The action's recent runs — on calls, in the background and from tests — newest first. */
+function RunsPanel({
+  tool,
+  agentId,
+  session,
+}: {
+  tool: ActionTool;
+  agentId: string;
+  session: Session;
+}) {
+  const runs = useActionLog(session, agentId, tool.id, true);
+  return (
+    <div className="mt-3 rounded-card border border-line bg-surface p-3">
+      <p className="text-xs font-medium text-ink">Recent runs</p>
+      {runs.isPending ? (
+        <p className={FIELD_HINT}>Loading…</p>
+      ) : runs.isError ? (
+        <ProblemNotice error={runs.error} onRetry={() => void runs.refetch()} />
+      ) : runs.data.length === 0 ? (
+        <p className={FIELD_HINT}>It has not run yet.</p>
+      ) : (
+        <ul className="mt-1 divide-y divide-line text-xs">
+          {runs.data.map((run) => (
+            <li key={`${run.at}-${run.status}`} className="flex flex-wrap justify-between gap-2 py-1.5">
+              <span className="text-ink">
+                {lookup(RUN_STATUS_LABELS, run.status) ?? run.status.replace(/_/g, " ")}
+              </span>
+              <span className="text-ink-muted">
+                {lookup(RUN_SOURCE_LABELS, run.source) ?? run.source} · {formatIST(run.at)}
+                {run.duration_ms !== null ? ` · ${(run.duration_ms / 1000).toFixed(1)} s` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

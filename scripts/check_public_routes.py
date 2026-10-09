@@ -548,6 +548,28 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="verify_agent_secret",
     ),
+    "POST /v1/worker/engine-actions/{engine}/client/{name}": PublicRoute(
+        why=(
+            "A CLIENT's own in-call action (D-700: calendar, WhatsApp, payment link, sheet, "
+            "CRM, caller lookup, their API) called by the voice platform as its agent's "
+            "custom action. MUTATING on the client's own systems. The same credential as "
+            "the platform's four actions: the per-vendor-agent secret, compared in constant "
+            "time, one 401 for every failure, plus the workspace header check. It acts only "
+            "on a live call the platform reports for that agent, the caller's number is the "
+            "platform's record of the call, and only an action that is live on that agent "
+            "in our database runs, under the route's tenant RLS."
+        ),
+        credential="verify_agent_secret",
+    ),
+    "POST /v1/worker/calls/{engine_call_id}/tools/actions/{name}": PublicRoute(
+        why=(
+            "The Pipecat worker's door to the SAME client-action executor (D-700). The "
+            "worker's Bearer token, as on its other tool routes; the call is our own row "
+            "found by the engine call id under its tenant's RLS, and the caller's number is "
+            "that row's, never the model's."
+        ),
+        credential="authorized",
+    ),
     "GET /v1/public/rate-card": PublicRoute(
         why=(
             "The self-serve rate card for the public site (D-545): the live list rate, "
@@ -559,6 +581,17 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
             "authenticated `/v1/billing/topups/packs`, so this discloses nothing a "
             "signed-in client could not already see. Reads nothing but a setting, writes "
             "nothing, its own `public_read` rate profile and a 60s public cache."
+        )
+    ),
+    "GET /v1/public/status": PublicRoute(
+        why=(
+            "The public status page at status.calevate.tech (D-701): whether phone calls, "
+            "numbers, the dashboard and the assistant are working, and the incidents an "
+            "operator or the outage playbook chose to post. GENUINELY OPEN, because the "
+            "reader is anyone whose calls are failing, signed in or not. It returns only "
+            "rows marked public, with their authored title, component and times: no "
+            "account, agent, alarm code or count of affected clients is read into the "
+            "body. Writes nothing, its own `public_read` rate profile and a 30s public cache."
         )
     ),
 }

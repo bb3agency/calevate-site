@@ -30,6 +30,7 @@ from uuid import UUID
 from sqlalchemy import (
     CheckConstraint,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
@@ -45,12 +46,33 @@ from apps.api.db.base import Base, PKMixin, TimestampMixin
 # (a bearer token or api key for the client's own endpoint); the WhatsApp BSPs and Google
 # each get their own so a screen can label them and `whatsapp.py`/`calendar.py` can refuse
 # a credential of the wrong kind.
-INTEGRATION_KINDS = ("aisensy", "meta_cloud", "interakt", "custom_api", "google_calendar")
+INTEGRATION_KINDS = (
+    "aisensy",
+    "meta_cloud",
+    "interakt",
+    "custom_api",
+    "google_calendar",
+    # D-700: the CLIENT's own Razorpay key pair (never Calevate's billing keys, which are
+    # platform secrets) and the two CRMs' OAuth refresh tokens.
+    "razorpay",
+    "zoho_crm",
+    "hubspot",
+)
 
 # The three top-level action types the founder's spec names. The WhatsApp BSP variant and
 # the calendar provider are sub-selections in `provider` below, not separate kinds — a
 # client picks "send a WhatsApp" and then which BSP delivers it.
-ACTION_KINDS = ("custom_api", "whatsapp", "calendar")
+ACTION_KINDS = (
+    "custom_api",
+    "whatsapp",
+    "calendar",
+    # D-700. `caller_lookup` is the agent's first call on an inbound call: the voice platform
+    # has no pre-call hook for inbound calls, so "who is this" is an action like any other.
+    "sheets",
+    "payment_link",
+    "crm",
+    "caller_lookup",
+)
 
 # When the action runs. `during_call` is declared to the engine as a function the LLM may
 # invoke mid-conversation; `after_call` is NOT a tool at all — it runs in the post-call
@@ -60,7 +82,20 @@ ACTION_TRIGGERS = ("during_call", "after_call")
 # The concrete implementation behind a `whatsapp` or `calendar` action. `custom` is the
 # "Other WhatsApp provider" fallback the spec asks for, delivered through the generic REST
 # path. NULL for a `custom_api` action, whose implementation is the kind itself.
-ACTION_PROVIDERS = ("aisensy", "meta_cloud", "interakt", "custom", "google")
+ACTION_PROVIDERS = (
+    "aisensy",
+    "meta_cloud",
+    "interakt",
+    "custom",
+    "google",
+    # D-700: the CRM behind a `crm` or `caller_lookup` action, the payment provider, and the
+    # two other sources a caller lookup reads (a shared sheet, the client's own API).
+    "zoho",
+    "hubspot",
+    "razorpay",
+    "sheet",
+    "api",
+)
 
 
 class IntegrationCredential(PKMixin, TimestampMixin, Base):
@@ -156,11 +191,46 @@ class ActionTool(PKMixin, TimestampMixin, Base):
     params: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False)
 
 
+#: Where an invocation came from: a call (ThinnestAI or Pipecat), the background job that
+#: finished a slow in-call write, the post-call pipeline, or the client's Test button.
+INVOCATION_SOURCES = ("in_call", "background", "after_call", "test")
+
+
+class ActionInvocation(PKMixin, TimestampMixin, Base):
+    """One run of an action, for the per-action call log (D-700, migration f8b3d6a2c917).
+
+    Written by `workers/action_audit` beside the `audit_log` row, which has no outcome
+    column. Ids, an outcome code and a duration only (hard rule 6): `call_ref` is the
+    engine's call id, never a number. Pruned to 90 days by that job.
+    """
+
+    __tablename__ = "action_invocations"
+    __table_args__ = (
+        CheckConstraint(f"source IN {INVOCATION_SOURCES!r}", name="source_enum"),
+        CheckConstraint("length(status) BETWEEN 1 AND 64", name="status_len"),
+        Index("ix_action_invocations_tool_created", "tool_id", "created_at"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    agent_id: Mapped[UUID] = mapped_column(nullable=False)
+    tool_id: Mapped[UUID] = mapped_column(
+        ForeignKey("action_tools.id", ondelete="CASCADE"), nullable=False
+    )
+    source: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    call_ref: Mapped[str | None] = mapped_column(String)
+
+
 __all__ = [
     "ACTION_KINDS",
     "ACTION_PROVIDERS",
     "ACTION_TRIGGERS",
     "INTEGRATION_KINDS",
+    "INVOCATION_SOURCES",
+    "ActionInvocation",
     "ActionTool",
     "IntegrationCredential",
 ]

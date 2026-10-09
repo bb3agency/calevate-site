@@ -325,6 +325,9 @@ export function activeTrialBlock(over: Partial<NonNullable<Wallet["trial"]>> = {
     ends_at: "2026-10-10T17:28:00Z",
     days_remaining: 3,
     ended_at: null,
+    test_calls_only: false,
+    free_minutes: null,
+    minutes_left: null,
     ...over,
   };
 }

@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import NewClientPage from "@/app/admin/new/page";
+import { OwnerInvitePanel } from "@/app/admin/tenants/[tenantId]/OwnerInvitePanel";
 import type { CreateOrgOut } from "@/lib/api/admin";
 
 import { problem, renderAdminPage, stubApi } from "./harness";
@@ -9,11 +10,8 @@ import { problem, renderAdminPage, stubApi } from "./harness";
 /**
  * The new-client wizard (FLOWS §1, steps 1 and 8).
  *
- * Step 3 — the intake — landed between steps 1 and 8 and has its own file
- * (`adminNewIntake.test.tsx`). What changed HERE is only the wizard's shape, and this
- * file was updated for it rather than around it: the counter reads "of 3", the account
- * confirmation now sits above both post-creation steps, and reaching the invite means
- * walking past the intake. Every assertion below is the one it always was.
+ * D-695: the operator enters only the business and the owner; the client fills in the
+ * business in their own setup. Two steps: the business, then the invite.
  *
  * Lower blast radius than the ops screen — one account rather than every tenant — but it
  * is the screen that mints a single-use OWNER CREDENTIAL, and every assertion below is
@@ -46,13 +44,11 @@ const CREATED: CreateOrgOut = {
   agent_id: "0192f0aa-7777-7000-8000-0000000000a1",
   extraction_schema_id: "0192f0aa-7777-7000-8000-0000000000b1",
   vertical_template: "clinic",
+  invitation_id: "0192f0aa-7777-7000-8000-0000000000e1",
 };
 
 const INVITATIONS = `${TENANTS}/${CREATED.id}/invitations`;
-const INTAKE = `${TENANTS}/${CREATED.id}/agents/${CREATED.agent_id}/intake`;
-// Step 3 previews its own permission (`agents:write`), so reaching it asks the admin
-// realm who this session is. Stubbed here as premise rather than assertion — this file's
-// subject is the invite, and `adminNewIntake.test.tsx` owns the gate.
+// Who this session is, stubbed as a premise.
 const ADMIN_ME = "/v1/admin/me";
 // Step 1 lists the onboardings somebody started and did not finish, so an operator
 // resumes instead of recreating a client under a slug the first attempt already holds
@@ -67,19 +63,13 @@ const OPERATOR = {
   permissions: ["org:read", "agents:read", "agents:write", "admin:tenants"],
 };
 
-/** A brand-new agent's intake: the API answers 200 with everything empty, not a 404. */
-const NO_INTAKE = {
-  business_hours: {},
-  escalation_contacts: [],
-  languages: [],
-  prose_answers: null,
-  compiled_t0_context: null,
-  submitted_at: null,
-};
-
 function fillName(value = "Sunrise Clinic") {
   fireEvent.change(screen.getByPlaceholderText("Sunrise Clinic"), {
     target: { value },
+  });
+  // The owner's email is required on step 1: the invite goes to it.
+  fireEvent.change(screen.getByPlaceholderText("owner@business.com"), {
+    target: { value: "owner@sunrise.example" },
   });
 }
 
@@ -95,18 +85,17 @@ describe("creating the account", () => {
     });
 
     fillName();
-    fireEvent.click(screen.getByRole("button", { name: "Create client" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create and invite" }));
 
     await screen.findByText("That slug already belongs to another client.");
     // No creation claim anywhere, and the operator is still on step 1 with their input.
-    expect(screen.queryByText("Account created")).toBeNull();
+    expect(screen.queryByText("Account created and owner invited")).toBeNull();
     expect(container.textContent).not.toContain("Invite the owner");
-    expect(container.textContent).toContain("Step 1 of 3");
     // The refusal is answerable, so the control must stay live to answer it.
     expect(
       (
         screen.getByRole("button", {
-          name: "Create client",
+          name: "Create and invite",
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(false);
@@ -116,18 +105,16 @@ describe("creating the account", () => {
     const { container } = renderAdminPage(<NewClientPage />, {
       [TENANTS]: CREATED,
       [ADMIN_ME]: OPERATOR,
-      [INTAKE]: NO_INTAKE,
       [UNFINISHED]: [],
     });
 
     fillName();
-    fireEvent.click(screen.getByRole("button", { name: "Create client" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create and invite" }));
 
-    await screen.findByText("Account created");
+    await screen.findByText("Account created and owner invited");
     // The server de-duplicated the slug; the panel quotes what actually exists.
     expect(container.textContent).toContain("/c/sunrise-clinic-2");
     expect(container.textContent).not.toContain("/c/sunrise-clinic ");
-    expect(container.textContent).toContain("Step 2 of 3");
   });
 
   it("stops offering a control the session is refused, with the server's reason", async () => {
@@ -141,17 +128,17 @@ describe("creating the account", () => {
     });
 
     fillName();
-    fireEvent.click(screen.getByRole("button", { name: "Create client" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create and invite" }));
 
     await screen.findByText("You do not have permission to do this.");
     const button = screen.getByRole("button", {
-      name: "Create client",
+      name: "Create and invite",
     }) as HTMLButtonElement;
     // A permission refusal will not change on the second click, so the button says so
     // rather than inviting an identical 403.
     await waitFor(() => expect(button.disabled).toBe(true));
     expect(button.title).toBe("Ask a superadmin to create the account.");
-    expect(screen.queryByText("Account created")).toBeNull();
+    expect(screen.queryByText("Account created and owner invited")).toBeNull();
   });
 });
 
@@ -159,26 +146,12 @@ describe("the owner invite", () => {
   /** The row id the response carries so the panel can revoke what it just created. */
   const INVITE_ID = "0192f0aa-7777-7000-8000-0000000000d1";
 
-  /** Create the account, then walk past step 3 — the invite is the LAST step now. */
+  /** Create the account; the invite is step 2. */
   async function reachTheInvite(routes: Record<string, unknown>) {
-    const render = renderAdminPage(<NewClientPage />, {
-      [TENANTS]: CREATED,
-      [ADMIN_ME]: OPERATOR,
-      [INTAKE]: NO_INTAKE,
-      [UNFINISHED]: [],
-      ...routes,
-    });
-    fillName();
-    fireEvent.click(screen.getByRole("button", { name: "Create client" }));
-    await screen.findByText("Account created");
-    // `findBy`, not `getBy`: the intake step is a skeleton until its prefill lands, and
-    // the control that leaves it does not exist while it is one.
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: /Continue to the owner invite/,
-      }),
+    return renderAdminPage(
+      <OwnerInvitePanel created={{ id: CREATED.id, slug: CREATED.slug }} />,
+      { [ADMIN_ME]: OPERATOR, ...routes },
     );
-    return render;
   }
 
   it("confirms the address it was sent to, and never renders a credential", async () => {
@@ -278,22 +251,10 @@ describe("cancelling an invite the wizard already issued", () => {
   const REVOKE = `${INVITATIONS}/${MINTED.id}`;
 
   async function reachTheInvite(routes: Record<string, unknown>) {
-    const render = renderAdminPage(<NewClientPage />, {
-      [TENANTS]: CREATED,
-      [ADMIN_ME]: OPERATOR,
-      [INTAKE]: NO_INTAKE,
-      [UNFINISHED]: [],
-      ...routes,
-    });
-    fillName();
-    fireEvent.click(screen.getByRole("button", { name: "Create client" }));
-    await screen.findByText("Account created");
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: /Continue to the owner invite/,
-      }),
+    return renderAdminPage(
+      <OwnerInvitePanel created={{ id: CREATED.id, slug: CREATED.slug }} />,
+      { [ADMIN_ME]: OPERATOR, ...routes },
     );
-    return render;
   }
 
   it("offers no cancel until an invite has actually been minted", async () => {

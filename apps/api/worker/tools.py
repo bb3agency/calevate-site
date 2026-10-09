@@ -59,6 +59,8 @@ from calevate_shared.worker_api import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.actions.execution import CallFacts
+from apps.api.actions.in_call import run_in_call_action
 from apps.api.agents.handoff import ROSTER_UNAVAILABLE_REASONS
 from apps.api.agents.handoff_execution import (
     OUTCOME_ARRIVES_LATE,
@@ -684,6 +686,26 @@ async def request_handoff_unplaced(
     )
 
 
+async def run_client_action(
+    engine_call_id: str, name: str, arguments: dict[str, str]
+) -> dict[str, object]:
+    """A client's own action (D-700) on a Pipecat call: the call is OUR row, found by the
+    ref under the tenant the ref names, and the caller's number is that row's. What runs is
+    `actions/in_call.run_in_call_action`, the door the ThinnestAI custom actions use too."""
+    tenant_id = tenant_of_call(engine_call_id)
+    async with tenant_session(tenant_id) as session:
+        call = await _load_call(session, engine_call_id)
+    caller = call.to_e164 if call.direction == "outbound" else call.from_e164
+    answer = await run_in_call_action(
+        tenant_id=tenant_id,
+        agent_id=call.agent_id,
+        name=name,
+        args=dict(arguments),
+        call=CallFacts(call_ref=engine_call_id, caller_e164=caller, direction=call.direction),
+    )
+    return answer.body()
+
+
 __all__ = [
     "CallLocator",
     "ToolCall",
@@ -695,4 +717,5 @@ __all__ = [
     "record_opt_out_for",
     "request_handoff",
     "request_handoff_unplaced",
+    "run_client_action",
 ]

@@ -694,7 +694,7 @@ Other exports: `useLiveActivity({ linger = 2000 })` → `{ activity, start, upda
 - Keyboard users cannot expand a running pod. The compact face has no focusable element (L296-315), so `onFocusCapture` never fires.
 - Fixed `width` 300 (L124, L324) is wider than a 320 px viewport minus 16 px gutters. The local copy clamps the outer pod, but the inner face keeps `width: 300` and is clipped by `overflow-hidden` (L294).
 - Announcements are English literals (L210-213). Colours are hard-coded: `bg-white dark:bg-[#252522]` (L294), `bg-[#4568FF]` (L374), `text-[#4568FF]` (L423).
-**Already in Calevate:** yes, vendored. Local diff: Tailwind tokens (`border-line bg-surface text-ink`, `bg-brand`, success glyph `text-brand`) plus `maxWidth: min(${width}px, calc(100vw - 24px))`. The focus shadows still embed hex (`#16a05d` / `#22c55e`). Used in: nothing. It is listed in `AWAITING_A_DECISION` in `apps/web/tests/componentConsumers.test.ts:61`.
+**Already in Calevate:** yes, vendored. Local diff: Tailwind tokens (`border-line bg-surface text-ink`, `bg-brand`, success glyph `text-brand`) plus `maxWidth: min(${width}px, calc(100vw - 24px))`. The ADAPT fixes are applied (D-694): the peek restarts only on a new activity or phase, the bar is a `role="progressbar"` with its value, the pod itself takes focus so a keyboard can expand it, the expanded face is clamped like the pod, and the dismiss focus ring uses tokens. Used in: the assistant page's running-task pod (`components/copilot/workspace/AssistantWorkspace.tsx`).
 **Fit for Calevate consoles:** Campaign dispatch progress, KB document ingest/embedding, CSV lead import, and the admin vendor-spend recompute. It does not suit a live call's status, where a persistent row in the calls list is clearer.
 **Verdict: ADAPT.** The shape fits long-running client jobs, but the peek-restart bug, the missing progressbar semantics and the keyboard gap must be fixed before it leaves the quarantine list.
 
@@ -855,7 +855,7 @@ Other exports: `useNewItems<T>({ itemCount, anchor = "top", threshold = 24 })` �
 - The scroller gets `tabIndex 0` but no role or name (L115). The repo's `ScrollRegion` supplies `role="region"` + label.
 - The pill is `absolute` and needs a `relative` parent (L158-161). It is 32 px tall, `h-8` (L186).
 - Hard-coded colours: `bg-white dark:bg-[#1D1D1A]`, `focus-visible:border-[#4568FF]` (L186).
-**Already in Calevate:** yes, vendored. Local diff: tokens (`border-line bg-surface text-ink`, brand focus) and `touch:h-11`. Used in: nothing. It is listed in `AWAITING_A_DECISION`, `apps/web/tests/componentConsumers.test.ts:63`.
+**Already in Calevate:** yes, vendored. Local diff: tokens (`border-line bg-surface text-ink`, brand focus) and `touch:h-11`. The ADAPT fixes are applied (D-694): the scroller is a callback ref, so a list that mounts after the hook still gets its listener; past `max` the phrase goes through `label(max, true)`; and the scroller carries `role="region"` and a name. Used in: the assistant's activity log (`components/copilot/workspace/ActivityLog.tsx`).
 **Fit for Calevate consoles:** Calls list when new calls arrive by polling, the admin QA sampling queue, the live transcript of an in-progress call (`anchor="bottom"`), and the audit/event log.
 **Verdict: ADAPT.** It is the right pattern for polled lists, but it needs the late-mount listener fix, the `max` phrase routed through `label`, and the scroller wrapped in `ScrollRegion`.
 
@@ -1261,7 +1261,7 @@ Other exports: `useSkeletonSwap({ready, delay=120, minVisible=380})` returning `
 - Status span renders "loaded" text on first paint when `ready` starts true (L171).
 - Upstream colours `bg-stone-200 dark:bg-white/15`, `text-stone-700` (L111, L155); Calevate copy uses `text-ink`, `bg-ink/10`.
 
-**Already in Calevate:** yes — vendored at `components/interior/skeleton-swap.tsx`, local diff: colours only (`text-ink`, skeleton `bg-ink/10`); used in: nothing — listed in `tests/componentConsumers.test.ts:67` `AWAITING_A_DECISION`.
+**Already in Calevate:** yes — vendored at `components/interior/skeleton-swap.tsx`, local diff: colours only (`text-ink`, skeleton `bg-ink/10`); used in: the assistant page's count tiles (`components/copilot/workspace/AssistantWorkspace.tsx`).
 **Fit for Calevate consoles:** TanStack Query `isPending` states for billing balance cards, usage KPI tiles, agent summary cards, admin system-health tiles (fixed-size tiles suit the fixed `reserve`).
 **Verdict: ADOPT** — the delay/minVisible hook is exactly right for Query loading; use it on fixed-size cards, not on variable-length lists.
 

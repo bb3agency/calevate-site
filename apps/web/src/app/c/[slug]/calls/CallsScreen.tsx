@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 
 import { Card, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatCount } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
+import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { DataTable } from "@/components/console/dataTable";
 import { LoadMore } from "@/components/interior/load-more";
 import { SegmentedControl } from "@/components/interior/segmented-control";
@@ -87,7 +88,7 @@ export function CallsScreen({ slug }: { slug: string }) {
           { value: "", label: "All" },
           ...STATUS_FILTERS.map((filter) => ({ value: filter.value, label: filter.label })),
         ],
-        help: "Empty means every call. Filtering re-reads the log from the server.",
+        help: "Empty means every call. Filters search all your calls, not just this page.",
       },
     ],
     facts: [
@@ -150,6 +151,7 @@ export function CallsScreen({ slug }: { slug: string }) {
               {filterLabel ? `${filterLabel.toLowerCase()}` : rows.length === 1 ? "call" : "calls"}
             </p>
           ))}
+        <AskAssistant prompt="Summarise my latest calls: what callers wanted, and what I should follow up." />
       </div>
 
       {calls.error && <ProblemNotice error={calls.error} onRetry={() => void calls.refetch()} />}

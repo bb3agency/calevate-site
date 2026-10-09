@@ -153,6 +153,12 @@ export const PUBLIC_ROUTES: readonly PublicRoute[] = [
     changeFrequency: "yearly",
     why: "the legal index, linked from every footer",
   },
+  {
+    path: "/status",
+    priority: 0.3,
+    changeFrequency: "daily",
+    why: "the public status page, also served on status.calevate.tech",
+  },
 ];
 
 /**

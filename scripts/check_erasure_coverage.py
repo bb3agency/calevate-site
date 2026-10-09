@@ -276,11 +276,29 @@ ERASURE_EXEMPT: dict[str, str] = {
         "clearing it would delete the client's record of who takes their calls while "
         "removing nothing of the caller's. Staff numbers end with the ENGAGEMENT."
     ),
+    "business_contacts": (
+        "The client's escalation roster (D-695): the staff members an agent may hand a call "
+        "to, by name and mobile. The same data principal and the same position as "
+        "`agent_handoff_members`, which copies from it: a member of the client's staff, not "
+        "a caller, whose number ends with the ENGAGEMENT."
+    ),
+    "heal_fallback_phones": (
+        "The phone the client's own team answers while their agent is held by the healer "
+        "(D-701), set by the account owner: the same data principal and position as "
+        "`business_contacts`, a member of the client's staff rather than a caller, whose "
+        "number ends with the ENGAGEMENT."
+    ),
     "admin_copilot_conversation_turns": (
         "What a CALEVATE OPERATOR typed to the admin console assistant, redacted on write. "
         "It is platform-scoped (no tenant_id, RLS-exempt for that reason) and holds our "
         "own staff's words about the platform, not a caller's; it expires on the operator's "
         "own session-run clock."
+    ),
+    "admin_copilot_actions": (
+        "What the ADMIN assistant did on PLATFORM state for a Calevate operator (D-694): a "
+        "tool name, a status and our own sentence, redacted on write. Platform-scoped, no "
+        "tenant_id, and never a caller's record — the only admin action today halts "
+        "outbound calling for everyone."
     ),
     "admin_copilot_memories": (
         "The admin console assistant's distilled notes, platform-scoped and redacted on "
@@ -434,6 +452,29 @@ ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
             "erasure deletes every row. The raw conversation IS reached by this erasure "
             "(`_erase_copilot_turns` matches the digits), which is why only the distilled "
             "note is registered here."
+        ),
+        "copilot_routine_runs": (
+            "When one of the in-app assistant's routines ran (D-694): a routine id, the "
+            "slot, a status, a task id, and for a skipped run OUR OWN sentence for why "
+            "(the author left, two tasks were running, the tick was late) — never a "
+            "caller's value, so there is nothing of a data principal in it to match. The "
+            "routine's instruction lives in `copilot_routines`, redacted on write by "
+            "`copilot/memory.redacted_content`, `copilot_memories`' situation under the same "
+            "published 'assistant' limitation. The tenant erasure deletes both tables."
+        ),
+        "copilot_actions": (
+            "The in-app assistant's activity log (D-694): what the assistant did in the "
+            "client's own account — a tool name, a status, ids, and what an Undo restores: "
+            "a prior status, owner id, campaign or agent name, an agent's language, voice "
+            "and notice switches, or the definitions of the fields it captures (D-698) — "
+            "never a caller's value — and the server's own sentence about it. Its "
+            "arguments and "
+            "sentences pass through `workers.redaction.redact` on write "
+            "(`copilot/action_log.py`), so the digits this erasure is keyed on are not in "
+            "it to match — `copilot_memories`' situation exactly, published to the data "
+            "principal under the same 'assistant' limitation. A caller's number never "
+            "reaches it in the first place: the tools name leads by id and the server "
+            "resolves numbers itself. The tenant erasure deletes every row."
         ),
         "tenant_erasure_requests": (
             "The OFFBOARDING request row and its proof — one row per account closure, "

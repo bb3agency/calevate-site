@@ -434,11 +434,19 @@ async def test_a_client_cannot_name_a_platform_tool_at_all() -> None:
 async def test_every_platform_tool_is_gated_on_a_permission_no_client_role_holds() -> None:
     """A tool that judged itself by a looser permission than its own SCREEN would be a way
     around that screen (`tools.py`'s rule, applied to the console's own reads)."""
+    # D-698: two boards whose console screens are superadmin-only (`ops:manage`) keep that
+    # permission here; widening them to every operator would be the way around the screen
+    # this test exists to forbid.
+    superadmin_only = {"admin_alerts", "admin_voices"}
     for tool in admin_tools.ADMIN_READ_TOOLS:
         assert tool.scope == "platform"
         assert not role_has("owner", tool.permission)
         assert not role_has("staff", tool.permission)
-        assert role_has("operator", tool.permission)
+        assert role_has("superadmin", tool.permission)
+        if tool.name in superadmin_only:
+            assert not role_has("operator", tool.permission), tool.name
+        else:
+            assert role_has("operator", tool.permission), tool.name
 
 
 async def test_the_runbooks_are_indexed_and_an_alarm_code_finds_its_procedure() -> None:

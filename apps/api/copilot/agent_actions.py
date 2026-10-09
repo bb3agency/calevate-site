@@ -64,6 +64,9 @@ from apps.api.copilot.actions import (
     Executed,
     Plan,
     ToolActor,
+    Undo,
+    UndoRecord,
+    UndoRefusedError,
     WriteRefusedError,
     action_schema,
     parse_args,
@@ -223,6 +226,77 @@ async def _execute_agent_create(
     )
 
 
+async def _capture_agent_create(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Before a create there is no row, so the prior state is "absent". After it, the
+    second capture runs with the produced id (see `write_tools.run_immediate`) and records
+    the name and status the inverse requires to still be there."""
+    del actor
+    raw = args.get("agent_id")
+    if not isinstance(raw, str):
+        return {"exists": False}
+    row = (
+        await session.execute(
+            text("SELECT name, status FROM agents WHERE id = :aid AND deleted_at IS NULL"),
+            {"aid": UUID(raw)},
+        )
+    ).first()
+    if row is None:
+        return {"exists": False}
+    return {"exists": True, "name": str(row[0]), "status": str(row[1])}
+
+
+async def _invert_agent_create(session: AsyncSession, actor: ToolActor, record: UndoRecord) -> str:
+    """Take the draft away — `lifecycle.archive_agent`, the console's own DELETE (D-527) —
+    but only while it is still the untouched draft the assistant made."""
+    agent_id = UUID(record.object_id)
+    row = (
+        await session.execute(
+            text(
+                "SELECT name, status FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
+            ),
+            {"aid": agent_id},
+        )
+    ).first()
+    if row is None or str(row[1]) == "archived":
+        raise UndoRefusedError("that agent has already been removed")
+    if str(row[1]) != "draft" or str(row[0]) != record.result_state.get("name"):
+        raise UndoRefusedError(
+            "that agent has been changed since it was created, so it was kept — remove it "
+            "from the Agents screen if you no longer want it"
+        )
+    await lifecycle.archive_agent(session, tenant_id=actor.tenant_id, agent_id=agent_id)
+    return "The draft agent has been removed."
+
+
+async def _capture_agent_rename(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> dict[str, Any]:
+    del actor
+    parsed = parse_args(_AgentRenameArgs, args)
+    name, _status = await _agent_name_and_status(session, parsed.agent_id)
+    return {"name": name}
+
+
+async def _invert_agent_rename(session: AsyncSession, actor: ToolActor, record: UndoRecord) -> str:
+    """Rename it back, through `lifecycle.update_agent`, if it still carries the new name."""
+    agent_id = UUID(str(record.args["agent_id"]))
+    row = (
+        await session.execute(
+            text("SELECT name FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"),
+            {"aid": agent_id},
+        )
+    ).first()
+    if row is None:
+        raise UndoRefusedError("that agent has been removed, so there is nothing to rename")
+    if str(row[0]) != record.result_state.get("name"):
+        raise UndoRefusedError("that agent has been renamed again since, so it was left alone")
+    prior = str(record.prior_state["name"])
+    await lifecycle.update_agent(session, tenant_id=actor.tenant_id, agent_id=agent_id, name=prior)
+    return f"That agent is called “{prior}” again."
+
+
 AGENT_CREATE: Final = ActionTool(
     name="agent_create",
     # TIER 1. A draft answers nothing, calls nobody and costs nothing; see the module
@@ -277,6 +351,7 @@ AGENT_CREATE: Final = ActionTool(
     ),
     plan=_plan_agent_create,
     execute=_execute_agent_create,
+    undo=Undo(capture=_capture_agent_create, invert=_invert_agent_create),
 )
 
 
@@ -396,6 +471,7 @@ AGENT_RENAME: Final = ActionTool(
     ),
     plan=_plan_agent_rename,
     execute=_execute_agent_rename,
+    undo=Undo(capture=_capture_agent_rename, invert=_invert_agent_rename),
 )
 
 
@@ -506,6 +582,7 @@ AGENT_PUBLISH: Final = ActionTool(
     ),
     plan=_plan_agent_publish,
     execute=_execute_agent_publish,
+    undo=None,
 )
 
 
@@ -646,6 +723,7 @@ CAMPAIGN_LAUNCH: Final = ActionTool(
     ),
     plan=_plan_campaign_launch,
     execute=_execute_campaign_launch,
+    undo=None,
 )
 
 

@@ -27,6 +27,7 @@ from calevate_shared.engine import (
     PLATFORM_DEFAULT_LLM_MODEL,
     SARVAM_DEFAULT_STT,
     AzureOpenAIModel,
+    GoogleDirectModel,
     LlmModelName,
     SarvamSttModel,
 )
@@ -442,6 +443,19 @@ class Settings(BaseSettings):
     thinnest_developer_workspace_id: str | None = Field(
         default=None, max_length=128, pattern=r"^org_[^@\s]{1,120}$"
     )
+    #: THE SHARED TRIAL NUMBER (D-697): the one number every free-trial test call rings
+    #: from. It must be a number held in our developer workspace (a platform-held number) and
+    #: recorded against no client; a trial call lends it to the calling agent
+    #: (`callingAgent`) and sets nothing to answer it (`agent: null`,
+    #: `thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/phone-numbers/
+    #: update-phone-number.md:451-470`). Unset, trial calling says it is not available yet.
+    trial_caller_number: str | None = Field(default=None, max_length=13, pattern=r"^\+91\d{10}$")
+    #: How many test calls one trial account may place per IST day (D-697).
+    trial_daily_call_cap: int = Field(default=10, ge=1, le=100)
+    #: The longest a trial test call may run, sent as the per-call `maxCallSeconds` override,
+    #: which the platform bounds to 60..1200 (`thinnest-findings/mirror/snapshots/2026-10-08/
+    #: pages/api-reference/calls/place-call.md:1122-1126`).
+    trial_call_max_seconds: int = Field(default=180, ge=60, le=1200)
     #: The Gnani TTS key (D-618), read by `apps/voice-worker` and by nothing on this host.
     #:
     #: **A `Settings` FIELD THAT THIS DEPLOYMENT NEVER READS THE VALUE OF, FOR D-614's
@@ -804,6 +818,22 @@ class Settings(BaseSettings):
     google_oauth_client_secret: str | None = Field(default=None, max_length=512)
     google_oauth_redirect_uri: str | None = Field(default=None, max_length=512)
 
+    # --- Zoho CRM and HubSpot OAuth (client CRM actions, D-700) -----------------------
+    # The PLATFORM's own OAuth apps, which every client's CRM connection authorises
+    # against, exactly like the Google client above. `..._client_secret` is a
+    # `platform_secrets` value by its name fragment. None until the founder registers the
+    # app (OPERATIONS gates A-1..A-3); the CRM connect buttons then say "not available yet".
+    # `zoho_accounts_url` is the data centre the app is registered in; a client in another
+    # Zoho data centre is answered through the `accounts-server` their consent returns
+    # (zoho.com/accounts/protocol/oauth/multi-dc.html, read 9 Oct 2026).
+    zoho_oauth_client_id: str | None = Field(default=None, max_length=256)
+    zoho_oauth_client_secret: str | None = Field(default=None, max_length=512)
+    zoho_oauth_redirect_uri: str | None = Field(default=None, max_length=512)
+    zoho_accounts_url: str = Field(default="https://accounts.zoho.in", max_length=128)
+    hubspot_oauth_client_id: str | None = Field(default=None, max_length=256)
+    hubspot_oauth_client_secret: str | None = Field(default=None, max_length=512)
+    hubspot_oauth_redirect_uri: str | None = Field(default=None, max_length=512)
+
     # The DEPLOYMENT id — what the API actually addresses, and NOT the model name.
     #
     # ITS OWN FIELD BECAUSE AZURE MAKES IT ONE. Elsewhere `model` names a model; on Azure
@@ -1042,6 +1072,25 @@ class Settings(BaseSettings):
     llm_tier_standard_model: LlmModelName = PLATFORM_DEFAULT_LLM_MODEL
     llm_tier_plus_model: LlmModelName = "gpt-4.1-mini"
     llm_tier_pro_model: LlmModelName = "gpt-5.4-mini"
+    # WHICH MODEL THE IN-APP ASSISTANT RUNS, BY TASK (D-694). Typed to the GOOGLE leg only:
+    # the founder's "Gemini only at first", made a property of the type so the console
+    # cannot offer anything else. A value is used only while it is in `offerable_models()`
+    # (selectable, credential installed, price attested) and its data-use attestation is
+    # recorded; otherwise the assistant falls back and says so (D-127 G-6). The fast model
+    # answers and looks things up; the planning model takes multi-step requests and
+    # background jobs (`copilot/model_tiers.route_tier` is the rule).
+    copilot_fast_model: GoogleDirectModel = "gemini-2.5-flash-lite"
+    copilot_planning_model: GoogleDirectModel = "gemini-2.5-flash"
+    # MAY THE ASSISTANT FALL BACK TO AZURE when the chosen Gemini model cannot serve? On by
+    # default: Gemini is the default MODEL, Azure the disclosed backup an operator can turn off.
+    # The founder: Azure stays available as a fallback setting, not the default. Off, a Gemini
+    # failure falls to the disclosed Sarvam leg instead.
+    copilot_azure_fallback: bool = True
+    # THE FAIR-USE CAP (D-694). The assistant is free; each account may ask this many
+    # questions, and spend this many thousand tokens, per IST day before it is told the
+    # day's allowance is used. Counted on `usage_events` rows under the `copilot` feature.
+    copilot_daily_message_cap: int = Field(default=300, ge=1, le=100_000)
+    copilot_daily_ktok_cap: int = Field(default=3_000, ge=1, le=10_000_000)
     # HOW MANY LIVE AGENTS MAY BE ON THE CARTESIA VOICE TIER, PLATFORM-WIDE (D-547 §0 Q10).
     # Cartesia's TTS is a monthly PLAN with a concurrency ceiling, not a per-character
     # meter, so the third clinic on it does not cost a third more — it forces the next plan
@@ -1336,6 +1385,25 @@ class Settings(BaseSettings):
     # neither is free text, and an EMPTY one would send a message naming no template.
     whatsapp_template_hot_lead: str = Field(default="calevate_hot_lead_v1", max_length=128)
     whatsapp_template_locale: str = Field(default="en", max_length=16)
+    # The auto-healer's three utility templates on Calevate's own account (D-701): the page
+    # to the founder, and the two notices to a client owner whose line is affected.
+    whatsapp_template_healer_page: str = Field(default="calevate_alarm_page_v1", max_length=128)
+    whatsapp_template_line_notice: str = Field(default="calevate_line_notice_v1", max_length=128)
+    whatsapp_template_line_restored: str = Field(
+        default="calevate_line_restored_v1", max_length=128
+    )
+
+    # ---- Auto-healer (D-701) --------------------------------------------------------
+    # The global kill switch. Off stops every automatic repair, every line hold and every
+    # scheduled sweep the healer runs; detection, the health score and notices carry on.
+    healer_enabled: bool = True
+    # Per-playbook kill switches: comma-separated playbook keys
+    # (`apps/api/healer/playbooks.PLAYBOOKS`). The healer page flags a key it does not know.
+    healer_paused_playbooks: str = Field(default="", max_length=1000, pattern=r"^[a-z0-9_, ]*$")
+    # Where the founder's pages go on WhatsApp, E.164. Empty means pages go by email only.
+    healer_founder_whatsapp: str | None = Field(
+        default=None, max_length=16, pattern=r"^\+[1-9][0-9]{7,14}$"
+    )
 
     # ---- Meta Cloud API credentials (D-91) ----------------------------------------
     #
@@ -1725,6 +1793,19 @@ class Settings(BaseSettings):
     # `platform_config.is_secret_key` classifies it automatically into the encrypted
     # `platform_secrets` path with no allowlist to edit.
     razorpay_key_secret: str | None = None
+    # Which Razorpay mode the three values above belong to (D-699). Razorpay issues separate
+    # keys and a separate webhook secret per mode (`api/authentication.md`,
+    # `webhooks/setup-edit-payments.md`, read 9 Oct 2026). `billing/payments.payment_mode_problem`
+    # refuses a key id from the other mode and refuses `test` on `APP_ENV=prod`, so a test
+    # key can never take a real client's payment. Unset is allowed off production only.
+    razorpay_mode: Literal["test", "live"] | None = None
+    # Auto-recharge (D-699): how many failed recharges in a row switch it off, with a
+    # message to the client. Razorpay itself retries a failed UPI/card debit when we let it
+    # send the pre-debit notification (`api/payments/recurring-payments/upi/
+    # create-subsequent-payments.md`), so each of ours is already a retried attempt.
+    auto_recharge_max_failures: int = Field(default=3, ge=1, le=10)
+    # How many days back the daily Razorpay reconciliation compares payments and refunds.
+    razorpay_reconciliation_days: int = Field(default=3, ge=1, le=30)
 
     # WHICH licensed aggregator a client verifies themselves through (D-635). A member of
     # `compliance.kyc_providers.KYC_PROVIDERS`, or unset — which is every deployment

@@ -26,12 +26,16 @@ export type UseNewItemsOptions = {
   itemCount: number;
   anchor?: NewItemsAnchor;
   threshold?: number;
+  /** The scroller's accessible name — it is focusable, so it must have one. */
+  label: string;
 };
 
 export type UseNewItemsResult<T extends HTMLElement> = {
   scrollProps: {
-    ref: React.RefObject<T | null>;
+    ref: (node: T | null) => void;
     tabIndex: number;
+    role: "region";
+    "aria-label": string;
     style: React.CSSProperties;
   };
   unread: number;
@@ -44,8 +48,16 @@ export function useNewItems<T extends HTMLElement = HTMLDivElement>({
   itemCount,
   anchor = "top",
   threshold = 24,
+  label,
 }: UseNewItemsOptions): UseNewItemsResult<T> {
   const ref = useRef<T | null>(null);
+  // The node is ALSO state, so the listener below attaches when the scroller mounts after
+  // the hook does (a list rendered only once its query answers), not only on first render.
+  const [node, setNode] = useState<T | null>(null);
+  const attach = useCallback((element: T | null) => {
+    ref.current = element;
+    setNode(element);
+  }, []);
   const pinnedRef = useRef(true);
   const prevCount = useRef(itemCount);
   const bottomGap = useRef(0);
@@ -55,7 +67,7 @@ export function useNewItems<T extends HTMLElement = HTMLDivElement>({
   const reduced = useReducedMotion();
 
   useEffect(() => {
-    const el = ref.current;
+    const el = node;
     if (!el) return;
 
     const read = () =>
@@ -74,7 +86,7 @@ export function useNewItems<T extends HTMLElement = HTMLDivElement>({
     onScroll();
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, [anchor, threshold]);
+  }, [node, anchor, threshold]);
 
   useIsoLayoutEffect(() => {
     const el = ref.current;
@@ -115,7 +127,13 @@ export function useNewItems<T extends HTMLElement = HTMLDivElement>({
   }, [anchor, reduced]);
 
   return {
-    scrollProps: { ref, tabIndex: 0, style: { overflowAnchor: "none" } },
+    scrollProps: {
+      ref: attach,
+      tabIndex: 0,
+      role: "region",
+      "aria-label": label,
+      style: { overflowAnchor: "none" },
+    },
     unread,
     pinned,
     jump,
@@ -126,12 +144,18 @@ export type NewItemsPillProps = {
   count: number;
   onJump: () => void;
   anchor?: NewItemsAnchor;
-  label?: (count: number) => string;
+  /**
+   * The phrase for `count` new items. `over` is true past `max`, where `count` is `max`
+   * and the phrase should say "or more" in its own words — it used to be replaced by an
+   * English literal that ignored this label.
+   */
+  label?: (count: number, over: boolean) => string;
   max?: number;
   className?: string;
 };
 
-const defaultLabel = (n: number) => `${n} new ${n === 1 ? "item" : "items"}`;
+const defaultLabel = (n: number, over: boolean) =>
+  `${n}${over ? "+" : ""} new ${n === 1 && !over ? "item" : "items"}`;
 
 export function NewItemsPill({
   count,
@@ -153,7 +177,7 @@ export function NewItemsPill({
     return () => clearTimeout(t);
   }, [count]);
 
-  const phrase = (n: number) => (n > max ? `${max}+ new items` : label(n));
+  const phrase = (n: number) => (n > max ? label(max, true) : label(n, false));
   const text = phrase(count);
   const off = anchor === "bottom" ? 10 : -10;
 

@@ -82,6 +82,7 @@ const CLOSURE = {
   erased_at: null,
   restorable: true,
   days_remaining: 13,
+  forfeited_credit_inr: "0.00",
 } satisfies Closure;
 
 describe("the account state screen", () => {

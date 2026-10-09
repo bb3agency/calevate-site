@@ -39,7 +39,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Final
+from math import ceil
+from typing import Final, Literal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -56,6 +57,19 @@ log = get_logger(__name__)
 
 #: How long an emailed code stays usable. See the module docstring.
 OTP_LIFETIME: Final = timedelta(minutes=10)
+
+#: How long after a code is issued before the sign-in step may ask for another. The browser
+#: shows the same countdown, and a request inside it is refused with `Retry-After`, so the
+#: two can never disagree about when the button works. Without it the only bound on resends
+#: was the caller-wide `auth` request profile, which a person can hit by accident and an
+#: abuser can spread across addresses.
+OTP_RESEND_COOLDOWN: Final = timedelta(seconds=60)
+
+#: What one guess against a challenge came to. `expired` is reported apart from `wrong`
+#: because the person's next step differs (ask for a new code, not retype this one), and
+#: every caller already holds a session for the subject, so it reveals nothing about who
+#: has an account.
+CodeOutcome = Literal["accepted", "wrong", "expired"]
 
 
 def _domain(purpose: str) -> str:
@@ -163,7 +177,30 @@ async def verify_challenge(
 
     Returns a bool rather than raising: the caller has a throttle to update and an audit row
     to write on the failure path, and an exception here would make both of those things the
-    caller's job to remember inside an `except`.
+    caller's job to remember inside an `except`. `check_challenge` is the same guess with
+    the failure split into wrong and expired.
+    """
+    return (
+        await check_challenge(
+            session, purpose=purpose, realm=realm, subject_id=subject_id, code=code, now=now
+        )
+        == "accepted"
+    )
+
+
+async def check_challenge(
+    session: AsyncSession,
+    *,
+    purpose: str,
+    realm: str,
+    subject_id: UUID,
+    code: str,
+    now: datetime | None = None,
+) -> CodeOutcome:
+    """Spend one guess, and say whether a refusal was a wrong code or an expired one.
+
+    `expired` means the subject's live challenge has passed `expires_at`, whatever was
+    typed: the guess is still counted, so splitting the answer buys no extra guesses.
     """
     _refuse_unknown(purpose, realm)
     at = now or datetime.now(UTC)
@@ -192,22 +229,65 @@ async def verify_challenge(
             "auth_otp_verified",
             extra={"purpose": purpose, "realm": realm, "challenge_id": str(consumed[0])},
         )
-        return True
+        return "accepted"
 
-    # Wrong, expired, already spent, or out of budget — one answer to the caller, and one
-    # increment so that "wrong" costs something. Guarded on `consumed_at IS NULL` so a
-    # guess arriving after a successful verification does not inflate the count of a
-    # challenge that is already closed.
-    await session.execute(
-        text(
-            "UPDATE auth_otp_challenges SET attempts = attempts + 1, updated_at = :now "
-            "WHERE realm = :realm AND subject_id = :sub AND purpose = :purpose "
-            "AND consumed_at IS NULL"
-        ),
-        {"now": at, "realm": realm, "sub": subject_id, "purpose": purpose},
-    )
-    log.info("auth_otp_rejected", extra={"purpose": purpose, "realm": realm})
-    return False
+    # Wrong, expired, already spent, or out of budget — one increment so that "wrong" costs
+    # something. Guarded on `consumed_at IS NULL` so a guess arriving after a successful
+    # verification does not inflate the count of a challenge that is already closed. The
+    # same statement reports whether the live challenge had expired.
+    live = (
+        await session.execute(
+            text(
+                "UPDATE auth_otp_challenges SET attempts = attempts + 1, updated_at = :now "
+                "WHERE realm = :realm AND subject_id = :sub AND purpose = :purpose "
+                "AND consumed_at IS NULL "
+                "RETURNING expires_at <= :now"
+            ),
+            {"now": at, "realm": realm, "sub": subject_id, "purpose": purpose},
+        )
+    ).first()
+    expired = live is not None and bool(live[0])
+    log.info("auth_otp_rejected", extra={"purpose": purpose, "realm": realm, "expired": expired})
+    return "expired" if expired else "wrong"
 
 
-__all__ = ["OTP_LIFETIME", "IssuedChallenge", "issue_challenge", "verify_challenge"]
+async def resend_wait_s(
+    session: AsyncSession,
+    *,
+    purpose: str,
+    realm: str,
+    subject_id: UUID,
+    now: datetime | None = None,
+) -> int:
+    """Whole seconds before another code may be issued for this purpose; 0 if it may now.
+
+    Measured from the newest challenge of the purpose, live or retired, so the countdown
+    starts at the sign-in that issued the first code and restarts at every resend.
+    """
+    _refuse_unknown(purpose, realm)
+    at = now or datetime.now(UTC)
+    newest: datetime | None = (
+        await session.execute(
+            text(
+                "SELECT max(created_at) FROM auth_otp_challenges "
+                "WHERE realm = :realm AND subject_id = :sub AND purpose = :purpose"
+            ),
+            {"realm": realm, "sub": subject_id, "purpose": purpose},
+        )
+    ).scalar()
+    if newest is None:
+        return 0
+    remaining = (newest + OTP_RESEND_COOLDOWN - at).total_seconds()
+    return max(0, ceil(remaining))
+
+
+__all__ = [
+    "OTP_LIFETIME",
+    "OTP_RESEND_COOLDOWN",
+    "CodeOutcome",
+    "IssuedChallenge",
+    "check_challenge",
+    "issue_challenge",
+    "resend_wait_s",
+    "verify_challenge",
+]

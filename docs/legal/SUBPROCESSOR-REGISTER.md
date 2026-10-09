@@ -61,6 +61,9 @@ are comma-separated keys; aliases are comma-separated words that would identify 
 | Google | Sheets API: writes leads to a client's own sheet | client-integrations | yes | Google |
 | Google | Calendar API: reads free time and books on a client's own calendar | client-integrations | yes | Google |
 | Meta | Lead Ads: retrieves a client's own lead-form answers | client-integrations | yes | Meta |
+| Zoho | Zoho CRM: looks a caller up and creates or updates their record in a client's own CRM, on the client's instruction (D-700) | client-integrations | yes | Zoho |
+| HubSpot | CRM: looks a caller up and creates or updates their contact in a client's own portal, on the client's instruction (D-700) | client-integrations | yes | HubSpot |
+| Razorpay | Payment Links on a client's OWN Razorpay account, with the client's keys, paid to the client (D-700); not our billing | client-integrations | yes | Razorpay |
 <!-- register:end -->
 
 Why these five are named publicly: Razorpay is the payment gateway a client pays through

@@ -736,6 +736,19 @@ class KycRecord(PKMixin, TimestampMixin, Base):
             "verified_name IS NULL OR verified_name !~ '^[0-9]{12}$'",
             name="verified_name_is_not_an_aadhaar",
         ),
+        # D-696 (migration c5e9a2d71b48). The PAN check names its reviewer and instant.
+        CheckConstraint(
+            "owner_pan_checked = (owner_pan_checked_at IS NOT NULL) "
+            "AND owner_pan_checked = (owner_pan_checked_by_admin_id IS NOT NULL)",
+            name="owner_pan_check_names_who_and_when",
+        ),
+        # The manual path takes a PAN card only: no Aadhaar submission may wait for a
+        # reviewer (Aadhaar regs 2021, reg. 16C(1)). A decided one stays as it was.
+        CheckConstraint(
+            "NOT (kyc_path = 'manual' AND owner_id_type = 'aadhaar' "
+            "AND status IN ('submitted', 'in_review'))",
+            name="no_manual_aadhaar_awaits_review",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -791,9 +804,17 @@ class KycRecord(PKMixin, TimestampMixin, Base):
     # Whether `verified_name` matches `signatory_name`; NULL until a DigiLocker run lands.
     name_match: Mapped[bool | None]
     # Which owner ID was used (`aadhaar` | `pan`) and that ID MASKED — never a full number;
-    # the migration's CHECK pins the two masked shapes exactly.
+    # the migration's CHECK pins the two masked shapes exactly. The manual path writes `pan`
+    # only (D-696); `aadhaar` comes from DigiLocker or a review decided before D-696.
     owner_id_type: Mapped[str | None] = mapped_column(Text)
     owner_id_masked: Mapped[str | None] = mapped_column(Text)
+    # D-696: the reviewer matched the PAN, name and date of birth at the Income Tax "Verify
+    # Your PAN" service before approving. The date of birth is never stored.
+    owner_pan_checked: Mapped[bool] = mapped_column(server_default=text("false"))
+    owner_pan_checked_at: Mapped[datetime | None]
+    owner_pan_checked_by_admin_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="RESTRICT")
+    )
 
 
 class KycDocument(PKMixin, TimestampMixin, Base):
@@ -816,6 +837,12 @@ class KycDocument(PKMixin, TimestampMixin, Base):
             "(slot = 'business' AND kind IN ('gst', 'incorporation', 'udyam')) OR "
             "(slot = 'owner_id' AND kind IN ('aadhaar', 'pan_card'))",
             name="slot_and_kind",
+        ),
+        # D-696: `aadhaar` survives only on rows from before the manual path stopped taking
+        # it, and every such file is on its way out.
+        CheckConstraint(
+            "kind <> 'aadhaar' OR delete_requested_at IS NOT NULL",
+            name="aadhaar_copy_never_held",
         ),
         CheckConstraint(
             "content_type IN ('application/pdf', 'image/jpeg', 'image/png')",

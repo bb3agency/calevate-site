@@ -17,12 +17,14 @@ import {
 import { useClientSession } from "@/lib/api/session";
 
 import { AddDestinationDrawer } from "./AddDestinationDrawer";
+import { ConnectedAccounts } from "./ConnectedAccounts";
 import { DeliveryLog } from "./DeliveryLog";
 import { EndpointList } from "./EndpointList";
 import { useIntegrationsCopilot } from "./copilot";
 
 /**
- * Outbound sync (D-23) and its delivery log (SURFACES §2b).
+ * The account's connections (D-700: the accounts agents act in during calls) and outbound
+ * sync (D-23) with its delivery log (SURFACES §2b).
  *
  * PRIMARY JOB: send leads and call results to the client's own system, and see that they
  * arrive. The destinations are rows; adding one opens a drawer, so the list stays the
@@ -71,7 +73,7 @@ export function IntegrationsScreen() {
   return (
     <div className="space-y-5 pb-12">
       <PageHeader
-        description="Send your leads and call results to your own CRM or spreadsheet as they happen."
+        description="Connect the accounts your agents use on calls, and send leads and call results to your own systems."
         actions={
           <button
             type="button"
@@ -86,6 +88,20 @@ export function IntegrationsScreen() {
         }
       />
       <RestrictionNote reason={write.reason} />
+
+      <ConnectedAccounts session={session} canWrite={write.allowed} />
+
+      <section className="space-y-1" aria-labelledby="any-crm">
+        <h2 id="any-crm" className="text-base font-semibold text-ink">
+          Send to your own system, or any CRM
+        </h2>
+        <p className="text-sm text-ink-muted">
+          Each destination below receives your leads and call results as they happen, signed so
+          your system can tell they came from us. To reach a CRM we do not connect to directly,
+          create a webhook in Zapier, Make or Pabbly, add its address here as a destination, and
+          map the fields there.
+        </p>
+      </section>
 
       {/* §52: the forms are withheld until the options read answers, and a failed (or
           paused) read is a refusal here rather than four plausible checkboxes. */}

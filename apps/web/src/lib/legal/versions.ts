@@ -254,6 +254,41 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:4da94cb8561dce14548bcba0abd6fe352ad78b6a69ac98d786fc6c7853f5eea2",
       },
+      // D-696: section 4's upload route takes the owner's PAN card only, no longer an Aadhaar
+      // copy (Aadhaar regulation 16C(1)), and says the reviewer matches the PAN, name and date
+      // of birth at the Income Tax "Verify Your PAN" service; the kept list gains that the
+      // PAN check matched, who checked and when, and says the date of birth is never stored.
+      // NOT MATERIAL: we collect less than revision 15 described and keep only a yes with
+      // its reviewer, so nobody who accepted revision 15 needs to accept again.
+      {
+        revision: "16",
+        material: false,
+        contentHash:
+          "sha256:a4648bc3e93619b2a4e9954e569759318378ca59607f09c7ae9af69749e7f11c",
+      },
+      // D-694 G-1 and D-698: the in-app assistant now runs first on the provider whose
+      // developer service names no region (only while its no-training plan is recorded),
+      // with the East US 2 provider as its fallback; and it now MAKES the changes a person
+      // asks for — reversible ones at once with an Undo, anything that calls, spends,
+      // publishes, deletes or touches do-not-call only on a confirm. MATERIAL: a new place
+      // where what a client types is processed, and "nothing it suggests takes effect on
+      // its own" stopped being true.
+      {
+        revision: "17",
+        material: true,
+        contentHash:
+          "sha256:680e898191e19c0ed9edbc3b873b3649a121d220cce9295a9d315e670b87bdee",
+      },
+      // D-700: section 7 says a client can have its agent act in the client's own accounts
+      // during a call, that those companies are the client's processors acting on its
+      // instruction, what reaches them, and that WhatsApp needs messaging consent. NOT
+      // MATERIAL: nothing we do on our own account changed.
+      {
+        revision: "18",
+        material: false,
+        contentHash:
+          "sha256:dded3c6a96adf51add128fb3b68362d90258c2c61888a80f44021dd6c401230e",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -338,6 +373,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:69167dddcd65f840aba69236f6bb13b02db594a08f45d7743f86e68849faedc9",
       },
+      // D-699: clause 11 says unused credit is forfeited when the account closes, and clause
+      // 6.3 adds auto-recharge (one approval, a monthly limit, notice before each charge)
+      // and what a payment dispute pauses. MATERIAL: a client loses money they might have
+      // expected back.
+      {
+        revision: "13",
+        material: true,
+        contentHash: 
+          "sha256:b2b9b68886a69169bfd0bc8aad01ff9fb010a47643b04d45a558fb59bb8b289a",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -377,6 +422,14 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash:
           "sha256:898212624fa7874985731e6be44175bb14bb1239084847bb5e5569e862f54542",
+      },
+      // D-696: section 2.1's upload route takes the owner's PAN card only, no longer an
+      // Aadhaar copy. NOT MATERIAL: the client is asked for less, and no obligation moves.
+      {
+        revision: "5",
+        material: false,
+        contentHash:
+          "sha256:d9330bea74147681ac340051ea1b6ac4ab9b5cf1311c4b1658d32092ac13ef4c",
       },
     ],
     effectiveDate: "2026-09-02",
@@ -640,6 +693,35 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:c4d692949406d4046bf367655044adef26e7df046930acf034bcc6dd9a1775ed",
       },
+      // D-694 G-1 and D-698: the language-model row now says the in-app assistant runs
+      // first on the provider that names no region (while its no-training plan is
+      // recorded) with the default provider as fallback, and section 3.5 says the assistant
+      // can make changes. MATERIAL: a new place where assistant traffic is processed.
+      {
+        revision: "16",
+        material: true,
+        contentHash:
+          "sha256:145a167f9a4868077624169bfa8fa4c772390c6ae35f9f570647ac3b79aca1f5",
+      },
+      // D-699: the payments row says Razorpay also takes automatic top-ups on an approval
+      // the client gives, refunds and chargebacks, and receives the approving member's name,
+      // email and mobile for automatic top-ups; we keep only its references. MATERIAL: a
+      // sub-processor receives personal data for a new purpose.
+      {
+        revision: "17",
+        material: true,
+        contentHash:
+          "sha256:8d2b19994743ca66edc60076b1f364c741992fd7d657d889abad7b97cf6a4f7b",
+      },
+      // D-700: the integrations row names Zoho, HubSpot and Razorpay as services a client
+      // connects to its own account, as the client's processors, and what each receives.
+      // NOT MATERIAL: no company processes data for us that did not before.
+      {
+        revision: "18",
+        material: false,
+        contentHash:
+          "sha256:d0a735cd00ff2ddb75153bd1d045d68757942312daaf619dfe039000c521537f",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -660,6 +742,16 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash:
           "sha256:d500936af9ef837489e89ff5bde191d2d6667361bfc0d7aed1b1f22499086cd2",
+      },
+      // D-699: unused credit is forfeited on closure (also on an Acceptable Use termination)
+      // instead of refunded; a top-up taken in error is refundable up to its unspent part;
+      // section 6 says what a dispute pauses and holds. MATERIAL: a client loses money they
+      // might have expected back.
+      {
+        revision: "5",
+        material: true,
+        contentHash: 
+          "sha256:81ed76eaa163b78a969a1cfb0242e0ad5faea8fa626b3cb7ea3f4513d93f0f06",
       },
     ],
     effectiveDate: "2026-09-02",

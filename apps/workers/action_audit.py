@@ -31,11 +31,15 @@ from typing import Any
 from uuid import UUID
 
 from arq import Retry
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.actions.models import INVOCATION_SOURCES
 from apps.api.compliance.audit import write_audit
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 
 log = get_logger(__name__)
@@ -45,6 +49,9 @@ ACTION_AUDIT_JOB = "record_action_invocation"
 # The audit action name a client-facing "action history" screen and any drift sweep filter
 # on. Named once, here with the enqueuer's constant, so the two cannot drift.
 ACTION_AUDIT_ACTION = "action_tool.invoked"
+
+#: How long the per-action call log keeps a run (D-700).
+INVOCATION_LOG_DAYS = 90
 
 #: Seconds to wait before each retry, indexed by the attempt that just failed. One entry
 #: shorter than the budget, because the last attempt has nothing after it — the shape
@@ -58,6 +65,42 @@ RETRY_BACKOFF_S: tuple[float, ...] = (5.0, 20.0)
 def _retry_after(attempt: int) -> float:
     index = min(attempt, len(RETRY_BACKOFF_S)) - 1
     return RETRY_BACKOFF_S[max(index, 0)]
+
+
+async def _record_invocation(
+    session: AsyncSession, *, tenant_id: UUID, payload: dict[str, Any]
+) -> None:
+    """The per-action call log row (D-700), in the same transaction as the audit row, so a
+    retry that lands after a failed attempt writes both or neither. A source this table
+    does not know (an older enqueuer) is logged as `in_call`, the only source there was."""
+    source = str(payload.get("source") or "in_call")
+    duration = payload.get("duration_ms")
+    await session.execute(
+        text(
+            "INSERT INTO action_invocations (id, tenant_id, agent_id, tool_id, source, status, "
+            "duration_ms, call_ref, created_at, updated_at) SELECT :id, :tid, t.agent_id, t.id, "
+            ":src, :st, :ms, :ref, now(), now() FROM action_tools t WHERE t.id = :tool"
+        ),
+        {
+            "id": uuid7(),
+            "tid": tenant_id,
+            "tool": UUID(str(payload["tool_id"])),
+            "src": source if source in INVOCATION_SOURCES else "in_call",
+            "st": (str(payload.get("status") or "unknown"))[:64],
+            "ms": int(duration) if isinstance(duration, int | float) else None,
+            "ref": (str(payload.get("call_ref") or "") or None),
+        },
+    )
+    # The log is a screen of recent runs, not a record (`audit_log` is the record): rows
+    # past `INVOCATION_LOG_DAYS` for this action go as each new one arrives, on the
+    # (tool_id, created_at) index, so no sweep is needed for a table holding no personal data.
+    await session.execute(
+        text(
+            "DELETE FROM action_invocations WHERE tool_id = :tool "
+            "AND created_at < now() - make_interval(days => :days)"
+        ),
+        {"tool": UUID(str(payload["tool_id"])), "days": INVOCATION_LOG_DAYS},
+    )
 
 
 async def record_action_invocation(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -87,6 +130,7 @@ async def record_action_invocation(ctx: dict[str, Any], payload: dict[str, Any])
                     "source": str(payload.get("source") or ""),
                 },
             )
+            await _record_invocation(session, tenant_id=tenant_id, payload=payload)
     except Exception as exc:
         if attempt < WORKER_MAX_TRIES:
             # The one exception arq treats as "not finished" — see the module docstring.

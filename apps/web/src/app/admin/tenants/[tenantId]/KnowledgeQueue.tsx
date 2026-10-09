@@ -65,7 +65,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
         <Card
           title="Knowledge awaiting approval"
           density="compact"
-          info="This is the client's knowledge, shared by all its agents. Only knowledge an operator added, or a page an operator linked, waits here: what the client's own people add goes live on its own (D-658). Approving does not make a source live; Publish does."
+          info="This is the client's knowledge, shared by all its agents. Only knowledge an operator added, or a page an operator linked, waits here: what the client's own people add goes live on its own. Approving does not make a source live; Publish does."
         >
           <RestrictionNote reason={kbWrite.reason} />
           {queue.error ? (

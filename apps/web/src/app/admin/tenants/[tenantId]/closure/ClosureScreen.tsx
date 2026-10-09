@@ -14,7 +14,9 @@ import {
   ProblemNotice,
   RestrictionNote,
   Skeleton,
+  formatINR,
   formatIST,
+  hasNonZeroDigit,
 } from "@/components/ui";
 import { ActionButton } from "@/components/actionButton";
 import { EmptyState } from "@/components/console/emptyState";
@@ -186,7 +188,12 @@ export function ClosureScreen({ tenantId }: { tenantId: string }) {
           <ErasurePanel tenantId={tenantId} tenantName={name} access={erase} />
         </>
       ) : (
-        <CloseForm tenantId={tenantId} tenantName={name} write={write} />
+        <CloseForm
+          tenantId={tenantId}
+          tenantName={name}
+          write={write}
+          forfeitedInr={record.forfeited_credit_inr}
+        />
       )}
     </div>
   );
@@ -278,10 +285,13 @@ function CloseForm({
   tenantId,
   tenantName,
   write,
+  forfeitedInr,
 }: {
   tenantId: string;
   tenantName: string;
   write: ReturnType<typeof useAdminAccess>;
+  /** The unused credit the client loses on closure (D-699), as the server's DIGITS. */
+  forfeitedInr: string;
 }) {
   const close = useCloseAccount(tenantId);
   const [reason, setReason] = useState("");
@@ -310,6 +320,14 @@ function CloseForm({
           have opted in. Nothing is deleted on the day you close: until that date it can be
           undone from this screen.
         </p>
+
+        <NoticeBox tone={hasNonZeroDigit(forfeitedInr) ? "warn" : "neutral"}>
+          <p className="text-sm">
+            Unused credit on this account: <strong>{formatINR(forfeitedInr)}</strong>. It is
+            forfeited on closure and not refunded, as the Terms and the Refund Policy say. Use
+            the credits page first if any of it is owed back for a charge made in error.
+          </p>
+        </NoticeBox>
 
         <RestrictionNote reason={write.reason} />
 

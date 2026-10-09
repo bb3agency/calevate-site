@@ -26,6 +26,7 @@ import type { ComponentType } from "react";
 import {
   BadgeCheck,
   BarChart3,
+  BotMessageSquare,
   BellRing,
   Blocks,
   BookLock,
@@ -36,6 +37,8 @@ import {
   FileText,
   GitMerge,
   LayoutDashboard,
+  LifeBuoy,
+  ListChecks,
   Megaphone,
   MessageSquare,
   PhoneCall,
@@ -44,6 +47,7 @@ import {
   ScrollText,
   ShieldCheck,
   Sparkles,
+  Store,
   Target,
   UserCog,
   Users,
@@ -97,6 +101,7 @@ export function clientNavigation(slug: string): NavGroup[] {
         { href: `/c/${slug}/knowledge`, label: "Knowledge base", icon: BookOpen },
         { href: `/c/${slug}/phone-number`, label: "Your phone number", icon: PhoneForwarded },
         { href: `/c/${slug}/performance`, label: "Performance", icon: BarChart3 },
+        { href: `/c/${slug}/assistant`, label: "Assistant", icon: BotMessageSquare },
       ],
     },
     {
@@ -136,12 +141,21 @@ export function clientNavigation(slug: string): NavGroup[] {
     {
       heading: "Settings & account",
       items: [
+        // The business's own facts, which every agent answers with (D-695): first in
+        // the group because an agent cannot take calls without them. The setup is the
+        // same facts asked one at a time, and is where the dashboard checklist resumes.
+        { href: `/c/${slug}/settings/business`, label: "Business profile", icon: Store },
+        { href: `/c/${slug}/setup`, label: "Business setup", icon: ListChecks },
         { href: `/c/${slug}/settings/team`, label: "Team", icon: UserCog },
         // The one screen where the owner can agree to be messaged about their own
         // account. It sits here rather than under "Compliance & data" on purpose: that
         // group is about the client's obligations to their CUSTOMERS, and this is a
         // setting about what we send to THEM.
         { href: `/c/${slug}/settings/alerts`, label: "Alerts", icon: BellRing },
+        // What happens to callers if an agent cannot take calls, and anything that went
+        // wrong with a line lately (D-701). Beside Alerts: both are about what we do for
+        // the owner when something needs them.
+        { href: `/c/${slug}/settings/line-protection`, label: "Line protection", icon: LifeBuoy },
         // Which AI model every agent thinks with, and what each one costs a minute. It
         // sits in this group rather than beside "Agents" because it is an ACCOUNT-wide
         // default that happens to be about agents — the same reason the spending limit

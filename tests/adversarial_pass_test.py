@@ -301,6 +301,31 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             {"i": uuid.uuid4(), "t": tenant_id, "ref": payment_ref},
         )
         ids["payment_ref"] = payment_ref
+
+        # D-694: one background job and one action-log row waiting in the Approvals inbox,
+        # both tenant A's. The undo, approve and reject routes all lock the row by id, so a
+        # neighbour driving them must meet RLS's zero rows (404), never a 409 about state.
+        job_id = uuid.uuid4()
+        await s.execute(
+            text(
+                "INSERT INTO copilot_jobs (id, tenant_id, user_id, status, goal, screen_route, "
+                "progress, created_at, updated_at) VALUES (:i, :t, :u, 'queued', 'tidy leads', "
+                "'/c/{slug}/leads', '[]'::jsonb, now(), now())"
+            ),
+            {"i": job_id, "t": tenant_id, "u": user_id},
+        )
+        ids["job_id"] = str(job_id)
+        action_id = uuid.uuid4()
+        await s.execute(
+            text(
+                "INSERT INTO copilot_actions (id, tenant_id, actor_user_id, job_id, tool, tier, "
+                "status, source, object_type, args_redacted, pending_args, created_at, "
+                "updated_at) VALUES (:i, :t, :u, :j, 'dnc_add', 'confirm', 'pending_approval', "
+                "'job', 'lead', '{}'::jsonb, '{}'::jsonb, now(), now())"
+            ),
+            {"i": action_id, "t": tenant_id, "u": user_id, "j": job_id},
+        )
+        ids["action_id"] = str(action_id)
     return ids
 
 
@@ -329,6 +354,9 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ),
     ("DELETE", "/v1/numbers/{number_id}/sender-attestation", {}, {}),
     ("POST", "/v1/numbers/{number_id}/assign", {"agent_id": str(uuid.uuid4())}, {}),
+    # D-693: giving a number up for good. Swept with the engine's workspaces switched on
+    # (see the test), so the refusal is the number row's RLS and not the deployment gate.
+    ("POST", "/v1/numbers/own/{number_id}/release", {"confirm": True}, {}),
     ("GET", "/v1/agents/{agent_id}", {}, {}),
     ("GET", "/v1/agents/{agent_id}/engine-state", {}, {}),
     ("GET", "/v1/agents/{agent_id}/experiment", {}, {}),
@@ -492,6 +520,11 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
         {},
     ),
     ("DELETE", "/v1/integrations/credentials/{credential_id}", {}, {}),
+    # D-700: the connection check and the per-action run log. RLS hides a neighbour's
+    # credential from `resolve_credential` (404), and the log reads `action_invocations`
+    # under RLS after the agent is proved this tenant's.
+    ("POST", "/v1/integrations/credentials/{credential_id}/test", {}, {}),
+    ("GET", "/v1/agents/{agent_id}/actions/{tool_id}/log", {}, {}),
     # The client's own receipt for one payment. The id is a PROVIDER payment id rather
     # than a uuid — the kind of value that appears on a bank statement and in an email —
     # so "a neighbour could not guess it" is not the guarantee here. The guarantee is that
@@ -507,10 +540,20 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/kb/uploads/{upload_id}/original", {}, {}),
     ("POST", "/v1/kb/uploads/{upload_id}/confirm", {}, {}),
     ("DELETE", "/v1/kb/uploads/{upload_id}", {}, {}),
+    # D-694: the assistant's activity log, Approvals inbox and background jobs. Each locks
+    # or reads one row by id under the caller's tenant session and scopes it to the person.
+    ("POST", "/v1/copilot/actions/{action_id}/undo", {}, {}),
+    ("POST", "/v1/copilot/approvals/{action_id}/approve", {}, {}),
+    ("POST", "/v1/copilot/approvals/{action_id}/reject", {}, {}),
+    ("GET", "/v1/copilot/jobs/{job_id}", {}, {}),
+    ("POST", "/v1/copilot/jobs/{job_id}/cancel", {}, {}),
+    ("GET", "/v1/copilot/jobs/{job_id}/events", {}, {}),
 )
 
 
-async def test_a_neighbours_object_id_is_not_found_and_never_forbidden() -> None:
+async def test_a_neighbours_object_id_is_not_found_and_never_forbidden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Every `{id}` route in the client path space, driven with tenant A's REAL ids and
     tenant B's valid session.
 
@@ -528,6 +571,12 @@ async def test_a_neighbours_object_id_is_not_found_and_never_forbidden() -> None
     A 422 fails too, and deliberately: it means body validation answered before the tenant
     check, so the route was never actually exercised for the property under test.
     """
+    # THE OWN-NUMBER ROUTES ANSWER 404 ON A DEPLOYMENT WITHOUT PER-CLIENT WORKSPACES before
+    # they read anything, which would make the release row pass this sweep vacuously. With
+    # the gate open the 404 can only come from the number row being invisible.
+    from apps.api.campaigns import engine_number_routes
+
+    monkeypatch.setattr(engine_number_routes, "engine_has_workspaces", lambda: True)
     org_a, org_b = await _make_org(), await _make_org()
     tenant_a = uuid.UUID(str(org_a["id"]))
     user_a, _token_a = await _make_member(tenant_a)
@@ -579,7 +628,16 @@ async def test_the_idor_sweep_is_driving_routes_that_exist() -> None:
 #: Client-path-space `{id}` routes the sweep deliberately does not drive, and why. The
 #: bar is that the id is NOT an object reference a neighbour could name — otherwise the
 #: entry is an exemption for the exact case the sweep exists to catch.
-_NOT_AN_OBJECT_REFERENCE: dict[str, str] = {}
+_NOT_AN_OBJECT_REFERENCE: dict[str, str] = {
+    "GET /v1/integrations/oauth/{kind}/connect": (
+        "`kind` is one of three provider names (google_calendar, zoho_crm, hubspot), a "
+        "Literal the route validates; it names no row anybody owns."
+    ),
+    "POST /v1/integrations/oauth/{kind}/callback": (
+        "`kind` is one of three provider names, a Literal; the row it writes is the "
+        "caller's own, under their tenant's RLS."
+    ),
+}
 
 
 async def test_every_id_route_in_the_client_space_is_swept() -> None:

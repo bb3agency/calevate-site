@@ -25,11 +25,11 @@ import {
   BUSINESS_DOCUMENT_KINDS,
   DIGILOCKER_OUTCOME,
   GSTIN_PATTERN,
-  OWNER_ID_KINDS,
+  OWNER_ID_KIND,
   fileProblem,
   forgetPendingRun,
   outboundSteps,
-  ownerIdProblem,
+  panProblem,
   readPendingRun,
   rememberPendingRun,
   useAcceptPledge,
@@ -44,6 +44,7 @@ import {
 import { lookup } from "@/lib/lookup";
 
 import { PhoneNumbersNext } from "./PhoneNumbersNext";
+import { TrialLockNotice } from "../TrialLockNotice";
 
 /** Who may change what on this page, as the server will rule it. Uploads and the pledge are
  *  the business's own acts: a view-as operator is refused those even holding `org:manage`. */
@@ -86,6 +87,7 @@ export default function VerifyBusinessPage() {
       {pledge.error && <ProblemNotice error={pledge.error} onRetry={() => void pledge.refetch()} />}
       {record && <OutboundStatus record={record} pledge={pledge.data} />}
       {pledge.data && <PledgeCard session={session} pledge={pledge.data} access={pledgeAccess} />}
+      <TrialLockNotice lock="kyc" />
       {record && <VerifyCards session={session} record={record} access={access} />}
       <PhoneNumbersNext />
     </div>
@@ -206,7 +208,7 @@ function VerifyCards({ session, record, access }: { session: Session; record: Ky
               <legend className={FIELD_LABEL}>How would you like to verify?</legend>
               <label className="flex items-center gap-2">
                 <input type="radio" name="kyc-path" checked={path === "manual"} onChange={() => setPath("manual")} />
-                Upload the owner&apos;s ID for our review
+                Upload the owner&apos;s PAN card for our review
               </label>
               <label className="flex items-center gap-2">
                 <input
@@ -407,67 +409,43 @@ function ManualPath({ session, record, access }: { session: Session; record: Kyc
   const upload = useUploadKycDocument(session);
   const submit = useSubmitForReview(session);
   const owner = record.documents.find((document) => document.slot === "owner_id" && document.held);
-  const [kind, setKind] = useState<"aadhaar" | "pan_card">("pan_card");
   const [number, setNumber] = useState("");
-  const idType = kind === "pan_card" ? "pan" : "aadhaar";
-  const numberProblem = number ? ownerIdProblem(idType, number) : null;
+  const numberProblem = number ? panProblem(number) : null;
 
   return (
     <div className="space-y-4">
-      <label className="block">
-        <span className={FIELD_LABEL}>Owner&apos;s ID</span>
-        <select
-          className={FIELD}
-          value={kind}
-          onChange={(event) => setKind(event.target.value === "aadhaar" ? "aadhaar" : "pan_card")}
-        >
-          {Object.entries(OWNER_ID_KINDS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </label>
-      {kind === "aadhaar" && (
-        <NoticeBox tone="warn" title="Upload the masked Aadhaar only">
-          <p className="mt-1">
-            Download the masked Aadhaar from UIDAI, where only the last four digits are visible. We reject an
-            unmasked copy. To avoid uploading an Aadhaar at all, choose DigiLocker instead.
-          </p>
-        </NoticeBox>
-      )}
+      <p className="text-sm text-ink">
+        Upload a clear photo or scan of the owner&apos;s PAN card. We check the PAN, the name and the date of birth
+        with the Income Tax Department. We cannot accept an Aadhaar card here.
+        {record.self_verification_available && " To use your Aadhaar, verify with DigiLocker instead."}
+      </p>
       <FilePicker
         disabled={!access.upload.allowed || upload.isPending}
-        label={owner ? `On file: ${owner.filename}. Replace it` : "Choose the ID file"}
-        onPick={(file) => upload.mutate({ slot: "owner_id", kind, file })}
+        label={owner ? `On file: ${owner.filename}. Replace it` : "Choose the PAN card"}
+        onPick={(file) => upload.mutate({ slot: "owner_id", kind: OWNER_ID_KIND, file })}
       />
       <ProblemNotice error={upload.error} />
       <label className="block">
-        <span className={FIELD_LABEL}>{idType === "pan" ? "PAN" : "Last four digits of the Aadhaar"}</span>
+        <span className={FIELD_LABEL}>PAN</span>
         <input
           className={FIELD}
           value={number}
           onChange={(event) => setNumber(event.target.value)}
-          maxLength={idType === "pan" ? 10 : 4}
-          inputMode={idType === "pan" ? "text" : "numeric"}
+          maxLength={10}
           autoComplete="off"
           aria-invalid={Boolean(numberProblem)}
         />
-        <span className={FIELD_HINT}>
-          {idType === "pan"
-            ? "We keep only a masked form, like XXXXX1234X."
-            : "Never type the full Aadhaar number. We keep XXXX-XXXX and these four digits."}
-        </span>
+        <span className={FIELD_HINT}>We keep only a masked form, like XXXXX1234X.</span>
         {numberProblem && <span className="mt-1 block text-sm text-danger">{numberProblem}</span>}
       </label>
       <p className={FIELD_HINT}>
-        The ID file is deleted as soon as our review is done, and after 30 days if it is not reviewed.
+        The PAN card file is deleted as soon as our review is done, and after 30 days if it is not reviewed.
       </p>
       <button
         type="button"
         className={PRIMARY_BUTTON}
         disabled={!access.write.allowed || !owner || !number || Boolean(numberProblem) || submit.isPending}
-        onClick={() => submit.mutate({ owner_id_type: idType, owner_id_number: number.trim().toUpperCase() })}
+        onClick={() => submit.mutate({ owner_id_type: "pan", owner_id_number: number.trim().toUpperCase() })}
       >
         Send for review
       </button>
@@ -485,13 +463,13 @@ function DigiLockerPath({ session, record, access }: { session: Session; record:
     // the client at the upload would send them round in a circle.
     return record.digilocker_outstanding ? (
       <p className="text-sm text-ink">
-        DigiLocker verification is temporarily unavailable, and uploading the owner&apos;s ID
+        DigiLocker verification is temporarily unavailable, and uploading the owner&apos;s PAN card
         cannot replace the DigiLocker check we asked for. Please contact us and we will sort it
         out with you.
       </p>
     ) : (
       <p className="text-sm text-ink">
-        DigiLocker verification is not available yet. Please upload the owner&apos;s ID for our review instead.
+        DigiLocker verification is not available yet. Please upload the owner&apos;s PAN card for our review instead.
       </p>
     );
   }

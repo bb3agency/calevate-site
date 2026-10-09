@@ -4,8 +4,8 @@ TRD §6: *"**T0 Compiled context (0ms):** hot facts compiled into the system pro
 agent-publish time; regenerated on KB change. Answers ~80% with zero retrieval."* And
 `docs/TRD.md:948`: *"the honest statement of the shipped system is: in-call retrieval is T0
 and nothing else"*. Verified in code before this adapter was written: `apps/api/agents/t0.py`
-compiles the block and stamps it on a NEW `prompt_versions` row, `apps/api/admin/intake.py`
-compiles the intake half, and `tests/kb_tiers_test.py` pins both.
+compiles the block and stamps it on a NEW `prompt_versions` row, `tenancy/business_profile.py`
+compiles the business half, and `tests/kb_tiers_test.py` pins both.
 
 So this adapter retrieves nothing new. It reads the block that is ALREADY the agent's
 answer sheet and picks the lines that bear on the question. That is worth building because
@@ -21,9 +21,9 @@ WHY THE COMPILED BLOCK AND NOT `kb_documents` DIRECTLY. Three reasons, in order:
    defect even when both copies are right today.
 2. **It is what the agent actually says.** A dashboard answering from a different corpus
    than the caller hears is worse than not answering.
-3. **The escalation numbers are already out of it.** `admin/intake.py::compile_t0_facts`
-   deliberately drops the escalation phone numbers from the block (asserted by
-   `tests/intake_test.py`), so nothing this adapter can return is a phone number that was
+3. **The escalation numbers are already out of it.** `tenancy/business_profile.fact_lines`
+   never reads the escalation contacts (asserted by
+   `tests/business_profile_test.py`), so nothing this adapter can return is a phone number that was
    never in a prompt. Hard rule 6 is inherited rather than re-argued.
 
 RANKING IS DETERMINISTIC AND HAS NO MODEL IN IT. Token overlap between the question and

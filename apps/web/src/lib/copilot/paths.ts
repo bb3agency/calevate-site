@@ -11,8 +11,8 @@
  * ## The path grammar, and why it is `intakeFieldId`'s
  *
  * `services.1.price_inr` — dots for members, a bare integer for an array index. It is the
- * WIRE path `lib/api/intake.ts` already derives its DOM ids from
- * (`intakeFieldId("services.1.price_inr") === "intake-services-1-price_inr"`), so a screen
+ * WIRE path `lib/api/businessProfile.ts` (`profileFieldId`) already derives its DOM ids from
+ * (`profileFieldId("services.1.price_inr") === "profile-services-1-price_inr"`), so a screen
  * that already has one semantic addressing scheme does not acquire a second.
  *
  * ## What it refuses to do

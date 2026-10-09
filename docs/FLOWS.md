@@ -7,11 +7,16 @@ URLs: admin console = admin.calevate.tech; client app = app.calevate.tech/c/<slu
 
 ## 1. Client Onboarding (Admin Wizard)
 
-Trigger: Sri opens Admin → New Client. Draft state saved at every step (resume anytime).
+Trigger: Sri opens Admin → New Client: one screen, one "Create and invite" (D-695). The client's own part is the business setup, saved per step and resumable from their dashboard.
 
-1. **Profile**: business name → slug auto-generated (immutable; reserved-word check),
-   vertical template pick (clinic | real_estate | insurance | education | custom),
-   billing email, owner contact.
+1. **Profile** (D-695: the operator enters ONLY this): business name → slug auto-generated
+   (immutable; reserved-word check), vertical template pick (clinic | real_estate |
+   insurance | education | custom), and the owner's name, email and mobile. ONE action,
+   "Create and invite", creates the account AND the owner's invitation and queues its email
+   in one transaction (`POST /v1/admin/tenants` requires `owner`); a failure leaves nothing,
+   so no account can exist that nobody was invited into. The owner's name and mobile ride on
+   the invitation and fill their account when they accept. No voice workspace is made at
+   creation. Nothing about the business itself is asked here.
    - **A name we cannot build a URL from is ASKED about, never guessed.** `slugify` folds
      everything outside `[a-z0-9]` away, so every character of a Telugu or Devanagari
      business name disappears — which on a Telugu-first product (D-36) is the ordinary
@@ -30,10 +35,20 @@ Trigger: Sri opens Admin → New Client. Draft state saved at every step (resume
      its own transaction and can be passed by both; the UNIQUE index is the arbiter, and
      its violation is translated back into the same 409 the probe would have given.
 2. **Plan**: setup fee, retainer, included minutes, overage rate, hard caps → plans row.
-3. **Intake (the real work)**: guided form collecting business hours, address/branches,
-   services + prices, top FAQs, staff names/pronunciations, booking rules, escalation
-   contacts, languages. Output feeds T0 compiled context + KB seed + prompt generation.
-4. **Agent draft**: system prompt generated from intake (template + LLM assist), reviewed/
+3. **Business setup, by the CLIENT (D-695; was the operator's "intake")**: on first login the
+   owner is taken to `/c/{slug}/setup`, a guided wizard with one topic per step — hours
+   (closed is an answer, distinct from not answered), addresses/branches, services +
+   prices (digit strings), common questions, staff names and how to say them, booking
+   rules, people who can take a call (Indian mobiles), languages — every step skippable.
+   Progress is stored server-side per client (`business_profiles.setup_*`); a checklist
+   on the dashboard resumes any step and folds away when everything is answered or
+   skipped and nothing blocks going live, or when hidden. The same facts are edited later
+   under Settings → Business profile, by the owner or by an operator in view-as. ONE
+   profile per client: every agent's [T0 FACTS] is compiled from it and every save
+   re-syncs every agent (facts and, on ThinnestAI, the facts document) with no publishing
+   by anyone. An agent cannot go LIVE until the profile has hours, an address, a service
+   and someone to take calls (`business_profile_incomplete`, with links to each step).
+4. **Agent draft**: system prompt generated from the business profile (template + LLM assist), reviewed/
    edited by admin; both notice sentences auto-inserted and not client-editable, each
    switched ON at birth and switchable by the client afterwards (D-163 — the truthful
    answer when a caller ASKS is not switchable by anyone); extraction schema

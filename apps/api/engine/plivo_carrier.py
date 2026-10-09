@@ -32,7 +32,7 @@ CARRIER_REMEDIATION: Final = (
     "The telephony leg of this engine is not built yet: its provider's REST surface is "
     "not reachable from the build environment and has not been read. Nothing here is "
     "broken — this half has not been written. See docs/evidence/"
-    "pre-build-blockers-2026-09-13.md §10."
+    "pre-build-blockers-2026-09-13.md."
 )
 
 

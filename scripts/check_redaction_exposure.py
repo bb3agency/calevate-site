@@ -233,6 +233,24 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
         "for it to copy; the output then goes out through `crm.service.redacted_summary` "
         "like every other summary on this surface (tests/call_assist_test.py)"
     ),
+    "CopilotApprovalPreviewOut.summary": (
+        "the planner's own sentence about a waiting assistant action (D-694), composed by "
+        "OUR planners from ids and statuses and put through `workers.redaction.redact` "
+        "before it leaves (`copilot/approval_preview._said`); the route is scoped to the "
+        "person who owns the approval (apps/api/copilot/routines_test.py)"
+    ),
+    "CopilotActionOut.summary": (
+        "the server's own sentence about an assistant action (D-694), written by OUR "
+        "executors from ids and statuses and put through `workers.redaction.redact` on "
+        "the way into `copilot_actions` (`copilot/action_log._bounded`), so no digit "
+        "reaches the column to come back out (apps/api/copilot/undo_test.py)"
+    ),
+    "CopilotJobProgressOut.text": (
+        "one line of a background assistant job's progress (D-694), built by OUR worker "
+        "from tool names and the server's own sentences and put through "
+        "`copilot/memory.redacted_content` in `copilot/jobs.progress_entry` before it is "
+        "stored (apps/api/copilot/jobs_test.py)"
+    ),
     "SubjectExportTurnOut.text": (
         "holds `text_redacted` and never the raw column — the raw column is not even "
         "named in the query that builds it — and an unredacted turn ships as "
@@ -250,6 +268,12 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
 # `dict[str, Any]` response fields: the serializer cannot vouch for their contents, so
 # each one is acknowledged here with the reason it is not a redaction bypass.
 ACKNOWLEDGED_PASSTHROUGH: dict[str, str] = {
+    "CopilotActionOut.args": (
+        "the canonical arguments of an assistant action (D-694): ids and closed-set values "
+        "from a tool's own schema, every free string put through `workers.redaction.redact` "
+        "on the way into `copilot_actions` (`copilot/action_log.redact_args`); scoped to "
+        "the person who asked, and never a vendor payload (apps/api/copilot/undo_test.py)"
+    ),
     "LeadOut.data": (
         "the tenant's OWN extraction payload — the schema-driven CRM columns ARE the "
         "product (TRD §7). Tenant-scoped by RLS and behind `leads:read`; `ingest.service"

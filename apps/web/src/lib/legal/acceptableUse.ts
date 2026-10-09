@@ -131,8 +131,7 @@ export const ACCEPTABLE_USE: LegalDocument = {
               items: [
                 "A verified business. You verify your business once, either by uploading " +
                   "its registration document (a GST, incorporation or Udyam certificate) " +
-                  "and an identity document of the owner (a PAN card, or an Aadhaar card " +
-                  "with all but the last four digits masked) for our team to review, or by " +
+                  "and the owner's PAN card for our team to review, or by " +
                   "confirming the owner's Aadhaar or PAN through DigiLocker. We may ask you " +
                   "to complete the DigiLocker route even after a manual review; until you " +
                   "do, outbound calls stay paused.",

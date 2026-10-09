@@ -124,6 +124,12 @@ class Campaign(PKMixin, TimestampMixin, Base):
     paused_by_maintenance_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("platform_maintenance_windows.id", ondelete="SET NULL")
     )
+    #: Which healer incident paused this campaign, if one did (D-701). The same marker for
+    #: the same reason as the maintenance one: the healer's restore resumes only its own
+    #: pauses, and any person's pause or resume clears it (`set_campaign_status`).
+    paused_by_heal_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("heal_incidents.id", ondelete="SET NULL")
+    )
     # Consent provenance for THIS campaign's contact list (SEC-COMP §3). It sits on the
     # campaign rather than in `consent_ledger` because the ledger answers a different
     # question at a different time: per phone, per call, AFTER the conversation. The

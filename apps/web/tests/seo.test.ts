@@ -13,6 +13,7 @@ import { metadata as roiMetadata } from "@/app/roi/page";
 import { metadata as securityMetadata } from "@/app/security/page";
 import { metadata as signupMetadata } from "@/app/signup/layout";
 import { metadata as solutionsMetadata } from "@/app/solutions/page";
+import { metadata as statusMetadata } from "@/app/status/page";
 import { metadata as whyCalevateMetadata } from "@/app/why-calevate/page";
 import { NAV_ROUTES } from "@/components/marketing/siteHeader";
 import { LEGAL_DOCUMENTS } from "@/lib/legal";
@@ -54,6 +55,7 @@ const STATIC_METADATA: Readonly<Record<string, Metadata>> = {
   "/resources": resourcesMetadata,
   "/signup": signupMetadata,
   "/legal": legalIndexMetadata,
+  "/status": statusMetadata,
 };
 
 /** `Metadata["title"]` is a union with a template form; these pages all use plain strings. */

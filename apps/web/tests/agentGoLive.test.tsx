@@ -337,7 +337,7 @@ describe("putting an agent on the voice platform for the first time", () => {
       expect((await publishButton()).hasAttribute("disabled")).toBe(true),
     );
     await screen.findByText(
-      /This agent has no script yet — complete the client's intake/,
+      /This agent has no script yet — the client's business profile/,
     );
   });
 });

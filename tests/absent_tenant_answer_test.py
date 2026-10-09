@@ -113,7 +113,6 @@ BODIES: dict[str, dict[str, Any] | None] = {
     # nothing. A non-empty body would work too; empty is the minimal one that gets past
     # `_validate_fields` to the 404 this census is about.
     "PUT /v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema": {"fields": []},
-    "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": {},
     # D-538. The edit demands at least one field, so an empty body would 422 and this
     # census would stop measuring the 404 it is about.
     "GET /v1/admin/tenants/{tenant_id}/carrier-application": None,
@@ -136,7 +135,6 @@ BODIES: dict[str, dict[str, Any] | None] = {
     # An EMPTY body is the ordinary resend — "send it again to the address it has" — and
     # it is the one that reaches the tenant lookup rather than the address validator.
     "POST /v1/admin/tenants/{tenant_id}/invitations/{invitation_id}/resend": {},
-    "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake/draft": {},
     "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": {
         "provider": "airtel",
         "scrub_ref": "REF-12345",
@@ -177,12 +175,21 @@ BODIES: dict[str, dict[str, Any] | None] = {
     # D-536. `days` is inside `MIN_TRIAL_DAYS..MAX_TRIAL_DAYS` and is part of the step-up
     # string, so the two have to agree — `_confirmation_for` builds the header from the
     # same number.
-    "POST /v1/admin/tenants/{tenant_id}/trial": {"days": 14, "reason": "census"},
+    "POST /v1/admin/tenants/{tenant_id}/trial": {
+        "days": 14,
+        "reason": "census",
+        "free_minutes": 30,
+    },
     # `outcome` is one of `TRIAL_HUMAN_OUTCOMES`; `expired` is refused by the validator
     # before the tenant is looked at.
     "POST /v1/admin/tenants/{tenant_id}/trial/end": {
         "outcome": "stopped",
         "reason": "census",
+    },
+    # D-697. The operator's smoke test call; the tenant is checked before the header.
+    "POST /v1/admin/tenants/{tenant_id}/trial/test-call": {
+        "agent_id": "00000000-0000-0000-0000-000000000001",
+        "number": "9876543210",
     },
     "POST /v1/admin/tenants/{tenant_id}/credits/restatements": {
         "payment_ref": "UTR-CENSUS-1",
@@ -258,7 +265,8 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/apply": {},
     # No request body at all.
     "GET /v1/admin/tenants/{tenant_id}": None,
-    "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": None,
+    "GET /v1/admin/tenants/{tenant_id}/business-profile": None,
+    "GET /v1/admin/tenants/{tenant_id}/owner-status": None,
     "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": None,
     "GET /v1/admin/tenants/{tenant_id}/commercial-terms": None,
     "GET /v1/admin/tenants/{tenant_id}/credits": None,

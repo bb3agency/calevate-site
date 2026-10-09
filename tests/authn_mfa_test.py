@@ -217,10 +217,12 @@ async def test_a_resend_mails_a_new_code_and_kills_the_old_one(
     partial = (await verify_session(token=outcome.session.token, realm="admin")).require_live()
 
     first = await _live_code(admin_id)
-    await service.resend_second_factor(verified=partial)
+    # Past the resend cooldown, which runs from the code `_live_code` just minted.
+    later = datetime.now(UTC) + otp.OTP_RESEND_COOLDOWN + timedelta(seconds=1)
+    await service.resend_second_factor(verified=partial, now=later)
 
     with pytest.raises(ProblemError):
-        await service.complete_second_factor(verified=partial, code=first, ip=None)
+        await service.complete_second_factor(verified=partial, code=first, ip=None, now=later)
 
     async with credential_session() as session:
         live = (
@@ -367,6 +369,93 @@ async def test_an_expired_code_is_refused(operator: tuple[uuid.UUID, str]) -> No
 
 
 @pytest.mark.asyncio
+async def test_an_expired_sign_in_code_is_named_as_expired(
+    operator: tuple[uuid.UUID, str],
+) -> None:
+    """The screen tells a person to ask for a new code rather than retype this one, so the
+    refusal has to say which of the two happened — and only for a code that HAS expired."""
+    admin_id, email = operator
+    outcome = await service.sign_in(realm="admin", email=email, password=PASSWORD, ip=None)
+    partial = (await verify_session(token=outcome.session.token, realm="admin")).require_live()
+    code = await _live_code(admin_id)
+
+    with pytest.raises(ProblemError) as wrong:
+        await service.complete_second_factor(
+            verified=partial, code="000000" if code != "000000" else "111111", ip=None
+        )
+    assert wrong.value.code == "invalid_second_factor"
+
+    after_expiry = datetime.now(UTC) + otp.OTP_LIFETIME + timedelta(seconds=1)
+    with pytest.raises(ProblemError) as expired:
+        await service.complete_second_factor(verified=partial, code=code, ip=None, now=after_expiry)
+    assert expired.value.code == "code_expired"
+    assert expired.value.status == 401
+
+
+@pytest.mark.asyncio
+async def test_check_challenge_reports_wrong_and_expired_apart(
+    operator: tuple[uuid.UUID, str],
+) -> None:
+    admin_id, _ = operator
+    code = await _live_code(admin_id)
+    wrong = "000000" if code != "000000" else "111111"
+    async with credential_session() as session:
+        assert (
+            await otp.check_challenge(
+                session,
+                purpose=service.LOGIN_CHALLENGE,
+                realm="admin",
+                subject_id=admin_id,
+                code=wrong,
+            )
+            == "wrong"
+        )
+        assert (
+            await otp.check_challenge(
+                session,
+                purpose=service.LOGIN_CHALLENGE,
+                realm="admin",
+                subject_id=admin_id,
+                code=code,
+                now=datetime.now(UTC) + otp.OTP_LIFETIME + timedelta(seconds=1),
+            )
+            == "expired"
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_resend_inside_the_cooldown_is_refused_with_retry_after(
+    operator: tuple[uuid.UUID, str],
+) -> None:
+    """The sign-in screen's countdown mirrors this number; the server is what enforces it."""
+    _admin_id, email = operator
+    outcome = await service.sign_in(realm="admin", email=email, password=PASSWORD, ip=None)
+    partial = (await verify_session(token=outcome.session.token, realm="admin")).require_live()
+
+    with pytest.raises(ProblemError) as refused:
+        await service.resend_second_factor(verified=partial)
+    assert refused.value.code == "resend_too_soon"
+    assert refused.value.status == 429
+    wait_s = int(refused.value.headers["Retry-After"])
+    assert 0 < wait_s <= otp.OTP_RESEND_COOLDOWN.total_seconds()
+
+    later = datetime.now(UTC) + otp.OTP_RESEND_COOLDOWN + timedelta(seconds=1)
+    await service.resend_second_factor(verified=partial, now=later)
+
+
+@pytest.mark.asyncio
+async def test_with_no_code_issued_there_is_no_wait(operator: tuple[uuid.UUID, str]) -> None:
+    admin_id, _ = operator
+    async with credential_session() as session:
+        assert (
+            await otp.resend_wait_s(
+                session, purpose=service.LOGIN_CHALLENGE, realm="admin", subject_id=admin_id
+            )
+            == 0
+        )
+
+
+@pytest.mark.asyncio
 async def test_a_login_code_cannot_be_spent_as_an_email_verification(
     operator: tuple[uuid.UUID, str],
 ) -> None:
@@ -396,6 +485,7 @@ async def test_a_code_is_bound_to_its_own_subject(operator: tuple[uuid.UUID, str
 def test_the_challenge_lifetime_and_budgets_are_the_documented_ones() -> None:
     """Pinned so a future edit to any of these numbers is a decision, not a drift."""
     assert timedelta(minutes=10) == otp.OTP_LIFETIME
+    assert timedelta(seconds=60) == otp.OTP_RESEND_COOLDOWN
     assert OTP_MAX_ATTEMPTS == 5
     assert OTP_BUDGET.threshold == 5
     assert OTP_DIGITS == 6

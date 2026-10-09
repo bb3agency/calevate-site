@@ -450,6 +450,18 @@ export const TERMS_OF_SERVICE: LegalDocument = {
                 "Your account has spending ceilings — one we set and one you can set for " +
                   "yourself. The lower of the two applies. Reaching a ceiling stops " +
                   "outbound dialling; it is a safety limit, not a billing dispute.",
+                "If you turn on auto-recharge, you approve a payment method once (UPI " +
+                  "Autopay or a card) and we top up your credit by the amount you chose " +
+                  "whenever it falls below the level you set, never more in a calendar " +
+                  "month than the limit you set, and never more than ₹15,000 in one payment. " +
+                  "We email you when a top-up starts, your bank or UPI app notifies you at " +
+                  "least 24 hours before the money is taken, and the credit usually arrives " +
+                  "one to two days after the top-up starts. You can turn auto-recharge off, " +
+                  "or withdraw the approval, at any time from the dashboard or from your UPI " +
+                  "app or bank.",
+                "If you dispute a payment with your bank or card issuer, outbound dialling " +
+                  "pauses and the disputed amount is held against your credit until the " +
+                  "dispute is resolved. Incoming calls are not affected.",
               ],
             },
             {
@@ -583,8 +595,9 @@ export const TERMS_OF_SERVICE: LegalDocument = {
               "monthly afterwards. Either party may end it on {{TERMINATION_NOTICE_DAYS}} " +
               "days' written notice, expiring at the end of a billing month.",
             "A self-serve account may be closed by you at any time from the dashboard or " +
-              "by writing to {{SUPPORT_EMAIL}}. Unused credit is dealt with in the Refund " +
-              "and Cancellation Policy.",
+              "by writing to {{SUPPORT_EMAIL}}. Unused credit is forfeited when the account " +
+              "closes and is not refunded; the Refund and Cancellation Policy explains the " +
+              "exceptions.",
             "Either party may terminate immediately if the other commits a material breach " +
               "and does not remedy it within 30 days of written notice, or becomes " +
               "insolvent.",

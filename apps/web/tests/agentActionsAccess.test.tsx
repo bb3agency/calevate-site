@@ -70,7 +70,7 @@ describe("the mid-call actions panel", () => {
       <Panel />,
       routes(me("owner", ["org:read", "org:manage"])),
     );
-    const master = await screen.findByRole("switch", { name: /enable api actions/i });
+    const master = await screen.findByRole("switch", { name: /use actions on calls/i });
     await waitFor(() => expect(master.matches(":disabled")).toBe(false));
     fireEvent.click(master);
     await waitFor(() =>
@@ -91,12 +91,12 @@ describe("the mid-call actions panel", () => {
       ),
     ).toBeTruthy();
 
-    const master = screen.getByRole("switch", { name: /enable api actions/i });
+    const master = screen.getByRole("switch", { name: /use actions on calls/i });
     const writes = [
       master,
       screen.getByRole("button", { name: "Remove Look up an order" }),
       screen.getByRole("button", { name: /test/i }),
-      screen.getByRole("button", { name: /custom api/i }),
+      screen.getByRole("button", { name: /your own api/i }),
     ];
     for (const control of writes) expect(control.matches(":disabled")).toBe(true);
 

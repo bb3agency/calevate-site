@@ -99,9 +99,10 @@ export function TrialPanel({
       }
     >
       <p className="text-xs text-ink-muted">
-        Days on us. While a trial runs, this client&apos;s wallet is not debited and an
-        empty one stops neither their outgoing calls nor their agents answering incoming
-        ones. Every minute is still metered and we still pay for it.
+        Days and free test-call minutes on us. A client that has not paid places test calls
+        from the shared trial number and nothing else until its first top-up, which ends the
+        trial. For a client that has paid, a trial only means its wallet is not debited.
+        Every minute is still metered and we still pay for it.
       </p>
 
       {state === null ? (
@@ -151,6 +152,11 @@ function TrialFacts({ state }: { state: TrialStatus }) {
       <p className="mt-1 text-xs">
         {state.days} day(s) from {formatIST(state.started_at)}.
         {state.ended_reason ? ` “${state.ended_reason}”` : ""}
+      </p>
+      <p className="mt-1 text-xs">
+        {state.free_minutes === null
+          ? `${state.minutes_used} test-call minute(s) used; this trial has no minute limit.`
+          : `${state.minutes_used} of ${state.free_minutes} free test-call minute(s) used.`}
       </p>
       {/* OUR SUPPLIER COST: there is no spend ceiling on a trial by explicit choice, so this
           figure is the visibility that makes that choice survivable. Operator-only — no

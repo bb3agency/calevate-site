@@ -68,6 +68,7 @@ from calevate_shared.worker_api import (
     WorkerSessionOut,
 )
 from fastapi import APIRouter, Header, Path
+from pydantic import BaseModel, ConfigDict, Field
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -88,6 +89,7 @@ from apps.api.worker.tools import (
     cancel_callback,
     record_opt_out,
     request_handoff,
+    run_client_action,
 )
 
 log = get_logger(__name__)
@@ -324,4 +326,28 @@ async def worker_request_handoff(
     return await request_handoff(engine_call_id, request)
 
 
-__all__ = ["router"]
+class ClientActionIn(BaseModel):
+    """What the model filled in for a client action: up to 20 short values (the same bound
+    the voice platform puts on an action's parameters)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    arguments: dict[str, str] = Field(default_factory=dict, max_length=20)
+
+
+@router.post("/calls/{engine_call_id}/tools/actions/{name}", include_in_schema=False)
+async def worker_client_action(
+    engine_call_id: Annotated[str, Path(max_length=_REF_MAX)],
+    name: Annotated[str, Path(pattern=r"^[a-z][a-z0-9_]{2,39}$")],
+    request: ClientActionIn,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, object]:
+    """A client's own action on this call (D-700): the same executor the ThinnestAI custom
+    actions reach, so an action behaves the same on either engine."""
+    _admit(authorization)
+    return await run_client_action(
+        engine_call_id, name, {k[:64]: v[:1000] for k, v in request.arguments.items()}
+    )
+
+
+__all__ = ["ClientActionIn", "router"]

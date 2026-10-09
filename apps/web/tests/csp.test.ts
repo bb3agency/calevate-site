@@ -41,10 +41,12 @@ describe("the content-security policy", () => {
     );
   });
 
-  it("fails closed to no cross-origin connect on a malformed api base url", () => {
-    // A broken env value must narrow to 'self', never widen the policy.
+  it("fails closed to no cross-origin API connect on a malformed api base url", () => {
+    // A broken env value must narrow to 'self' for OUR API, never widen the policy; the
+    // only other origins are Razorpay Checkout's own (D-699), which do not depend on it.
     expect(buildContentSecurityPolicy("N", { apiOrigin: apiConnectOrigin("not a url") })).toContain(
-      "connect-src 'self';",
+      "connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com " +
+        "https://lumberjack-cx.razorpay.com https://lumberjack-metrics.razorpay.com;",
     );
   });
 

@@ -877,7 +877,12 @@ class PerformanceOut(Strict):
 #: queue because the queue's promise is "everything this platform refuses to do quietly",
 #: and a phone that has stopped being answered is the loudest refusal we make.
 AttentionKind = Literal[
-    "lead_blocked", "delivery_failed", "campaign_stalled", "kb_rejected", "inbound_stopped"
+    "lead_blocked",
+    "delivery_failed",
+    "campaign_stalled",
+    "kb_rejected",
+    "inbound_stopped",
+    "action_broken",
 ]
 
 

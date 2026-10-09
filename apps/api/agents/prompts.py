@@ -108,7 +108,7 @@ async def insert_prompt_version(
     is established: when a divergence is CREATED (`apply_live=False`), the applied
     pointer is materialized from the CURRENT `system_prompt_id` if it was still NULL.
     That is the truth for every row written before this pointer existed and for every
-    row `admin/intake.py` writes, because in both cases the version the agent pointed
+    row a T0 recompile writes, because in both cases the version the agent pointed
     at is the version the engine was sent. It is what lets `publish_agent` read
     `COALESCE(live_prompt_id, system_prompt_id)` without ever picking up a draft:
     NULL can then only mean "the two pointers agree".

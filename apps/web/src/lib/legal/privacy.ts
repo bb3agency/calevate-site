@@ -374,10 +374,12 @@ export const PRIVACY_POLICY: LegalDocument = {
                     "when the account is erased. To have a phone number rented in your " +
                     "business's name we send your legal name, GST status and that " +
                     "document to the hosted voice platform that provides the number. You " +
-                    "also verify the owner, by one of two routes. If you upload an " +
-                    "identity document (a PAN card, or an Aadhaar card with all but the " +
-                    "last four digits masked), our team reviews it and we delete the file " +
-                    "as soon as they decide, or after 30 days if nobody has. If you verify " +
+                    "also verify the owner, by one of two routes. If you upload the " +
+                    "owner's PAN card, our team reviews it: they enter the PAN, the name " +
+                    "and the date of birth on the card into the Income Tax Department's " +
+                    "own \"Verify Your PAN\" service to confirm they match, and we delete " +
+                    "the file as soon as they decide, or after 30 days if nobody has. We do " +
+                    "not accept a copy of an Aadhaar card for this review. If you verify " +
                     "through DigiLocker, you authenticate on a licensed intermediary's " +
                     "page, not ours. We receive the record you chose from the intermediary " +
                     "— which can include the date of birth, gender, address and contact " +
@@ -385,10 +387,12 @@ export const PRIVACY_POLICY: LegalDocument = {
                     "memory, and keep only the name on it, whether that name matches the " +
                     "owner you named, and the masked number; we store no document or " +
                     "image. By either route we keep only the type of document, the masked " +
-                    "number (the last four digits of an Aadhaar, or a PAN with its first " +
-                    "five and last characters hidden), the name the DigiLocker record " +
-                    "carries, the name check, the intermediary's reference, your consent " +
-                    "and the date. We never store a full Aadhaar " +
+                    "number (a PAN with its first five and last characters hidden, or, " +
+                    "from DigiLocker, the last four digits of an Aadhaar), the name the " +
+                    "DigiLocker record carries, the name check, the intermediary's " +
+                    "reference, a note that the PAN check matched with who checked it and " +
+                    "when, your consent and the date. We never store the date of birth, " +
+                    "and we never store a full Aadhaar " +
                     "number: section 29 of the Aadhaar (Targeted Delivery of Financial and " +
                     "Other Subsidies, Benefits and Services) Act 2016 restricts what may be " +
                     "done with Aadhaar information once it is held, and not holding it is " +
@@ -765,15 +769,19 @@ export const PRIVACY_POLICY: LegalDocument = {
             [
               "Running the in-app assistant a client opens from their own dashboard: " +
                 "answering their questions about their own account, filling in the " +
-                "fields on the screen they are looking at, proposing changes they then " +
-                "confirm, and keeping what it learned so the next conversation starts " +
+                "fields on the screen they are looking at, making the changes they ask " +
+                "for, and keeping what it learned so the next conversation starts " +
                 "further along.",
               "Client users, and their callers' records where the client asks a question " +
                 "about them",
               "Performance of our contract with the client for their own account data, " +
                 "and the client's own instruction for anything it looks up about their " +
-                "callers. It proposes; a person confirms; nothing it suggests takes " +
-                "effect on its own.",
+                "callers. It acts only when a person asks. A change that can be taken " +
+                "back and reaches nobody — such as giving a lead to a colleague — is made " +
+                "at once and can be undone for a day; anything that calls someone, " +
+                "spends money, publishes, deletes or changes the do-not-call list waits " +
+                "until a person confirms it. It never accepts terms or uploads identity " +
+                "documents for anyone.",
             ],
           ],
         },
@@ -883,6 +891,23 @@ export const PRIVACY_POLICY: LegalDocument = {
             "under confidentiality; and where we are compelled by law, in which case we " +
             "will tell the affected client unless we are prohibited from doing so.",
         },
+        {
+          kind: "para",
+          text:
+            "A client can also have its agent act in the client's own accounts during " +
+            "your call: look you up in its CRM or spreadsheet by your number so it can " +
+            "greet you by name, check its calendar and book your appointment, save your " +
+            "details to its CRM (Zoho CRM or HubSpot) or spreadsheet, send you a WhatsApp " +
+            "message from its own WhatsApp Business account, send you a payment link from " +
+            "its own Razorpay account, or ask its own systems a question. Each of those " +
+            "goes to an account the client holds and connected itself, under the client's " +
+            "own terms with that company, and only on the client's instruction: those " +
+            "companies are the client's processors, not ours. What reaches them is your " +
+            "number and the details you gave on the call that the client chose to send; " +
+            "never the recording. A WhatsApp message or payment link is sent only if you " +
+            "have agreed to receive WhatsApp messages from that business and your number " +
+            "is not on its do-not-call list.",
+        },
       ],
     },
     {
@@ -988,7 +1013,14 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "run one of its models still gets the assistant, answered by the provider " +
                 "we run " +
                 "by default, and the screen tells them so rather than leaving them to " +
-                "assume. Read that at the speed the call " +
+                "assume. Since 9 October 2026 the in-app assistant itself runs first on " +
+                "the third provider, whose developer service names no region we can " +
+                "request — so what you type into the assistant, and what it looks up in " +
+                "your account to answer, may be processed anywhere that provider " +
+                "operates — and only while we hold a recorded confirmation that our own " +
+                "account with it is on a plan under which it does not train on what is " +
+                "submitted. When it cannot answer, the hyperscale provider in East US 2 " +
+                "answers instead, unless we switch that fallback off. Read that at the speed the call " +
                 "runs at: on the in-call leg what you say leaves India as text on every " +
                 "turn, as you say it, because the model has to answer you in the " +
                 "conversation rather than after it. It is not a batch that goes abroad " +

@@ -24,6 +24,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     column,
+    false,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -180,6 +181,13 @@ class Call(PKMixin, TimestampMixin, Base):
             # fragment `check_raw_sql` refuses (D-172). `in_()` renders the members itself.
             postgresql_where=column("knowledge_state").in_(sorted(DEGRADED_KNOWLEDGE_STATES)),
         ),
+        # The trial line and the daily cap count a tenant's recent test calls (D-697).
+        Index(
+            "ix_calls_trial_recent",
+            "tenant_id",
+            "created_at",
+            postgresql_where=text("trial_call"),
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -265,6 +273,9 @@ class Call(PKMixin, TimestampMixin, Base):
     #: the rented engine, which has no such report. It is deliberately NOT read as "fine".
     knowledge_state: Mapped[str | None] = mapped_column(Text)
     campaign_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))  # FK lands M2
+    #: A free-trial test call (D-697), placed from the shared trial number. What the trial's
+    #: daily cap, its free minutes and the one-test-call-at-a-time line count.
+    trial_call: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     lead_id: Mapped[UUID | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"))
     # D-21 M2: the call this one follows up. Bounds the callback chain — see migration
     # efb47868ec59 for why an unbounded one is a compliance problem, not a UX one.

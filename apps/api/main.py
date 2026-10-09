@@ -114,6 +114,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.publishing_routes import router as publishing_router
     from apps.api.agents.routes import router as agents_router
     from apps.api.agents.script_routes import router as script_router
+    from apps.api.agents.trial_call_routes import router as trial_calls_router
     from apps.api.agents.voice_routes import router as voice_router
     from apps.api.authn.routes import (
         admin_auth_router,
@@ -121,10 +122,12 @@ def _mount_routers(application: FastAPI) -> None:
         invite_router,
     )
     from apps.api.billing.ai_quota_routes import router as ai_quota_router
+    from apps.api.billing.auto_recharge_routes import router as auto_recharge_router
     from apps.api.billing.cap_routes import router as caps_router
     from apps.api.billing.credit_routes import lots_router as credit_lots_admin_router
     from apps.api.billing.credit_routes import router as credits_admin_router
     from apps.api.billing.history_routes import router as billing_history_router
+    from apps.api.billing.payment_admin_routes import router as payments_admin_router
     from apps.api.billing.payment_routes import public_router as public_rate_card_router
     from apps.api.billing.payment_routes import refund_router
     from apps.api.billing.payment_routes import router as topups_router
@@ -180,8 +183,12 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.compliance.whatsapp_optin_routes import router as whatsapp_optin_router
     from apps.api.copilot.admin_routes import router as admin_copilot_router
     from apps.api.copilot.routes import router as copilot_router
+    from apps.api.copilot.routine_routes import router as copilot_routines_router
     from apps.api.crm.routes import router as crm_router
     from apps.api.flags.routes import router as feature_flags_router
+    from apps.api.healer.routes import ops_router as ops_healer_router
+    from apps.api.healer.routes import public_router as public_status_router
+    from apps.api.healer.routes import router as healer_router
     from apps.api.ingest.routes import router as ingest_router
     from apps.api.ingest.routes import sources_router as lead_sources_router
     from apps.api.insights.routes import router as knowledge_gaps_router
@@ -204,10 +211,13 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.routes import router as ops_router
     from apps.api.ops.secret_routes import carrier_router as ops_carrier_router
     from apps.api.ops.secret_routes import router as ops_secrets_router
+    from apps.api.ops.trial_number import router as ops_trial_number_router
     from apps.api.ops.voice_curation_routes import router as ops_voice_curation_router
     from apps.api.quality.routes import router as quality_router
     from apps.api.quality.sampling_routes import router as qa_sampling_router
     from apps.api.security.routes import router as csp_report_router
+    from apps.api.tenancy.profile_routes import admin_router as business_profile_admin_router
+    from apps.api.tenancy.profile_routes import router as business_profile_router
     from apps.api.tenancy.routes import router as tenancy_router
     from apps.api.tenancy.signup_routes import router as signup_router
     from apps.api.worker.engine_actions import router as engine_actions_router
@@ -262,6 +272,8 @@ def _mount_routers(application: FastAPI) -> None:
     # gate rather than granting credit, so these two routers share a tenant path prefix and
     # nothing else.
     application.include_router(trials_admin_router)
+    # The client's Trial panel and its test calls (D-697).
+    application.include_router(trial_calls_router)
     application.include_router(prompt_admin_router)
     application.include_router(experiment_router)
     # BEFORE `agents_router`: FastAPI matches in declaration order, and
@@ -281,6 +293,9 @@ def _mount_routers(application: FastAPI) -> None:
     # under `/v1/agents/{agent_id}/handoff`, and mounting it first keeps that literal
     # subsegment from being shadowed by any `/v1/agents/{agent_id}` route declared later.
     application.include_router(handoff_router)
+    # The client's one business profile, which every agent reads (D-695).
+    application.include_router(business_profile_router)
+    application.include_router(business_profile_admin_router)
     application.include_router(agents_router)
     # The ACCOUNT-level model default (D-454). Its own paths (`/v1/organization/...`,
     # `/v1/admin/organizations/...`) collide with nothing above, so mount order is not
@@ -333,6 +348,8 @@ def _mount_routers(application: FastAPI) -> None:
     # routes, two realms, two tool arrays, two memories, two ledgers — one service.
     application.include_router(copilot_router)
     application.include_router(admin_copilot_router)
+    # The workspace's routines and approval previews, under the same `/v1/copilot` prefix.
+    application.include_router(copilot_routines_router)
     # Knowledge gaps — the urgent "what the agents couldn't answer" surface. Its own
     # literal `/v1/knowledge-gaps` prefix collides with nothing above, so mount order is
     # not load-bearing here.
@@ -441,6 +458,9 @@ def _mount_routers(application: FastAPI) -> None:
     # declared in `scripts/check_public_routes.UNAUTHENTICATED_ROUTES`.
     application.include_router(kyc_webhook_router)
     application.include_router(refund_router)
+    # Auto-recharge (client) and the payments page (admin), D-698.
+    application.include_router(auto_recharge_router)
+    application.include_router(payments_admin_router)
     # The client's own invoice — the same `build_invoice` the admin route serves, in the
     # realm of the persona BRD §51 says pays it. Literal `/v1/billing/invoice`, declared
     # beside the other two `/v1/billing/*` routers for the same reason they are ordered
@@ -529,6 +549,13 @@ def _mount_routers(application: FastAPI) -> None:
     # decides money and it is not a credential. There is no write route (`ops/fx_routes.py`
     # argues why); the operator's control is the declared fallback in the config panel.
     application.include_router(ops_fx_router)
+    # The shared free-trial number's candidates (D-697).
+    application.include_router(ops_trial_number_router)
+    # The auto-healer (D-701): the client's incidents, fallback phone and proposals, the
+    # operator's playbooks and ledger, and the public status page's one read.
+    application.include_router(healer_router)
+    application.include_router(ops_healer_router)
+    application.include_router(public_status_router)
     # The browser-tier CSP violation collector (D-541). Its own literal `/reports/v1`
     # prefix, which collides with nothing above, so mount order is not load-bearing here.
     # It is the one route in this process with NO credential — a browser's reporting agent

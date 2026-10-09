@@ -195,7 +195,7 @@ export function decisionBlockReason(body: FirstCampaignDecisionIn): string | nul
       : "A release has to record what was reviewed, or nobody can account for it afterwards.";
   }
   if (note.length > DECISION_NOTE_MAX) {
-    return `The note is ${note.length} characters; the API accepts ${DECISION_NOTE_MAX}.`;
+    return `The note is ${note.length} characters; the limit is ${DECISION_NOTE_MAX}.`;
   }
   return null;
 }

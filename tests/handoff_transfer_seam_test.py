@@ -76,7 +76,11 @@ from calevate_shared.engine import (
 )
 from calevate_shared.worker_api import HandoffToolIn
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import (
+    INSERT_HANDOFF_MEMBER_SQL,
+    SET_BUSINESS_HOURS_SQL,
+    accept_agreements,
+)
 from tests.worker_api_harness import declare_pipecat_engine
 
 pytestmark = pytest.mark.asyncio
@@ -289,24 +293,27 @@ async def _org(
     async with tenant_session(tenant_id) as session:
         if with_roster:
             await session.execute(
-                text(
-                    "INSERT INTO agent_handoff_members "
-                    "(id, tenant_id, agent_id, position, label, phone_e164) "
-                    "VALUES (:id, :tid, :aid, 0, 'Priya', :phone)"
-                ),
-                {"id": uuid7(), "tid": tenant_id, "aid": agent_id, "phone": STAFF},
+                text(INSERT_HANDOFF_MEMBER_SQL),
+                {
+                    "id": uuid7(),
+                    "tid": tenant_id,
+                    "aid": agent_id,
+                    "pos": 0,
+                    "label": "Priya",
+                    "phone": STAFF,
+                },
             )
         # Handovers on, hours unset -> `is_after_hours` answers "unknown" for every day,
         # so the roster is only reachable with hours recorded. 24/7 is what a clinic that
         # wants its owner rung whenever the agent asks would set.
         await session.execute(
-            text(
-                "UPDATE agents SET handoff_enabled = true, business_hours = CAST(:h AS jsonb) "
-                "WHERE id = :aid"
-            ),
+            text("UPDATE agents SET handoff_enabled = true WHERE id = :aid"), {"aid": agent_id}
+        )
+        await session.execute(
+            text(SET_BUSINESS_HOURS_SQL),
             {
-                "aid": agent_id,
-                "h": '{"mon":{"opens":"00:00","closes":"23:59"},'
+                "tid": tenant_id,
+                "hours": '{"mon":{"opens":"00:00","closes":"23:59"},'
                 '"tue":{"opens":"00:00","closes":"23:59"},'
                 '"wed":{"opens":"00:00","closes":"23:59"},'
                 '"thu":{"opens":"00:00","closes":"23:59"},'
@@ -772,8 +779,10 @@ async def test_a_roster_no_longer_makes_an_agent_unpublishable(
             (
                 await session.execute(
                     text(
-                        "SELECT id, handoff_enabled, handoff_trigger, business_hours, "
-                        "  language_primary FROM agents WHERE id = :aid"
+                        "SELECT a.id, a.handoff_enabled, a.handoff_trigger, "
+                        "  bp.hours AS business_hours, a.language_primary FROM agents a "
+                        "  LEFT JOIN business_profiles bp ON bp.tenant_id = a.tenant_id "
+                        "WHERE a.id = :aid"
                     ),
                     {"aid": agent_id},
                 )

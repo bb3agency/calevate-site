@@ -127,6 +127,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # a second and the call itself is untouched; a Redis outage pages through its own checks.
     "live_state_unavailable": "record",
     "too_many_attempts": "record",
+    "resend_too_soon": "record",
     "service_load_shed": "record",
     "signup_load_shed": "record",
     "platform_maintenance": "record",
@@ -215,6 +216,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "payment_provider_unreachable": "attention",
     "payment_provider_rejected": "attention",
     "payment_order_unreadable": "attention",
+    "payment_provider_unreadable": "attention",
     "refund_rejected": "attention",
     "refund_unreadable": "attention",
     # A SECRET THE PLATFORM CANNOT UNWRAP is every BYOK leg down at once and no way to
@@ -348,6 +350,10 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_number_attachment_repaired": "attention",
     "engine_number_unrecorded": "attention",
     "engine_number_missing_at_vendor": "attention",
+    # D-697, the shared free-trial number. A failed lend refuses one test call (the client
+    # is told to try again); a trial number recorded to a client is left alone by the sweep.
+    "trial_line_lend_failed": "attention",
+    "trial_number_recorded_to_client": "attention",
     "engine_business_details_lapsed": "attention",
     # D-691, a person-level write the client's own workspace did not take. Our own list and
     # erasure already did their part; the remaining copy is one task for an operator.
@@ -405,6 +411,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # callers hear the platform's standard voice. The call works; the voice is wrong.
     "engine_agent_voice_withdrawn": "attention",
     "engine_actions_not_retired": "attention",
+    # D-700: a client changed an agent's actions and the vendor was not updated; the in-call
+    # door refuses anything not live here, and the drift sweep retries.
+    "client_actions_not_synced": "attention",
     # THE BIG RED SWITCH FAMILY, AND ALL OF IT PAGES. Outbound was halted — by an
     # operator, or by a regulator's complaint — and these five each say some version of
     # "dials the vendor already holds may still go out". A halt nobody can prove landed is
@@ -441,6 +450,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "retention_sweep_incomplete": "attention",
     "copilot_distil_worklist_failed": "attention",
     "copilot_transcript_sweep_failed": "attention",
+    # The assistant's routine tick (D-694). A client's scheduled request did not start.
+    "copilot_routines_tick_failed": "attention",
+    "copilot_routine_fire_failed": "attention",
     "kb_gloss_worklist_failed": "attention",
     # DPDP §12: the statutory clock has already run out.
     "erasure_requests_overdue": "page",
@@ -449,6 +461,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # The audit chain is the evidence a regulator is shown. A missing link is not
     # re-creatable later.
     "action_audit_unrecorded": "page",
+    # D-700: a CRM record or sheet row the caller was told was noted was not written.
+    "client_action_not_completed": "attention",
     # An offboarding erasure that reported success and erased nothing.
     "tenant_erasure_mark_failed": "page",
     # ── Leads, notifications, integrations ────────────────────────────────────
@@ -549,6 +563,23 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # The backstop that would otherwise FIND `topup_settlement_silent` is itself down, so
     # a client's money can now go missing unobserved.
     "topup_settlement_sweep_abandoned": "page",
+    # D-699. Captured on an international card although the account should refuse them:
+    # credited, and the dashboard setting needs checking in daylight.
+    "razorpay_international_payment": "attention",
+    # A refund we promised a client did not reach them.
+    "razorpay_refund_failed": "page",
+    # A client's bank disputed a payment: outbound is paused and a response is due by a date.
+    "payment_dispute_opened": "page",
+    "payment_dispute_action_required": "page",
+    # The webhook leg lost a delivery and reconciliation recorded it: the money is right,
+    # the webhook set-up needs a look.
+    "razorpay_reconciliation_credited": "attention",
+    # Money at Razorpay the ledger cannot explain.
+    "razorpay_reconciliation_unexplained": "page",
+    "razorpay_reconciliation_failed": "attention",
+    # One client's auto-recharge switched itself off after repeated failures; they are told.
+    "auto_recharge_disabled": "attention",
+    "payment_notice_no_billing_email": "attention",
     "rate_card_notice_fanout_budget_reached": "attention",
     "rate_card_notice_no_billing_email": "attention",
     "wallet_alert_no_billing_email": "attention",
@@ -565,6 +596,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # Money leaking a fraction of a rupee at a time, per assist. Real, and not a 3am
     # problem: `usage_events` keeps the evidence and the price can be back-applied.
     "ai_assist_unmeterable": "attention",
+    # An account reached the in-app assistant's daily fair-use cap (D-694). Bounded, one
+    # account, and the client has already been told; an operator decides whether to raise it.
+    "copilot_fair_use_reached": "attention",
     "ai_assist_unknown_provider": "attention",
     "kb_gloss_unmeterable": "attention",
     "kb_ocr_unmeterable": "attention",
@@ -836,6 +870,16 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # No credentials for the carrier the calls are on: every carrier cost is missing until
     # an operator installs them, and the sweep re-reads the owed records once they are.
     "carrier_cdr_reader_unconfigured": "attention",
+    # The auto-healer (D-701). A sustained dip is already being repaired and the client
+    # told, so it is read on the board; a broken line, a platform outage, a relapse, a hold
+    # the platform refused and an incident that needs a person are each callers going
+    # unanswered or a repair that has run out, and wake somebody.
+    "agent_health_degraded": "attention",
+    "agent_line_broken": "page",
+    "engine_platform_outage": "page",
+    "healer_needs_person": "page",
+    "healer_line_relapsed": "page",
+    "healer_line_hold_failed": "page",
 }
 
 

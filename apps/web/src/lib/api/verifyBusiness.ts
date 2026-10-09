@@ -37,12 +37,12 @@ export const BUSINESS_DOCUMENT_KINDS = {
 } as const;
 export type BusinessDocumentKind = keyof typeof BUSINESS_DOCUMENT_KINDS;
 
-/** The owner IDs accepted for review. Aadhaar only as UIDAI's masked copy. */
-export const OWNER_ID_KINDS = {
-  aadhaar: "Aadhaar (masked copy)",
-  pan_card: "PAN card",
-} as const;
-export type OwnerIdKind = keyof typeof OWNER_ID_KINDS;
+/**
+ * The owner ID our own review accepts: the PAN card only (D-696). An Aadhaar is accepted
+ * only through DigiLocker, because checking an Aadhaar copy by eye is what Aadhaar
+ * regulation 16C(1) forbids; the server refuses one with its own sentence.
+ */
+export const OWNER_ID_KIND = "pan_card";
 
 export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
 export const MAX_FILENAME_CHARS = 99;
@@ -74,15 +74,11 @@ export function fileProblem(file: File): string | null {
   return null;
 }
 
-/** The owner ID as the client types it: a PAN in full, or the Aadhaar's LAST FOUR only. */
-export function ownerIdProblem(kind: "aadhaar" | "pan", value: string): string | null {
-  const cleaned = value.trim().toUpperCase();
-  if (kind === "pan") {
-    return PAN_PATTERN.test(cleaned) ? null : "A PAN is five letters, four digits and a letter.";
-  }
-  return /^[0-9]{4}$/.test(cleaned)
+/** The PAN as the client types it, or why it is not one. */
+export function panProblem(value: string): string | null {
+  return PAN_PATTERN.test(value.trim().toUpperCase())
     ? null
-    : "Type only the last four digits of the Aadhaar — never the full number.";
+    : "A PAN is five letters, four digits and a letter, like ABCDE1234F.";
 }
 
 function invalidate(client: ReturnType<typeof useQueryClient>, session: Session): void {

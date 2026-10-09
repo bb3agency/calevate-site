@@ -13,9 +13,8 @@ from __future__ import annotations
 
 from typing import Final
 
-# The section marker PROMPT-GUIDE §2 uses, and the one `admin/intake.py` splices on.
-# `tests/t0_recompile_test.py` pins the two spellings together: two modules writing
-# different headers would each silently append their own block.
+# The section marker PROMPT-GUIDE §2 uses. One spelling: two modules writing different
+# headers would each silently append their own block.
 T0_HEADER: Final = "[T0 FACTS]"
 
 # Where the knowledge half starts, INSIDE the block (`agents/t0.py` writes it). Deliberately

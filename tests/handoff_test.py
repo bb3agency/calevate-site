@@ -30,7 +30,11 @@ from apps.api.agents.prompts import write_prompt_version
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import (
+    INSERT_HANDOFF_MEMBER_SQL,
+    SET_BUSINESS_HOURS_SQL,
+    accept_agreements,
+)
 
 # The sync half of this module is pure-function work over a clock, so the async mark is
 # applied to the two suites separately rather than to the module: a blanket
@@ -188,23 +192,23 @@ async def _agent_with_roster(*, enabled: bool, hours: dict[str, object] | None) 
             created_by=None,
         )
         await session.execute(
-            text(
-                "UPDATE agents SET handoff_enabled = :en, "
-                "business_hours = CAST(:hours AS jsonb) WHERE id = :aid"
-            ),
-            {
-                "en": enabled,
-                "hours": None if hours is None else json.dumps(hours),
-                "aid": agent_id,
-            },
+            text("UPDATE agents SET handoff_enabled = :en WHERE id = :aid"),
+            {"en": enabled, "aid": agent_id},
         )
         await session.execute(
-            text(
-                "INSERT INTO agent_handoff_members "
-                "(id, tenant_id, agent_id, position, label, phone_e164) "
-                "VALUES (:id, :tid, :aid, 0, 'Owner', '+919000000777')"
-            ),
-            {"id": uuid.uuid4(), "tid": tenant_id, "aid": agent_id},
+            text(SET_BUSINESS_HOURS_SQL),
+            {"tid": tenant_id, "hours": None if hours is None else json.dumps(hours)},
+        )
+        await session.execute(
+            text(INSERT_HANDOFF_MEMBER_SQL),
+            {
+                "id": uuid.uuid4(),
+                "tid": tenant_id,
+                "aid": agent_id,
+                "pos": 0,
+                "label": "Owner",
+                "phone": "+919000000777",
+            },
         )
     return tenant_id, agent_id
 
@@ -261,8 +265,13 @@ async def test_an_agent_with_no_recorded_hours_publishes_no_destination() -> Non
     list and never recorded their opening hours has an agent that will not ring anyone —
     and `GET /v1/agents/{id}/handoff` tells them exactly that, with the fix.
     """
-    tenant_id, agent_id = await _agent_with_roster(enabled=True, hours=None)
+    # Live first: going live needs the business's hours (D-695). Then the hours are
+    # cleared and the live agent re-published, which is never refused for them.
+    tenant_id, agent_id = await _agent_with_roster(enabled=True, hours=OPEN_9_TO_6)
     async with tenant_session(tenant_id) as session:
+        await agents_service.publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(text(SET_BUSINESS_HOURS_SQL), {"tid": tenant_id, "hours": None})
         await agents_service.publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
         ref = (
             await session.execute(

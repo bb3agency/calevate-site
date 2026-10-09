@@ -380,6 +380,11 @@ async def close_account(
     from apps.api.tenancy.engine_workspace import queue_workspace_offboarding
 
     await queue_workspace_offboarding(session, tenant_id=tenant_id)
+    # Its agents in OUR developer workspace too (a free-trial account's, D-697): they are not
+    # in its own workspace, so the offboarding above does not reach them.
+    from apps.api.agents.service import retire_developer_workspace_agents
+
+    await retire_developer_workspace_agents(session, tenant_id=tenant_id)
     return _record(tenant_id, row)
 
 
@@ -443,10 +448,13 @@ async def restore_account(
 
     log.warning("account_restored", extra={"tenant_id": str(tenant_id), "status": to_status})
     # A restored account gets its voice workspace back: the deleted customer is restored
-    # while the vendor still holds it, or a new one is made (D-693).
+    # while the vendor still holds it, or a new one is made (D-693) — if it had paid: a
+    # workspace is owed from the first payment and never to an unpaid account (D-697).
+    from apps.api.billing.first_payment import has_paid
     from apps.api.tenancy.engine_workspace import queue_workspace_provisioning
 
-    await queue_workspace_provisioning(session, tenant_id=tenant_id, reopen=True)
+    if await has_paid(session, tenant_id=tenant_id):
+        await queue_workspace_provisioning(session, tenant_id=tenant_id, reopen=True)
     return _record(tenant_id, row)
 
 

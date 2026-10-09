@@ -48,6 +48,23 @@ async def _tenant(name: str = "Workspace Clinic") -> UUID:
     return UUID(str(created["id"]))
 
 
+async def _owed_tenant() -> UUID:
+    """An account that is owed its workspace: what owes one is decided outside creation
+    (D-695), so the test queues it the way the operator's Create workspace now does."""
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        # Paid, as an account owed a workspace is (D-697): restoring it re-provisions.
+        await session.execute(
+            text(
+                "UPDATE organizations SET first_paid_at = now(), first_paid_via = 'wallet_topup' "
+                "WHERE id = :t"
+            ),
+            {"t": tenant_id},
+        )
+        await resolver.queue_workspace_provisioning(session, tenant_id=tenant_id)
+    return tenant_id
+
+
 async def _outbox(job: str, tenant_id: UUID) -> list[dict[str, Any]]:
     async with untenanted_session() as session:
         rows = (
@@ -178,13 +195,39 @@ def test_a_handle_of_one_workspace_cannot_be_used_inside_another() -> None:
     assert workspace_of(None) is None
 
 
-async def test_a_new_tenant_is_owed_its_workspace_from_birth(
+async def test_an_account_an_operator_creates_takes_no_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-695: no workspace slot is taken when an operator creates an account."""
+    monkeypatch.setattr(get_settings(), "engine", "thinnest")
+    tenant_id = await _tenant()
+    assert (await _state(tenant_id)).status == "not_provisioned"
+    assert await _outbox(resolver.PROVISION_JOB, tenant_id) == []
+
+
+async def test_create_workspace_now_leaves_an_active_workspace_untouched(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(get_settings(), "engine", "thinnest")
     tenant_id = await _tenant()
+    workspace = await give_own_workspace(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        assert not await resolver.queue_workspace_provisioning(session, tenant_id=tenant_id)
+    state = await _state(tenant_id)
+    assert (state.status, state.workspace_id) == ("active", workspace)
+    assert await _outbox(resolver.PROVISION_JOB, tenant_id) == []
+
+
+async def test_create_workspace_now_queues_one_for_a_new_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The operator's button (`POST /v1/admin/engine-workspaces/tenants/{id}/provision`)
+    calls exactly this."""
+    monkeypatch.setattr(get_settings(), "engine", "thinnest")
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        assert await resolver.queue_workspace_provisioning(session, tenant_id=tenant_id)
     assert (await _state(tenant_id)).status == "pending"
-    assert await _outbox(resolver.PROVISION_JOB, tenant_id)
 
 
 async def test_no_workspace_is_owed_on_an_engine_without_them(
@@ -202,7 +245,7 @@ async def test_no_workspace_is_owed_on_an_engine_without_them(
 async def test_provisioning_creates_one_workspace_and_owes_its_follow_ups(
     account: FakeAccount,
 ) -> None:
-    tenant_id = await _tenant()
+    tenant_id = await _owed_tenant()
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
@@ -229,7 +272,7 @@ async def test_provisioning_creates_one_workspace_and_owes_its_follow_ups(
 async def test_provisioning_adopts_the_workspace_our_reference_already_names(
     account: FakeAccount,
 ) -> None:
-    tenant_id = await _tenant()
+    tenant_id = await _owed_tenant()
     existing = account.add_customer(resolver.external_ref_for(tenant_id))
     await jobs.provision_engine_workspace({}, {"tenant_id": str(tenant_id)})
     assert (await _state(tenant_id)).workspace_id == existing
@@ -237,7 +280,7 @@ async def test_provisioning_adopts_the_workspace_our_reference_already_names(
 
 
 async def test_a_deleted_workspace_is_restored_rather_than_replaced(account: FakeAccount) -> None:
-    tenant_id = await _tenant()
+    tenant_id = await _owed_tenant()
     archived = account.add_customer(resolver.external_ref_for(tenant_id), archived=True)
     await jobs.provision_engine_workspace({}, {"tenant_id": str(tenant_id)})
     assert (await _state(tenant_id)).workspace_id == archived
@@ -248,7 +291,7 @@ async def test_the_plan_cap_leaves_the_client_waiting_and_alarms(
     account: FakeAccount, alarms: list[str]
 ) -> None:
     account.cap = 0
-    tenant_id = await _tenant()
+    tenant_id = await _owed_tenant()
     assert await jobs.provision_engine_workspace({}, {"tenant_id": str(tenant_id)}) == "plan_limit"
     state = await _state(tenant_id)
     assert (state.status, state.last_error_code) == ("plan_limit", "plan_limit")
@@ -259,7 +302,7 @@ async def test_the_plan_cap_leaves_the_client_waiting_and_alarms(
 async def test_the_developer_workspace_is_never_recorded_as_a_clients(
     account: FakeAccount, alarms: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    tenant_id = await _tenant()
+    tenant_id = await _owed_tenant()
     account.customers[DEVELOPER] = {
         "id": DEVELOPER,
         "externalId": resolver.external_ref_for(tenant_id),
@@ -272,26 +315,44 @@ async def test_the_developer_workspace_is_never_recorded_as_a_clients(
     assert "engine_workspace_provisioning_failed" in alarms
 
 
-async def test_the_daily_sweep_backfills_every_tenant_without_a_workspace(
+async def test_the_daily_sweep_backfills_every_paid_tenant_without_a_workspace(
     account: FakeAccount, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A workspace is owed from the first payment (D-697): the sweep backfills a paid
+    tenant that has none, and leaves an unpaid one (a free trial) without."""
     monkeypatch.setattr(get_settings(), "engine", "pipecat")
-    legacy = await _tenant("Before D-693")
+    paid = await _tenant("Paid, no workspace")
+    unpaid = await _tenant("Never paid")
     monkeypatch.setattr(get_settings(), "engine", "thinnest")
-    assert (await _state(legacy)).status == "not_provisioned"
+    async with tenant_session(paid) as session:
+        await session.execute(
+            text(
+                "UPDATE organizations SET first_paid_at = now(), first_paid_via = 'wallet_topup' "
+                "WHERE id = :t"
+            ),
+            {"t": paid},
+        )
+    assert (await _state(paid)).status == "not_provisioned"
     # The shared test database holds every other test's tenants; the sweep is pointed at
-    # this one so its per-tick budget is spent here.
-    monkeypatch.setattr(jobs, "_LIVE_TENANTS", f"SELECT '{legacy}'::uuid AS id")
+    # these two so its per-tick budget is spent here.
+    monkeypatch.setattr(
+        jobs,
+        "_LIVE_TENANTS",
+        "SELECT o.id, o.first_paid_at IS NOT NULL FROM organizations o "
+        f"WHERE o.id IN ('{paid}'::uuid, '{unpaid}'::uuid) ORDER BY o.id",
+    )
     await jobs.retry_engine_workspaces({})
-    assert (await _state(legacy)).status == "pending"
-    assert await _outbox(resolver.PROVISION_JOB, legacy)
+    assert (await _state(paid)).status == "pending"
+    assert await _outbox(resolver.PROVISION_JOB, paid)
+    assert (await _state(unpaid)).status == "not_provisioned"
+    assert not await _outbox(resolver.PROVISION_JOB, unpaid)
 
 
 # --- offboarding ------------------------------------------------------------------------
 
 
 async def test_closing_an_account_offboards_its_workspace(account: FakeAccount) -> None:
-    tenant_id = await _tenant()
+    tenant_id = await _owed_tenant()
     await jobs.provision_engine_workspace({}, {"tenant_id": str(tenant_id)})
     workspace = (await _state(tenant_id)).workspace_id
     assert workspace is not None

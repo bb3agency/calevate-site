@@ -29,6 +29,8 @@ import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { useAdminAccess } from "@/app/admin/access";
 
+import { BusinessProfileSummary } from "./BusinessProfileSummary";
+
 /**
  * Correcting a client's business record — everything about it except the slug (D-546).
  *
@@ -42,7 +44,8 @@ import { useAdminAccess } from "@/app/admin/access";
  * The founder's decision was "everything except the slug", taken to the COLUMN LIST rather
  * than to a wish-list: `service.EDITABLE_TENANT_FIELDS` records what walking
  * `Organization` found. There is no `phone` and no `language` column on `organizations` —
- * the business's numbers live in the intake answer sheet and in `campaign_numbers`, and
+ * the business's facts live in its business profile (shown below) and its numbers in
+ * `campaign_numbers`, and
  * the language a client is served in is per-AGENT (`agents.language_primary`), because a
  * clinic may answer in Telugu and call out in English. Everything else on the row already
  * has its own screen and its own permission.
@@ -136,6 +139,7 @@ export default function TenantProfilePage({
         edit={edit}
         write={write}
       />
+      <BusinessProfileSummary tenantId={tenantId} slug={profile.data.slug} />
     </div>
   );
 }

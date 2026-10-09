@@ -37,6 +37,7 @@ from apps.api.core.rbac import permission_meta
 from apps.api.crm import assist, lead_search, live_speaking, saved_views, service
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm.attention import attention_queue
+from apps.api.crm.lead_dial import place_lead_call
 from apps.api.crm.performance import performance
 from apps.api.crm.schemas import (
     AttentionOut,
@@ -1396,121 +1397,17 @@ async def call_lead(
             ),
             remediation="Send an `Idempotency-Key` header — one fresh value per attempt.",
         )
-    # IN ITS OWN COMMITTED TRANSACTION, before anything can ring — see the assist route
-    # above for the argument, which is the same one with a phone call in place of a model
-    # call: a claim written into the request's transaction is erased by the rollback that
-    # follows any later failure, and the retry the key exists to answer rings the
-    # customer a second time.
-    async with tenant_session(principal.tenant_id) as claim_session:
-        claim = await claim_idempotency(
-            claim_session,
-            scope=scope_key(tenant_id=principal.tenant_id, user_id=principal.user_id),
-            route="/v1/leads/{lead_id}/call",
-            method="POST",
-            key=idem_key,
-            request_hash=body_hash({"lead_id": str(lead_id), **payload.model_dump()}),
-        )
-    if claim.state == "replay" and claim.response_payload:
-        return CallLeadOut.model_validate(claim.response_payload)
-
-    try:
-        phone, name = await service.lead_phone(session, lead_id)
-
-        # THE COMPLIANCE GATE. D-21 is explicit that client-initiated dispatch runs the
-        # same pre-checks as webhook dispatch; a decision (not an exception) comes back so
-        # the UI can explain WHY the button is refusing (SURFACES §2b).
-        decision = await check_dispatch(
-            session, tenant_id=principal.tenant_id, agent_id=payload.agent_id, phone_e164=phone
-        )
-    except Exception:
-        await _release_undialled_claim(principal.tenant_id, claim.record_id)
-        raise
-    if not decision.allowed:
-        # COUNTED, like every other refusal of this gate. `assert_dispatch_allowed` records
-        # it for the paths that raise and `campaign_dispatch._refuse_contact` for the
-        # dispatcher's; the two client-initiated dial buttons took the DECISION form and so
-        # recorded nothing, which left `compliance_blocks{rule=...}` — the one metric that
-        # says WHICH desk a "we cannot call anybody" report belongs on — blind to the
-        # single-lead path entirely. Here and not inside `check_dispatch`, because the
-        # eligibility GET calls the same function to render a disabled button and a page
-        # load is not a blocked dial.
-        record_compliance_block(rule=decision.rule or "unknown")
-        result = CallLeadOut(
-            status="blocked", blocked_reason=decision.reason, blocked_rule=decision.rule
-        )
-        async with tenant_session(principal.tenant_id) as done_session:
-            await complete_idempotency(
-                done_session,
-                record_id=claim.record_id,
-                response_status=200,
-                response_payload=result.model_dump(),
-            )
-        return result
-
-    from apps.api.agents.service import (
-        DialUnconfirmedError,
-        dial_was_not_placed,
-        dispatch_call,
+    # The gate, the claim, the dial and the audit are `crm/lead_dial.place_lead_call`, which
+    # the assistant's `call_place` action calls too — one implementation behind two doors.
+    return await place_lead_call(
+        session,
+        principal=principal,
+        lead_id=lead_id,
+        agent_id=payload.agent_id,
+        context_note=payload.context_note,
+        idempotency_key=idem_key,
+        ip=client_request_ip(request),
     )
-
-    try:
-        handle = await dispatch_call(
-            session,
-            tenant_id=principal.tenant_id,
-            agent_id=payload.agent_id,
-            lead_id=lead_id,
-            phone_e164=phone,
-            lead_name=name,
-            context_note=payload.context_note,
-        )
-    except DialUnconfirmedError as unconfirmed:
-        # THE CLAIM IS DELIBERATELY LEFT `processing`. Marking it failed would let the
-        # very next press of the button re-dial somebody whose phone may be ringing right
-        # now — the one outcome this route's idempotency exists to prevent — and the row
-        # `dispatch_call` committed is already on the lead's call log, so the client can
-        # see what we are telling them about.
-        raise ProblemError(
-            kind="dependency",
-            code="dial_unconfirmed",
-            title="We could not confirm whether the call was placed",
-            detail=(
-                "The voice platform did not answer us, and it may have started the call anyway."
-            ),
-            remediation=(
-                "Check this lead's call log in a minute before trying again — calling "
-                "again could ring them twice."
-            ),
-        ) from unconfirmed
-    except Exception as refused:
-        # Only a failure that PROVES no line was seized releases the key; anything else
-        # from `dispatch_call` (a handle or lead stamp failing after the vendor answered)
-        # may follow a ringing phone and keeps it `processing`.
-        if dial_was_not_placed(refused):
-            await _release_undialled_claim(principal.tenant_id, claim.record_id)
-        raise
-
-    # THE AUDIT AND THE CLAIM'S COMPLETION IN THEIR OWN TRANSACTION, for the reason the
-    # claim had one: the phone has rung, and the record of it must not be undone by a
-    # failure later in this request.
-    result = CallLeadOut(status="queued", call_handle=handle)
-    async with tenant_session(principal.tenant_id) as record_session:
-        await write_audit(
-            record_session,
-            action="lead.call_dispatched",
-            actor=principal,
-            tenant_id=principal.tenant_id,
-            object_type="lead",
-            object_id=str(lead_id),
-            ip=client_request_ip(request),
-            summary={"agent_id": str(payload.agent_id), "has_note": bool(payload.context_note)},
-        )
-        await complete_idempotency(
-            record_session,
-            record_id=claim.record_id,
-            response_status=200,
-            response_payload=result.model_dump(),
-        )
-    return result
 
 
 @router.get(

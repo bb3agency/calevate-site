@@ -37,6 +37,7 @@ PANEL_ENGINE_MINUTE_PRICE: Final = "engine_minute_price"
 PANEL_MODEL_PRICING: Final = "model_pricing"
 PANEL_DASHBOARD_DATA_USE: Final = "dashboard_data_use"
 PANEL_SERVER_ONLY_KEYS: Final = "server_only_keys"
+PANEL_TRIAL_NUMBER: Final = "trial_number"
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +104,8 @@ SECTIONS: Final[tuple[Section, ...]] = (
         "calling-limits",
         "Calling limits and pacing",
         "How fast outbound calls start and how many lines they may use at once.",
-        (Subsection("limits", "Limits"),),
+        (Subsection("limits", "Limits"), Subsection("trial", "Free-trial test calls")),
+        panels_after=(PANEL_TRIAL_NUMBER,),
     ),
     Section(
         "language-models",
@@ -112,6 +114,7 @@ SECTIONS: Final[tuple[Section, ...]] = (
         "deployments behind them.",
         (
             Subsection("tiers", "Client tiers"),
+            Subsection("assistant", "In-app assistant"),
             Subsection("default", "Platform default"),
             Subsection("azure", "Azure OpenAI"),
         ),
@@ -170,6 +173,15 @@ SECTIONS: Final[tuple[Section, ...]] = (
             Subsection("email", "Email"),
             Subsection("alerts", "Operator alerts and notices"),
             Subsection("whatsapp", "WhatsApp"),
+        ),
+    ),
+    Section(
+        "healer",
+        "Auto-healer",
+        "The automatic repairs, their kill switches, and where alarm pages go.",
+        (
+            Subsection("switches", "Kill switches"),
+            Subsection("paging", "Paging"),
         ),
     ),
     Section(
@@ -357,6 +369,28 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Inbound and outbound together; set it to the ceiling ThinnestAI has confirmed.",
         _THINNEST,
     ),
+    "trial_caller_number": _m(
+        "calling-limits",
+        "trial",
+        "Shared trial number",
+        "The platform-held number every trial test call rings from; choose it in the panel "
+        "below. Nothing answers it while trials use it.",
+        _THINNEST,
+    ),
+    "trial_daily_call_cap": _m(
+        "calling-limits",
+        "trial",
+        "Test calls per trial account per day",
+        "How many test calls one trial account may place in an IST day.",
+        _THINNEST,
+    ),
+    "trial_call_max_seconds": _m(
+        "calling-limits",
+        "trial",
+        "Longest trial test call (seconds)",
+        "Each trial test call is ended after this many seconds (60 to 1200).",
+        _THINNEST,
+    ),
     "thinnest_customer_plan": _m(
         "voice-engine",
         "thinnest",
@@ -398,6 +432,36 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "tiers",
         "Pro tier model",
         "The model a client gets when they choose Pro. Only new choices move.",
+    ),
+    "copilot_fast_model": _m(
+        "language-models",
+        "assistant",
+        "Assistant: quick answers model",
+        "The Gemini model the in-app assistant answers and looks things up with.",
+    ),
+    "copilot_planning_model": _m(
+        "language-models",
+        "assistant",
+        "Assistant: planning model",
+        "The Gemini model for multi-step requests and background jobs.",
+    ),
+    "copilot_azure_fallback": _m(
+        "language-models",
+        "assistant",
+        "Assistant: fall back to Azure",
+        "When the Gemini model cannot answer, use Azure instead of the basic fallback.",
+    ),
+    "copilot_daily_message_cap": _m(
+        "language-models",
+        "assistant",
+        "Assistant: questions per account per day",
+        "The fair-use cap. Past it, the assistant tells the client and an alarm is raised.",
+    ),
+    "copilot_daily_ktok_cap": _m(
+        "language-models",
+        "assistant",
+        "Assistant: thousand tokens per account per day",
+        "The fair-use cap on model usage, counted alongside the question cap.",
     ),
     "platform_llm_model": _m(
         "language-models",
@@ -515,6 +579,24 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Razorpay key ID",
         "The public key id handed to the browser checkout.",
     ),
+    "razorpay_mode": _m(
+        "billing",
+        "payments",
+        "Razorpay mode",
+        "test or live. Must match the key id; production refuses test keys.",
+    ),
+    "auto_recharge_max_failures": _m(
+        "billing",
+        "payments",
+        "Auto-recharge failures before it switches off",
+        "Failed automatic recharges in a row before auto-recharge is turned off.",
+    ),
+    "razorpay_reconciliation_days": _m(
+        "billing",
+        "payments",
+        "Payment reconciliation window (days)",
+        "How many days of Razorpay payments and refunds the daily check compares.",
+    ),
     "gst_supplier_legal_name": _m(
         "billing",
         "invoices",
@@ -597,6 +679,36 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "google",
         "Google OAuth redirect URL",
         "Where Google returns a client after they authorise a calendar.",
+    ),
+    "zoho_oauth_client_id": _m(
+        "integrations",
+        "crm",
+        "Zoho CRM OAuth client ID",
+        "The platform's Zoho app that a client's Zoho CRM connection authorises against.",
+    ),
+    "zoho_oauth_redirect_uri": _m(
+        "integrations",
+        "crm",
+        "Zoho CRM OAuth redirect URL",
+        "Where Zoho returns a client after they authorise their CRM.",
+    ),
+    "zoho_accounts_url": _m(
+        "integrations",
+        "crm",
+        "Zoho accounts server",
+        "The Zoho data centre the app is registered in, such as https://accounts.zoho.in.",
+    ),
+    "hubspot_oauth_client_id": _m(
+        "integrations",
+        "crm",
+        "HubSpot OAuth client ID",
+        "The platform's HubSpot app that a client's HubSpot connection authorises against.",
+    ),
+    "hubspot_oauth_redirect_uri": _m(
+        "integrations",
+        "crm",
+        "HubSpot OAuth redirect URL",
+        "Where HubSpot returns a client after they authorise their account.",
     ),
     # ---- notifications ---------------------------------------------------------------
     "email_provider": _m(
@@ -688,6 +800,44 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "whatsapp",
         "Meta Graph API version",
         "The pinned Graph API version, such as v22.0.",
+    ),
+    "whatsapp_template_healer_page": _m(
+        "notifications",
+        "whatsapp",
+        "Alarm page template name",
+        "The approved template that pages the founder on WhatsApp.",
+    ),
+    "whatsapp_template_line_notice": _m(
+        "notifications",
+        "whatsapp",
+        "Line affected template name",
+        "The approved template that tells a client their line was protected.",
+    ),
+    "whatsapp_template_line_restored": _m(
+        "notifications",
+        "whatsapp",
+        "Line restored template name",
+        "The approved template that tells a client their line is back.",
+    ),
+    # ---- auto-healer -----------------------------------------------------------------
+    "healer_enabled": _m(
+        "healer",
+        "switches",
+        "Auto-healer on",
+        "Off stops every automatic repair, line hold and scheduled sweep. Detection, "
+        "notices and the health score carry on.",
+    ),
+    "healer_paused_playbooks": _m(
+        "healer",
+        "switches",
+        "Paused playbooks",
+        "Comma-separated playbook keys the healer must not run. The healer page lists them.",
+    ),
+    "healer_founder_whatsapp": _m(
+        "healer",
+        "paging",
+        "Founder's WhatsApp for pages",
+        "E.164 number that receives alarm pages on WhatsApp. Empty sends pages by email only.",
     ),
     # ---- security --------------------------------------------------------------------
     "first_party_auth_enabled": _m(
@@ -846,6 +996,7 @@ __all__ = [
     "PANEL_NUMBER_PRICE",
     "PANEL_RATE_CARD",
     "PANEL_SERVER_ONLY_KEYS",
+    "PANEL_TRIAL_NUMBER",
     "PANEL_TTS_PLAN_FEE",
     "SECTIONS",
     "EngineScope",

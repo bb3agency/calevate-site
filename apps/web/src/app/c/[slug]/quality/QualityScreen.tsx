@@ -91,7 +91,7 @@ export function QualityScreen() {
             ? "the reports failed to load — this is NOT evidence that the agent has never been tested"
             : reports.isLoading
               ? "still loading"
-              : "the server answered, and this account has no report yet",
+              : "loaded, and this account has no report yet",
       },
       { key: "reports_available", label: "Reports on file", value: String(all.length) },
       ...(shown

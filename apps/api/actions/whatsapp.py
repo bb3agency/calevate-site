@@ -26,18 +26,32 @@ DLT/TCCCPR (LEGAL-OPS-PLAYBOOK §11), so it has no PE-TM chain and no 140/160 he
 the DLT layer of the gate does not describe it. Every other rule — the live DNC read
 above all, the India-only destination, the big red switch, the tenant cap — does.
 
-EVIDENCE CLASS. The three vendors' send endpoints are REPORTED from their own published API
-references and consistent across multiple vendor-owned pages, but the docs hosts
-(developers.facebook.com, api.interakt.ai, aisensy.com) are egress-blocked in this
-environment, so none was read first-party here. They are marked at each call site the way
-`compliance/whatsapp_optin.py` marks its Meta sources, and OPERATIONS §2 owns a gate to
-confirm each against a live account before the first real send.
+EVIDENCE CLASS, each read on the vendor's own page on 9 Oct 2026 (VERIFIED-VENDOR-DOCS):
+
+* Meta Cloud API: `POST https://graph.facebook.com/{version}/{phone-number-id}/messages`,
+  `Authorization: Bearer <system user token>`, a template message `{messaging_product,
+  recipient_type, to, type: "template", template: {name, language: {code}, components}}`;
+  the reference examples use v25.0 (developers.facebook.com/documentation/business-messaging/
+  whatsapp/messages/send-messages.md, …/templates/overview.md). Outside the 24-hour customer
+  service window "you can only send pre-approved template messages" (send-messages.md), so
+  every send here is a template: we cannot see the client's inbox and so cannot know the
+  window is open. A HEADER TEXT parameter is shaped like a body one; no Meta page we read
+  shows a text header in a send request (OPERATIONS gate A-5).
+* AiSensy: `POST https://backend.aisensy.com/campaign/t1/api/v2` with `apiKey`,
+  `campaignName` (a Live campaign), `destination` (with the country code), `userName`,
+  `templateParams` (its length must match the template's) — aisensy.com/tutorials/
+  api-reference-docs. The answer body is not documented; a 2xx is the only signal read.
+* Interakt: `POST https://api.interakt.ai/v1/public/message/`, `Authorization: Basic <key>`,
+  `{countryCode, phoneNumber (no country code), type: "Template", template: {name,
+  languageCode, headerValues, bodyValues}}`, 40 requests a minute — interakt.shop/
+  resource-center/how-to-send-whatsapp-templates-using-apis-webhooks.
 """
 
 from __future__ import annotations
 
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions.schema import PreparedRequest, WhatsAppConfig
@@ -48,6 +62,11 @@ from apps.api.core.logging import get_logger
 from apps.api.ingest.service import normalize_phone
 
 log = get_logger(__name__)
+
+#: The Graph API version of the Cloud API reference examples (send-messages.md, read
+#: 9 Oct 2026). Graph v26.0 exists (developers.facebook.com/docs/graph-api/changelog); the
+#: messaging reference has not moved to it, so neither do we.
+META_GRAPH_VERSION = "v25.0"
 
 
 class WhatsAppBlockedError(ProblemError):
@@ -125,6 +144,36 @@ async def assert_recipient_may_be_messaged(
     return phone_e164
 
 
+async def assert_business_contact_may_be_messaged(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, recipient_e164: str
+) -> str:
+    """The Test button's gate: "send a test WhatsApp to my number".
+
+    The recipient must be one of the account's OWN business contacts (the numbers the
+    client recorded for their business, `business_contacts`), so a test cannot message a
+    stranger. The messaging-consent ledger is about the client's CUSTOMERS and is not asked:
+    the person pressing Test is messaging their own business number. The dispatch gate
+    (DNC above all) still is.
+    """
+    phone_e164 = normalize_phone(recipient_e164)
+    if phone_e164 is None:
+        raise WhatsAppNotOptedInError()
+    own = (
+        await session.execute(
+            text("SELECT 1 FROM business_contacts WHERE phone_e164 = :p"), {"p": phone_e164}
+        )
+    ).first()
+    if own is None:
+        log.info("whatsapp_test_not_business_contact", extra={"tenant_id": str(tenant_id)})
+        raise WhatsAppNotOptedInError()
+    decision = await check_dispatch(
+        session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone_e164, dlt_governed=False
+    )
+    if not decision.allowed:
+        raise WhatsAppBlockedError(decision.rule or "unknown")
+    return phone_e164
+
+
 def _digits(e164: str) -> str:
     return e164.lstrip("+")
 
@@ -135,10 +184,7 @@ def build_aisensy(
     """AiSensy API campaign send. `template` is the CAMPAIGN name (which is the template
     reference on AiSensy), and the api key rides in the BODY, not a header.
 
-    REPORTED (aisensy.com/tutorials/api-reference-docs, wiki.aisensy.com — vendor-owned,
-    egress-blocked here): POST https://backend.aisensy.com/campaign/t1/api/v2 with
-    {apiKey, campaignName, destination, userName, templateParams[]}; templateParams length
-    must equal the campaign's variable count. AiSensy has no separate header variable.
+    AiSensy has no separate header variable (module docstring for the wire shape).
     """
     if config.header_param is not None:
         raise ProblemError.business_rule(
@@ -170,10 +216,8 @@ def build_meta_cloud(
 ) -> PreparedRequest:
     """Meta Cloud API template send.
 
-    REPORTED (developers.facebook.com/docs/whatsapp/cloud-api/reference/messages —
-    egress-blocked here): POST https://graph.facebook.com/v20.0/{phone_number_id}/messages
-    with Bearer token and a `template` message carrying `language.code` and `components`
-    (an optional header component, then a body component of text parameters in order).
+    A `template` message carrying `language.code` and `components`: an optional header
+    component, then a body component of text parameters in order (module docstring).
     """
     if not config.phone_number_id:
         raise ProblemError.business_rule(
@@ -201,7 +245,7 @@ def build_meta_cloud(
         template["components"] = components
     return PreparedRequest(
         method="POST",
-        url=f"https://graph.facebook.com/v20.0/{config.phone_number_id}/messages",
+        url=f"https://graph.facebook.com/{META_GRAPH_VERSION}/{config.phone_number_id}/messages",
         headers={
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
@@ -226,12 +270,8 @@ def build_interakt(
 ) -> PreparedRequest:
     """Interakt Send WhatsApp Template.
 
-    REPORTED (interakt.shop resource center + documenter.getpostman.com/view/14760594 —
-    egress-blocked here, consistent across vendor pages, secondary-summarised 2026-08):
-    POST https://api.interakt.ai/v1/public/message/ with `Authorization: Basic <apiKey>`
-    and {countryCode, phoneNumber, type:"Template", template:{name, languageCode,
-    headerValues[], bodyValues[]}}. The api key is used verbatim as the Basic credential
-    (Interakt issues it already base64-encoded).
+    The api key is used verbatim as the Basic credential (Interakt issues it already
+    base64-encoded); the wire shape is in the module docstring.
     """
     country_code = config.country_code or "+91"
     number = _digits(recipient_e164)
@@ -263,6 +303,7 @@ def build_interakt(
 __all__ = [
     "WhatsAppBlockedError",
     "WhatsAppNotOptedInError",
+    "assert_business_contact_may_be_messaged",
     "assert_recipient_may_be_messaged",
     "build_aisensy",
     "build_interakt",

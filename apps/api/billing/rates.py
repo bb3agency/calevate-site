@@ -1721,8 +1721,7 @@ class SpeakingRateBasis:
                 f"over {self.calls} calls, {self.window}"
             )
         assumed = (
-            f"assumed {self.chars_per_call_minute} chars/call-min "
-            "(TRD 10.1, unmeasured - pilot gate 12)"
+            f"assumed {self.chars_per_call_minute} chars/call-min (unmeasured - pilot gate 12)"
         )
         # A bar of zero is not a sample that fell short — it is the module-level constant,
         # struck before anything had been counted. Printing "0 of 0 calls" against it reads

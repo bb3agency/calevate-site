@@ -184,9 +184,9 @@ ROUTING_TABLE: Final[tuple[IntentRule, ...]] = (
             "in today",
         ),
         why=(
-            "Staff names are an intake answer and are compiled phonetically for exactly "
-            "this question (`admin/intake.py`). A search would return the same line "
-            "slower."
+            "Staff names are a business-profile answer and are compiled phonetically for "
+            "exactly this question (`tenancy/business_profile.py`). A search would return "
+            "the same line slower."
         ),
     ),
     IntentRule(

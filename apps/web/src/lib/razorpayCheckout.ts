@@ -3,11 +3,12 @@
  *
  * ## The evidence this rests on, and its class
  *
- * `razorpay.com` is refused by this environment's egress proxy (re-measured 25 Aug 2026:
- * `checkout.razorpay.com` answers `403` on CONNECT and `razorpay.com/docs/...` is refused
- * by the fetch tool), so **nobody here has read their documentation pages** — the same
- * statement `runbooks/topup-payments.md` makes about the server half, and the same
- * three-rung ladder is used at each line below.
+ * Razorpay's documentation was read on 9 Oct 2026 (D-699): the options, the handler's
+ * three fields and the server-side signature check below are as
+ * `payments/payment-gateway/web-integration/standard/integration-steps.md` describes them,
+ * and the recurring options (`customer_id`, `recurring: "1"`) as
+ * `api/payments/recurring-payments/upi/create-authorization-transaction.md` does. The
+ * earlier source readings below still hold.
  *
  * READ AT SOURCE — Razorpay's own published code, fetched 25 Aug 2026:
  *
@@ -58,9 +59,8 @@
  * renders its own iframe inside our page. So adding the payment window needs NO change to
  * the policy, and nothing here is a reason to widen one.
  *
- * It is `Content-Security-Policy-Report-Only` today, so a mistake in it surfaces as a
- * report rather than as a client's dashboard going white — which also means the policy is
- * not what would stop this script if it were wrong. The edge headers are unaffected either
+ * The policy is ENFORCING (D-541) and also admits the telemetry and icon hosts Checkout
+ * itself names (D-699, `lib/security/csp.ts`). The edge headers are unaffected either
  * way: `X-Frame-Options: DENY` and `Cross-Origin-Opener-Policy: same-origin` both hold,
  * because Checkout renders INSIDE our page and opens no cross-origin window handle we keep
  * a reference to.
@@ -99,6 +99,10 @@ interface RazorpayOptions {
   handler: (response: RazorpayCheckoutSuccess) => void;
   modal: { ondismiss: () => void };
   theme: { color: string };
+  /** A mandate's authorisation (D-699): the customer, and `"1"` to register a recurring
+   *  token (`api/payments/recurring-payments/upi/create-authorization-transaction.md`). */
+  customer_id?: string;
+  recurring?: "1";
 }
 
 export interface RazorpayInstance {
@@ -250,6 +254,8 @@ export interface CheckoutRequest {
   onDismissed: () => void;
   /** The provider reported a failed attempt. */
   onFailed: () => void;
+  /** Set for a mandate authorisation: the payment registers a recurring token. */
+  recurringCustomerId?: string;
 }
 
 /**
@@ -282,6 +288,9 @@ export async function openRazorpayCheckout(request: CheckoutRequest): Promise<vo
     // `brand-strong` (#0F6B3D), the resting colour of our primary button — see
     // `components/ui.tsx`. Cosmetic only.
     theme: { color: "#0F6B3D" },
+    ...(request.recurringCustomerId
+      ? { customer_id: request.recurringCustomerId, recurring: "1" as const }
+      : {}),
   });
   checkout.on("payment.failed", () => request.onFailed());
   checkout.open();

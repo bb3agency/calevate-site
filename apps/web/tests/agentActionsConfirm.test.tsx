@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { Credentials } from "@/app/c/[slug]/agents/actions/Credentials";
+import { ConnectedAccounts } from "@/app/c/[slug]/integrations/ConnectedAccounts";
 import { ToolRow } from "@/app/c/[slug]/agents/actions/ToolRow";
 import type { ActionTool, IntegrationCredential } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
@@ -64,15 +64,21 @@ const TOOL: ActionTool = {
 describe("removing a saved credential", () => {
   it("asks in ConfirmDialog and only then sends the DELETE", async () => {
     const { calls } = await renderClientPage(
-      <Credentials session={SESSION} />,
+      <ConnectedAccounts session={SESSION} canWrite />,
       {
         "/v1/integrations/credentials": [CREDENTIAL],
+        "/v1/integrations/connections/status": {
+          google_calendar: false,
+          zoho_crm: false,
+          hubspot: false,
+          sheets_share_with: null,
+        },
         "DELETE /v1/integrations/credentials/cred-1": {},
       },
     );
 
     fireEvent.click(
-      await screen.findByRole("button", { name: "Delete Clinic WhatsApp" }),
+      await screen.findByRole("button", { name: "Disconnect Clinic WhatsApp" }),
     );
 
     // The dialog, not the browser's: it is in the accessibility tree and it names the row.
@@ -80,7 +86,7 @@ describe("removing a saved credential", () => {
     expect(dialog.textContent).toContain("Clinic WhatsApp");
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
     await waitFor(() =>
       expect(
         calls.some(
@@ -95,14 +101,20 @@ describe("removing a saved credential", () => {
 
   it("sends nothing when the person backs out", async () => {
     const { calls } = await renderClientPage(
-      <Credentials session={SESSION} />,
+      <ConnectedAccounts session={SESSION} canWrite />,
       {
         "/v1/integrations/credentials": [CREDENTIAL],
+        "/v1/integrations/connections/status": {
+          google_calendar: false,
+          zoho_crm: false,
+          hubspot: false,
+          sheets_share_with: null,
+        },
       },
     );
 
     fireEvent.click(
-      await screen.findByRole("button", { name: "Delete Clinic WhatsApp" }),
+      await screen.findByRole("button", { name: "Disconnect Clinic WhatsApp" }),
     );
     fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
 
@@ -162,13 +174,19 @@ describe("editing a configured action", () => {
     const { calls } = await renderClientPage(
       <ToolRow tool={STORED} agentId="agent-1" session={SESSION} />,
       {
+        "/v1/integrations/connections/status": {
+          google_calendar: false,
+          zoho_crm: false,
+          hubspot: false,
+          sheets_share_with: null,
+        },
         "/v1/integrations/credentials": [],
         "PUT /v1/agents/agent-1/actions/tool-2": STORED,
       },
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Edit lookup_order" }));
-    const url = (await screen.findByLabelText("API URL")) as HTMLInputElement;
+    const url = (await screen.findByLabelText("Secure address (https)")) as HTMLInputElement;
     expect(url.value).toBe("https://api.example.in/orders");
     expect((screen.getByLabelText("Method") as HTMLSelectElement).value).toBe("GET");
 

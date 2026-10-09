@@ -246,6 +246,23 @@ function stubCopilot(options: {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (path.startsWith("/v1/copilot/jobs/")) {
+        // D-694: a background job card polls its job; answered with the job still running.
+        const jobId = path.split("/")[4] ?? "";
+        return new Response(
+          JSON.stringify({
+            id: jobId,
+            status: "running",
+            goal: "Mark yesterday's leads contacted",
+            screen_route: "/c/{slug}/leads",
+            progress: [],
+            result: null,
+            error_code: null,
+            created_at: new Date().toISOString(),
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
       if (path.startsWith("/v1/billing/ai-quota")) {
         return new Response(JSON.stringify(options.quota ?? {}), {
           status: 200,
@@ -1253,35 +1270,21 @@ describe("the fallback surface", () => {
     expect(sent.screen.realm).toBe("admin");
   });
 
-  it("SHOWS A PROPOSAL BUT OFFERS NO CONFIRM, because the admin realm has no confirm route", async () => {
-    // THE TRAP THIS PINS. There is no `POST /v1/admin/copilot/confirm`; the only confirm
-    // endpoint declares `copilot:use` and is checked against the CLIENT realm. A Confirm
-    // button here would post an operator's decision to the wrong realm's endpoint, where
-    // its only possible answer is a refusal. The card is still rendered in full — a
-    // proposal is a description, not a change, and it is worth reading.
+  it("OFFERS CONFIRM ON THE ADMIN REALM TOO, through its own door (D-694)", async () => {
+    // The admin realm gained `POST /v1/admin/copilot/confirm` for its own platform actions,
+    // with the console button's step-up. So the card offers Confirm here as well, and the
+    // old "not available in the admin console" sentence is gone.
     nav.pathname = "/admin/tenants";
-    const { confirms } = stubCopilot({ chunks: proposalChunks() });
+    stubCopilot({ chunks: proposalChunks() });
     render(<DockMount realm="admin" />);
     await openDock();
     await ask("pause the kondapur campaign");
 
-    // Everything a proposal HOLDS is on screen.
     expect(await screen.findByText("Pause this campaign")).toBeTruthy();
-    expect(screen.getAllByText(PROPOSAL.summary).length).toBe(1);
-    expect(screen.getAllByText("paused").length).toBe(1);
-    // …and the decision is withdrawn, in words rather than as a dead control.
+    expect(screen.getAllByRole("button", { name: /^Confirm — / }).length).toBe(1);
     expect(
-      screen.queryAllByRole("button", { name: /^Confirm — / }).length,
+      screen.queryAllByText(/Confirming isn't available in the admin console yet/).length,
     ).toBe(0);
-    expect(
-      screen.getAllByText(/Confirming isn't available in the admin console yet/)
-        .length,
-    ).toBe(1);
-    // Dismiss survives: clearing the card is still the operator's to do.
-    expect(screen.getAllByRole("button", { name: /^Dismiss — / }).length).toBe(
-      1,
-    );
-    expect(confirms).toEqual([]);
   });
 
   it("STILL OFFERS CONFIRM ON THE CLIENT REALM, so the guard above is about the realm", async () => {
@@ -1352,6 +1355,42 @@ describe("an action the assistant has already taken", () => {
     expect(
       screen.queryAllByText("Suggestion — nothing has happened yet").length,
     ).toBe(0);
+  });
+});
+
+describe("an action that can be undone (D-694)", () => {
+  it("OFFERS UNDO while the window is open, and none when there is no log row", async () => {
+    const undoable = {
+      ...ACTION,
+      action_id: "0192f0aa-0000-7000-8000-00000000b001",
+      undoable_until: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    };
+    stubCopilot({
+      chunks: [
+        `event: action\ndata: ${JSON.stringify(undoable)}\n\n`,
+        `event: action\ndata: ${JSON.stringify({ ...ACTION, tool: "agent_rename" })}\n\n`,
+        'event: done\ndata: {"disclosure":null,"metered":true}\n\n',
+      ],
+    });
+    renderPanel();
+    await ask("create an outbound agent called raghava outbound");
+
+    expect(
+      (await screen.findAllByRole("button", { name: /^Undo — / })).length,
+    ).toBe(1);
+  });
+
+  it("FOLLOWS A BACKGROUND JOB the answer started", async () => {
+    stubCopilot({
+      chunks: [
+        'event: job\ndata: {"job_id":"0192f0aa-0000-7000-8000-00000000c001","status":"queued","goal":"Mark yesterday\'s leads contacted","detail":"Started in the background."}\n\n',
+        'event: done\ndata: {"disclosure":null,"metered":true}\n\n',
+      ],
+    });
+    renderPanel();
+    await ask("mark all of yesterday's leads as contacted");
+
+    expect(await screen.findByText("Mark yesterday's leads contacted")).toBeTruthy();
   });
 });
 

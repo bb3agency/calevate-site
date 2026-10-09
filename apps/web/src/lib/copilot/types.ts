@@ -42,7 +42,7 @@ export interface CopilotField {
    * The field's stable, semantic id — and, wherever the screen has one, the DOM `id` of
    * the control itself.
    *
-   * The same idea as `lib/api/intake.ts::intakeFieldId`, which derives `#intake-services-1
+   * The same idea as `lib/api/businessProfile.ts::profileFieldId`, which derives `#profile-services-1
    * -price_inr` from the wire path `services.1.price_inr`, and the same reason: a control
    * and the thing said about it must not be given two different names. It is what the
    * model names in a `fill`, what `apply` dispatches on, and what the highlight looks up.
@@ -246,6 +246,11 @@ export interface CopilotProposal {
    */
   reversal: string;
   expires_at: string;
+  /**
+   * The step-up string an ADMIN action's confirm must send as `X-Confirm-Action`, or
+   * absent/`null` (D-694). The same string the console button for that action sends.
+   */
+  confirm_action?: string | null;
 }
 
 /**
@@ -276,6 +281,16 @@ export interface CopilotAction {
   applied: boolean;
   reversal: string;
   where: string;
+  /**
+   * The activity-log row this action wrote (D-694), which an Undo posts back. Absent or
+   * `null` on a receipt with nothing behind it to undo.
+   */
+  action_id?: string | null;
+  /**
+   * Until when Undo is offered — an ISO instant — or `null` when there is nothing to undo
+   * (`applied: false`). The receipt hides its Undo button once this has passed.
+   */
+  undoable_until?: string | null;
 }
 
 /**
@@ -354,4 +369,18 @@ export interface CopilotStep {
    * that would claim a lookup happened instantly when no lookup happened.
    */
   elapsed_ms?: number | null;
+}
+
+/**
+ * A request handed to a BACKGROUND JOB — the `job` SSE frame (D-694).
+ *
+ * The job keeps working after the answer ends. The panel follows it on
+ * `GET /v1/copilot/jobs/{job_id}`; anything irreversible it reaches waits in the Approvals
+ * inbox rather than happening.
+ */
+export interface CopilotJobFrame {
+  job_id: string;
+  status: "queued" | "running" | "done" | "failed" | "cancelled";
+  goal: string;
+  detail: string;
 }

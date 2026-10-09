@@ -169,11 +169,9 @@ def usage_from_body(body: Mapping[str, Any]) -> TokenUsage | None:
 #:   (`generativelanguage.googleapis.com/v1beta/openai/chat/completions` probed from this
 #:   container, 27 Aug 2026): it accepts the OpenAI `messages` body and authenticates by
 #:   `Authorization: Bearer <API_KEY>`, exactly as `openai` does — the native
-#:   `:generateContent` surface 404'd, so this compat path is the one that answers. It runs
-#:   NON-STREAMED ONLY: Gemini's streamed tool-call deltas can carry a `None` `index`
-#:   (`openai/openai-python#2806`, read 27 Aug 2026), which `_ToolCallAccumulator` addresses
-#:   BY index, so `stream()` refuses this dialect rather than corrupt the accumulation.
-#:   `complete()` with tools returns a clean full `tool_calls` array.
+#:   `:generateContent` surface 404'd, so this compat path is the one that answers. It
+#:   STREAMS since D-694: `stream()` treats an index-less tool-call delta as a whole call on
+#:   this dialect (see `stream` for the evidence and its limit).
 ChatDialect = Literal["openai", "sarvam", "google"]
 
 
@@ -356,7 +354,11 @@ def _request_body(
         # If a Sarvam stream turns out to end without one, `ChatOutcome.usage` is `None`,
         # which throughout this repository means "we do not know what this cost" and never
         # "it was free" — the safe direction, and the one hard rule 7 requires.
-        if leg.dialect == "openai":
+        # `google` takes it too: Google's own example sends `stream_options:
+        # {"include_usage": true}` with `stream: true` (ai.google.dev/gemini-api/docs/openai,
+        # last updated 2026-09-02, read 9 Oct 2026). Without it a streamed Gemini answer
+        # would carry no usage block and every one would be unmeterable.
+        if leg.dialect in ("openai", "google"):
             body["stream_options"] = dict(STREAM_OPTIONS)
     return body
 
@@ -504,8 +506,12 @@ class _ToolCallAccumulator:
     breaks the first time a provider splits a function NAME across two frames.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, whole_calls_without_index: bool = False) -> None:
         self._by_index: dict[int, dict[str, Any]] = {}
+        self._whole_calls_without_index = whole_calls_without_index
+        #: Slots for index-less whole calls, numbered after any indexed ones so the two
+        #: kinds can never share an address.
+        self._unindexed = 0
 
     def feed(self, deltas: object) -> None:
         if not isinstance(deltas, list):
@@ -515,6 +521,12 @@ class _ToolCallAccumulator:
                 continue
             index = entry.get("index")
             if not isinstance(index, int):
+                if self._whole_calls_without_index:
+                    # THE GOOGLE DIALECT (D-694): an index-less entry is a WHOLE call, given a
+                    # slot of its own. See `stream` for the evidence and what bounds a miss.
+                    self._unindexed += 1
+                    self._merge(self._by_index.setdefault(1_000_000 + self._unindexed, {}), entry)
+                    continue
                 # No index, no address. A frame we cannot place is dropped rather than
                 # appended to whatever came last — mis-attributing an argument fragment is
                 # worse than losing it, because the loss is visible as a JSON parse
@@ -600,25 +612,25 @@ async def stream(
     and `choices` off the ones that have any — a single pass that does not need to know
     which frame is last.
 
-    **THE `google` DIALECT IS REFUSED HERE, LOUD, BEFORE A PACKET LEAVES (D-478).** Gemini's
-    streamed `tool_calls` deltas can carry a `None` `index` (`openai/openai-python#2806`, read
-    27 Aug 2026), and `_ToolCallAccumulator` addresses fragments BY `index` — a `None` there
-    is dropped, silently losing a tool call's arguments on a phone-adjacent UI. The Gemini leg
-    therefore runs NON-STREAMED (`complete()`), which returns a clean full `tool_calls` array;
-    a caller that reaches for `stream()` on it is a bug we make fail rather than corrupt.
+    **THE `google` DIALECT STREAMS TOO (D-694, superseding D-478's non-streamed leg).**
+    Google documents streaming (`stream: true`) and function calling on its OpenAI-compatible
+    endpoint, and `stream_options: {"include_usage": true}` with `stream: true`
+    (ai.google.dev/gemini-api/docs/openai, "Last updated 2026-09-02 UTC", read 9 Oct 2026).
+    That page does NOT say how a streamed tool call is shaped, and the reports that exist are
+    users', not Google's: tool-call deltas arrive WITHOUT `index` (openai/openai-python#2806,
+    opened 26 Dec 2025) with "all arguments present at once (not sent as delta in parts)" and
+    sometimes an empty `id` (discuss.ai.google.dev threads 58174 and 59886). So on this
+    dialect an index-less entry is treated as a WHOLE call in a slot of its own, and an empty
+    `id` is synthesised by `_tool_calls_of`. If a call were ever fragmented without an index,
+    each fragment would become its own call with unparseable arguments and fail the tool's
+    JSON parse as an ordinary refusal — visible, never a silently mis-joined call. The
+    fragmented-without-index case is UNKNOWN (OPERATIONS §2 gate 61).
     """
-    if leg.dialect == "google":
-        raise ValueError(
-            "the 'google' chat dialect must not be streamed (D-478): Gemini's streamed "
-            "tool-call deltas can carry a None index (openai/openai-python#2806), which "
-            "_ToolCallAccumulator addresses by index — use complete() instead, which returns "
-            "a full tool_calls array in one non-streamed response"
-        )
     owns_client = client is None
     http = client or httpx.AsyncClient(
         timeout=httpx.Timeout(timeout_s, connect=timeout_s), follow_redirects=False
     )
-    accumulator = _ToolCallAccumulator()
+    accumulator = _ToolCallAccumulator(whole_calls_without_index=leg.dialect == "google")
     content: list[str] = []
     finish_reason: str | None = None
     usage: TokenUsage | None = None

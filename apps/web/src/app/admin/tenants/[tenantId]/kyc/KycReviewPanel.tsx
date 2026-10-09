@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { Card, FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
+import { Card, FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, formatIST } from "@/components/ui";
 import type { AdminAccess } from "@/app/admin/access";
 import { lookup } from "@/lib/lookup";
 import {
@@ -19,13 +19,17 @@ const KIND_LABEL: Record<string, string> = {
   gst: "GST certificate",
   incorporation: "Certificate of Incorporation",
   udyam: "Udyam certificate",
-  aadhaar: "Aadhaar (masked copy)",
+  aadhaar: "Aadhaar copy (no longer accepted)",
   pan_card: "PAN card",
 };
 
+/** The Income Tax Department's free "Verify Your PAN" service (D-696). */
+export const VERIFY_PAN_URL = "https://eportal.incometax.gov.in/iec/foservices/#/pre-login/verifyYourPAN";
+
 /**
  * D-692 review: the client's declared details, the files on record, approve or reject, and
- * "require DigiLocker". The owner's ID file is deleted by the server the moment a decision
+ * "require DigiLocker". A document review is approved only after the reviewer has matched the
+ * PAN, name and date of birth at Income Tax and ticked that it matched (D-696). The owner's ID file is deleted by the server the moment a decision
  * is recorded, so the reviewer opens it before deciding.
  */
 export function KycReviewPanel({ tenantId, access }: { tenantId: string; access: AdminAccess }) {
@@ -44,10 +48,12 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
   const review = useReviewKyc(tenantId);
   const [documentRef, setDocumentRef] = useState("");
   const [reason, setReason] = useState("");
+  const [panChecked, setPanChecked] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
   const [openError, setOpenError] = useState<unknown>(null);
   const waiting = record.status === "submitted" || record.status === "in_review";
   const business = record.documents.find((document) => document.slot === "business");
+  const documentReview = record.kyc_path === "manual";
 
   return (
     <Card title="Verification review">
@@ -61,6 +67,18 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
           label="Owner ID"
           value={record.owner_id_type ? `${lookup(ID_TYPE_LABEL, record.owner_id_type) ?? record.owner_id_type} ${record.owner_id_masked ?? ""}` : "—"}
         />
+        {record.owner_pan_checked && (
+          <Fact
+            label="PAN check"
+            value={[
+              "PAN details matched at Income Tax",
+              record.owner_pan_checked_by && `checked by ${record.owner_pan_checked_by}`,
+              record.owner_pan_checked_at && `on ${formatIST(record.owner_pan_checked_at)}`,
+            ]
+              .filter(Boolean)
+              .join(", ")}
+          />
+        )}
         {record.verified_name && (
           <Fact
             label="DigiLocker name"
@@ -119,15 +137,37 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
 
       {waiting && (
         <div className="mt-4 space-y-3">
-          {record.owner_id_type === "aadhaar" && (
-            <NoticeBox tone="warn" title="Reject an unmasked Aadhaar">
-              <p className="mt-1">Only the masked copy (last four digits visible) is acceptable.</p>
+          {documentReview && (
+            <NoticeBox tone="neutral" title="Check the PAN at Income Tax before approving">
+              <ol className="mt-1 list-decimal space-y-1 pl-5">
+                <li>Open the PAN card file and read the PAN, the full name and the date of birth.</li>
+                <li>
+                  Enter them at{" "}
+                  <a href={VERIFY_PAN_URL} target="_blank" rel="noopener noreferrer" className="underline">
+                    Income Tax: Verify Your PAN
+                  </a>{" "}
+                  with your own mobile number, and type the OTP it sends. One mobile can check at most 5 PANs a day.
+                </li>
+                <li>Approve only if it says the details match. If they do not, reject and say which detail differs.</li>
+              </ol>
+              <p className="mt-1">We store only that the details matched, who checked and when; never the date of birth.</p>
             </NoticeBox>
           )}
           {business && business.kind !== "gst" && (
             <label className="block">
               <span className={FIELD_LABEL}>Registry number checked (CIN, LLPIN or Udyam)</span>
               <input className={FIELD} value={documentRef} onChange={(event) => setDocumentRef(event.target.value)} />
+            </label>
+          )}
+          {documentReview && (
+            <label className="flex items-start gap-2 text-sm text-ink">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={panChecked}
+                onChange={(event) => setPanChecked(event.target.checked)}
+              />
+              <span>PAN details matched at Income Tax (PAN, full name and date of birth)</span>
             </label>
           )}
           <label className="block">
@@ -138,8 +178,15 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
             <button
               type="button"
               className={PRIMARY_BUTTON}
-              disabled={!access.allowed || review.isPending}
-              onClick={() => review.mutate({ decision: "approve", document_ref: documentRef.trim() || null, reason: null })}
+              disabled={!access.allowed || review.isPending || (documentReview && !panChecked)}
+              onClick={() =>
+                review.mutate({
+                  decision: "approve",
+                  document_ref: documentRef.trim() || null,
+                  reason: null,
+                  pan_checked: documentReview && panChecked,
+                })
+              }
             >
               Approve
             </button>
@@ -147,7 +194,7 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
               type="button"
               className={SECONDARY_BUTTON}
               disabled={!access.allowed || review.isPending || !reason.trim()}
-              onClick={() => review.mutate({ decision: "reject", document_ref: null, reason: reason.trim() })}
+              onClick={() => review.mutate({ decision: "reject", document_ref: null, reason: reason.trim(), pan_checked: false })}
             >
               Reject
             </button>

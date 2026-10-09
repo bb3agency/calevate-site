@@ -48,8 +48,8 @@ SARVAM_LEG = chat.ChatLeg(
 )
 
 #: Gemini via Google's OpenAI-compat surface (D-478). Same body and same `Authorization:
-#: Bearer` envelope as `openai` (VERIFIED-LIVE, see `chat.ChatDialect`), but NON-STREAMED
-#: only — the streaming refusal is the property that keeps `#2806` out of the accumulator.
+#: Bearer` envelope as `openai` (VERIFIED-LIVE, see `chat.ChatDialect`); it streams since
+#: D-694, with index-less tool-call deltas read as whole calls (`#2806`).
 GOOGLE_LEG = chat.ChatLeg(
     url="https://example.invalid/v1beta/openai/chat/completions",
     api_key="k",
@@ -293,32 +293,69 @@ async def test_a_google_completion_returns_a_full_tool_calls_array() -> None:
     assert outcome.usage == chat.TokenUsage(prompt_tokens=12, output_tokens=4)
 
 
-async def test_streaming_the_google_dialect_is_refused_loud() -> None:
-    """`stream()` on the Gemini leg RAISES rather than corrupt the by-index accumulator.
+async def test_the_google_dialect_streams_whole_tool_calls_without_an_index() -> None:
+    """D-694: Gemini streams, and an index-less tool-call delta is ONE WHOLE CALL.
 
-    Gemini's streamed tool-call deltas can carry a `None` `index` (`openai/openai-python
-    #2806`, read 27 Aug 2026); `_ToolCallAccumulator` drops a fragment with no index, silently
-    losing a tool call's arguments. So the leg runs non-streamed and a caller that reaches for
-    `stream()` is made to fail loud — no request is issued.
+    The shape users report from Google's OpenAI-compatible stream (openai/openai-python
+    #2806; discuss.ai.google.dev 58174): no `index`, arguments complete in one delta,
+    sometimes an empty `id`, and `finish_reason: "stop"` rather than `"tool_calls"`. Two such
+    calls must stay two calls, the empty id must be synthesised, and the usage block (asked
+    for with `stream_options`) must be read.
 
-    FAILS IF: the refusal is removed, or a fourth dialect is added to the bearer branch
-    without deciding whether it, too, is stream-unsafe.
+    FAILS IF: the accumulator drops index-less entries on this dialect again, merges two of
+    them into one, or the request stops asking for usage.
     """
-    issued = False
+    seen: dict[str, Any] = {}
+    body = _sse(
+        _chunk(choices=[{"index": 0, "delta": {"content": "Looking"}}]),
+        _chunk(
+            choices=[
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "id": "",
+                                "type": "function",
+                                "function": {"name": "leads_search", "arguments": '{"q":"a"}'},
+                            },
+                            {
+                                "id": "g2",
+                                "type": "function",
+                                "function": {"name": "calls_recent", "arguments": "{}"},
+                            },
+                        ]
+                    },
+                    "finish_reason": "stop",
+                }
+            ]
+        ),
+        _chunk(choices=[], usage={"prompt_tokens": 7, "completion_tokens": 3}),
+    )
 
-    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover - never reached
-        nonlocal issued
-        issued = True
-        return httpx.Response(200, content=b"data: [DONE]\n\n")
+    async def _bytes() -> AsyncIterator[bytes]:
+        yield body
 
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, content=_bytes())
+
+    events: list[chat.StreamEvent] = []
     async with _client(handler) as client:
-        with pytest.raises(ValueError, match="must not be streamed"):
-            async for _ in chat.stream(
-                GOOGLE_LEG, [{"role": "user", "content": "q"}], timeout_s=1, client=client
-            ):
-                pass
+        async for event in chat.stream(
+            GOOGLE_LEG, [{"role": "user", "content": "q"}], timeout_s=1, client=client
+        ):
+            events.append(event)
 
-    assert issued is False, "the refusal must fire before any request leaves"
+    assert seen["body"]["stream"] is True
+    assert seen["body"]["stream_options"] == {"include_usage": True}
+    assert [event.text for event in events if event.text] == ["Looking"]
+    outcome = events[-1].outcome
+    assert outcome is not None
+    assert [call.name for call in outcome.tool_calls] == ["leads_search", "calls_recent"]
+    assert outcome.tool_calls[0].id.startswith("synthetic-")
+    assert outcome.tool_calls[0].arguments == '{"q":"a"}'
+    assert outcome.usage == chat.TokenUsage(prompt_tokens=7, output_tokens=3)
 
 
 async def test_a_streamed_request_asks_for_usage() -> None:

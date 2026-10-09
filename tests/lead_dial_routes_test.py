@@ -35,7 +35,7 @@ from apps.api.agents import service as agent_service
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.compliance.service import add_to_dnc
 from apps.api.core.errors import ProblemError
-from apps.api.crm import routes
+from apps.api.crm import lead_dial, routes
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
@@ -1123,8 +1123,9 @@ async def test_a_failure_after_the_phone_rang_does_not_let_the_same_key_dial_aga
     # per-test, not per-call, so it would also revert the autouse `_daytime` clock pin —
     # and the retry below would then be refused by the calling-hours gate instead of
     # dialling, i.e. a green test that proves nothing.
-    original_write_audit = routes.write_audit
-    routes.write_audit = refuse_to_audit  # type: ignore[assignment]
+    # The audit write lives in `crm/lead_dial.place_lead_call`, which the route calls.
+    original_write_audit = lead_dial.write_audit
+    lead_dial.write_audit = refuse_to_audit  # type: ignore[assignment]
     # `raise_app_exceptions=False`: this failure is deliberately NOT one the error ladder
     # has a rung for — an unhandled exception is exactly what the audit report names —
     # and the test is about what the SERVER is left holding, not about the 500.
@@ -1139,7 +1140,7 @@ async def test_a_failure_after_the_phone_rang_does_not_let_the_same_key_dial_aga
 
     # THE RETRY, same key, with the audit write working again — i.e. the client doing
     # exactly what an Idempotency-Key is for.
-    routes.write_audit = original_write_audit  # type: ignore[assignment]
+    lead_dial.write_audit = original_write_audit  # type: ignore[assignment]
     async with _client() as http:
         second = await http.post(
             f"/v1/leads/{lead_id}/call",

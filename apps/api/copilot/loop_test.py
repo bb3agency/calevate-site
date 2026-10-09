@@ -501,26 +501,27 @@ def google_only(monkeypatch: pytest.MonkeyPatch) -> None:
 def _scripted_complete(
     monkeypatch: pytest.MonkeyPatch, outcomes: Sequence[chat.ChatOutcome]
 ) -> list[dict[str, Any]]:
-    """Replace `chat.complete` with a script, AND make `chat.stream` explode — so a test on
-    the Gemini leg proves it is NON-STREAMED (the whole point of D-478's transport choice)
-    rather than merely not asserting a stream."""
+    """Replace `chat.stream` with a script, AND make `chat.complete` explode — so a test on
+    the Gemini leg proves it STREAMS (D-694, superseding D-478's non-streamed leg). Each
+    scripted outcome is streamed the way `chat.stream` yields it: its text as one fragment,
+    then the terminal outcome."""
     calls: list[dict[str, Any]] = []
     remaining = list(outcomes)
 
-    async def _complete(
+    async def _stream(
         leg: chat.ChatLeg, messages: Sequence[Any], **kwargs: Any
-    ) -> chat.ChatOutcome:
+    ) -> AsyncIterator[chat.StreamEvent]:
         calls.append({"leg": leg, "messages": [dict(m) for m in messages], "kwargs": kwargs})
-        return remaining.pop(0) if remaining else chat.ChatOutcome(content="…")
+        outcome = remaining.pop(0) if remaining else chat.ChatOutcome(content="…")
+        if outcome.content:
+            yield chat.StreamEvent(text=outcome.content)
+        yield chat.StreamEvent(outcome=outcome)
 
-    def _forbidden_stream(*args: Any, **kwargs: Any) -> AsyncIterator[chat.StreamEvent]:
-        # A plain function that raises the instant it is CALLED — `chat.stream(...)` on the
-        # Gemini path would blow up before iteration, which is louder than an assertion that
-        # only fires if the test remembers to iterate.
-        raise AssertionError("the Gemini copilot leg must never stream (openai/openai-python#2806)")
+    async def _forbidden_complete(*args: Any, **kwargs: Any) -> chat.ChatOutcome:
+        raise AssertionError("the Gemini copilot leg streams since D-694")
 
-    monkeypatch.setattr(chat, "complete", _complete)
-    monkeypatch.setattr(chat, "stream", _forbidden_stream)
+    monkeypatch.setattr(chat, "stream", _stream)
+    monkeypatch.setattr(chat, "complete", _forbidden_complete)
     return calls
 
 
@@ -562,7 +563,7 @@ async def test_the_gemini_leg_fills_a_field_non_streamed_on_the_accounts_own_mod
     # builder, never a host literal (the residency guard grants that literal to engine.py
     # alone; spelling it here would be a second constructor it refuses).
     assert leg.url == f"{google_openai_compat_base_url()}/chat/completions"
-    # Tools were sent (field-filling works), and no `stream` — this is `chat.complete`.
+    # Tools were sent (field-filling works), on the streamed turn (D-694).
     assert "tools" in calls[0]["kwargs"]
     # THE SPEND VALVE TRAVELS ON THIS LEG TOO, and this assertion used to say the opposite
     # ("no `max_tokens` on this leg, deliberately"). It was written on the premise that a
@@ -1386,16 +1387,13 @@ async def test_a_turn_that_fills_a_field_and_opens_a_screen_does_neither(
     assert "would be lost by the move" in str(tool_messages[-1]["content"])
 
 
-async def test_the_admin_realm_is_offered_no_way_to_open_a_client_screen(
+async def test_the_admin_realm_opens_only_its_own_screens(
     azure_only: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`screens.py` is the CLIENT console's inventory and there is no admin one, so the tool
-    is not in that realm's array — and a model that names it anyway is told there is no such
-    tool rather than being silently ignored."""
-    client = [tool["function"]["name"] for tool in service.tool_array("client")]
+    """D-694: the admin realm has its own `open_screen`, over the ADMIN sidebar. A client
+    screen name is refused back to the model rather than navigated to."""
     admin = [tool["function"]["name"] for tool in service.tool_array("admin")]
-    assert "open_screen" in client
-    assert "open_screen" not in admin
+    assert admin.count("open_screen") == 1
 
     _fake_tools(monkeypatch, {})
     sent = _scripted(

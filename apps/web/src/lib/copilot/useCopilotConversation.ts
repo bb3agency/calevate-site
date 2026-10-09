@@ -11,6 +11,7 @@ import { redactForWire } from "./redaction";
 import { askCopilot, type CopilotAskBody } from "./stream";
 import type {
   CopilotAction,
+  CopilotJobFrame,
   CopilotFillItem,
   CopilotNavigation,
   CopilotProposal,
@@ -138,6 +139,8 @@ export interface CopilotConversation {
    * person it was made for.
    */
   actions: CopilotAction[];
+  /** Background jobs started from this panel, oldest first (D-694). */
+  jobs: CopilotJobFrame[];
   /**
    * THE SCREEN THIS ANSWER ASKED TO OPEN, or `null`. D-524.
    *
@@ -298,6 +301,9 @@ export function useCopilotConversation(
   const [batch, setBatch] = useState<CopilotBatch | null>(null);
   const [proposal, setProposal] = useState<CopilotProposal | null>(null);
   const [actions, setActions] = useState<CopilotAction[]>([]);
+  // BACKGROUND JOBS this panel started (D-694). NOT cleared by the next question — a job
+  // outlives the answer that started it, and its card is how the person follows it.
+  const [jobs, setJobs] = useState<CopilotJobFrame[]>([]);
   const [navigation, setNavigation] = useState<CopilotNavigation | null>(null);
   const [steps, setSteps] = useState<CopilotStep[]>([]);
 
@@ -452,6 +458,7 @@ export function useCopilotConversation(
     setBatch(null);
     setProposal(null);
     setActions([]);
+    setJobs([]);
     setNavigation(null);
     setSteps([]);
     clearFilled();
@@ -619,6 +626,13 @@ export function useCopilotConversation(
             // placeholder to restore.
             setActions((previous) => [...previous, performed]);
           },
+          onJob: (started) => {
+            setJobs((previous) =>
+              previous.some((job) => job.job_id === started.job_id)
+                ? previous
+                : [...previous, started],
+            );
+          },
           onNavigate: (destination) => {
             // HELD, NOT PERFORMED. The panel moves once the answer has finished arriving —
             // see `navigation` on the interface for why navigating from inside the stream
@@ -723,6 +737,7 @@ export function useCopilotConversation(
     batch,
     proposal,
     actions,
+    jobs,
     navigation,
     clearNavigation,
     steps,

@@ -5,7 +5,7 @@ agent-publish time; **regenerated on KB change**. Answers ~80% with zero retriev
 FLOWS §7 puts "T0 recompilation" between the version bump and the engine KB sync.
 
 The second half of that sentence was not code. The block was compiled once, by the
-wizard's intake step (`admin/intake.py`), and nothing rebuilt it when a client's
+admin wizard's intake step, and nothing rebuilt it when a client's
 knowledge was approved: `kb.publish_source` minted no prompt version and touched no
 prompt. So approving new knowledge changed what the agent could RETRIEVE (T3, inside
 the engine per D-33) and never what it knows at zero latency — the tier TRD §6 says
@@ -16,20 +16,15 @@ quoting the price compiled at onboarding.
 intake/KB", so it has two halves and each half has exactly one owner:
 
     [T0 FACTS]
-    Hours: mon 09:30-18:00; sun closed          <- the intake half (admin/intake.py)
+    Hours: mon 09:30-18:00; sun closed          <- the business half (the profile)
     Service: Root canal — ₹8000
     Published knowledge:                        <- T0_KNOWLEDGE_MARKER
-    - Fees: A consultation costs 500 rupees.    <- the knowledge half (this module)
+    - Fees: A consultation costs 500 rupees.    <- the knowledge half (published sources)
 
-The intake half is CARRIED FORWARD from the version the agent points at, never
-re-derived. Its input is the answer sheet on `organizations.intake`, which belongs to
-the wizard; a second compiler for the same facts is how two screens start disagreeing
-about a clinic's opening time. Carrying it forward is also what keeps escalation phone
-numbers out of the prompt: they are the one intake answer the compiler deliberately
-drops (`admin/intake.py:compile_t0_facts`, asserted by `tests/intake_test.py`), and a
-recompile that rebuilt the block from `agents.escalation_config` would be the hole in
-that assertion. Nothing in this module reads that column, and the block it produces
-contains no byte this system did not already put in a prompt.
+Both halves are compiled fresh on every recompile, from the client's one business
+profile (`tenancy/business_profile.fact_lines`, D-695) and its live knowledge. Every
+agent of the client therefore carries the same facts. Escalation numbers never reach the
+block: `fact_lines` does not read contacts.
 
 **A recompile is a NEW version, never an edit of the live one.** Same doctrine as
 `agents/prompts.py` and FLOWS §7's own rollback: `prompt_versions` is immutable
@@ -69,6 +64,7 @@ from apps.api.agents.service import publish_agent
 from apps.api.agents.t0_block import T0_HEADER, T0_KNOWLEDGE_MARKER, block_of, intake_lines
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.tenancy.business_profile import profile_fact_lines
 
 log = get_logger(__name__)
 
@@ -80,7 +76,7 @@ log = get_logger(__name__)
 KNOWLEDGE_CHAR_BUDGET = 1500
 
 # Where a freshly compiled block is inserted when the prompt has no block yet — the
-# position PROMPT-GUIDE §2's template order puts it in (mirrors `admin/intake.py`).
+# position PROMPT-GUIDE §2's template order puts it in.
 _INSERT_BEFORE = ("[TASK FLOW]", "[TOOLS]", "[GUARDRAILS]", "[WRAP]")
 
 _NOTES = "T0 recompiled from published knowledge (FLOWS §7)"
@@ -160,22 +156,21 @@ def knowledge_lines(facts: Sequence[KnowledgeFact]) -> tuple[list[str], int]:
 
 
 def intake_half(block: str | None) -> list[str]:
-    """The lines of a block that are NOT this module's — everything the intake step
-    compiled, header excluded. One spelling with `t0_block.intake_lines`, which the
-    business-facts document is cut with too.
+    """The business lines of a block, header excluded. One spelling with
+    `t0_block.intake_lines`, which the business-facts document is cut with too.
     """
     return intake_lines(block)
 
 
-def compile_block(*, previous: str | None, knowledge: Sequence[KnowledgeFact]) -> CompiledT0:
-    """`previous` block + today's live knowledge → the block the agent should carry.
+def compile_block(*, facts: Sequence[str], knowledge: Sequence[KnowledgeFact]) -> CompiledT0:
+    """The business profile's lines + today's live knowledge → the block an agent carries.
 
-    Deterministic: the same previous block and the same knowledge produce a
-    byte-identical result, which is what lets `recompile_t0` mint nothing when a
-    publish changed no fact (a prompt version per click turns the history into noise
-    and re-publishes a live agent for no reason).
+    Deterministic: the same profile and the same knowledge produce a byte-identical
+    result, which is what lets `recompile_t0` mint nothing when nothing changed (a prompt
+    version per click turns the history into noise and re-publishes a live agent for no
+    reason).
     """
-    lines = [T0_HEADER, *intake_half(previous)]
+    lines = [T0_HEADER, *facts]
     knowledge_half, skipped = knowledge_lines(knowledge)
     if knowledge_half:
         lines.append(T0_KNOWLEDGE_MARKER)
@@ -191,13 +186,6 @@ def splice_t0_block(body: str | None, block: str, *, identity: str) -> str:
     ones is not a merge, it is an agent that quotes two opening times. Everything
     outside the block — the guardrails an operator wrote by hand, the task flow, the
     wrap — is not this compiler's to touch.
-
-    The twin of `admin/intake.py:splice_t0_block`, and `tests/t0_recompile_test.py`
-    pins them to identical output. Not imported from there because `admin` sits above
-    both `agents` and `kb` and imports both: reaching upwards would make
-    `admin.intake → kb.service → agents.t0 → admin.intake` a cycle. The end state is
-    the arrow the other way — intake calling this one — which is a one-line change in
-    a module this wave does not own.
     """
     if not body or not body.strip():
         return f"[IDENTITY] {identity}\n{block}\n"
@@ -298,7 +286,8 @@ async def recompile_t0(
     """
     agent = await _agent_state(session, agent_id)
     previous = block_of(agent.body) or agent.compiled
-    compiled = compile_block(previous=previous, knowledge=knowledge)
+    facts = await profile_fact_lines(session, tenant_id=tenant_id)
+    compiled = compile_block(facts=facts, knowledge=knowledge)
 
     if compiled.block == previous and agent.body and compiled.block in agent.body:
         log.info("t0_unchanged", extra={"agent_id": str(agent_id)})

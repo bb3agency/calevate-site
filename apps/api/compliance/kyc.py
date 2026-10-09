@@ -179,9 +179,16 @@ class KycRecord:
     digilocker_required_at: datetime | None = None
     digilocker_verified_at: datetime | None = None
     name_match: bool | None = None
-    # Which owner ID proved the person (`aadhaar` | `pan`) and that ID masked.
+    # Which owner ID proved the person and that ID masked: `pan` on the manual path,
+    # `aadhaar` or `pan` through DigiLocker (D-696).
     owner_id_type: str | None = None
     owner_id_masked: str | None = None
+    # D-696: the reviewer matched the PAN, name and date of birth at the Income Tax "Verify
+    # Your PAN" service before approving. Who and when travel with it; the date of birth
+    # the reviewer typed there is never stored.
+    owner_pan_checked: bool = False
+    owner_pan_checked_at: datetime | None = None
+    owner_pan_checked_by_admin_id: UUID | None = None
 
     @property
     def is_verified(self) -> bool:
@@ -227,7 +234,8 @@ _SELECT = (
     "verification_source, verification_provider, verification_reference, verified_name, "
     "kyc_path, legal_business_name, gst_registered, gstin, digilocker_required, "
     "digilocker_required_reason, digilocker_required_at, digilocker_verified_at, name_match, "
-    "owner_id_type, owner_id_masked "
+    "owner_id_type, owner_id_masked, owner_pan_checked, owner_pan_checked_at, "
+    "owner_pan_checked_by_admin_id "
     "FROM kyc_records WHERE tenant_id = :tid"
 )
 
@@ -271,6 +279,9 @@ async def read_kyc(session: AsyncSession, *, tenant_id: UUID) -> KycRecord:
         name_match=row[21],
         owner_id_type=row[22],
         owner_id_masked=row[23],
+        owner_pan_checked=bool(row[24]),
+        owner_pan_checked_at=row[25],
+        owner_pan_checked_by_admin_id=row[26],
     )
 
 
@@ -464,15 +475,30 @@ async def submit_for_manual_review(
 ) -> None:
     """Move the record to `submitted` on the manual path, with the owner ID's type and
     masked number. The caller has checked that the details and both documents are on
-    file."""
+    file. A new submission is a new review, so an earlier PAN check is cleared."""
     await session.execute(
         text(
             "UPDATE kyc_records SET status = 'submitted', kyc_path = 'manual', "
             "  owner_id_type = :id_type, owner_id_masked = :masked, "
+            "  owner_pan_checked = false, owner_pan_checked_at = NULL, "
+            "  owner_pan_checked_by_admin_id = NULL, "
             "  rejection_reason = NULL, submitted_at = now(), updated_at = now() "
             "WHERE tenant_id = :tid"
         ),
         {"tid": tenant_id, "id_type": owner_id_type, "masked": owner_id_masked},
+    )
+
+
+async def record_owner_pan_check(session: AsyncSession, *, tenant_id: UUID, admin_id: UUID) -> None:
+    """Record that `admin_id` matched the owner's PAN, name and date of birth at the Income
+    Tax "Verify Your PAN" service just now (D-696). Only the fact, who and when."""
+    await session.execute(
+        text(
+            "UPDATE kyc_records SET owner_pan_checked = true, owner_pan_checked_at = now(), "
+            "  owner_pan_checked_by_admin_id = :admin, updated_at = now() "
+            "WHERE tenant_id = :tid"
+        ),
+        {"tid": tenant_id, "admin": admin_id},
     )
 
 
@@ -616,6 +642,7 @@ __all__ = [
     "read_kyc",
     "record_digilocker_completion",
     "record_kyc",
+    "record_owner_pan_check",
     "save_business_details",
     "set_digilocker_requirement",
     "submit_for_manual_review",

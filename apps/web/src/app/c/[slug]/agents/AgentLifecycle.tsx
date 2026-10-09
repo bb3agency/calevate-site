@@ -62,7 +62,10 @@ import {
   type LifecycleMove,
 } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
-import { useClientSession } from "@/lib/api/session";
+import { useClientRealm } from "@/lib/api/session";
+import { useBusinessProfile } from "@/lib/api/businessProfile";
+import { ApiProblem } from "@/lib/api/client";
+import { ProfileBlockers, blockersFromProblem } from "@/components/businessProfile/ProfileBlockers";
 
 interface MoveCopy {
   /** What the button says. */
@@ -132,8 +135,12 @@ export function AgentLifecycle({
   /** Show just these moves (the workspace header owns the others). */
   only?: readonly LifecycleMove[];
 }) {
-  const session = useClientSession();
+  const { session, href: realmHref } = useClientRealm();
+  const href = (path: string) => realmHref(`/c/${session.orgSlug}${path}`);
   const move = useAgentLifecycle(session, agent.id);
+  // What the business profile still lacks stops this agent going live (D-695): said
+  // before the button is pressed, with a link to each step, never as a silent failure.
+  const profile = useBusinessProfile(session);
   /* `org:manage`, the OWNER's own permission — NOT `agents:write`, which is admin-only and
      which neither client role holds. See the header of `lib/api/agents.ts`. */
   const write = useWriteAccess(
@@ -158,7 +165,19 @@ export function AgentLifecycle({
   return (
     <div className="space-y-4">
       <RestrictionNote reason={write.reason} />
-      {move.error && <ProblemNotice error={move.error} />}
+      {agent.status !== "live" && profile.data && (
+        <ProfileBlockers blockers={profile.data.blockers} href={href} />
+      )}
+      {move.error instanceof ApiProblem &&
+      blockersFromProblem(move.error.code, move.error.fields).length > 0 ? (
+        <ProfileBlockers
+          blockers={blockersFromProblem(move.error.code, move.error.fields)}
+          href={href}
+          lead="This agent cannot take calls until these are done."
+        />
+      ) : (
+        move.error && <ProblemNotice error={move.error} />
+      )}
 
       {moves.map((key) => {
         const copy = MOVE_COPY[key];

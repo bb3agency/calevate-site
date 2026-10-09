@@ -120,7 +120,10 @@ from apps.workers.carrier_recordings import (
     expire_carrier_recording,
     reconcile_carrier_recordings,
 )
+from apps.workers.client_actions import run_after_call_actions, run_client_action
+from apps.workers.copilot_jobs import run_copilot_job
 from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
+from apps.workers.copilot_routines import fire_due_routines
 from apps.workers.copilot_transcript import (
     TRANSCRIPT_SWEEP_MINUTE,
     sweep_ended_conversations,
@@ -149,6 +152,7 @@ from apps.workers.engine_workspaces import (
 )
 from apps.workers.fleet_walk import WalkShape, bounded, every_tick, fleet_wide
 from apps.workers.fx_pull import PULL_MINUTES, pull_fx_rate
+from apps.workers.healer import SCORE_MINUTES, healer_sweep, run_healer, score_agent_health
 from apps.workers.inbound_cutover import apply_inbound_credit_state
 from apps.workers.kb_aggregation import (
     DIGEST_HOUR,
@@ -189,6 +193,14 @@ from apps.workers.qa_sampling import draw_qa_samples
 from apps.workers.rate_card_notice import (
     fan_out_rate_card_notice,
     notify_rate_card_change,
+)
+from apps.workers.razorpay_jobs import (
+    AUTO_RECHARGE_MINUTES,
+    RECONCILE_HOUR_UTC,
+    RECONCILE_MINUTE,
+    reconcile_razorpay,
+    send_payment_notice,
+    sweep_auto_recharge,
 )
 from apps.workers.remetering import (
     SWEEP_MINUTE as REMETER_SWEEP_MINUTE,
@@ -240,6 +252,8 @@ FUNCTIONS: list[Any] = [
         # Person-level writes in a client's OWN voice platform workspace, from the outbox
         # (D-691): its do-not-call additions and a DPDP erasure of its contact.
         push_engine_dnc,
+        # An assistant background job (D-694), from the outbox (`copilot/jobs.create_job`).
+        run_copilot_job,
         erase_engine_contact,
         # Each client's own voice platform workspace (D-693): made, its business details
         # sent, offboarded when the account closes, and the old copy of an agent recreated
@@ -288,6 +302,13 @@ FUNCTIONS: list[Any] = [
         # unregistered name would DLQ every action's audit while the tool itself succeeded,
         # leaving invocations unlogged — the `check_job_wiring` shape.
         record_action_invocation,
+        # D-700. A client's slow in-call write (a CRM record, a sheet row) that the agent
+        # acknowledged on the call; unregistered, the caller would be told "noted" and
+        # nothing would be written.
+        run_client_action,
+        # D-700. A finished call's after-call actions (a thank-you WhatsApp, a CRM record),
+        # queued once per call by the post-call pipeline through the outbox.
+        run_after_call_actions,
         # D-170. Every one-time secret `apps/api/authn` mints is delivered by this job, so
         # an unregistered one means a reset link that is promised, queued, DLQ'd and never
         # sent — while the sign-in screen truthfully reports that an email was on its way.
@@ -314,6 +335,9 @@ FUNCTIONS: list[Any] = [
         # stated failure ("a client whose phone stops being answered because a top-up
         # lapsed is a client who leaves"). `check_job_wiring` shape 3.
         notify_low_balance,
+        # D-699. The client email for an auto-recharge or mandate event, published through
+        # the outbox by `billing/auto_recharge`. `check_job_wiring` shape 3.
+        send_payment_notice,
         # D-685. THE "YOUR TRIAL HAS STARTED" EMAIL, published by `trial_routes.open_trial`
         # through the outbox in the trial row's transaction. Unregistered, the outbox marks
         # the row published and arq drops it: `check_job_wiring` shape 3.
@@ -564,6 +588,21 @@ CRON_JOBS = [
         minute={TRANSCRIPT_SWEEP_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
+    # THE ASSISTANT'S ROUTINES (D-694, migration d3a7f5c19e42). Every minute, because the
+    # minute IS the resolution of the schedule a person picked ("weekdays at 9:00"), at :30s
+    # so it never shares a second with the :00 crowd. BOUNDED rather than a fleet walk: one
+    # untenanted indexed read of what is due, then at most `MAX_FIRES_PER_TICK` short tenant
+    # sessions. `max_tries` explicit for its neighbours' reason; retrying is safe because a
+    # fire locks the routine `SKIP LOCKED` and claims its slot under a unique key.
+    _cron(
+        traced_job(fire_due_routines),
+        walk=bounded(
+            "one untenanted read of due routines, then one tenant_session per due routine, "
+            "at most MAX_FIRES_PER_TICK"
+        ),
+        second={30},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # CROSS-CALL MEMORY: what a finished call taught us about the PERSON who rang (D-513).
     # Hourly at :50, clear of every other O(tenants) fan-out in this list, and the ceiling
     # (`caller_memory_distil.MAX_CALLS_PER_TICK`) is per tick — so the cadence IS the spend
@@ -633,7 +672,7 @@ CRON_JOBS = [
     # D-678: what the engine charged per call against what we metered from the attested
     # rate; alarms a drifted rate within the hour. A no-op on an engine with no billing view.
     _cron(
-        traced_job(reconcile_engine_charges),
+        traced_job(healer_sweep(reconcile_engine_charges)),
         walk=bounded("one paged vendor listing, then one route read and one tenant read per row"),
         minute=set(CHARGE_SWEEP_MINUTES),
         max_tries=WORKER_MAX_TRIES,
@@ -643,7 +682,7 @@ CRON_JOBS = [
     # on. This turns it back on, registers any agent left without one, and alarms. A no-op
     # on any other engine. Bounded per tick, on minutes no other walk uses.
     _cron(
-        traced_job(reconcile_engine_webhooks),
+        traced_job(healer_sweep(reconcile_engine_webhooks)),
         walk=bounded("one untenanted read, then one vendor round trip per route up to a budget"),
         minute=set(WEBHOOK_SWEEP_MINUTES),
         max_tries=WORKER_MAX_TRIES,
@@ -773,7 +812,7 @@ CRON_JOBS = [
     # should be measured in hours, and one small GET is not a load. Read-only; it alarms
     # and changes nothing, deliberately (see the job).
     _cron(
-        traced_job(reconcile_engine_numbers),
+        traced_job(healer_sweep(reconcile_engine_numbers)),
         walk=bounded(
             "one vendor listing per workspace (developer and each active client workspace) "
             "against one read per tenant"
@@ -786,7 +825,7 @@ CRON_JOBS = [
     # of tenants made before D-693) or whose provisioning is still owed is queued again,
     # at most PROVISION_SWEEP_BUDGET a tick.
     _cron(
-        traced_job(retry_engine_workspaces),
+        traced_job(healer_sweep(retry_engine_workspaces)),
         walk=bounded("one directory read, then at most 50 tenant sessions that queue a job"),
         hour={2},
         minute={52},
@@ -794,7 +833,7 @@ CRON_JOBS = [
     ),
     # And each client workspace read back: business details, our voice key, clone copies.
     _cron(
-        traced_job(sweep_engine_workspaces),
+        traced_job(healer_sweep(sweep_engine_workspaces)),
         walk=bounded("at most DEFAULT_WORKSPACE_BUDGET workspaces, resumed from a cursor"),
         hour={3},
         minute={8},
@@ -983,6 +1022,26 @@ CRON_JOBS = [
         minute={2, 12, 22, 32, 42, 52},
         max_tries=WORKER_MAX_TRIES,
     ),
+    # THE AUTO-HEALER (D-701). Every minute it opens incidents for open alarms a playbook
+    # answers, advances every due incident one step, pages the founder and tells clients
+    # about their line; the seven repair sweeps above run as its playbooks through
+    # `healer_sweep`. The scorer turns real calls into per-agent health four times an hour,
+    # two minutes after each fifteen-minute window closes, on minutes no other walk uses.
+    _cron(
+        traced_job(run_healer),
+        walk=bounded(
+            "one claimed batch of due incidents, the open alarm episodes, and the clients "
+            "owed a notice, each capped per tick"
+        ),
+        second={25},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    _cron(
+        traced_job(score_agent_health),
+        walk=fleet_wide("one tenant_session per organization, then one per affected agent"),
+        minute=set(SCORE_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
     _cron(
         traced_job(prune_reliability_tables),
         walk=bounded("one untenanted session, batched deletes"),
@@ -1005,7 +1064,7 @@ CRON_JOBS = [
     # defaults it to 1, so a sweep that gave up on its first failure would leave every
     # client's live agent unwatched with the console still green.
     _cron(
-        traced_job(sweep_engine_drift),
+        traced_job(healer_sweep(sweep_engine_drift)),
         walk=bounded("one claimed batch of drift candidates, capped per tick"),
         minute=set(SWEEP_MINUTES),
         max_tries=WORKER_MAX_TRIES,
@@ -1033,7 +1092,7 @@ CRON_JOBS = [
     # defaults it to 1, so a sweep that gave up on its first failure would leave every
     # client's published knowledge unwatched with the console still green.
     _cron(
-        traced_job(sweep_kb_drift),
+        traced_job(healer_sweep(sweep_kb_drift)),
         walk=bounded("one claimed batch of drift candidates, capped per tick"),
         minute=set(KB_SWEEP_MINUTES),
         max_tries=WORKER_MAX_TRIES,
@@ -1257,6 +1316,24 @@ CRON_JOBS = [
         traced_job(sweep_topup_settlement),
         walk=fleet_wide("one tenant_session per organization, under a time budget"),
         minute=set(SETTLEMENT_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-699. Auto-recharge: a wallet below its threshold gets ONE recharge started; a
+    # charge Razorpay never answered is failed; a mandate whose token webhook was lost is
+    # read back. Bounded: it walks opted-in tenants only.
+    _cron(
+        traced_job(sweep_auto_recharge),
+        walk=bounded("the auto_recharge_settings and pending-charge rows, one session each"),
+        minute=set(AUTO_RECHARGE_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-699. The daily Razorpay reconciliation: a captured payment whose webhook was lost
+    # is credited by the webhook's own path; anything unexplained alarms.
+    _cron(
+        traced_job(reconcile_razorpay),
+        walk=bounded("three Razorpay listings, then one session per unmatched payment"),
+        hour={RECONCILE_HOUR_UTC},
+        minute={RECONCILE_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     # UNBILLABLE DEBT, SWEPT HOURLY. A leg refused for want of an attested price is

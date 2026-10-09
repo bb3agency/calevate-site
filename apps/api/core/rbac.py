@@ -649,6 +649,17 @@ VIEW_AS_WITHHELD_ACTS: Mapping[str, str] = MappingProxyType(
             "Ask the client to accept it from their own console — an operator accepting it "
             "would evidence nothing about what they agreed to."
         ),
+        "integrations.connect": (
+            "Connecting, replacing or removing an account this business uses — its calendar, "
+            "CRM, WhatsApp, payment or API keys — is the owner's to do, and its secrets are "
+            "never shown to anyone here. Ask the owner to connect it from their own console; "
+            "you can set up the actions that use it."
+        ),
+        "actions.switch_on": (
+            "Switching on an action lets the agent act in this business's own systems on a "
+            "live call, and that is the owner's decision. You can set an action up and leave "
+            "it off; ask the owner to switch it on from their own console."
+        ),
         "leads.saved_view": (
             "A saved view belongs to one signed-in person of this account, and a view-as "
             "session is not one of them — there is no `users` row for it to belong to."

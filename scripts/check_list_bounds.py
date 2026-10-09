@@ -80,7 +80,48 @@ class BoundedByConstruction:
 
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
+    # --- D-697 the shared free-trial number -------------------------------------------------
+    "GET /v1/ops/trial-number": BoundedByConstruction(
+        by=(
+            "the numbers our ONE developer workspace holds unrecorded: what we rent, which "
+            "the ThinnestAI plan bounds, read through the engine's capped listing walk "
+            "(`engine/thinnest.py` `_LISTING_MAX_PAGES`)."
+        )
+    ),
+    # --- D-699 Razorpay payments ----------------------------------------------------------
+    "GET /v1/admin/payments/status": BoundedByConstruction(
+        by=(
+            "`subscribed_events` is the constant `billing.payments.SUBSCRIBED_EVENTS` (16); "
+            "`alarms` is a filter over `ops.alerts_service.alert_report(days=7, limit=500)`."
+        )
+    ),
+    "POST /v1/admin/payments/reconcile": BoundedByConstruction(
+        by=(
+            "one pass over `razorpay_reconciliation_days` (at most 30) of Razorpay's own "
+            "listings; the id lists are what that window holds, and the window is the bound."
+        )
+    ),
     # --- bounded by a constant or a registry in this repo ---------------------------
+    # --- D-694 the assistant's background jobs -------------------------------------------
+    "GET /v1/copilot/jobs/{job_id}": BoundedByConstruction(
+        by=(
+            "one job; its `progress` keeps the newest `copilot.models.MAX_JOB_PROGRESS` (200) "
+            "entries, trimmed on every append and CHECKed by `ck_copilot_jobs_progress_cap`."
+        )
+    ),
+    "POST /v1/copilot/jobs/{job_id}/cancel": BoundedByConstruction(
+        by="the same one job and its 200-entry progress cap."
+    ),
+    # --- D-694 the assistant's routines ----------------------------------------------------
+    "POST /v1/copilot/routines": BoundedByConstruction(
+        by=(
+            "one routine; its only list is `schedule.days`, at most the seven weekdays "
+            "(`CopilotRoutineSchedule.days` max_length=7, distinct)."
+        )
+    ),
+    "PATCH /v1/copilot/routines/{routine_id}": BoundedByConstruction(
+        by="the same one routine and its seven-day schedule."
+    ),
     # --- D-693 a client's own voice workspace -----------------------------------------
     "GET /v1/numbers/own/available": BoundedByConstruction(
         by=(
@@ -537,9 +578,6 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/campaigns/{campaign_id}/launch-check": BoundedByConstruction(
         by="`blockers` is at most one per launch-gate RULE, a fixed set."
     ),
-    "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake/draft": BoundedByConstruction(
-        by="`blockers` is at most one per intake completeness rule, a fixed set."
-    ),
     "GET /v1/admin/tenants/{tenant_id}": BoundedByConstruction(
         by="`holds` is at most one per compliance hold rule (`admin/holds.py`), a fixed set."
     ),
@@ -625,9 +663,22 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="line items are one per metered UNIT KIND and taxes one per GST component — "
         "both fixed by the rate card, not by usage volume."
     ),
-    "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": BoundedByConstruction(
-        by="one intake document, whose every list field is bounded by the request model "
-        "that wrote it (`IntakeIn`)."
+    # --- D-695 the business profile ------------------------------------------------------
+    "GET /v1/business-profile": BoundedByConstruction(
+        by="one profile, whose every list is capped by the model that writes it "
+        "(`tenancy/business_profile.MAX_*`: 20 branches, 100 services, 50 FAQs, 50 staff, "
+        "10 contacts, 6 languages), seven days of hours, eight setup steps, and at most one "
+        "blocker per go-live rule."
+    ),
+    "PATCH /v1/business-profile": BoundedByConstruction(
+        by="the same one capped profile the GET returns, after the save."
+    ),
+    "POST /v1/business-profile/setup": BoundedByConstruction(
+        by="the same one capped profile the GET returns, after the step moves."
+    ),
+    "GET /v1/admin/tenants/{tenant_id}/business-profile": BoundedByConstruction(
+        by="the same one capped profile, plus `merge_notes`, written once by the D-695 "
+        "data move: at most one note per field it merged."
     ),
     "GET /v1/admin/tenants/{tenant_id}/commercial-terms": BoundedByConstruction(
         by="`history` is one row per re-pricing of one client, written by an operator "

@@ -481,6 +481,11 @@ class TestRlsCoverage:
             # unauthenticated webhook edge, the host backup relay) fire with no tenant in
             # scope to write down at all.
             "platform_alerts",
+            # D-701: the auto-healer's incidents and its append-only ledger. Platform
+            # machinery read in the admin realm; a nullable tenant_id names the client an
+            # incident is about. Clients read `heal_client_incidents`, which is isolated.
+            "heal_incidents",
+            "heal_actions",
             # D-475: the pulled USD/INR rate. Platform state — one exchange rate for the
             # whole deployment at an instant, so there is no tenant whose row it could be —
             # and read only behind `platform:config` in the admin realm.
@@ -581,6 +586,9 @@ class TestRlsCoverage:
             # `admin_users.id`, the turns are an operator's questions about platform
             # state, and `viewing_tenant_id` is again CONTEXT rather than a payer.
             "admin_copilot_conversation_turns",
+            # D-694: the ADMIN assistant's activity log, exempt for the reason above —
+            # an operator acting on PLATFORM state, with `viewing_tenant_id` as context.
+            "admin_copilot_actions",
             # The state behind `engine_error_spike` (OPERATIONS §4): one row per
             # (engine, minute) of vendor server errors. Platform state for the same
             # reason `platform_state` is — the engine is answering or it is not, for
@@ -1124,6 +1132,10 @@ class TestRedactionExposure:
             "CallAssistOut.summary",
             "SubjectExportTurnOut.text",
             "SubjectExportCallOut.summary",
+            # D-694: the assistant's activity log and its background job progress, both
+            # our own sentences redacted on write.
+            "CopilotActionOut.summary",
+            "CopilotJobProgressOut.text",
         }
         assert set(check_redaction_exposure.ACKNOWLEDGED_PASSTHROUGH) == {
             # D-591: the `**ids` on an alert episode, redacted at the write by the same
@@ -1135,6 +1147,8 @@ class TestRedactionExposure:
             "ToolOut.config",
             "CredentialOut.non_secret",
             "TestActionOut.payload",
+            # D-694: an assistant action's canonical arguments, redacted on write.
+            "CopilotActionOut.args",
             "LeadOut.data",
             "CallDetailOut.extraction",
             "SubjectExportLeadOut.data",

@@ -75,6 +75,13 @@ function endpoint(over: Partial<Endpoint> = {}): Endpoint {
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": OWNER,
+    "/v1/integrations/credentials": [],
+    "/v1/integrations/connections/status": {
+      google_calendar: false,
+      zoho_crm: false,
+      hubspot: false,
+      sheets_share_with: null,
+    },
     "/v1/integrations/endpoints": [endpoint()],
     "/v1/integrations/events": {
       events: ["lead.created", "call.completed"],
@@ -92,6 +99,13 @@ describe("stopping an endpoint is confirmed, named and explained", () => {
   it("says what it does, per row, rather than promising a switch", async () => {
     await renderClientPage(<IntegrationsPage />, {
       ...routes({
+        "/v1/integrations/credentials": [],
+        "/v1/integrations/connections/status": {
+          google_calendar: false,
+          zoho_crm: false,
+          hubspot: false,
+          sheets_share_with: null,
+        },
         "/v1/integrations/endpoints": [
           endpoint(),
           endpoint({ id: "e2", url: URL_B }),
@@ -215,6 +229,13 @@ describe("stopping an endpoint is confirmed, named and explained", () => {
     // render rather than as a state with no way out.
     const { container } = await renderClientPage(<IntegrationsPage />, {
       ...routes({
+        "/v1/integrations/credentials": [],
+        "/v1/integrations/connections/status": {
+          google_calendar: false,
+          zoho_crm: false,
+          hubspot: false,
+          sheets_share_with: null,
+        },
         "/v1/integrations/endpoints": [endpoint({ active: false })],
       }),
     });

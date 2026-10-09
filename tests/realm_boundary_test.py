@@ -236,6 +236,7 @@ async def test_a_blank_impersonate_header_is_a_request_defect_not_a_view_as_sess
         "name": "Blank Header Clinic",
         "slug": f"bh-{uuid.uuid4().hex[:8]}",
         "vertical_template": "clinic",
+        "owner": {"email": f"owner-{uuid.uuid4().hex[:8]}@example.com"},
         "language": "te-IN",
     }
 

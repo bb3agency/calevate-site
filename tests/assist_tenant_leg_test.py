@@ -445,7 +445,7 @@ def test_the_operator_half_still_exists_and_still_names_the_variables() -> None:
     )
 
     assert "AZURE_OPENAI_RESOURCE" in (problem.remediation or "")
-    assert "DEV-SETUP" in (problem.remediation or "")
+    assert "Sarvam API key" in (problem.remediation or "")
 
 
 def test_every_refusal_logs_the_operator_remediation_and_no_secret(

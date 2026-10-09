@@ -388,7 +388,7 @@ const TTS_UNMEASURED: TtsSpeakingRate = {
   calls: 12,
   clients: 1,
   reason:
-    "12 calls with a transcript; a figure is published from 20 or more. TRD §10.1's assumed band stays in force.",
+    "12 calls with a transcript; a figure is published from 20 or more. The assumed band stays in force.",
   p50: null,
   p95: null,
   pooled: null,
@@ -401,7 +401,7 @@ const TTS_UNMEASURED: TtsSpeakingRate = {
     minimum_calls: 20,
     window: null,
     basis:
-      "assumed 540 chars/call-min (TRD 10.1, unmeasured - pilot gate 12); 12 of 20 calls measured",
+      "assumed 540 chars/call-min (unmeasured - pilot gate 12); 12 of 20 calls measured",
     cost_floor_inr_per_min: "4.1211",
     refusal_floor_inr_per_min: "4.1211",
     floor_above_refusal: false,

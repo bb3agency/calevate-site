@@ -1,13 +1,13 @@
 "use client";
 
 /**
- * WHAT AN AGENT MAY DO MID-CALL — the master switch, the credentials, and the tool list.
+ * WHAT AN AGENT MAY DO MID-CALL — the master switch and the action list.
  *
- * Master switch, saved credentials, and per-agent tool definitions across the three kinds
- * (Custom API, WhatsApp, Google Calendar). Every value binding is one of three things the
+ * The accounts actions use are connected on the Integrations page (D-700), not here: they
+ * belong to the account, not to one agent. Every value binding is one of three things the
  * founder's spec names: a static value, a lead/call variable (`</>` — the caller's number,
  * the call id), or ✨ AI-decided (the model fills it from the conversation). A change
- * reaches live calls at the next publish, exactly like a voice or cap change.
+ * reaches the live agent at once.
  *
  * Types come off the generated client; nothing here recomputes server state.
  *
@@ -15,12 +15,13 @@
  *
  * It was 738 lines carrying five components and the whole wire mapping. It is now the
  * ORCHESTRATION only — which reads happen, what the master switch does, and which of the
- * four children renders. The children are one subject each, in this directory:
- * `Credentials`, `ToolRow` (with its test panel), `ActionForm`, `ParamEditor`, and the
+ * children renders. The children are one subject each, in this directory: `ToolRow` (with
+ * its test and run-log panels), `ActionForm` with `KindFields`, `ParamEditor`, and the
  * React-free vocabulary in `params.ts`.
  */
 
 import { useState } from "react";
+import Link from "next/link";
 import { PlugZap, Plus } from "lucide-react";
 
 import {
@@ -41,9 +42,8 @@ import type { Session } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
 
 import { ActionForm } from "./ActionForm";
-import { Credentials } from "./Credentials";
 import { ToolRow } from "./ToolRow";
-import type { Kind } from "./params";
+import { KINDS, type Kind } from "./params";
 
 export function Actions({ agentId, session }: { agentId: string; session: Session }) {
   const actions = useAgentActions(session, agentId);
@@ -65,8 +65,9 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
         Actions during the call
       </SectionHeading>
       <p className="text-sm text-ink-muted">
-        Let this agent do things mid-call — send a WhatsApp, look something up, book a slot.
-        Changes take effect on live calls the next time you publish the agent.
+        Let this agent do things mid-call — know who is calling, book a slot, send a WhatsApp
+        or a payment link, save the caller to your CRM or sheet. Changes reach live calls
+        straight away. Only the account owner can switch an action on.
       </p>
 
       <RestrictionNote reason={write.reason} />
@@ -75,8 +76,8 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
           ones the child components own, so no write can be reached without the grant. */}
       <fieldset disabled={!write.allowed} className="min-w-0 space-y-6">
         <ToggleSwitch
-          label="Enable API actions"
-          hint="Master switch for every integration on this agent."
+          label="Use actions on calls"
+          hint="One switch for every action on this agent."
           checked={settings.api_actions_enabled}
           disabled={setMaster.isPending}
           onChange={(next) => setMaster.mutate(next)}
@@ -84,7 +85,13 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
         />
         {setMaster.isError ? <ProblemNotice error={setMaster.error} /> : null}
 
-        <Credentials session={session} />
+        <p className="text-sm text-ink-muted">
+          Actions use the accounts you connect on the{" "}
+          <Link className="font-medium underline underline-offset-2" href={`/c/${session.orgSlug}/integrations`}>
+            Integrations page
+          </Link>
+          . We never show a saved key or password again.
+        </p>
 
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-ink">Configured actions</h3>
@@ -102,7 +109,7 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-ink">Add an action</h3>
           <div className="flex flex-wrap gap-2">
-            {(["custom_api", "whatsapp", "calendar"] as Kind[]).map((kind) => (
+            {KINDS.map((kind: Kind) => (
               <button
                 key={kind}
                 type="button"
@@ -116,7 +123,7 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
           </div>
           {settings.calendar_available ? null : (
             <p className={FIELD_HINT}>
-              Google Calendar is not connected for your account yet — contact support to enable it.
+              Google Calendar is not available on your account yet — ask your Calevate team.
             </p>
           )}
           {adding ? (

@@ -15,6 +15,11 @@ the same screen by the same operator (a rejected client resubmits; a requirement
 or set again), and the step-up census (`tests/authn_stepup_test.py`) reserves the gate for
 acts that outlive the session or cannot be undone.
 
+THE PAN IS CHECKED AT INCOME TAX BEFORE A MANUAL APPROVAL (D-696). The reviewer matches the
+PAN, the owner's full name and date of birth at the free "Verify Your PAN" service and ticks
+that it matched; approving a manual-path record without that tick is refused. Only the
+fact, the reviewer and the instant are stored, on the record and in the audit row.
+
 THE OWNER'S ID IS DELETED WHEN THE DECISION IS MADE (founder, 8 Oct 2026). The row is
 marked purged in the decision's transaction and the object is deleted by a background task
 after it commits, so a rolled-back decision never loses the file it was about.
@@ -36,15 +41,14 @@ from apps.api.compliance.audit import write_audit
 from apps.api.compliance.kyc import (
     KycRecord,
     read_kyc,
-    record_kyc,
     set_digilocker_requirement,
 )
 from apps.api.compliance.kyc_documents import (
     current_documents,
     delete_requested_documents,
     open_document,
-    request_owner_id_deletion,
 )
+from apps.api.compliance.kyc_review import decide_kyc_review, review_audit_summary
 from apps.api.compliance.kyc_routes import KycDocumentOut, documents_out
 from apps.api.compliance.outbound_pledge import PLEDGE_VERSION, read_pledge
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
@@ -59,10 +63,6 @@ router = APIRouter(prefix="/v1/admin", tags=["admin"])
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 KycOperator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
 
-#: The business certificate's kind -> the registry document a verified operator record
-#: names (`compliance.models.KYC_DOCUMENT_KINDS`).
-_REGISTRY_KIND = {"gst": "gstin", "incorporation": "cin", "udyam": "udyam"}
-
 
 class KycReviewItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -72,8 +72,8 @@ class KycReviewItem(BaseModel):
     slug: str
     status: str
     kyc_path: str | None
-    # Which owner ID the client used — `aadhaar` or `pan` — so a reviewer knows what to
-    # expect before opening the file.
+    # Which owner ID the client used — `pan` on the manual path, `aadhaar` or `pan` through
+    # DigiLocker — so a reviewer knows what to expect before opening the file.
     owner_id_type: str | None
     digilocker_required: bool
     submitted_at: datetime | None
@@ -145,6 +145,10 @@ class AdminKycOut(BaseModel):
     owner_name: str | None
     owner_id_type: str | None
     owner_id_masked: str | None
+    # D-696: the reviewer matched the PAN at Income Tax before approving, and who and when.
+    owner_pan_checked: bool
+    owner_pan_checked_at: datetime | None
+    owner_pan_checked_by: str | None
     verified_name: str | None
     name_match: bool | None
     verification_provider: str | None
@@ -170,6 +174,7 @@ def _admin_out(
     documents: list[KycDocumentOut],
     pledge_version: int | None,
     pledge_at: datetime | None,
+    pan_checked_by: str | None = None,
 ) -> AdminKycOut:
     return AdminKycOut(
         tenant_id=tenant_id,
@@ -183,6 +188,9 @@ def _admin_out(
         owner_name=record.signatory_name,
         owner_id_type=record.owner_id_type,
         owner_id_masked=record.owner_id_masked,
+        owner_pan_checked=record.owner_pan_checked,
+        owner_pan_checked_at=record.owner_pan_checked_at,
+        owner_pan_checked_by=pan_checked_by,
         verified_name=record.verified_name,
         name_match=record.name_match,
         verification_provider=record.verification_provider,
@@ -203,14 +211,24 @@ def _admin_out(
     )
 
 
-async def _load(tenant_id: UUID) -> AdminKycOut:
+async def _load(tenant_id: UUID, session: AsyncSession) -> AdminKycOut:
     async with tenant_session(tenant_id) as scoped:
         if not await tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")
         record = await read_kyc(scoped, tenant_id=tenant_id)
         documents = documents_out(await current_documents(scoped, tenant_id=tenant_id))
         pledge = await read_pledge(scoped, tenant_id=tenant_id)
-    return _admin_out(tenant_id, record, documents, pledge.accepted_version, pledge.accepted_at)
+    checker = None
+    if record.owner_pan_checked_by_admin_id is not None:
+        checker = (
+            await session.execute(
+                text("SELECT name FROM admin_users WHERE id = :id"),
+                {"id": record.owner_pan_checked_by_admin_id},
+            )
+        ).scalar_one_or_none()
+    return _admin_out(
+        tenant_id, record, documents, pledge.accepted_version, pledge.accepted_at, checker
+    )
 
 
 @router.get(
@@ -222,7 +240,7 @@ async def _load(tenant_id: UUID) -> AdminKycOut:
 async def read_tenant_kyc(
     tenant_id: UUID, session: AdminSession, request: Request, principal: KycOperator
 ) -> AdminKycOut:
-    out = await _load(tenant_id)
+    out = await _load(tenant_id, session)
     await record_admin_tenant_read(
         session, request=request, principal=principal, tenant_id=tenant_id
     )
@@ -299,6 +317,9 @@ class KycReviewIn(BaseModel):
     # Defaults to the GSTIN on file for a GST-registered business.
     document_ref: str | None = Field(default=None, max_length=64)
     reason: str | None = Field(default=None, max_length=500)
+    # D-696: the reviewer matched the PAN, full name and date of birth at the Income Tax
+    # "Verify Your PAN" service. Required to approve a manual-path record; ignored on reject.
+    pan_checked: bool = False
 
 
 @router.post(
@@ -308,7 +329,9 @@ class KycReviewIn(BaseModel):
     summary="Approve or reject a client's identity verification",
     description=(
         "Approving records the business as verified against its certificate and registry "
-        "number; rejecting needs a reason the client is shown. Either way the owner's ID "
+        "number; on the manual path it also needs `pan_checked: true`, the reviewer's "
+        "statement that the PAN details matched at Income Tax, which is stored with who and "
+        "when. Rejecting needs a reason the client is shown. Either way the owner's ID "
         "file is deleted and only its type and masked number are kept."
     ),
 )
@@ -321,61 +344,18 @@ async def review_kyc(
     tasks: BackgroundTasks,
 ) -> AdminKycOut:
     assert principal.user_id is not None
+    # The decision itself is `kyc_review.decide_kyc_review`, which the admin assistant's
+    # `admin_kyc_review` action calls too.
     async with tenant_session(tenant_id) as scoped:
-        if not await tenant_exists(scoped, tenant_id):
-            raise ProblemError.not_found("Client")
-        record = await read_kyc(scoped, tenant_id=tenant_id)
-        if record.status not in ("submitted", "in_review"):
-            raise ProblemError.business_rule(
-                "kyc_not_awaiting_review",
-                f"This client's verification is {record.status or 'not started'}, not "
-                "waiting for review.",
-                remediation="Refresh the page; it may already have been decided.",
-            )
-        documents = await current_documents(scoped, tenant_id=tenant_id)
-        business = documents.get("business")
-        if body.decision == "approve":
-            if business is None:
-                raise ProblemError.business_rule(
-                    "kyc_business_document_missing",
-                    "There is no business certificate on file to approve against.",
-                    remediation="Reject with a reason asking for the certificate.",
-                )
-            document_kind = _REGISTRY_KIND[business.kind]
-            if document_kind == "cin" and record.entity_type == "llp":
-                document_kind = "llpin"
-            document_ref = body.document_ref or (record.gstin if business.kind == "gst" else None)
-            if not document_ref:
-                raise ProblemError(
-                    kind="validation",
-                    code="kyc_document_required",
-                    title="Enter the registry number you checked",
-                    detail="Approving needs the CIN, LLPIN or Udyam number from the certificate.",
-                    remediation="Type the number from the certificate and approve again.",
-                )
-            await record_kyc(
-                scoped,
-                tenant_id=tenant_id,
-                status="verified",
-                entity_type=record.entity_type,
-                document_kind=document_kind,
-                document_ref=document_ref,
-                evidence_ref=f"kyc_document:{business.id}",
-                verified_by_admin_id=principal.user_id,
-            )
-        else:
-            if not body.reason:
-                raise ProblemError(
-                    kind="validation",
-                    code="kyc_rejection_reason_required",
-                    title="A rejection must say why",
-                    detail="The client is shown this reason and needs it to fix the problem.",
-                    remediation="Say what was missing or wrong.",
-                )
-            await record_kyc(
-                scoped, tenant_id=tenant_id, status="rejected", rejection_reason=body.reason
-            )
-        held_owner_id = await request_owner_id_deletion(scoped, tenant_id=tenant_id)
+        outcome = await decide_kyc_review(
+            scoped,
+            tenant_id=tenant_id,
+            decision=body.decision,
+            document_ref=body.document_ref,
+            reason=body.reason,
+            pan_checked=body.pan_checked,
+            admin_id=principal.user_id,
+        )
         await write_audit(
             scoped,
             action="kyc.reviewed",
@@ -384,15 +364,11 @@ async def review_kyc(
             object_type="kyc_record",
             object_id=str(tenant_id),
             ip=client_request_ip(request),
-            summary={
-                "decision": body.decision,
-                "owner_id_type": record.owner_id_type,
-                "owner_id_file_deletion_requested": held_owner_id is not None,
-            },
+            summary=review_audit_summary(outcome, decision=body.decision),
         )
-    if held_owner_id is not None:
-        tasks.add_task(delete_requested_documents, tenant_id, [held_owner_id])
-    return await _load(tenant_id)
+    if outcome.held_owner_id is not None:
+        tasks.add_task(delete_requested_documents, tenant_id, [outcome.held_owner_id])
+    return await _load(tenant_id, session)
 
 
 class DigiLockerRequirementIn(BaseModel):
@@ -449,7 +425,7 @@ async def set_tenant_digilocker_requirement(
             ip=client_request_ip(request),
             summary={"required": body.required},
         )
-    return await _load(tenant_id)
+    return await _load(tenant_id, session)
 
 
 __all__ = ["router"]

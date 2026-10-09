@@ -21,9 +21,13 @@ the header against the secret this publish has not committed yet: on a first pub
 test would fail. The drift sweep, which runs on committed state, makes that probe instead
 (`check_agent_actions`).
 
-DESCRIPTIONS ARE PLATFORM TEXT (hard rule 5, D-674). Nothing here is read from a client's
-script or configuration: an action description is a prompt the model obeys, and a client
-sentence there would sit outside the truthful-answer floor's protection.
+DESCRIPTIONS. Our four actions carry platform text only (hard rule 5, D-674): an action
+description is a prompt the model obeys. A CLIENT's action (D-700, `client_definitions`)
+carries the description the client wrote for it — saying when to use their own system is
+the point of the feature — and every one ends with platform text that binds the model to
+the answer's `say`. It cannot withdraw the truthful answers: those are in the agent's
+instructions, which `compose_engine_prompt` writes after the client's fence, and an
+action description is not an instruction the platform composes above them.
 """
 
 from __future__ import annotations
@@ -37,6 +41,9 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.actions.schema import ParamSpec
+from apps.api.actions.service import in_call_tools
+from apps.api.core.alerting import alert
 from apps.api.core.envelope import Envelope, seal, unseal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -185,6 +192,140 @@ def definitions(engine: str, engine_agent_ref: str) -> tuple[ActionDefinition, .
     )
 
 
+# --- the client's own actions (D-700) ------------------------------------------------
+
+#: The path leaf under `ACTIONS_PATH/{engine}/` that a client action's url carries. It is
+#: also how a held vendor action is recognised as one WE registered for a client, whatever
+#: host `ENGINE_ACTIONS_BASE_URL` named when it was made.
+CLIENT_LEAF: Final = "client"
+
+#: How many of a client's during-call actions one agent may carry on ThinnestAI. The vendor
+#: says "Eight tools per agent" and that its calendar and spreadsheet switches "share one
+#: budget: eight on at once" (snapshots/2026-10-08/pages/agent/actions.md:55-57, :213); the
+#: pages do not say whether custom actions count toward it. Our four platform actions plus
+#: four of the client's is eight — UNKNOWN whether the built-in tools also count (OPERATIONS
+#: gate A-6). Refused here by name rather than discovered as a vendor 400 at publish.
+THINNEST_CLIENT_ACTIONS_MAX: Final = 4
+
+#: Appended to every client action's description: platform text that tells the model to
+#: follow the answer's `say`, as our own actions do, so a client's description cannot leave
+#: the model to improvise about whether something happened.
+CLIENT_DESCRIPTION_SUFFIX: Final = (
+    " Always do what the answer's 'say' tells you, and never tell the caller something was "
+    "done unless the answer says it was."
+)
+
+
+#: Appended to a caller lookup's description. No pre-answer hook exists for an inbound call
+#: (D-700, `actions/pre_dial.py`), so the lookup is the agent's first action and its opening
+#: line is what the caller hears while it runs; on an outbound call the dial already carried
+#: what it found, so a second lookup is a wasted turn.
+CALLER_LOOKUP_TIMING: Final = (
+    " On a call that came IN, call this once, straight after your opening line and before "
+    "you ask anything; on a call you placed, do not call it."
+)
+
+
+def is_client_action(engine: str, url: str) -> bool:
+    return f"{ACTIONS_PATH}/{engine}/{CLIENT_LEAF}/" in url
+
+
+def client_action_url(engine: str, engine_agent_ref: str, name: str) -> str:
+    base = (get_settings().engine_actions_base_url or "").strip().rstrip("/")
+    query = urlencode({AGENT_QUERY_PARAM: engine_agent_ref})
+    return f"{base}{ACTIONS_PATH}/{engine}/{CLIENT_LEAF}/{name}?{query}"
+
+
+def too_many_client_actions(count: int) -> ProblemError:
+    return ProblemError.business_rule(
+        "client_actions_over_limit",
+        f"An agent can use at most {THINNEST_CLIENT_ACTIONS_MAX} actions during a call.",
+        remediation="Switch off an action you use less, then try again.",
+    )
+
+
+async def client_definitions(
+    session: AsyncSession, engine: str, engine_agent_ref: str, agent_id: UUID
+) -> tuple[ActionDefinition, ...]:
+    """The client's live during-call actions as vendor actions on THIS agent, in the agent's
+    own workspace (its handle carries it, D-693). Only the agent-filled parameters are
+    declared; static and call values are applied by our executor."""
+    tools = await in_call_tools(session, agent_id=agent_id)
+    if len(tools) > THINNEST_CLIENT_ACTIONS_MAX:
+        raise too_many_client_actions(len(tools))
+    out: list[ActionDefinition] = []
+    for tool in tools:
+        params = tuple(
+            ActionParam(spec.name, spec.description, spec.required)
+            for spec in (ParamSpec.model_validate(raw) for raw in tool.params)
+            if spec.source == "ai"
+        )
+        lookup = tool.kind == "caller_lookup"
+        out.append(
+            ActionDefinition(
+                name=tool.name,
+                description=(
+                    tool.description.strip()
+                    + (CALLER_LOOKUP_TIMING if lookup else "")
+                    + CLIENT_DESCRIPTION_SUFFIX
+                ),
+                url=client_action_url(engine, engine_agent_ref, tool.name),
+                parameters=params,
+                # The lookup runs under the opening line, so it says nothing of its own.
+                speak_before=None
+                if lookup
+                else (tool.pre_call_message or "").strip()[:200] or None,
+                client=True,
+            )
+        )
+    return tuple(out)
+
+
+async def sync_client_actions_now(session: AsyncSession, *, agent_id: UUID) -> str:
+    """Bring a LIVE agent's vendor actions in line with its client actions now, after a
+    change on the Actions or Connections screen, rather than at the next publish.
+
+    A no-op for an agent with no active route on an action engine. A failure never fails
+    the client's save: the in-call door executes only what is live here
+    (`actions.service.in_call_tool`), so a vendor action left behind answers "cannot be done
+    right now", and the drift sweep repairs it; an operator is told.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT engine, engine_agent_ref FROM engine_agent_routes "
+                "WHERE agent_id = :aid AND active AND engine = ANY(:engines) "
+                "ORDER BY updated_at DESC LIMIT 1"
+            ),
+            {"aid": agent_id, "engines": sorted(ACTION_ENGINES)},
+        )
+    ).first()
+    if row is None or str(row[0]) not in ACTION_ENGINES:
+        return "not_applicable"
+    try:
+        await ensure_agent_actions(
+            session, engine=str(row[0]), engine_agent_ref=str(row[1]), live_handover=None
+        )
+    except ProblemError as exc:
+        if exc.code == "client_actions_over_limit":
+            raise
+        log.warning(
+            "client_actions_sync_deferred", extra={"agent_id": str(agent_id), "reason": exc.code}
+        )
+        alert(
+            "CORE_LOGIC",
+            "client_actions_not_synced",
+            detail=(
+                "a client changed an agent's actions and the voice platform could not be "
+                f"updated ({exc.code}); the drift sweep will retry. Until then a removed "
+                "action answers 'cannot be done right now' and a new one is not offered."
+            ),
+            agent_id=str(agent_id),
+        )
+        return "deferred"
+    return "synced"
+
+
 # --- the secret ----------------------------------------------------------------------
 
 
@@ -247,23 +388,29 @@ async def _store_secret(
 
 async def _held_secret(
     session: AsyncSession, engine: str, engine_agent_ref: str
-) -> tuple[bool, str | None]:
-    """(route exists, usable secret). Locks the row so two publishes cannot both mint one."""
+) -> tuple[bool, str | None, UUID | None]:
+    """(route exists, usable secret, our agent). Locks the row so two publishes cannot both
+    mint one."""
     row = (
         await session.execute(
             text(
-                f"SELECT {_SECRET_COLUMNS} FROM engine_agent_routes "
+                f"SELECT {_SECRET_COLUMNS}, agent_id FROM engine_agent_routes "
                 "WHERE engine = :engine AND engine_agent_ref = :ref FOR UPDATE"
             ),
             {"engine": engine, "ref": engine_agent_ref},
         )
     ).first()
     if row is None:
-        return False, None
-    envelope = envelope_of(tuple(row))
+        return False, None, None
+    agent_id = UUID(str(row[5])) if row[5] is not None else None
+    envelope = envelope_of(tuple(row[:5]))
     if envelope is None:
-        return True, None
-    return True, open_action_secret(envelope, engine=engine, engine_agent_ref=engine_agent_ref)
+        return True, None, agent_id
+    return (
+        True,
+        open_action_secret(envelope, engine=engine, engine_agent_ref=engine_agent_ref),
+        agent_id,
+    )
 
 
 # --- converge ------------------------------------------------------------------------
@@ -282,11 +429,13 @@ class ActionsReconciliation:
     reenabled: int = 0
     #: A new secret was minted and every action's header replaced.
     rekeyed: bool = False
+    #: Client actions held at the vendor that are no longer live here, deleted.
+    removed: int = 0
 
     @property
     def changed_live_agent(self) -> bool:
         """Something at the vendor had moved away from what we published."""
-        return bool(self.repaired or self.reenabled)
+        return bool(self.repaired or self.reenabled or self.removed)
 
 
 def _refuse_private_base() -> None:
@@ -330,7 +479,7 @@ async def ensure_agent_actions(
     """
     if engine not in ACTION_ENGINES:
         return ActionsReconciliation(outcome="not_applicable")
-    exists, secret = await _held_secret(session, engine, engine_agent_ref)
+    exists, secret, agent_id = await _held_secret(session, engine, engine_agent_ref)
     if not exists:
         raise ProblemError(
             kind="conflict",
@@ -348,10 +497,22 @@ async def ensure_agent_actions(
             session, engine=engine, engine_agent_ref=engine_agent_ref, secret=secret
         )
 
+    clients = (
+        await client_definitions(session, engine, engine_agent_ref, agent_id)
+        if agent_id is not None
+        else ()
+    )
     held = {action.name: action for action in await actions.list_actions(engine_agent_ref)}
-    created = repaired = reenabled = 0
+    created = repaired = reenabled = removed = 0
     handoff_name = ACTION_NAMES[HANDOFF]
-    for wanted in definitions(engine, engine_agent_ref):
+    wanted_names = {d.name for d in clients} | set(ACTION_NAMES.values())
+    for stale in held.values():
+        # A client action we registered that is no longer live on the agent: switched
+        # off, deleted, its connection removed, or the master switch turned off.
+        if is_client_action(engine, stale.url) and stale.name not in wanted_names:
+            await actions.delete(engine_agent_ref, stale.action_id)
+            removed += 1
+    for wanted in (*definitions(engine, engine_agent_ref), *clients):
         current = held.get(wanted.name)
         if wanted.name == handoff_name and (
             live_handover or (live_handover is None and current is None)
@@ -377,6 +538,7 @@ async def ensure_agent_actions(
         repaired=0 if rekeyed else repaired,
         reenabled=reenabled,
         rekeyed=rekeyed,
+        removed=removed,
     )
     log.info(
         "engine_actions_converged",
@@ -385,6 +547,8 @@ async def ensure_agent_actions(
             "actions_created": created,
             "actions_repaired": repaired,
             "actions_reenabled": reenabled,
+            "actions_removed": removed,
+            "client_actions": len(clients),
             "rekeyed": rekeyed,
         },
     )
@@ -405,7 +569,7 @@ async def retire_agent_actions(
     ours = set(ACTION_NAMES.values())
     removed = 0
     for action in await actions.list_actions(engine_agent_ref):
-        if action.name in ours:
+        if action.name in ours or is_client_action(engine, action.url):
             await actions.delete(engine_agent_ref, action.action_id)
             removed += 1
     log.info("engine_actions_retired", extra={"engine": engine, "removed": removed})
@@ -480,16 +644,24 @@ __all__ = [
     "AGENT_QUERY_PARAM",
     "CALLBACK",
     "CALLBACK_CANCEL",
+    "CLIENT_DESCRIPTION_SUFFIX",
+    "CLIENT_LEAF",
     "HANDOFF",
     "OPT_OUT",
+    "THINNEST_CLIENT_ACTIONS_MAX",
     "ActionsDrift",
     "ActionsReconciliation",
     "action_secret_context",
     "check_agent_actions",
+    "client_action_url",
+    "client_definitions",
     "definitions",
     "ensure_agent_actions",
     "envelope_of",
+    "is_client_action",
     "open_action_secret",
     "probe_agent_actions",
     "retire_agent_actions",
+    "sync_client_actions_now",
+    "too_many_client_actions",
 ]

@@ -47,7 +47,7 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,6 +62,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
+from apps.api.db.result import rowcount_of
 from apps.api.engine import get_engine
 
 router = APIRouter(prefix="/v1/agents/{agent_id}/handoff", tags=["agents"])
@@ -98,17 +99,11 @@ class HandoffDayWindow(Strict):
 
 
 class HandoffMemberIn(Strict):
-    """One person on the list, as the client writes them."""
+    """One rung of the list: a business contact, chosen from the client's one roster
+    (`business_contacts`, D-695). Names and numbers are edited there, once, for every
+    agent; this says only whether and when THIS agent may put a caller through to them."""
 
-    label: str = Field(min_length=1, max_length=120)
-    #: E.164. The same expression the column's CHECK carries and the intake wizard
-    #: validates with — doubled deliberately, because this number is dialled. India-only
-    #: on top of that, because a handover is a call we place and pay for.
-    phone_e164: Annotated[
-        str,
-        Field(pattern=r"^\+[1-9]\d{7,18}$"),
-        AfterValidator(handoff_service.india_handoff_number),
-    ]
+    contact_id: UUID
     active: bool = True
     #: This person's OWN hours, or omitted to be reachable whenever the business is open.
     #: A day left out of the map is a day this person is not available — `is_after_hours`
@@ -131,6 +126,8 @@ class HandoffIn(Strict):
 
 class HandoffMemberOut(Strict):
     id: UUID
+    #: The business contact this rung is; names and numbers are edited on the profile.
+    contact_id: UUID | None
     position: int
     label: str
     phone_e164: str
@@ -223,9 +220,13 @@ class HandoffOut(Strict):
     platform_note: str | None = None
 
 
+#: The hours are the BUSINESS's, from its one profile (D-695); `agents.business_hours` is
+#: no longer read.
 _AGENT_SQL = (
-    "SELECT id, handoff_enabled, handoff_trigger, business_hours, language_primary, "
-    "engine_agent_ref FROM agents WHERE id = :aid AND deleted_at IS NULL"
+    "SELECT a.id, a.handoff_enabled, a.handoff_trigger, "
+    "(SELECT bp.hours FROM business_profiles bp WHERE bp.tenant_id = a.tenant_id), "
+    "a.language_primary, a.engine_agent_ref FROM agents a "
+    "WHERE a.id = :aid AND a.deleted_at IS NULL"
 )
 
 
@@ -268,6 +269,7 @@ async def _render(session: AsyncSession, agent_id: UUID) -> HandoffOut:
         members=[
             HandoffMemberOut(
                 id=m.id,
+                contact_id=m.contact_id,
                 position=m.position,
                 label=m.label,
                 phone_e164=m.phone_e164,
@@ -391,20 +393,17 @@ async def put_handoff(
     that rang is copied onto the attempt row rather than looked up through this table.
 
     Two things are refused rather than normalised, because both are a client saying
-    something they did not mean: the same number twice (one person cannot be two rungs of
+    something they did not mean: the same contact twice (one person cannot be two rungs of
     a hunt list, and whichever is second is unreachable), and enabling the feature with
     nobody on the list (an agent that promises a caller a person and has none).
     """
     await assert_visible(session, "agent", agent_id)
-    numbers = [m.phone_e164 for m in payload.members]
-    if len(set(numbers)) != len(numbers):
+    chosen = [m.contact_id for m in payload.members]
+    if len(set(chosen)) != len(chosen):
         raise ProblemError.business_rule(
-            "handoff_duplicate_number",
-            "The same phone number appears more than once on this handover list.",
-            remediation=(
-                "Each person on the list needs their own number — a number listed twice "
-                "would only ever be tried once."
-            ),
+            "handoff_duplicate_contact",
+            "The same person appears more than once on this handover list.",
+            remediation="List each person once. A second listing would never be tried.",
         )
     if payload.enabled and not payload.members:
         raise ProblemError.business_rule(
@@ -419,20 +418,22 @@ async def put_handoff(
         text("DELETE FROM agent_handoff_members WHERE agent_id = :aid"), {"aid": agent_id}
     )
     for position, member in enumerate(payload.members):
-        await session.execute(
+        # The name and number are copied from the contact (see the model): an id that is
+        # not one of THIS client's contacts inserts nothing, under RLS, and is refused.
+        inserted = await session.execute(
             text(
-                "INSERT INTO agent_handoff_members "
-                "(id, tenant_id, agent_id, position, label, phone_e164, hours, active, note) "
-                "VALUES (:id, :tid, :aid, :pos, :label, :phone, CAST(:hours AS jsonb), "
-                ":active, :note)"
+                "INSERT INTO agent_handoff_members (id, tenant_id, agent_id, contact_id, "
+                "position, label, phone_e164, hours, active, note) "
+                "SELECT :id, c.tenant_id, :aid, c.id, :pos, c.label, c.phone_e164, "
+                "CAST(:hours AS jsonb), :active, :note "
+                "FROM business_contacts c WHERE c.id = :cid AND c.tenant_id = :tid"
             ),
             {
                 "id": uuid7(),
                 "tid": principal.tenant_id,
                 "aid": agent_id,
+                "cid": member.contact_id,
                 "pos": position,
-                "label": member.label.strip(),
-                "phone": member.phone_e164,
                 "hours": (
                     json.dumps(
                         {
@@ -447,6 +448,8 @@ async def put_handoff(
                 "note": member.note,
             },
         )
+        if rowcount_of(inserted) == 0:
+            raise ProblemError.not_found("Contact")
     await session.execute(
         text(
             "UPDATE agents SET handoff_enabled = :en, handoff_trigger = :trigger, "

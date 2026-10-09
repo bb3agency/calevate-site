@@ -105,19 +105,18 @@ from apps.api.agents.voice_sync import (
 from apps.api.billing.caps import read_caps, read_spend_counters, recompute_capped
 from apps.api.billing.service import current_billing_month, to_paise
 from apps.api.compliance.audit import verify_chain, write_audit
-from apps.api.core.alerting import alert
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import LoadShedMode, get_platform_status, set_platform_status
-from apps.api.core.queue import enqueue
 from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.kb.orphans import KbOrphanRow
 from apps.api.kb.reconciliation import read_kb_drift
+from apps.api.ops import halt as halt_switch
 from apps.api.ops.alerts_service import (
     DEFAULT_LIMIT as ALERTS_DEFAULT_LIMIT,
 )
@@ -159,15 +158,9 @@ GlobalSession = Annotated[AsyncSession, Depends(global_db)]
 # as a dependency, so the widened policy is unreachable without a verified admin token.
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 
-#: The ARQ function name of the recall arm of the big red switch (D-432), registered in
-#: `apps/workers/settings.FUNCTIONS` as `recall_queued_dials`.
-#:
-#: Spelled here rather than imported from `apps/workers.dial_recall`, for
-#: `compliance/deletion.DELETION_JOB`'s reason: the API has no business importing a worker
-#: module — with its session factory and its sweep SQL — in order to say one name.
-#: `scripts/check_job_wiring.py` is what pins the two spellings together, in both
-#: directions, and it resolves only same-file constants.
-DIAL_RECALL_JOB: Final = "recall_queued_dials"
+#: The recall arm of the big red switch (D-432) lives in `ops/halt.py`, shared with the
+#: admin assistant's `platform_halt_outbound`; re-exported here for the callers that name it.
+DIAL_RECALL_JOB: Final = halt_switch.DIAL_RECALL_JOB
 
 
 class TmRegistrationOut(BaseModel):
@@ -763,18 +756,7 @@ async def set_platform(
         # is the thing that matters; refusing the request now would tell an operator the
         # switch did not throw when it did, and their next move would be to throw it
         # again. `dial_recall_not_queued` is the row in `runbooks/alarm-index.md`.
-        try:
-            await enqueue(DIAL_RECALL_JOB)
-        except Exception as exc:
-            alert(
-                "CORE_LOGIC",
-                "dial_recall_not_queued",
-                detail=(
-                    f"outbound was halted but the recall job could not be queued "
-                    f"({exc.__class__.__name__}); dials already accepted by the voice "
-                    "platform will ring unless the halt is re-posted"
-                ),
-            )
+        await halt_switch.queue_dial_recall()
     if payload.load_shed_mode is not None:
         await write_audit(
             session,

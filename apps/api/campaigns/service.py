@@ -60,6 +60,7 @@ from apps.api.agents.service import (
     agent_registered_numbers,
     outbound_number_provider,
 )
+from apps.api.billing.dispute_hold import DISPUTE_HOLD_REASON, dispute_hold_active
 from apps.api.campaigns.models import (
     CONSENT_SOURCES,
     REFUSED_CONSENT_SOURCES,
@@ -82,6 +83,7 @@ from apps.api.compliance.service import (
     spend_capped,
     truthful_answer_drift_blocker,
 )
+from apps.api.compliance.trial_access import trial_blocker
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -1102,6 +1104,10 @@ async def launch_blockers(
     stopped = await account_stopped_blocker(session, tenant_id=tenant_id)
     if stopped is not None:
         blockers.append(LaunchBlocker(*stopped))
+    # A FREE-TRIAL ACCOUNT RUNS NO CAMPAIGNS (D-697): it places test calls until it pays.
+    on_trial = await trial_blocker(session, tenant_id=tenant_id, locked="campaigns")
+    if on_trial is not None:
+        blockers.append(LaunchBlocker(*on_trial))
     # KYC next, for the reason `check_dispatch` orders it before the money: telling an unverified
     # account to top up when topping up will not let them dial is a worse answer than
     # no answer. Not in `dispatch_blockers`: `check_dispatch` already asks it per dial,
@@ -1132,6 +1138,8 @@ async def launch_blockers(
         blockers.append(LaunchBlocker(*held))
     if await spend_capped(session, tenant_id=tenant_id):
         blockers.append(LaunchBlocker("spend_cap", SPEND_CAP_REASON))
+    if await dispute_hold_active(session, tenant_id=tenant_id):
+        blockers.append(LaunchBlocker("payment_dispute", DISPUTE_HOLD_REASON))
     if await credits_exhausted(session, tenant_id=tenant_id):
         blockers.append(LaunchBlocker("no_credits", NO_CREDITS_REASON))
 
@@ -1401,13 +1409,15 @@ async def set_campaign_status(
         row_id=campaign_id,
         to_status=to_status,
         from_statuses=from_statuses,
-        extra_set="paused_by_maintenance_id = NULL",
+        extra_set="paused_by_maintenance_id = NULL, paused_by_heal_id = NULL",
     )
     if not moved:
         await session.execute(
             text(
-                "UPDATE campaigns SET paused_by_maintenance_id = NULL, updated_at = now() "
-                "WHERE id = :id AND paused_by_maintenance_id IS NOT NULL"
+                "UPDATE campaigns SET paused_by_maintenance_id = NULL, paused_by_heal_id = NULL, "
+                "updated_at = now() "
+                "WHERE id = :id AND (paused_by_maintenance_id IS NOT NULL "
+                "OR paused_by_heal_id IS NOT NULL)"
             ),
             {"id": campaign_id},
         )

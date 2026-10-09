@@ -31,14 +31,10 @@ Three surfaces, three routers, because they have nothing in common but the money
   prices anything on this card, which is why `list_rate_inr_per_min` below is the
   `starter` pack's Sarvam rate rather than the setting.
 
-**What is honestly unfinished is marked as such.** Since D-98 the intent DOES create the
-provider-side order — `RazorpayOrders.create_order`, a real `POST /v1/orders` — but only
-on a deployment that holds the API secret, and none does: no Razorpay account has been
-provisioned, so `capability.creates_orders` is False everywhere and the response is still
-`provider_order_id: null` / `provider_order_pending: true`. The difference is that it is
-now a NAMED state (`no_api_secret`) rather than an absence. The signing scheme is READ AT
-SOURCE from the vendor's own SDK; the webhook payload paths remain UNVERIFIED. See
-`billing/payments.py`.
+**The provider contract is documented, not guessed (D-699).** Every wire fact the routes rely
+on was read from Razorpay's docs on 9 Oct 2026 and is cited in `billing/payments.py`; the
+webhook's per-event work lives in `billing/payment_events.py`. A deployment without the API
+secret still answers `provider_order_pending: true` through the named state `no_api_secret`.
 
 A third surface, small and deliberate:
 
@@ -68,8 +64,9 @@ from decimal import ROUND_DOWN, Decimal
 from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Header, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
@@ -86,33 +83,48 @@ from apps.api.billing.engine_minutes import (
     client_rungs,
 )
 from apps.api.billing.list_rates import card_at, card_with_rates, pending_cards
+from apps.api.billing.payment_events import (
+    EventResult,
+    EventStatus,
+    apply_captured,
+    apply_dispute,
+    apply_payment_state,
+    apply_refund_failed,
+    apply_refund_processed,
+    apply_token,
+)
+from apps.api.billing.payment_objects import TOPUP, record_route
 from apps.api.billing.payments import (
+    AUTHORIZED_EVENT,
     CREDIT_EVENTS,
+    DISPUTE_EVENTS,
+    EVENT_ID_HEADER,
     NOTES_PACK_KEY,
     NOTES_TENANT_KEY,
     PAYMENT_FAILED_EVENT,
     PROVIDER,
+    REFUND_FAILED_EVENT,
     REFUND_MAY_HAVE_MOVED_CODES,
     REFUND_PROCESSED_EVENT,
     REFUND_PROCESSING_DAYS,
     SIGNATURE_HEADER,
     SUPPORTED_CURRENCY,
+    TOKEN_EVENTS,
     RefundEvent,
     claim_refund,
-    credit_captured_payment,
+    claimed_refund_total_inr,
     credit_refund,
     event_name,
-    extract_captured_payment,
-    extract_refund,
     failed_payment_summary,
     find_topup,
     inr_to_paise,
     issue_refund,
-    payment_attempt_ids,
     payment_capability,
     payments_not_configured,
     razorpay_api_secret,
     razorpay_orders,
+    refund_idempotency_key,
+    refunded_total_inr,
     release_refund_claim,
     topup_receipt,
     verify_checkout_signature,
@@ -128,8 +140,8 @@ from apps.api.billing.rates import (
     VoiceTier,
     voice_tier_label,
 )
-from apps.api.billing.service import get_balance, plan_tier_of, to_paise
-from apps.api.billing.wallet import record_attempt, settle_attempt
+from apps.api.billing.service import lot_of_entry, plan_tier_of, to_paise
+from apps.api.billing.wallet import record_attempt
 from apps.api.compliance.audit import write_audit
 from apps.api.core.alerting import alert
 from apps.api.core.auth import client_request_ip, requires
@@ -139,14 +151,13 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import get_settings
+from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.reliability.service import (
     body_hash,
     claim_idempotency,
-    claim_inbox_event,
     complete_idempotency,
     fail_idempotency,
-    mark_inbox_processed,
     scope_key,
 )
 
@@ -429,10 +440,10 @@ class CreditPacksOut(Strict):
 
 class WebhookAck(Strict):
     # `credited` = a payment landed on the wallet; `refunded` = a refund debited it;
-    # `duplicate` = we had already applied this event; `failed` = a payment.failed event,
-    # acked so the provider stops retrying but moving no money; `ignored` = an event this
-    # deployment has no handler for.
-    status: Literal["credited", "refunded", "duplicate", "failed", "ignored"]
+    # `duplicate` = we had already applied this event; `failed`/`authorized` = a payment
+    # state that moves no money; `refund_failed` = a refund Razorpay could not process;
+    # `mandate` = a token state; `dispute` = a dispute event; `ignored` = no handler.
+    status: EventStatus
     event: str
     payment_id: str | None = None
     entry_id: UUID | None = None
@@ -924,6 +935,16 @@ async def _create_order_once(
 
     result: TopUpIntentOut = build(order.order_id)
     async with tenant_session(tenant_id) as session:
+        # OUR record of the order: its tenant and the amount it was for, which the webhook
+        # checks a captured payment against (`payment_objects.verify_order`).
+        await record_route(
+            session,
+            tenant_id=tenant_id,
+            object_id=order.order_id,
+            kind="order",
+            purpose=TOPUP,
+            amount_inr=amount_inr,
+        )
         await complete_idempotency(
             session,
             record_id=claim.record_id,
@@ -1057,25 +1078,15 @@ async def razorpay_webhook(request: Request) -> WebhookAck:
 
     event = event_name(envelope)
     ip = client_request_ip(request)
+    event_id = (request.headers.get(EVENT_ID_HEADER) or "").strip()[:64] or None
 
-    # payment.captured AND order.paid both carry `payload.payment.entity` and both mean
-    # "money arrived", deduped on the same payment id — so they take the same path.
-    #
-    # THE GUARD AROUND THEM IS THE ONE THING BETWEEN A REFUSED PAYMENT AND SILENCE. Past
-    # the signature check the money is REAL: Razorpay signed this delivery, so a refusal
-    # here is a rupee that reached the provider and did not reach the wallet. Every
-    # refusal on this path is one of ours — an unreadable payload, a currency we do not
-    # settle in, an amount that is not whole paise, missing tenant notes, or a payment id
-    # already on the ledger for a different amount — and each was previously visible only
-    # as a 4xx in an access log while the provider retried into the same wall. The client
-    # meanwhile sees a debited card and an unmoved balance, and nobody here is told.
-    # `razorpay_unknown_tenant` already alerted for its own case, which is the standard
-    # this generalizes rather than a precedent it duplicates.
+    # Past the signature check the money is REAL: Razorpay signed this delivery, so a
+    # refusal here is a rupee that reached the provider and did not reach the wallet. Every
+    # refusal on this path is one of ours, and each one alarms rather than sitting as a 4xx
+    # in an access log while the provider retries into the same wall.
+    # `razorpay_unknown_tenant` alerts for its own case, so it is not alarmed twice.
     try:
-        if event in CREDIT_EVENTS:
-            return await _apply_captured_payment(envelope, event=event, ip=ip)
-        if event == REFUND_PROCESSED_EVENT:
-            return await _apply_refund(envelope, event=event, ip=ip)
+        result = await _dispatch(envelope, event=event, event_id=event_id, ip=ip)
     except ProblemError as exc:
         if exc.code not in _SELF_ALERTING_REFUSALS:
             alert(
@@ -1090,176 +1101,38 @@ async def razorpay_webhook(request: Request) -> WebhookAck:
                 event=event,
             )
         raise
+    if result.status == "ignored":
+        log.info("razorpay_event_ignored", extra={"event": event})
+    return WebhookAck(
+        status=result.status,
+        event=event or "unknown",
+        payment_id=result.payment_id,
+        entry_id=result.entry_id,
+        amount_inr=result.amount_inr,
+        balance_inr=result.balance_inr,
+    )
+
+
+async def _dispatch(
+    envelope: Any, *, event: str, event_id: str | None, ip: str | None
+) -> EventResult:
+    """One verified event to its handler (`billing/payment_events.py`)."""
+    if event in CREDIT_EVENTS:
+        return await apply_captured(envelope, event=event, event_id=event_id, ip=ip)
+    if event == AUTHORIZED_EVENT:
+        return await apply_payment_state(envelope, event=event, failed=False)
     if event == PAYMENT_FAILED_EVENT:
-        # A failed attempt moves no money, so nothing is credited and no ledger row is
-        # written. What DOES happen now — and did not before `topup_attempts` existed — is
-        # that the client's own screen learns about it: a declined card has no ledger
-        # entry, so without this mark a client who tried to pay came back to a screen
-        # indistinguishable from one they had never touched.
         log.info("razorpay_payment_failed", extra=failed_payment_summary(envelope))
-        await _mark_attempt_failed(envelope)
-        # ACKed regardless, so the provider stops retrying a failure.
-        return WebhookAck(status="failed", event=event)
-    # ACK an event this deployment has no handler for, so the provider stops retrying.
-    log.info("razorpay_event_ignored", extra={"event": event})
-    return WebhookAck(status="ignored", event=event or "unknown")
-
-
-async def _mark_attempt_failed(envelope: Any) -> None:
-    """Mark the top-up attempt behind a `payment.failed` event, if we can tell which.
-
-    Best-effort by design, at both ends. `payment_attempt_ids` returns None when the
-    payload does not carry the ids (the contract is UNVERIFIED — `billing/payments.py`),
-    and `settle_attempt` updates nothing when no row matches; in both cases the attempt
-    simply keeps saying "settling" until it ages into "unfinished". That is the whole
-    reason this state lives in its own table rather than on the ledger: the worst a lost
-    write here can cost is a slightly stale word on a screen, never a rupee.
-
-    `settle_attempt` refuses to move a row OUT of `captured`, so an in-modal retry that
-    fails a first card and then succeeds cannot re-label a paid order as failed.
-    """
-    attempt = payment_attempt_ids(envelope)
-    if attempt is None:
-        return
-    async with tenant_session(attempt.tenant_id) as session:
-        await settle_attempt(
-            session,
-            tenant_id=attempt.tenant_id,
-            order_id=attempt.order_id,
-            payment_id=attempt.payment_id,
-            status="failed",
-        )
-
-
-async def _apply_captured_payment(envelope: Any, *, event: str, ip: str | None) -> WebhookAck:
-    """A captured payment → one `credit_ledger` top-up, deduped twice (inbox + ledger ref).
-
-    The inbox key is `<event>:<payment id>` so payment.captured and order.paid for the same
-    payment claim SEPARATE inbox rows — but both credit the same payment id, so the ledger
-    `ref` (the guarantee, checked under the credit lock inside `credit_captured_payment`)
-    collapses them to one row: whichever event arrives first credits, the other reports a
-    replay. The claim and the credit share ONE transaction, so a crash after the claim rolls
-    it back and the provider's retry is processed rather than answered "duplicate" for ever.
-    """
-    payment = extract_captured_payment(envelope)
-    async with tenant_session(payment.tenant_id) as session:
-        if not await tenant_exists(session, payment.tenant_id):
-            # Real money we cannot attribute. A 404 (rather than a silent ack) is what
-            # gets it into someone's hands instead of into nobody's wallet.
-            alert("ROUTE_HANDLER", "razorpay_unknown_tenant")
-            raise ProblemError.not_found("Organization")
-
-        claim = await claim_inbox_event(
-            session,
-            provider=PROVIDER,
-            event_key=f"{event}:{payment.payment_id}",
-            # The FACTS, not the envelope: a redelivery that gained an `account_id` is
-            # the same payment, while a different amount under the same id is not.
-            payload_hash=body_hash(
-                {
-                    "payment_id": payment.payment_id,
-                    "tenant_id": str(payment.tenant_id),
-                    "amount_inr": str(payment.amount_inr),
-                    "currency": payment.currency,
-                }
-            ),
-            event_name=event,
-        )
-        if claim.state == "duplicate":
-            existing = await find_topup(
-                session, tenant_id=payment.tenant_id, ref=payment.payment_id
-            )
-            balance = await get_balance(session, tenant_id=payment.tenant_id)
-            return WebhookAck(
-                status="duplicate",
-                event=event,
-                payment_id=payment.payment_id,
-                entry_id=existing[0] if existing else None,
-                amount_inr=to_paise(existing[1]) if existing else None,
-                balance_inr=to_paise(balance.amount_inr),
-            )
-
-        result = await credit_captured_payment(session, payment=payment, ip=ip)
-        # THE ATTEMPT IS MARKED IN THE SAME TRANSACTION AS THE CREDIT, so the client's
-        # screen and the client's wallet cannot disagree about whether this payment
-        # landed. `captured` is terminal in `settle_attempt`, which is what stops a
-        # `payment.failed` for an in-modal first card re-labelling a paid order.
-        #
-        # The order id comes from the envelope rather than from `CapturedPayment`, which
-        # deliberately does not keep it: the typed model carries only what a CREDIT needs,
-        # and the attempt row is keyed on the order because that is the only identifier it
-        # holds before money arrives. `None` (an event whose ids we could not read) simply
-        # marks nothing — the ledger is the record either way.
-        attempt = payment_attempt_ids(envelope)
-        if attempt is not None and attempt.tenant_id == payment.tenant_id:
-            await settle_attempt(
-                session,
-                tenant_id=payment.tenant_id,
-                order_id=attempt.order_id,
-                payment_id=payment.payment_id,
-                status="captured",
-            )
-        await mark_inbox_processed(session, row_id=claim.row_id)
-
-    return WebhookAck(
-        status="credited" if result.recorded else "duplicate",
-        event=event,
-        payment_id=payment.payment_id,
-        entry_id=result.entry_id,
-        amount_inr=to_paise(payment.amount_inr),
-        balance_inr=to_paise(result.balance.amount_inr),
-    )
-
-
-async def _apply_refund(envelope: Any, *, event: str, ip: str | None) -> WebhookAck:
-    """A processed refund → one COMPENSATING `credit_ledger` entry, deduped twice.
-
-    The mirror of `_apply_captured_payment` for money going the other way: inbox on
-    `refund.processed:<refund id>` as the cheap first line, the ledger `ref = refund id` as
-    the guarantee inside `credit_refund` — so a refund we already recorded from the API
-    response (`issue_refund` → `credit_refund`) dedupes against this event and vice versa.
-    """
-    refund = extract_refund(envelope)
-    async with tenant_session(refund.tenant_id) as session:
-        if not await tenant_exists(session, refund.tenant_id):
-            alert("ROUTE_HANDLER", "razorpay_unknown_tenant")
-            raise ProblemError.not_found("Organization")
-
-        claim = await claim_inbox_event(
-            session,
-            provider=PROVIDER,
-            event_key=f"{event}:{refund.refund_id}",
-            payload_hash=body_hash(
-                {
-                    "refund_id": refund.refund_id,
-                    "payment_id": refund.payment_id,
-                    "tenant_id": str(refund.tenant_id),
-                    "amount_inr": str(refund.amount_inr),
-                    "currency": refund.currency,
-                }
-            ),
-            event_name=event,
-        )
-        if claim.state == "duplicate":
-            balance = await get_balance(session, tenant_id=refund.tenant_id)
-            return WebhookAck(
-                status="duplicate",
-                event=event,
-                payment_id=refund.payment_id,
-                balance_inr=to_paise(balance.amount_inr),
-            )
-
-        result = await credit_refund(session, refund=refund, ip=ip)
-        await mark_inbox_processed(session, row_id=claim.row_id)
-
-    return WebhookAck(
-        status="refunded" if result.recorded else "duplicate",
-        event=event,
-        payment_id=refund.payment_id,
-        entry_id=result.entry_id,
-        amount_inr=to_paise(refund.amount_inr),
-        balance_inr=to_paise(result.balance.amount_inr),
-    )
+        return await apply_payment_state(envelope, event=event, failed=True)
+    if event == REFUND_PROCESSED_EVENT:
+        return await apply_refund_processed(envelope, event=event, event_id=event_id, ip=ip)
+    if event == REFUND_FAILED_EVENT:
+        return await apply_refund_failed(envelope)
+    if event in TOKEN_EVENTS:
+        return await apply_token(envelope, event=event)
+    if event in DISPUTE_EVENTS:
+        return await apply_dispute(envelope, event=event, event_id=event_id)
+    return EventResult(status="ignored")
 
 
 class RefundIn(Strict):
@@ -1300,6 +1173,45 @@ class RefundOut(Strict):
     processing_days: int
 
 
+def refund_confirmation(tenant_id: UUID, payment_id: str) -> str:
+    """The `X-Confirm-Action` a refund demands, bound to the client AND the payment, so a
+    confirmation captured for one refund cannot be replayed against another."""
+    return f"refund_payment:{tenant_id}:{payment_id}"
+
+
+async def unspent_credit_of_payment(
+    session: AsyncSession, *, tenant_id: UUID, payment_id: str, entry_id: UUID
+) -> Decimal:
+    """What of this payment's purchased credit the client has not spent and is not
+    already being refunded: its lot's remaining credit, less refunds claimed and not yet
+    processed (a processed refund has already taken its credit off the lot)."""
+    lot = await lot_of_entry(session, ledger_entry_id=entry_id)
+    if lot is None:
+        return Decimal("0.00")
+    remaining = (
+        await session.execute(
+            text("SELECT credits_remaining FROM credit_lots WHERE id = :lid"), {"lid": lot.lot_id}
+        )
+    ).scalar()
+    claimed = await claimed_refund_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
+    refunded = await refunded_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
+    pending = max(claimed - refunded, Decimal("0"))
+    return to_paise(max(Decimal(str(remaining or 0)) - pending, Decimal("0")))
+
+
+async def _is_refund_replay(*, tenant_id: UUID, payment_id: str, amount_inr: Decimal) -> bool:
+    """A second click on a refund already claimed: let it through to the same key."""
+    key = refund_idempotency_key(payment_id=payment_id, amount_inr=amount_inr)
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text("SELECT 1 FROM refund_intents WHERE tenant_id = :tid AND refund_key = :k"),
+                {"tid": tenant_id, "k": key},
+            )
+        ).first()
+    return row is not None
+
+
 @refund_router.post(
     "",
     response_model=RefundOut,
@@ -1308,12 +1220,19 @@ class RefundOut(Strict):
     description=(
         "Issues a refund at the provider and records it as a compensating credit_ledger "
         "entry (append-only, negative delta). Idempotent on a derived key so a double "
-        "click issues one refund. Omit amount_inr for a full refund of the payment's "
-        "top-up, or send a smaller amount for a partial refund."
+        "click issues one refund. Omit amount_inr for the whole payment, or send a smaller "
+        "amount for a partial refund; either is refused past the payment's unspent credit. "
+        "Needs `X-Confirm-Action: refund_payment:<tenant_id>:<payment_id>` "
+        "and a fresh second factor."
     ),
 )
 async def issue_tenant_refund(
-    tenant_id: UUID, payload: RefundIn, request: Request, principal: RefundWrite
+    tenant_id: UUID,
+    payload: RefundIn,
+    request: Request,
+    principal: RefundWrite,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> RefundOut:
     """Refund one payment: provider call FIRST (no DB lock across it), then the ledger.
 
@@ -1356,8 +1275,37 @@ async def issue_tenant_refund(
             # row would be a compensating entry against nothing — an ops error, not a route.
             raise ProblemError.not_found("Payment")
         topup_amount = existing_topup.amount_inr
+        unspent = await unspent_credit_of_payment(
+            session,
+            tenant_id=tenant_id,
+            payment_id=payload.payment_id,
+            entry_id=existing_topup.entry_id,
+        )
+        claimed = await claimed_refund_total_inr(
+            session, tenant_id=tenant_id, payment_id=payload.payment_id
+        )
 
+    # Money back is an operator act with a second factor (D-699), bound to this payment.
+    step_up.require(x_confirm_action, refund_confirmation(tenant_id, payload.payment_id))
+
+    # At most the purchased credit of THIS payment the client has not spent (D-699): credit
+    # already used to make calls is not refundable. An amount past what the payment itself
+    # has left is `claim_refund`'s refusal (`refund_exceeds_payment`), checked first so an
+    # operator is told the larger mistake; a repeat of a claimed refund is a replay.
     amount = payload.amount_inr if payload.amount_inr is not None else topup_amount
+    within_payment = amount <= topup_amount - claimed
+    if (
+        within_payment
+        and amount > unspent
+        and not await _is_refund_replay(
+            tenant_id=tenant_id, payment_id=payload.payment_id, amount_inr=amount
+        )
+    ):
+        raise ProblemError.business_rule(
+            "refund_exceeds_unspent",
+            f"Only ₹{to_paise(unspent)} of this payment's credit is unspent and refundable.",
+            remediation="Refund at most the unspent credit; used credit is not refundable.",
+        )
     if amount <= 0:
         raise ProblemError.business_rule(
             "invalid_refund_amount",
@@ -1461,7 +1409,9 @@ __all__ = [
     "RefundOut",
     "TopUpCapabilityOut",
     "TopUpIntentOut",
+    "refund_confirmation",
     "refund_router",
     "router",
+    "unspent_credit_of_payment",
     "webhook_router",
 ]

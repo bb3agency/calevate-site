@@ -35,9 +35,9 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, mo
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.admin import intake, service
+from apps.api.admin import onboarding, service
 from apps.api.agents import service as agents_service
-from apps.api.agents.languages import Language, OfferedLanguage
+from apps.api.agents.languages import OfferedLanguage
 from apps.api.authn.service import enqueue_invitation_email
 from apps.api.authn.stepup import REAUTH_MAX_AGE
 from apps.api.billing import credit_packs
@@ -212,6 +212,16 @@ class TenantSummary(BaseModel):
     holds: list[str]
 
 
+class OwnerIn(BaseModel):
+    """The person who will own the account: their invite goes out with the account."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    name: str | None = Field(default=None, max_length=200)
+    phone_e164: str | None = Field(default=None, pattern=r"^\+[1-9]\d{7,18}$")
+
+
 class CreateOrgIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -225,6 +235,9 @@ class CreateOrgIn(BaseModel):
     #: `agents/languages.py`; `OfferedLanguage` carries the same OpenAPI enum and refuses
     #: an unoffered tag with a sentence naming the three that work.
     language: OfferedLanguage = "te-IN"
+    #: REQUIRED (D-695): an account is created together with its owner's invitation, in one
+    #: transaction, so no account can exist that nobody was invited into.
+    owner: OwnerIn
 
 
 class CreateOrgOut(BaseModel):
@@ -235,11 +248,11 @@ class CreateOrgOut(BaseModel):
     agent_id: UUID
     extraction_schema_id: UUID
     status: str
-    #: Echoed back rather than assumed by the caller. The wizard needs it to choose which
-    #: examples its intake form shows, and reading it from the RESPONSE means the creation
-    #: path and the resume path take the trade from the same place — the server — instead
-    #: of one of them remembering a radio button.
+    #: Echoed back rather than assumed by the caller: the wizard reads the trade from the
+    #: server on both the creation and the resume path, never from a radio button.
     vertical_template: str
+    #: The owner's invitation, created and queued for email in the same transaction.
+    invitation_id: UUID
 
 
 class InviteIn(BaseModel):
@@ -247,6 +260,10 @@ class InviteIn(BaseModel):
 
     email: EmailStr
     role: Literal["owner", "staff"] = "owner"
+    #: The invitee's name and mobile, as the operator heard them (D-695). Kept on the
+    #: invitation and used to fill the new account's user when the link is accepted.
+    name: str | None = Field(default=None, max_length=200)
+    phone_e164: str | None = Field(default=None, pattern=r"^\+[1-9]\d{7,18}$")
 
 
 class InviteOut(BaseModel):
@@ -450,10 +467,10 @@ class EditTenantIn(BaseModel):
     `service.EDITABLE_TENANT_FIELDS` records what walking `Organization` found, and why
     there is no `phone` and no `language` field here to widen towards.
 
-    The BUSINESS ADDRESS is deliberately not here. It lives in the intake answer sheet
-    (`organizations.intake`, `admin/intake.Branch.address`) because a business can have
+    The BUSINESS ADDRESS is deliberately not here. It lives in the business profile
+    (`business_profiles.branches`, D-695) because a business can have
     several branches and the agent quotes them on the call, and it is already editable from
-    the console at `POST /v1/admin/tenants/{id}/agents/{id}/intake`. A second address on
+    view-as at `PATCH /v1/business-profile`. A second address on
     the organisation row would be a second answer to "where are you", and the one the agent
     reads would not be the one the operator just typed.
     """
@@ -535,7 +552,7 @@ class EditTenantOut(BaseModel):
         "how many already-queued notices will now be delivered to the new address. "
         "Refused for a client whose data has been erased. The slug cannot change (it is "
         "in every URL the client holds, and a database trigger refuses it); the business "
-        "ADDRESS lives in the intake answer sheet; plan tier, credits, lifecycle state, "
+        "ADDRESS lives in the business profile; plan tier, credits, lifecycle state, "
         "closure, KYC and DLT registration each have their own screen, and this route "
         "deliberately cannot reach any of them."
     ),
@@ -743,7 +760,7 @@ async def read_tenant_profile(
     response_model=CreateOrgOut,
     status_code=201,
     openapi_extra=permission_meta("admin:tenants"),
-    summary="New-client wizard step 1 — org, retention defaults, agent draft, schema",
+    summary="New client: the account and its owner's invitation, in one transaction",
 )
 async def create_tenant(
     payload: CreateOrgIn,
@@ -769,7 +786,14 @@ async def create_tenant(
     name = clean_business_name(payload.name, field="name")
     slug = payload.slug or service.derive_slug(name)
 
-    async def _audit(scoped: AsyncSession, tenant_id: UUID) -> None:
+    owner_email = str(payload.owner.email)
+    invited: list[UUID] = []
+
+    async def _born(scoped: AsyncSession, tenant_id: UUID) -> None:
+        # ONE TRANSACTION FOR THE ACCOUNT, ITS OWNER'S INVITATION AND THE INVITE EMAIL
+        # (D-695). They used to be separate steps, and an operator who closed the tab
+        # between them left an account nobody had been invited into. The email goes
+        # through the outbox in this transaction, so a rollback sends nothing.
         await write_audit(
             scoped,
             action="admin.tenant_created",
@@ -780,17 +804,39 @@ async def create_tenant(
             ip=client_request_ip(request),
             summary={"slug": slug, "vertical": payload.vertical_template},
         )
+        invitation_id, token = await service.create_invitation(
+            scoped,
+            tenant_id=tenant_id,
+            email=owner_email,
+            role="owner",
+            created_by=principal.user_id,
+            invitee_name=(payload.owner.name or "").strip() or None,
+            invitee_phone=payload.owner.phone_e164,
+        )
+        await enqueue_invitation_email(scoped, to=owner_email, token=token)
+        await write_audit(
+            scoped,
+            action="admin.invitation_created",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="invitation",
+            object_id=str(invitation_id),
+            ip=client_request_ip(request),
+            summary={"role": "owner"},
+        )
+        invited.append(invitation_id)
 
     created = await service.create_organization(
         name=name,
         slug=slug,
         vertical_template=payload.vertical_template,
-        billing_email=str(payload.billing_email) if payload.billing_email else None,
+        # The owner gets the account's notices until somebody changes the address.
+        billing_email=str(payload.billing_email) if payload.billing_email else owner_email,
         language=payload.language,
         created_by=principal.user_id,
-        on_created=_audit,
+        on_created=_born,
     )
-    return CreateOrgOut.model_validate(created)
+    return CreateOrgOut.model_validate({**created, "invitation_id": invited[0]})
 
 
 @router.post(
@@ -833,6 +879,8 @@ async def invite_member(
             email=str(payload.email),
             role=payload.role,
             created_by=principal.user_id,
+            invitee_name=(payload.name or "").strip() or None,
+            invitee_phone=payload.phone_e164,
         )
         await enqueue_invitation_email(scoped, to=str(payload.email), token=token)
         await write_audit(
@@ -1137,307 +1185,50 @@ async def resend_tenant_invitation(
     )
 
 
-class IntakeOut(BaseModel):
-    """What the step did, not what it was told.
-
-    `regenerated=false` means the answers matched what the agent already carries and no
-    prompt version was minted — the honest result of an operator reopening the step and
-    saving it unchanged, and the one FLOWS §1's "every step idempotent" asks for.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    agent_id: UUID
-    prompt_version: int | None
-    regenerated: bool
-    kb_source_id: UUID | None
-    # Whether the compiled facts are sitting in the DRAFT script rather than in the one
-    # callers hear. True only when a hand-written script edit was already waiting behind
-    # "Apply to live calls" — the facts join it there instead of dragging it live
-    # (SURFACES §2b, the exception `agents/t0.py` states). NOT optional and NOT
-    # defaulted: a field with a default generates an optional TypeScript property, and
-    # a screen is then free to omit the one sentence that stops an operator reading
-    # `prompt_version` as "these facts are on the phone line now".
-    staged_behind_script: bool
-
-
-class IntakeStateOut(BaseModel):
-    """What reopening the step prefills, now that the answers have a durable home
-    (`organizations.intake`, migration c1f3a7d92b46).
-
-    `prose_answers` carries the fields the operator typed — branches, services, FAQs,
-    staff, booking rules — rather than the sentence compiled out of them; it is `None`
-    for an org whose last submit predates the column, where the compiled block is still
-    the only record of the prose. Escalation contacts stay in their own key and out of
-    `prose_answers`: they are phone numbers, and keeping them in one place keeps the
-    two copies from disagreeing."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    business_hours: dict[str, dict[str, str] | None]
-    escalation_contacts: list[dict[str, str | None]]
-    # The EXTRA languages (DATA-MODEL §3) — never the whole set, which is why
-    # `language_primary` sits beside it.
-    languages: list[str]
-    prose_answers: intake.IntakeProse | None
-    compiled_t0_context: str | None
-    submitted_at: datetime | None
-    # When the sheet was last written by EITHER path. `saved_at > submitted_at` is
-    # "there is a draft the agent has not been rebuilt from" — the state FLOWS §1's
-    # "resume anytime" is about, and one no other field can express.
-    saved_at: datetime | None
-    # The agent's own primary. Without it `languages` is unrenderable by anyone who did
-    # not just choose the primary themselves — see `read_intake` for the full argument.
-    # TYPED since the column carries its CHECK (migration c7a41e8b52d9): the wizard gets
-    # the same union the agents screens get, rather than a string it has to guard.
-    language_primary: Language
-    # Whether anybody has accepted into this account yet, so the wizard can stop
-    # offering an owner invite that has already been redeemed. False covers "never
-    # invited", "invite outstanding" and "link expired" alike — all three are states in
-    # which the operator still needs that step. See `admin/intake.read_intake` for why
-    # the invitations list cannot answer this.
-    owner_present: bool
-    # Which agent the stored answers were last written through (provenance, not
-    # ownership: the sheet is per-ORG, the compile is per-agent). `None` for a
-    # pre-migration org that has no sheet.
-    sheet_agent_id: UUID | None
-
-
-class IntakeDraftOut(BaseModel):
-    """What a draft save did: it stored the sheet, and here is what is still missing.
-
-    No `prompt_version` and no `kb_source_id` — not "null", ABSENT — because a draft
-    mints neither, and a nullable field would invite a screen to render "prompt version:
-    —" beside a save that was never supposed to touch the prompt.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    agent_id: UUID
-    # `submission_blockers`' codes, in the server's vocabulary, so the sentence beside
-    # the Save button and the sentence in a later `intake_incomplete` refusal name one
-    # condition. An empty list means the next submit would be accepted — it does NOT
-    # mean anything has been compiled.
-    blockers: list[str]
-
-
-@router.post(
-    "/tenants/{tenant_id}/agents/{agent_id}/intake",
-    response_model=IntakeOut,
-    openapi_extra=permission_meta("agents:write"),
-    summary="Wizard step 3 — the client's business facts (FLOWS §1 step 3)",
-    description=(
-        "Compiles the answers into the agent's [T0 FACTS] block, stores the block as "
-        "`prompt_versions.compiled_t0_context` (D-39), seeds the knowledge base with "
-        "the same facts awaiting approval, and re-publishes a live agent. Idempotent: "
-        "unchanged answers mint no new prompt version."
-    ),
-)
-async def record_intake(
-    tenant_id: UUID,
-    agent_id: UUID,
-    payload: intake.IntakeFacts,
-    session: AdminSession,
-    request: Request,
-    principal: Principal = Depends(requires("agents:write", realm="admin")),
-) -> IntakeOut:
-    """Admin realm, tenant in the PATH, work inside `tenant_session` — the house
-    pattern for an admin mutation (D-22; `route_shape_test` pins the general rule).
-
-    `agents:write` rather than `admin:tenants`: what this endpoint ultimately changes is
-    the agent's prompt and knowledge, which is the same authority the publish and KB
-    approval routes above carry.
-    """
-    async with tenant_session(tenant_id) as scoped:
-        result = await intake.record_intake(
-            scoped,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            facts=payload,
-            recorded_by=principal.user_id,
-        )
-        await write_audit(
-            scoped,
-            action="agent.intake_recorded",
-            actor=principal,
-            tenant_id=tenant_id,
-            object_type="agent",
-            object_id=str(agent_id),
-            ip=client_request_ip(request),
-            # COUNTS, never the answers: services and FAQs are the client's business detail
-            # and the escalation contacts are phone numbers (hard rule 6).
-            summary={
-                "regenerated": result["regenerated"],
-                "prompt_version": result["prompt_version"],
-                "services": len(payload.services),
-                "faqs": len(payload.faqs),
-            },
-        )
-    return IntakeOut.model_validate(result)
-
-
-@router.post(
-    "/tenants/{tenant_id}/agents/{agent_id}/intake/draft",
-    response_model=IntakeDraftOut,
-    openapi_extra=permission_meta("agents:write"),
-    summary="Wizard step 3 — save the answers as they stand (FLOWS §1, 'resume anytime')",
-    description=(
-        "Stores a PARTIAL intake sheet and does nothing else: no compiled block, no "
-        "prompt version, no knowledge-base seed, no publish. Answers a half-filled form "
-        "with 200 and the list of what still blocks a submit; answers a malformed one "
-        "with 422, the same way the submit does. Saving a draft never makes an agent "
-        "ready — the submit is still gated on the full set."
-    ),
-)
-async def save_intake_draft(
-    tenant_id: UUID,
-    agent_id: UUID,
-    payload: intake.IntakeFacts,
-    session: AdminSession,
-    request: Request,
-    principal: Principal = Depends(requires("agents:write", realm="admin")),
-) -> IntakeDraftOut:
-    """FLOWS §1's "draft state saved at every step (resume anytime)", which had a service
-    function and no way in from a browser — so the only reachable write ran the
-    submission gate first and a half-finished intake could not be persisted at all.
-
-    **The line between STRUCTURAL and COMPLETENESS validation, which is the whole design
-    of this route.** It takes the SAME `intake.IntakeFacts` body model as the submit, so
-    every structural rule still applies to a draft: `extra="forbid"`, the `HH:MM` and
-    E.164 and price patterns, the length caps, the list maxima. A draft is a form
-    half-filled, never a form filled in wrongly — and the reason is not tidiness, it is
-    that `read_intake` parses the stored sheet back through this same model on the way
-    out. A sheet that went in unvalidated comes back as `intake_sheet_unreadable` and
-    the resume silently degrades to a blank form, which is the exact §52 failure this
-    slice exists to prevent: the operator retypes and overwrites.
-    What is NOT applied is `submission_blockers` — missing hours, no address, no service,
-    no escalation contact. Those are completeness, they are what a draft is FOR, and
-    gating on them would make the route useless for its only purpose. They come back in
-    the response instead, as information.
-
-    **`agents:write`, matching the submit and the rest of the wizard**, because this
-    writes the client's answers onto their org row; there is no weaker authority under
-    which a partial write is more acceptable than a whole one.
-
-    **Audited.** The submit's row records what was compiled; this one records that an
-    operator wrote a client's answers, which is a change to tenant data whoever made it.
-    Counts only, never the answers (hard rule 6). This is affordable because the console
-    saves DELIBERATELY — one press, not one per keystroke. An autosave landing on this
-    route would grow the hash-chained log per debounce interval, and the choice to audit
-    would have to be revisited with it.
-    """
-    async with tenant_session(tenant_id) as scoped:
-        result = await intake.save_intake_draft(
-            scoped, tenant_id=tenant_id, agent_id=agent_id, facts=payload
-        )
-        await write_audit(
-            scoped,
-            action="agent.intake_drafted",
-            actor=principal,
-            tenant_id=tenant_id,
-            object_type="agent",
-            object_id=str(agent_id),
-            ip=client_request_ip(request),
-            # COUNTS and CODES, never the answers: the same rule the submit's row follows,
-            # and the escalation contacts on this sheet are phone numbers.
-            summary={
-                "blockers": len(result["blockers"]),
-                "services": len(payload.services),
-                "faqs": len(payload.faqs),
-            },
-        )
-    return IntakeDraftOut.model_validate(result)
-
-
-@router.get(
-    "/tenants/{tenant_id}/agents/{agent_id}/intake",
-    response_model=IntakeStateOut,
-    openapi_extra=permission_meta("agents:read"),
-    summary="Reopen the intake step — what is durably stored, and only that",
-)
-async def read_intake(
-    tenant_id: UUID,
-    agent_id: UUID,
-    request: Request,
-    principal: Principal = Depends(requires("agents:read", realm="admin")),
-) -> IntakeStateOut:
-    """No `AdminSession`: this reads one tenant's own rows, so it enters that tenant's
-    scope directly rather than opening the cross-tenant directory it does not need.
-
-    Audited (D-482 L-1): the intake sheet is free-text onboarding prose that can carry
-    incidental staff PII, which is exactly the class of read the DPDP trail must hold.
-    """
-    async with tenant_session(tenant_id) as scoped:
-        state = await intake.read_intake(scoped, agent_id=agent_id)
-        await record_admin_tenant_read(
-            scoped, request=request, principal=principal, tenant_id=tenant_id
-        )
-    return IntakeStateOut.model_validate(state)
-
-
 class UnfinishedOnboardingOut(BaseModel):
-    """One account the wizard can be resumed on — the account, never anyone at it."""
+    """One account whose onboarding is not finished — the account, never anyone at it."""
 
     model_config = ConfigDict(extra="forbid")
 
     tenant_id: UUID
     name: str
     slug: str
-    # Where to resume: the agent the answers were written through, or the account's
-    # draft receptionist. The wizard addresses step 3 by (tenant, agent), so a row
-    # without this would be a link the operator has to complete by guessing.
-    agent_id: UUID
     created_at: datetime
-    # `null` = the intake step was never opened. Distinct from "opened and left partly
-    # answered", which is what a timestamp here means, and the two want different
-    # actions — so no zero, no "—", no invented "never".
-    draft_saved_at: datetime | None
-    # `submission_blockers`' codes for what IS stored. The evidence for the word
-    # "unfinished", in the same vocabulary the step itself prints.
-    blockers: list[str]
-    # The trade, so a RESUMED wizard shows this business's examples rather than a
-    # clinic's. See `admin/intake.UnfinishedOnboarding` for what was wrong without it.
     vertical_template: str
+    # False until somebody accepts an invitation: never invited, invite outstanding and
+    # link expired all still need the operator's invite step.
+    owner_present: bool
+    # Setup steps the client has answered or skipped, out of `steps_total`.
+    steps_done: int
+    steps_total: int
+    # What still stops an agent going live (`tenancy.business_profile.go_live_blockers`).
+    blockers: list[str]
+    # When the client last saved their business profile; null if never.
+    profile_saved_at: datetime | None
+    # A live invitation is out. With `owner_present` false and this false, nobody has
+    # been invited into the account at all.
+    invite_pending: bool
 
 
 @router.get(
     "/onboarding/unfinished",
     response_model=list[UnfinishedOnboardingOut],
     openapi_extra=permission_meta("org:read"),
-    summary="Onboardings started and not finished — where a wizard resumes (FLOWS §1)",
+    summary="Onboardings not finished: no owner yet, or a business profile not ready",
     description=(
-        "Every account still in onboarding whose intake has never been submitted, most "
-        "recently worked on first, with the agent to resume at and what is still "
-        "missing. Read-only: resuming is a draft save or a submit on the account's own "
-        "route."
+        "Every account still in onboarding whose owner has not accepted an invitation, "
+        "or whose business profile still lacks what an agent needs to go live, most "
+        "recently worked on first. Read-only."
     ),
 )
 async def list_unfinished_onboardings(
     session: AdminSession,
     principal: Principal = Depends(requires("org:read", realm="admin")),
 ) -> list[UnfinishedOnboardingOut]:
-    """The other half of "draft state saved at every step (resume anytime)".
+    """The operator's work list on `/admin/new`: whom to invite, and whose setup to chase.
 
-    A draft that can be written and not FOUND is resumable only by an operator who
-    still has the tab open, which is the one case a draft is not for. This is where
-    "which onboardings are unfinished" is answerable without opening a database.
-
-    **Why here and not on the tenant directory.** The directory (`/v1/admin/tenants`)
-    is the roster — every account, with counters beside a name — and it deliberately
-    "stays dumb: counts, not judgements" (`admin.service.tenant_overview`). Unfinished
-    onboardings are a WORK LIST: a small, shrinking set, ordered by recency of work,
-    carrying per-row blockers that mean nothing to the other 90% of the roster. Putting
-    them on the directory would either add four columns every finished client renders
-    empty, or hide them behind a filter nobody sets. It is also the wrong PLACE: the
-    operator resuming an onboarding is doing the thing "New client" does, so this list
-    is rendered on `/admin/new` itself and the wizard picks up from the row's ids — one
-    screen for starting and continuing the same task, rather than a fourth place to
-    look. The precedent is `holds_routes.py`, which is the same shape (a bounded ops
-    work list with its own rule codes) for the same reason.
-
-    **`org:read`, not `admin:tenants`.** D-22 forbids gating a GET on a permission
-    a view-as session is refused, and this is a read. Resuming still requires
-    `agents:write` at the routes that write.
+    `org:read`, not `admin:tenants`: D-22 forbids gating a GET on a permission a view-as
+    session is refused, and this is a read.
     """
     del principal  # the dependency IS the authorization; the identity is not needed
     return [
@@ -1445,14 +1236,51 @@ async def list_unfinished_onboardings(
             tenant_id=row.tenant_id,
             name=row.name,
             slug=row.slug,
-            agent_id=row.agent_id,
             created_at=row.created_at,
-            draft_saved_at=row.draft_saved_at,
-            blockers=list(row.blockers),
             vertical_template=row.vertical_template,
+            owner_present=row.owner_present,
+            steps_done=row.steps_done,
+            steps_total=row.steps_total,
+            blockers=list(row.blockers),
+            profile_saved_at=row.profile_saved_at,
+            invite_pending=row.invite_pending,
         )
-        for row in await intake.unfinished_onboardings(session)
+        for row in await onboarding.unfinished_onboardings(session)
     ]
+
+
+class OwnerStatusOut(BaseModel):
+    """Whether anybody can sign in to this account yet."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    owner_present: bool
+    #: A live invitation is out. Both false: nobody has been invited (D-695's leftover
+    #: accounts), and the console offers the invite.
+    invite_pending: bool
+
+
+@router.get(
+    "/tenants/{tenant_id}/owner-status",
+    response_model=OwnerStatusOut,
+    openapi_extra=permission_meta("org:read"),
+    summary="Has anybody joined this account, and is an invitation still out?",
+)
+async def get_owner_status(
+    tenant_id: UUID,
+    principal: Principal = Depends(requires("org:read", realm="admin")),
+) -> OwnerStatusOut:
+    del principal  # the dependency IS the authorization
+    async with tenant_session(tenant_id) as scoped:
+        exists = (
+            await scoped.execute(
+                text("SELECT 1 FROM organizations WHERE id = :t"), {"t": tenant_id}
+            )
+        ).first()
+        if exists is None:
+            raise ProblemError.not_found("Organization")
+        status = await onboarding.owner_status(scoped)
+    return OwnerStatusOut(owner_present=status.owner_present, invite_pending=status.invite_pending)
 
 
 def view_as_confirmation(slug: str) -> str:

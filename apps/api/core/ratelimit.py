@@ -528,7 +528,7 @@ def too_many_requests(decision: Decision) -> ProblemError:
         kind="transient",
         code="rate_limited",
         title="Too many requests",
-        detail="Rate limit exceeded for this endpoint.",
+        detail="There have been too many attempts in a short time.",
         status=429,
         remediation=f"Retry in {decision.retry_after_s}s.",
         headers={"Retry-After": str(decision.retry_after_s)},

@@ -132,7 +132,7 @@ export default function VerificationPage() {
             <PhoneNumbers record={kycRecord} />
           </Disclosure>
         )}
-        <Disclosure title="What we keep, and what we never ask for" subtitle="A business certificate and a masked owner ID — never a full Aadhaar.">
+        <Disclosure title="What we keep, and what we never ask for" subtitle="A business certificate and a masked owner ID — never an Aadhaar copy or a full Aadhaar number.">
           <WhatWeKeep />
         </Disclosure>
       </div>

@@ -147,6 +147,7 @@ function routes(over: Record<string, unknown> = {}) {
     },
     "/v1/agents/voices": voiceCatalogue("client"),
     "/v1/agents/lanes": LANES,
+    "/v1/business-profile": PROFILE,
     ...over,
   };
 }
@@ -159,11 +160,34 @@ const page = (
 
 const HANDOFF_PATH = "/v1/agents/agent-1/handoff";
 
+/** The business profile the list picks people from (D-695). */
+const PROFILE = {
+  business_name: "Sri Clinic",
+  legal_name: null,
+  vertical_template: "clinic",
+  hours: [],
+  branches: [],
+  services: [],
+  faqs: [],
+  staff: [],
+  booking_rules: null,
+  contacts: [
+    { id: "c1", label: "Ravi", phone_e164: "+919000000001", note: null },
+    { id: "c2", label: "Priya", phone_e164: "+919000000002", note: null },
+  ],
+  languages: [],
+  setup: { steps: [], started: true, dismissed: false, complete: false },
+  blockers: [],
+  updated_at: null,
+  agents_updated: null,
+};
+
 function member(
   over: Partial<HandoffOut["members"][number]> = {},
 ): HandoffOut["members"][number] {
   return {
     id: "m1",
+    contact_id: "c1",
     position: 0,
     label: "Ravi",
     phone_e164: "+919000000001",
@@ -187,6 +211,7 @@ function handoff(over: Partial<HandoffOut> = {}): HandoffOut {
       member(),
       member({
         id: "m2",
+        contact_id: "c2",
         position: 1,
         label: "Priya",
         phone_e164: "+919000000002",
@@ -354,10 +379,10 @@ describe("what the handover panel promises about the person answering", () => {
       );
       expect(put, "the roster save never went out").toBeTruthy();
       const body = JSON.parse(put?.body ?? "{}") as {
-        members: { label: string }[];
+        members: { contact_id: string }[];
       };
       // ONE REQUEST CARRYING THE WHOLE ORDER — never a PATCH per row.
-      expect(body.members.map((row) => row.label)).toEqual(["Priya", "Ravi"]);
+      expect(body.members.map((row) => row.contact_id)).toEqual(["c2", "c1"]);
     });
   });
 
@@ -377,12 +402,12 @@ describe("what the handover panel promises about the person answering", () => {
       "Only an account owner can change who calls are put through to.",
     );
 
-    for (const name of ["Move up", "Move down", "Add someone", "Save the list"]) {
+    for (const name of ["Move up", "Move down", "Save the list"]) {
       for (const button of screen.getAllByRole("button", { name })) {
         expect(button.matches(":disabled"), `${name} is pressable`).toBe(true);
       }
     }
-    for (const box of screen.getAllByRole("textbox", { name: "Name" })) {
+    for (const box of screen.getAllByRole("textbox", { name: "Note for this agent (optional)" })) {
       expect(box.matches(":disabled")).toBe(true);
     }
     fireEvent.click(screen.getAllByRole("button", { name: "Move up" })[1]);

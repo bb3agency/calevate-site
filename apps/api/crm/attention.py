@@ -481,7 +481,10 @@ async def inbound_stopped(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) 
         await session.execute(
             text(
                 "SELECT id, name, inbound_silenced_at, count(*) OVER () AS matching "
+                # A line the healer is holding is explained by its own notice (D-701),
+                # not by the wallet.
                 "FROM agents WHERE inbound_silenced_at IS NOT NULL AND status = 'live' "
+                "AND inbound_silence_reason IS DISTINCT FROM 'healer' "
                 "AND deleted_at IS NULL AND archived_at IS NULL "
                 "ORDER BY inbound_silenced_at DESC, id LIMIT :limit"
             ),
@@ -508,8 +511,66 @@ async def inbound_stopped(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) 
     )
 
 
+#: What the client is told about an action whose connection is gone or refused (D-700). The
+#: agent already said "I can't do that right now" to the caller; this is the other half.
+ACTION_BROKEN_DETAIL = (
+    "The agent could not use this action on a call because the account it needs is not "
+    "connected or no longer accepts the connection. Callers are told it cannot be done "
+    "right now. Reconnect the account on the Connections screen, then test the action."
+)
+#: Outcomes of a run that mean the connection is the problem
+#: (`actions/in_call.CONNECTION_BROKEN`, spelled here to keep crm off the actions package).
+_BROKEN_OUTCOMES = ("no_credential", "credential_unusable", "auth_failed")
+
+
+async def broken_actions(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> AttentionSource:
+    """Switched-on actions whose connection is gone (a LIVE state, like `inbound_stopped`),
+    or whose latest run in the window failed on its connection."""
+    rows = (
+        await session.execute(
+            text(
+                "WITH latest AS ("
+                " SELECT DISTINCT ON (tool_id) tool_id, status, created_at"
+                " FROM action_invocations"
+                " WHERE created_at > now() - make_interval(days => :window)"
+                " ORDER BY tool_id, created_at DESC),"
+                " broken AS ("
+                " SELECT t.id, t.name, a.name AS agent, l.created_at AS at"
+                " FROM latest l JOIN action_tools t ON t.id = l.tool_id"
+                " JOIN agents a ON a.id = t.agent_id"
+                " WHERE l.status = ANY(:outcomes) AND t.enabled AND a.deleted_at IS NULL"
+                " UNION"
+                " SELECT t.id, t.name, a.name, t.updated_at"
+                " FROM action_tools t JOIN agents a ON a.id = t.agent_id"
+                " WHERE t.enabled AND t.credential_id IS NULL AND a.deleted_at IS NULL"
+                " AND (t.kind IN ('whatsapp', 'calendar', 'payment_link', 'crm')"
+                "      OR (t.kind = 'caller_lookup' AND t.provider IN ('zoho', 'hubspot'))))"
+                " SELECT DISTINCT ON (id) id, name, agent, at, count(*) OVER () AS matching"
+                " FROM broken ORDER BY id, at DESC LIMIT :limit"
+            ),
+            {"window": WINDOW_DAYS, "outcomes": list(_BROKEN_OUTCOMES), "limit": limit},
+        )
+    ).all()
+    return AttentionSource(
+        kind="action_broken",
+        items=[
+            AttentionItem(
+                kind="action_broken",
+                id=str(row[0]),
+                title=f"“{row[1]}” on “{row[2]}” cannot run",
+                detail=ACTION_BROKEN_DETAIL,
+                rule="connection",
+                occurred_at=row[3],
+                href="/integrations",
+            )
+            for row in rows
+        ],
+        total=_matching(rows),
+    )
+
+
 async def attention_queue(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> dict[str, Any]:
-    """All five sources, newest first, with per-kind counts for the nav badge.
+    """Every source, newest first, with per-kind counts for the nav badge.
 
     **A count and a page are different questions, and this answers both separately.**
     `counts`/`total` are how many things EXIST; `items` is the newest `limit` of them.
@@ -565,6 +626,7 @@ async def attention_queue(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) 
         await stalled_campaigns(session, limit=limit),
         await knowledge_waiting(session, limit=limit),
         await inbound_stopped(session, limit=limit),
+        await broken_actions(session, limit=limit),
     ]
     items = sorted(
         (item for source in sources for item in source.items),

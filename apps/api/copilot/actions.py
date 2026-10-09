@@ -9,11 +9,20 @@ type below was already in `write_tools.py` and is unchanged apart from the two f
 
 ═══ THE TIER, AND WHY IT IS A FIELD WITH NO DEFAULT ═══
 
-The founder's decision (D-500) is that not every action needs a click:
+The founder's rule (D-694, superseding D-500's tiering and keeping its "the tier is a
+required field") is "ask only when an action is irreversible":
 
-* `immediate` — reversible, reaches no caller, spends no money. Runs inside the answer.
-* `confirm`   — reaches a caller or moves money. Runs only after a person clicks Confirm
-                on a second, separately authenticated request.
+* `immediate` — reversible, reaches no caller, spends no money. Runs inside the answer
+                and leaves an Undo in its receipt: the tool declares its inverse (`Undo`)
+                and the prior state is captured before it runs (`copilot/action_log.py`).
+* `confirm`   — irreversible or costly: dials or reaches a caller, launches or resumes,
+                publishes, buys or releases a number, spends credit, deletes, changes DNC
+                or KYC. Runs only after a person clicks Confirm on a second, separately
+                authenticated request, after a preview of what changes, how many records,
+                what it costs and whether it can be reversed.
+
+Accepting legal documents or the no-cold-calls pledge is in NEITHER tier: no tool for it
+exists and none may be registered, because only the owner may accept them.
 
 Speed is what that buys and the price is precise: **a mis-tiered action is an incident.** A
 campaign launched without a click is calls to strangers that cannot be recalled. So the tier
@@ -276,6 +285,67 @@ Planner = Callable[[AsyncSession, "ToolActor", Mapping[str, Any]], Awaitable[Pla
 Executor = Callable[[AsyncSession, "ToolActor", Mapping[str, Any]], Awaitable[Executed]]
 
 
+class UndoRefusedError(Exception):
+    """The inverse cannot run, for a reason the person can read (D-694).
+
+    Raised by an `Undo.invert` when the record is no longer in the state the action left it
+    in — somebody changed it since — or when the inverse would itself be an act the
+    immediate tier may not perform. `reason` is an authored sentence naming no value.
+    """
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
+@dataclass(frozen=True, slots=True)
+class UndoRecord:
+    """What an inverse is handed: the action's own row, read back (D-694).
+
+    `args` are the CANONICAL arguments the executor ran with, `prior_state` is what
+    `Undo.capture` read BEFORE the executor ran, and `result_state` is what it read AFTER.
+    The inverse compares the live row against `result_state` (the compare half of the CAS)
+    and restores `prior_state` (the swap half), under a row lock it takes itself.
+    """
+
+    object_id: str
+    args: Mapping[str, Any]
+    prior_state: Mapping[str, Any]
+    result_state: Mapping[str, Any]
+
+
+#: Reads the fields the action is about to change, BEFORE it changes them. Ids, statuses
+#: and names only — the row of a client's own business object, never a caller's data.
+StateCapture = Callable[[AsyncSession, "ToolActor", Mapping[str, Any]], Awaitable[dict[str, Any]]]
+#: Restores `prior_state` with compare-and-swap. Returns the sentence the person reads.
+Inverter = Callable[[AsyncSession, "ToolActor", UndoRecord], Awaitable[str]]
+
+
+@dataclass(frozen=True, slots=True)
+class Undo:
+    """HOW AN IMMEDIATE ACTION IS TAKEN BACK — designed before the action, not after (D-694).
+
+    The founder's rule is that a reversible action runs without a click AND leaves an Undo
+    in its receipt. That promise is only as good as the inverse, so every `immediate` tool
+    must declare one at registration (`ActionTool.__post_init__` refuses otherwise):
+
+    * `capture` reads the state the executor is about to overwrite. It runs in the SAME
+      transaction as the executor and immediately before it, so nothing can move between
+      the read and the write that the transaction does not also see.
+    * `capture` runs a SECOND time after the executor, and that read is stored as
+      `result_state`: the value the inverse requires to still be there.
+    * `invert` locks the row, compares it with `result_state`, refuses with
+      `UndoRefusedError` if anything changed, and otherwise restores `prior_state` through
+      the same service function the console's own button uses.
+
+    A `confirm` tool declares `None`: it is irreversible or costly by definition, and its
+    card says how (or whether) it can be taken back, in words.
+    """
+
+    capture: StateCapture
+    invert: Inverter
+
+
 @dataclass(frozen=True, slots=True)
 class ActionTool:
     """One action the assistant can take.
@@ -304,6 +374,22 @@ class ActionTool:
     #: The founder's cross-screen rule: act from wherever they are, then SAY where it went,
     #: rather than navigating them or pre-filling a form for them to save.
     where: str
+    #: NO DEFAULT, for `tier`'s reason (D-694). An `immediate` tool MUST carry its inverse;
+    #: a `confirm` tool carries `None`. Checked at construction, so a tool that is cheap to
+    #: run and impossible to take back cannot be registered as immediate.
+    undo: Undo | None
+
+    def __post_init__(self) -> None:
+        if self.tier == "immediate" and self.undo is None:
+            raise ValueError(
+                f"{self.name}: an immediate action must declare its inverse (D-694); "
+                "make it `confirm` if it cannot be taken back"
+            )
+        if self.tier == "confirm" and self.undo is not None:
+            raise ValueError(
+                f"{self.name}: a confirm action is irreversible by definition and carries "
+                "no Undo; say how it is reversed in `Plan.reversal` instead"
+            )
 
 
 def parse_args[M: BaseModel](model: type[M], args: Mapping[str, Any]) -> M:

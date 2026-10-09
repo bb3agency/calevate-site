@@ -146,6 +146,37 @@ carry **FORCEd deny-by-default RLS** — they are not tenant-scoped, so the poli
 `tenant_id =` anything; the app role reaches them only through
 `db/session.credential_session`, which is their sole opener.
 
+
+### The business profile (D-695, migration `f4c8b2e6a1d9`)
+
+```
+business_profiles(id, tenant_id UNIQUE FK organizations, -- FORCEd tenant_isolation
+  hours JSONB NOT NULL DEFAULT '{}'  -- {mon: {opens, closes} | null}: null = CLOSED,
+                                     -- an absent day = NOT ANSWERED YET
+  branches JSONB[] , services JSONB[] (price_inr a digit STRING, hard rule 7),
+  faqs JSONB[], staff JSONB[] (name, pronunciation, role), booking_rules TEXT,
+  languages TEXT[]                   -- every language the business serves
+  setup_steps JSONB {step: done|skipped}, setup_started_at, setup_dismissed_at,
+  merge_notes JSONB                  -- written only by the D-695 data move: per field, the
+                                     -- value kept and the values set aside
+  updated_by, created_at, updated_at)
+
+business_contacts(id, tenant_id FK, position, label, phone_e164 CHECK E.164,
+  note TEXT,                          -- when to call, in the client's words
+  UNIQUE (tenant_id, phone_e164) DEFERRABLE INITIALLY DEFERRED)   -- FORCEd tenant_isolation
+```
+
+ONE profile per client, the single source of what every agent says about the business:
+each agent's [T0 FACTS] is compiled from it (`tenancy/business_profile.fact_lines`), the
+after-hours flag and the handover rota are judged against its hours, and each agent's
+extra languages are its languages minus the agent's own primary. Contacts never enter a
+prompt. `agent_handoff_members.contact_id` (NOT NULL, CASCADE) makes each agent's handover
+list a SELECTION from `business_contacts`; the member's `label`/`phone_e164` are the
+contact's, copied in the same transaction by the one writer. `organizations.intake`,
+`agents.business_hours` and `agents.languages_extra` are no longer read or written (hard
+rule 8, step 1). `invitations.invitee_name` / `invitee_phone` carry the owner's details from
+the operator's form to their account.
+
 ## 3. Agents & Configuration
 
 ```
@@ -160,7 +191,7 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
     -- publish by `agents/engine_choice.py`. The chosen voice's band is stamped as
     -- `engine_agent_routes.engine_rate_key`.
   system_prompt_id → prompt_versions, extraction_schema_id → extraction_schemas,
-  business_hours JSONB, escalation_config JSONB,
+  business_hours JSONB, escalation_config JSONB,   -- business_hours: unread since D-695 (the profile)
   -- THE OPENING NOTICES (D-163, migration f4a1d0b6e29c). SEC-COMP §2 states two
   -- invariants under two regimes — AI identification (TRAI/UCC) and a recording notice
   -- (DPDP §5/§6) — and they shared ONE column, so a client could have both or neither.
@@ -1229,11 +1260,21 @@ kyc_records(id, tenant_id UNIQUE → organizations ON DELETE RESTRICT,
   -- digilocker_verified_at. `kyc_blocker` is now the dial gate on EVERY tier, plus
   -- `kyc_digilocker_required`. Untenanted SELECT arm `kyc_records_review_queue_read` (status
   -- submitted/in_review only) feeds the admin review queue.
+  -- D-696 (migration c5e9a2d71b48) adds: owner_pan_checked BOOL NOT NULL DEFAULT false +
+  -- owner_pan_checked_at + owner_pan_checked_by_admin_id → admin_users RESTRICT (CHECK: the
+  -- three set together) — the reviewer matched PAN, name and date of birth at the Income
+  -- Tax "Verify Your PAN" service before a manual approval; no date of birth is stored. CHECK
+  -- `no_manual_aadhaar_awaits_review`: a manual-path row with owner_id_type aadhaar cannot be
+  -- submitted/in_review (the manual path takes a PAN card only; aadhaar stays for DigiLocker
+  -- and for reviews decided before D-696).
 kyc_documents(id, tenant_id → organizations RESTRICT, slot ENUM[business,owner_id],
-  kind (business: gst|incorporation|udyam; owner_id: aadhaar|pan_card), object_key,
+  kind (business: gst|incorporation|udyam; owner_id: pan_card, or aadhaar on rows from
+  before D-696 only), object_key,
   filename (1-99), content_type ENUM[pdf,jpeg,png], size_bytes (1..5 MiB), sha256,
   uploaded_by_user_id → users, payload_nonce, dek_wrapped, dek_nonce, kek_version,
   superseded_at, purged_at, created_at, updated_at)
+  -- D-696 CHECK `aadhaar_copy_never_held`: kind aadhaar implies delete_requested_at set, so
+  -- no Aadhaar copy is held; the migration requested deletion of every earlier one.
   -- D-692. Metadata of uploaded KYC files; the bytes are envelope-sealed ciphertext under
   -- `kyc-documents/{tenant}/`. One current row per slot (partial unique index). Owner-ID
   -- files are purged on the review decision or after 30 days (untenanted SELECT arm
@@ -1590,6 +1631,22 @@ platform_state(id PK CHECK (id = 1), load_shed_mode
 audit_log  -- (defined in §9) exempt because the admin realm reads cross-tenant by
            -- design; every such read is itself audited.
 ```
+
+## 9b. The auto-healer (D-701, migration `b7d4e2a91c3f`)
+
+| Table | Scope | What a row is |
+|---|---|---|
+| `heal_incidents` | global (RLS-exempt, §9a) | One problem a playbook is working on: `dedupe_key` (one unresolved per key, `uq_heal_incidents_open_key`), `playbook`, `trigger_code`, `scope` agent/tenant/platform, nullable `tenant_id`/`agent_id`, `state` open/mitigated/escalated/resolved, `attempts`, `next_attempt_at`, and the public status post (`public`, `public_title`, `component`). |
+| `heal_actions` | global, **append-only** | Every step any playbook took: `playbook`, `step`, `outcome`, `attempt`, nullable `incident_id`/`tenant_id`/`agent_id`/`alarm_code`/`alert_id`, redacted `detail` (500 chars), `actor_type` healer/admin/user. |
+| `heal_client_incidents` | tenant, FORCE RLS + a `FOR SELECT` read when no tenant is set (the notice sweep) | The client's side of one incident and one agent: `kind`, `protection` none/paused/forwarded, `campaigns_paused`, `requeued`, `missed_calls`, `must_act`, and when each notice went out. |
+| `heal_fallback_phones` | tenant, FORCE RLS | The owner-set phone callers are handed to while an agent is held; one per client, an Indian mobile (CHECK). |
+| `agent_health_windows` | tenant, FORCE RLS | One agent's real calls in one fifteen-minute window: the seven signal counts, `score` NUMERIC(5,2), the agent's `baseline`, `deviating`. Kept fourteen days. |
+| `heal_proposals` | tenant, FORCE RLS | A behaviour change waiting for a person: `kind` rollback_prompt/review_knowledge/review_languages, `status`, `detail` (ids and numbers only); one pending per agent and kind. |
+
+Two columns elsewhere: `agents.inbound_silence_reason` accepts `healer` (the CHECK
+`ck_agents_inbound_silence_reason`), and `campaigns.paused_by_heal_id` (FK, SET NULL) marks
+a pause the healer must undo, cleared by any person's pause or resume
+(`campaigns/service.set_campaign_status`).
 
 ## 10. Migration & Integrity Rules
 

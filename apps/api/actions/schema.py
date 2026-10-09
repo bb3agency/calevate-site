@@ -20,7 +20,9 @@ source of truth for "how is this value filled" and the request template is pure 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Literal
+from uuid import UUID
 
 from calevate_shared.engine import ActionParamType
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -110,6 +112,10 @@ class CustomApiConfig(BaseModel):
     def _body_only_for_post(self) -> CustomApiConfig:
         if self.method == "GET" and self.body:
             raise ValueError("a GET action cannot carry a JSON body")
+        # HTTPS only: the request carries the client's sealed credential and, on a call,
+        # the caller's details. The egress guard admits http for webhooks; this does not.
+        if not self.url.lower().startswith("https://"):
+            raise ValueError("the address must start with https://")
         return self
 
 
@@ -157,13 +163,167 @@ class CalendarConfig(BaseModel):
         return self
 
 
+# --------------------------------------------------------------- D-700 kinds ----
+#
+# Every new kind reads the caller's number from OUR record of the call (the voice platform's
+# `phone` on `GET /calls/{id}`), never from a model argument: a caller cannot talk the agent
+# into writing, messaging or looking up somebody else.
+
+#: A Google spreadsheet id as it appears in the sheet's URL (`/spreadsheets/d/<id>/`).
+SPREADSHEET_ID_PATTERN = r"^[A-Za-z0-9_-]{20,128}$"
+#: Field names the two CRMs use on the wire: Zoho `Last_Name`, HubSpot `firstname`.
+CRM_FIELD_PATTERN = r"^[A-Za-z][A-Za-z0-9_]{0,99}$"
+
+
+class SheetColumn(BaseModel):
+    """One column a `sheets` record action fills: the header text in row 1 and the binding."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    header: str = Field(min_length=1, max_length=100)
+    param: str = Field(min_length=1, max_length=64)
+
+
+class SheetsConfig(BaseModel):
+    """Write the call into the client's sheet, or answer from it.
+
+    `record`: one row per call, keyed by the call reference in a column we own; a second
+    invocation on the same call UPDATES that row, so answers can be written as they arrive.
+    `lookup`: find the row whose `match_header` column holds the caller's number and hand
+    the model the `return_headers` cells. The match is on the caller's number only — a
+    lookup by a model-supplied value would let a stranger read any row by guessing.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["record", "lookup"]
+    spreadsheet_id: str = Field(pattern=SPREADSHEET_ID_PATTERN)
+    worksheet: str = Field(min_length=1, max_length=100)
+    columns: list[SheetColumn] = Field(default_factory=list, max_length=20)
+    match_header: str | None = Field(default=None, max_length=100)
+    return_headers: list[str] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode="after")
+    def _operation_fields(self) -> SheetsConfig:
+        if self.operation == "record" and not self.columns:
+            raise ValueError("a sheet record action needs at least one column")
+        if self.operation == "lookup" and (not self.match_header or not self.return_headers):
+            raise ValueError("a sheet lookup needs the phone column and the columns to read")
+        return self
+
+
+class PaymentMessage(BaseModel):
+    """The WhatsApp template that carries a payment link to the caller.
+
+    `body_values` names, in template order, what fills `{{1}}`, `{{2}}`…: the link, the
+    amount in rupees, or the link's description. Never free text from the model.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["aisensy", "meta_cloud", "interakt"]
+    credential_id: UUID
+    template: str = Field(min_length=1, max_length=512)
+    language: str | None = Field(default=None, max_length=16)
+    phone_number_id: str | None = Field(default=None, max_length=64)
+    body_values: list[Literal["link", "amount", "description"]] = Field(min_length=1, max_length=3)
+    country_code: str = Field(default="+91", max_length=8)
+
+    @model_validator(mode="after")
+    def _carries_the_link(self) -> PaymentMessage:
+        if "link" not in self.body_values:
+            raise ValueError("the payment message template must carry the link")
+        return self
+
+
+class PaymentLinkConfig(BaseModel):
+    """A Razorpay Payment Link on the CLIENT's own account, sent to the caller on WhatsApp.
+
+    The amount is either fixed here or named by the model within `min_amount_inr`..
+    `max_amount_inr`, which are the client's rules; anything outside is refused before
+    Razorpay is called. Rupees as decimal strings (hard rule 7); converted to whole paise.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    fixed_amount_inr: Decimal | None = Field(default=None, gt=0, max_digits=10, decimal_places=2)
+    amount_param: str | None = Field(default=None, max_length=64)
+    min_amount_inr: Decimal = Field(default=Decimal("1"), ge=Decimal("1"), decimal_places=2)
+    max_amount_inr: Decimal = Field(le=Decimal("500000"), gt=0, decimal_places=2)
+    description: str = Field(min_length=1, max_length=200)
+    expire_minutes: int = Field(default=1440, ge=20, le=10080)
+    message: PaymentMessage
+
+    @model_validator(mode="after")
+    def _one_amount_source(self) -> PaymentLinkConfig:
+        if (self.fixed_amount_inr is None) == (self.amount_param is None):
+            raise ValueError("a payment link needs either a fixed amount or an amount parameter")
+        if self.min_amount_inr > self.max_amount_inr:
+            raise ValueError("the smallest amount is above the largest")
+        if self.fixed_amount_inr is not None and not (
+            self.min_amount_inr <= self.fixed_amount_inr <= self.max_amount_inr
+        ):
+            raise ValueError("the fixed amount is outside the allowed range")
+        return self
+
+
+class CrmField(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    crm_field: str = Field(pattern=CRM_FIELD_PATTERN)
+    param: str = Field(min_length=1, max_length=64)
+
+
+class CrmConfig(BaseModel):
+    """Create or update the caller's lead/contact in the client's CRM.
+
+    The record is matched on the caller's phone number, which we fill; `fields` maps the
+    other answers. Zoho modules are `Leads` or `Contacts`; HubSpot has `contacts`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    module: Literal["Leads", "Contacts", "contacts"]
+    fields: list[CrmField] = Field(default_factory=list, max_length=30)
+
+
+class CallerLookupConfig(BaseModel):
+    """Who is calling, read from the client's CRM, sheet or API by the caller's number.
+
+    Per source: `zoho` reads `module`; `hubspot` reads contacts; `sheet` reads
+    `spreadsheet_id`/`worksheet`/`match_header`/`return_headers`; `api` makes a GET to
+    `url` with the number in the `phone_query_key` query parameter.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    module: Literal["Leads", "Contacts"] = "Leads"
+    spreadsheet_id: str | None = Field(default=None, pattern=SPREADSHEET_ID_PATTERN)
+    worksheet: str | None = Field(default=None, max_length=100)
+    match_header: str | None = Field(default=None, max_length=100)
+    return_headers: list[str] = Field(default_factory=list, max_length=10)
+    url: str | None = Field(default=None, max_length=2048)
+    phone_query_key: str = Field(default="phone", min_length=1, max_length=64)
+    auth_header: str = Field(default="Authorization", max_length=128)
+    auth_scheme: str = Field(default="Bearer ", max_length=32)
+
+
 __all__ = [
     "CALL_VARS",
+    "CRM_FIELD_PATTERN",
+    "SPREADSHEET_ID_PATTERN",
     "CalendarConfig",
+    "CallerLookupConfig",
+    "CrmConfig",
+    "CrmField",
     "CustomApiConfig",
     "KeyedField",
     "ParamSource",
     "ParamSpec",
+    "PaymentLinkConfig",
+    "PaymentMessage",
     "PreparedRequest",
+    "SheetColumn",
+    "SheetsConfig",
     "WhatsAppConfig",
 ]

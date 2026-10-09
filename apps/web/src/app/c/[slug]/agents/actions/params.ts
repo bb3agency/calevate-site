@@ -8,15 +8,77 @@
 
 import type { ActionParam } from "@/lib/api/actions";
 
-/** The three kinds of action a client can add. */
-export type Kind = "custom_api" | "whatsapp" | "calendar";
+/** The kinds of action a client can add (D-700 added the last four). */
+export type Kind =
+  | "custom_api"
+  | "whatsapp"
+  | "calendar"
+  | "sheets"
+  | "payment_link"
+  | "crm"
+  | "caller_lookup";
+
+/** In the order the Add buttons offer them: the ones most clients want first. */
+export const KINDS: readonly Kind[] = [
+  "caller_lookup",
+  "calendar",
+  "whatsapp",
+  "payment_link",
+  "crm",
+  "sheets",
+  "custom_api",
+];
 
 /** Every provider any kind can name. */
-export type Provider = "aisensy" | "meta_cloud" | "interakt" | "custom" | "google";
+export type Provider =
+  | "aisensy"
+  | "meta_cloud"
+  | "interakt"
+  | "custom"
+  | "google"
+  | "zoho"
+  | "hubspot"
+  | "razorpay"
+  | "sheet"
+  | "api";
 
-// Local unions for the two casts of a form-control string, so the wire-fixture guard's ban
-// on asserting onto a GENERATED schema type does not apply (these are ours, not generated).
-export type CredKind = "aisensy" | "meta_cloud" | "interakt" | "custom_api" | "google_calendar";
+// Local unions for the casts of a form-control string, so the wire-fixture guard's ban on
+// asserting onto a GENERATED schema type does not apply (these are ours, not generated).
+export type CredKind =
+  | "aisensy"
+  | "meta_cloud"
+  | "interakt"
+  | "custom_api"
+  | "google_calendar"
+  | "razorpay"
+  | "zoho_crm"
+  | "hubspot";
+
+/** The kinds a client saves by pasting a key; the others connect by signing in. */
+export type KeyKind = "aisensy" | "meta_cloud" | "interakt" | "custom_api" | "razorpay";
+
+/** A Google Sheet's id from its address, or the text as typed when it already is one. */
+export function spreadsheetId(input: string): string {
+  const match = /\/spreadsheets\/d\/([A-Za-z0-9_-]+)/.exec(input);
+  return (match?.[1] ?? input).trim();
+}
+
+/** The saved-account kind an action (and its provider) uses, or null for none of its own. */
+export function credentialKindFor(kind: Kind, provider: Provider): CredKind | null {
+  if (kind === "custom_api") return "custom_api";
+  if (kind === "calendar") return "google_calendar";
+  if (kind === "payment_link") return "razorpay";
+  if (kind === "sheets") return null;
+  if (kind === "whatsapp") {
+    return provider === "aisensy" || provider === "meta_cloud" || provider === "interakt"
+      ? provider
+      : null;
+  }
+  if (provider === "zoho") return "zoho_crm";
+  if (provider === "hubspot") return "hubspot";
+  if (provider === "api") return "custom_api";
+  return null;
+}
 
 /** The call facts a parameter can be bound to instead of a typed or AI-decided value. */
 export const LEAD_VARS: { value: string; label: string }[] = [

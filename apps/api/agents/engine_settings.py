@@ -88,6 +88,7 @@ async def check_agent_settings(
     (not evidence of drift; the next tick asks again)."""
     from apps.api.agents.handoff import spec_for
     from apps.api.agents.service import _load_agent, _to_config
+    from apps.api.healer.protection import healer_holds_line
 
     engine = get_engine()
     settings = engine if isinstance(engine, ReconcilesAgentSettings) else None
@@ -95,6 +96,10 @@ async def check_agent_settings(
         return None
     try:
         async with tenant_session(tenant_id) as session:
+            if await healer_holds_line(session, agent_id=agent_id):
+                # The healer changed the hand-over and the line state on purpose (D-701);
+                # a repair here would undo its hold. Its restoring publish rewrites both.
+                return None
             row = await _load_agent(session, tenant_id, agent_id)
             handoff, _duty = await spec_for(session, dict(row))
         config = _to_config(tenant_id, row, engine=engine, handoff=handoff)

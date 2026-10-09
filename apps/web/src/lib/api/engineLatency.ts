@@ -290,7 +290,7 @@ export const UNVERIFIED_UNIT_NOTE =
 export const BUDGET_GAP_TITLE = "Our stage goals do not fit inside our end-to-end goal";
 
 export const BUDGET_GAP_BODY =
-  "Every stage below is already set to the fastest figure its supplier publishes, and they still add up to more than the time we have promised a caller will wait. Nothing measured here can close that: it is the goal and the pipeline disagreeing, and TRD \u00a74 lists what would have to change.";
+  "Every stage below is already set to the fastest figure its supplier publishes, and they still add up to more than the time we have promised a caller will wait. Nothing measured here can close that: it is the goal and the pipeline disagreeing, so the goal or a stage has to change.";
 
 /**
  * The other half of the gap, and the half that IS ours to change: the waiting the engine

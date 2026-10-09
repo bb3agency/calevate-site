@@ -67,13 +67,16 @@ their records go — is the client's own data being looked at by us.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.lifecycle import release_account_numbers, restore_account_numbers
+from apps.api.billing.service import get_balance, to_paise
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
@@ -140,9 +143,15 @@ class ClosureOut(BaseModel):
     #: erasure is scheduled. Zero means "today, at the next hourly sweep", NOT "already
     #: gone" — `erased_at` is the only field that says that.
     days_remaining: int | None
+    #: The unused prepaid credit the client loses when the account closes (D-699: unused
+    #: credit is forfeited on closure, Terms and Refund Policy). Shown before the operator
+    #: confirms; zero for an empty or overdrawn wallet.
+    forfeited_credit_inr: Decimal
 
 
-def _out(record: closure.ClosureRecord, *, now: datetime) -> ClosureOut:
+def _out(
+    record: closure.ClosureRecord, *, now: datetime, forfeited: Decimal = Decimal("0.00")
+) -> ClosureOut:
     remaining: int | None = None
     if record.erase_after is not None and not record.is_erased:
         remaining = max((record.erase_after - now).days, 0)
@@ -156,7 +165,14 @@ def _out(record: closure.ClosureRecord, *, now: datetime) -> ClosureOut:
         erased_at=record.erased_at,
         restorable=record.restorable,
         days_remaining=remaining,
+        forfeited_credit_inr=forfeited,
     )
+
+
+async def _forfeitable(scoped: AsyncSession, tenant_id: UUID) -> Decimal:
+    """The positive balance a closure forfeits."""
+    balance = (await get_balance(scoped, tenant_id=tenant_id)).amount_inr
+    return to_paise(max(balance, Decimal("0")))
 
 
 class CloseIn(BaseModel):
@@ -206,7 +222,8 @@ async def read_closure(tenant_id: UUID, request: Request, principal: Reader) -> 
         await record_admin_tenant_read(
             scoped, request=request, principal=principal, tenant_id=tenant_id
         )
-    return _out(record, now=datetime.now(UTC))
+        forfeited = await _forfeitable(scoped, tenant_id)
+    return _out(record, now=datetime.now(UTC), forfeited=forfeited)
 
 
 @router.post(
@@ -229,6 +246,8 @@ async def read_closure(tenant_id: UUID, request: Request, principal: Reader) -> 
         "released, which is arranged with the telephony provider on the client's "
         "instruction. Undoing the closure "
         "re-attaches the numbers of its live answering agents."
+        " Unused prepaid credit is forfeited, not refunded (D-699); the GET returns the "
+        "amount as `forfeited_credit_inr` so it is shown before this is confirmed."
     ),
 )
 async def close(
@@ -264,6 +283,7 @@ async def close(
         # `LifecycleOut.changed` states next door, and the same reason the restore below
         # reads its own `before`.
         before = await closure.read_closure(scoped, tenant_id=tenant_id)
+        forfeited = await _forfeitable(scoped, tenant_id)
         record = await closure.close_account(
             scoped,
             tenant_id=tenant_id,
@@ -272,7 +292,7 @@ async def close(
             grace_days=payload.grace_days,
         )
         if before.is_closed:
-            return _out(record, now=datetime.now(UTC))
+            return _out(record, now=datetime.now(UTC), forfeited=forfeited)
         await enqueue_closure_notice(
             scoped,
             tenant_id=tenant_id,
@@ -300,9 +320,12 @@ async def close(
                 "grace_days": payload.grace_days,
                 "numbers_detached": numbers.moved,
                 "numbers_not_detached": numbers.failed + numbers.unsupported,
+                # Unused credit is not refunded on closure (D-699); recorded here so the
+                # amount the client lost is on the audit chain.
+                "forfeited_credit_inr": str(forfeited),
             },
         )
-    return _out(record, now=datetime.now(UTC))
+    return _out(record, now=datetime.now(UTC), forfeited=forfeited)
 
 
 @router.delete(

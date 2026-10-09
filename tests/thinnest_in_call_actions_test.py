@@ -102,7 +102,7 @@ class FakeThinnest:
                 "agent": agent,
                 **body,
                 "headerNames": sorted(headers),
-                "speakBefore": None,
+                "speakBefore": body.get("speakBefore"),
                 "speakAfter": None,
                 "enabled": False,
                 "createdAt": "2026-10-07T09:41:00Z",

@@ -37,7 +37,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from tests.conftest import accept_agreements, arm_agent_for_outbound
+from tests.conftest import accept_agreements, arm_agent_for_outbound, mark_paid_for_tests
 
 pytestmark = pytest.mark.asyncio
 
@@ -53,6 +53,8 @@ async def _org(plan_tier: str = "prepaid") -> tuple[uuid.UUID, uuid.UUID]:
     )
     tenant_id = uuid.UUID(str(created["id"]))
     await accept_agreements(tenant_id)
+    # A client already paying (D-697): its trial is the D-536 billing gift this file tests.
+    await mark_paid_for_tests(tenant_id)
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE organizations SET plan_tier = :t WHERE id = :i"),

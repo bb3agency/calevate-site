@@ -5,6 +5,7 @@ import { ApiProblem, openEventStream, type Session } from "@/lib/api/client";
 import type {
   CopilotAction,
   CopilotFillItem,
+  CopilotJobFrame,
   CopilotNavigation,
   CopilotProposal,
   CopilotStep,
@@ -85,6 +86,11 @@ export interface CopilotStreamHandlers {
    * arriving, and it is why nothing downstream keys off them.
    */
   onStep: (step: CopilotStep) => void;
+  /**
+   * The request was handed to a BACKGROUND JOB (D-694). Optional, so a consumer that does
+   * not follow jobs loses nothing but the card: the answer still says it started one.
+   */
+  onJob?: (job: CopilotJobFrame) => void;
   /** The stream finished properly. `disclosure` is rendered VERBATIM when present. */
   onDone: (done: { disclosure: string | null; metered: boolean }) => void;
 }
@@ -225,6 +231,12 @@ export async function askCopilot(
         const payload = safeJson(event.data) as CopilotNavigation | null;
         if (typeof payload?.route === "string" && payload.route !== "") {
           handlers.onNavigate(payload);
+        }
+      } else if (event.event === "job") {
+        // Guarded on `job_id`, without which there is nothing to follow.
+        const payload = safeJson(event.data) as CopilotJobFrame | null;
+        if (typeof payload?.job_id === "string" && payload.job_id !== "") {
+          handlers.onJob?.(payload);
         }
       } else if (event.event === "step") {
         // Guarded on `id`, which pairs the terminal frame with its own `running` one.

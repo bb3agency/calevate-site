@@ -5,59 +5,70 @@
  *
  * The client realm is not in `MFA_REQUIRED_REALMS`, so `POST /login` answers
  * `authenticated` here and the form never reaches its second step. It is the SAME form as
- * the admin realm's, and it renders one step or two because the SERVER said so — a client
- * that hard-coded "no second factor on this realm" would be one configuration change away
- * from silently skipping one.
+ * the admin realm's, and it renders one step or two because the SERVER said so.
  *
  * Duplicated page rather than a shared one parameterised by realm: every realm-dependent
  * value here is a literal, and CLAUDE.md's "never share session logic" is the rule that
  * makes that worth the repetition.
+ *
+ * Where signing in lands is `clientSignedInDestination`: the console page in `?next=`
+ * when a signed-out console page sent the person here, otherwise `/c`, the junction that
+ * decides where a signed-in person belongs (`app/c/page.tsx`).
  */
 
+import Link from "next/link";
+
 import { Providers } from "@/app/providers";
-import { AuthPageFrame } from "@/components/authPage";
+import { AuthCard, AuthHeading, AuthPageFrame } from "@/components/authPage";
+import { AuthShowcase } from "@/components/authn/authShowcase";
 import { SignInForm } from "@/components/authn/signInForm";
 import { SignedOutToast } from "@/components/authn/signedOutToast";
 import {
-  CLIENT_ACCEPT_INVITE_PATH,
-  CLIENT_CONSOLE_PATH,
   CLIENT_FORGOT_PATH,
   clientAuthn,
+  clientSignedInDestination,
 } from "@/lib/authn/clientAuthn";
 import { ClientGuestOnly } from "@/lib/authn/clientSession";
-import { clientConsoleUrl } from "@/lib/consoleOrigin";
 
 export default function ClientSignInPage() {
   return (
     <Providers>
-      <AuthPageFrame realmLabel="Client console">
-        <div className="space-y-4">
-          <SignedOutToast realm="client" realmLabel="Calevate" />
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Sign in
-          </h1>
+      <AuthPageFrame realmLabel="Client console" aside={<AuthShowcase />}>
+        <SignedOutToast realm="client" realmLabel="Calevate" />
+        <AuthCard>
           <ClientGuestOnly>
             <SignInForm
               authn={clientAuthn}
               forgotPath={CLIENT_FORGOT_PATH}
+              heading={
+                <AuthHeading
+                  title="Sign in to Calevate"
+                  lead="Welcome back. Use the email address your workspace invited."
+                />
+              }
               onSignedIn={() => {
-                // The console, not the account page — see `CLIENT_CONSOLE_PATH`. Through
-                // `clientConsoleUrl` because THIS SCREEN IS SERVED ON THREE HOSTNAMES: the
-                // apex refuses `/c/`, so a bare path sent everyone who signed in from the
-                // marketing site to a 404 one redirect later. The cookie is set on the API
-                // host and is same-site to all three, so crossing to `app.` keeps it.
-                window.location.assign(clientConsoleUrl(CLIENT_CONSOLE_PATH));
+                // Through `clientConsoleUrl` (inside the destination helper) because this
+                // screen is served on three hostnames and the apex refuses `/c/`.
+                window.location.assign(clientSignedInDestination());
               }}
               footer={
-                <p className="text-xs text-ink-faint">
-                  Invited by a colleague? Open the link they sent you — it sets
-                  your password and adds you to their account in one step (
-                  {CLIENT_ACCEPT_INVITE_PATH}).
+                <p className="text-sm text-ink-muted">
+                  Invited by a colleague? Open the link in their email. It sets your
+                  password and adds you to their workspace in one step.
                 </p>
               }
             />
           </ClientGuestOnly>
-        </div>
+        </AuthCard>
+        <p className="mt-6 text-center text-sm text-ink-muted">
+          New to Calevate?{" "}
+          <Link
+            href="/signup"
+            className="font-medium text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+          >
+            Get started
+          </Link>
+        </p>
       </AuthPageFrame>
     </Providers>
   );

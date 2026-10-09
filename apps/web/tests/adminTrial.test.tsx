@@ -104,6 +104,8 @@ function trial(over: Partial<TrialStatus> = {}): TrialStatus {
     erasure_filed_at: null,
     started_by: ME.user_id,
     cost_to_us_inr: "1284.50",
+    free_minutes: 30,
+    minutes_used: 4,
     ...over,
   };
 }
@@ -123,6 +125,7 @@ function started(over: Partial<Trial> = {}): Trial {
     erase_after: "2026-10-24T05:30:00Z",
     erasure_filed_at: null,
     started_by: ME.user_id,
+    free_minutes: 30,
     ...over,
   };
 }
@@ -158,6 +161,9 @@ async function fillTrial(
   });
   fireEvent.change(screen.getByLabelText("Type the number of days again"), {
     target: { value: days },
+  });
+  fireEvent.change(screen.getByLabelText("Free test-call minutes"), {
+    target: { value: "30" },
   });
   fireEvent.change(
     screen.getByLabelText("Why this client is being carried (required)"),
@@ -196,6 +202,7 @@ describe("the trial control on the credits screen", () => {
       days: 14,
       reason: "onboarding gift, agreed with the founder",
       erasure_grace_days: 30,
+      free_minutes: 30,
     });
     // The route builds this string from the tenant AND the days, and refuses anything
     // else: a confirmation captured for one client must not be replayable against
@@ -232,6 +239,10 @@ describe("the trial control on the credits screen", () => {
     fireEvent.change(screen.getByLabelText("Type the number of days again"), {
       target: { value: "14" },
     });
+    expect(startButton().disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Free test-call minutes"), {
+      target: { value: "30" },
+    });
     expect(startButton().disabled).toBe(false);
   });
 
@@ -241,7 +252,7 @@ describe("the trial control on the credits screen", () => {
     const text = document.body.textContent ?? "";
 
     expect(text).toContain("no spend ceiling");
-    expect(text).toContain("their wallet is not debited");
+    expect(text).toContain("places outbound test calls from the shared trial number");
     expect(text).toMatch(/still metered/);
     // The half an operator would otherwise assume away. A trial is a BILLING state: the
     // compliance gates are untouched, and a console that implied otherwise would be
@@ -252,7 +263,7 @@ describe("the trial control on the credits screen", () => {
       "do-not-call",
       "consent",
       "AI disclosure",
-      "DLT",
+      "pledge",
     ]) {
       expect(text).toContain(gate);
     }

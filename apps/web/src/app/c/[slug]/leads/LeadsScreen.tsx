@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { Card, FilterChip, ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
+import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import { useToast } from "@/components/interior/toaster";
 import { canDialOut } from "@/lib/agentState";
@@ -246,6 +247,13 @@ export function LeadsScreen() {
               />
             </div>
           )}
+          <AskAssistant
+            prompt={
+              selection.wholeQuery || selection.ids.length > 0
+                ? "Summarise the leads I've ticked and tell me who to call first."
+                : "Summarise the leads on this screen and tell me who to call first."
+            }
+          />
           {/* No count until there IS one: "0 leads" while loading is a statement about the
               business, and the wrong one. */}
           {leads.data && (

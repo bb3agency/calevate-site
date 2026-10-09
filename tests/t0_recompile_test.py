@@ -8,7 +8,7 @@ whether the recompile is safe to leave running unattended on a client's live age
 1. **It adds knowledge without losing intake.** The block has two halves with two
    owners (`agents/t0.py`), and a recompile that rebuilt the whole thing would drop the
    client's opening hours the first time they pasted an FAQ.
-2. **Escalation phone numbers stay out.** `tests/intake_test.py` asserts that the wizard
+2. **Escalation phone numbers stay out.** `tests/business_profile_test.py` asserts that the profile
    never compiles a staff mobile into a prompt the agent can read aloud. A second writer
    of the same block is exactly how that assertion becomes true-but-irrelevant, so it is
    re-asserted here from the other path — end to end, at the engine's copy.
@@ -28,13 +28,13 @@ import uuid
 from typing import Any
 
 import pytest
-from apps.api.admin import intake
 from apps.api.agents import t0
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.kb import service as kb_service
+from apps.api.tenancy.profile_service import ProfilePatch, save_profile
 from sqlalchemy import text
-from tests.intake_test import FACTS
+from tests.business_profile_test import PROFILE
 from tests.kb_workflow_test import _tenant_with_published_agent
 
 ESCALATION_NUMBER = "+919000000123"
@@ -86,9 +86,11 @@ async def _engine_prompt(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str | Non
 
 
 async def _record_intake(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> None:
+    """The client saves their business profile (D-695); every agent recompiles."""
+    del agent_id  # the profile is the business's, not one agent's
     async with tenant_session(tenant_id) as session:
-        await intake.record_intake(
-            session, tenant_id=tenant_id, agent_id=agent_id, facts=FACTS, recorded_by=None
+        await save_profile(
+            session, tenant_id=tenant_id, patch=ProfilePatch.model_validate(PROFILE), user_id=None
         )
 
 
@@ -174,18 +176,14 @@ async def test_a_knowledge_publish_never_lets_an_escalation_number_into_the_prom
         roster = (
             (
                 await session.execute(
-                    text(
-                        "SELECT phone_e164 FROM agent_handoff_members "
-                        "WHERE agent_id = :aid ORDER BY position"
-                    ),
-                    {"aid": agent_id},
+                    text("SELECT phone_e164 FROM business_contacts ORDER BY position"),
                 )
             )
             .scalars()
             .all()
         )
     assert list(roster)[:1] == [ESCALATION_NUMBER], (
-        "premise: the intake stored an escalation number on this agent's handoff roster"
+        "premise: the profile stored an escalation number on the business roster"
     )
 
     for version in await _versions(tenant_id, agent_id):
@@ -376,20 +374,15 @@ async def test_the_recompile_logs_ids_and_counts_only(caplog: pytest.LogCaptureF
 
 
 def test_the_block_format_has_a_single_owner() -> None:
-    """`agents/t0.py` owns the [T0 FACTS] header and the splice; `admin/intake.py` calls
-    it.
+    """`agents/t0.py` owns the [T0 FACTS] header and the splice. The business profile
+    supplies lines and never splices a prompt itself: two implementations agreeing today
+    is the state drift starts from."""
+    from apps.api.tenancy import business_profile, profile_service
 
-    This test used to be the opposite: two byte-identical copies, pinned to the same
-    output by a parametrized comparison, deferred with "a one-line change in a module
-    this wave does not own". The cycle that was said to force the copy
-    (`admin.intake → kb.service → agents.t0 → admin.intake`) never existed — intake has
-    always imported `agents.t0`, and `t0` imports nothing from `admin`. Two
-    implementations agreeing today is not one implementation; it is the state the drift
-    starts from, so the assertion is now that the second one is gone.
-    """
-    assert not hasattr(intake, "splice_t0_block")
-    assert not hasattr(intake, "T0_HEADER")
-    assert not hasattr(intake, "_INSERT_BEFORE")
+    for module in (business_profile, profile_service):
+        assert not hasattr(module, "splice_t0_block")
+        assert not hasattr(module, "T0_HEADER")
+        assert not hasattr(module, "_INSERT_BEFORE")
 
 
 @pytest.mark.parametrize(
@@ -418,7 +411,7 @@ def test_the_knowledge_half_can_never_end_the_block() -> None:
     strand every knowledge line in the prompt body on the next intake save.
     """
     compiled = t0.compile_block(
-        previous=f"{t0.T0_HEADER}\nHours: mon 09:30-18:00",
+        facts=["Hours: mon 09:30-18:00"],
         knowledge=[
             t0.KnowledgeFact(name="[URGENT] Fees", text="500 rupees.\n\nPayable at reception."),
             t0.KnowledgeFact(name="Notes", text=f"{t0.T0_KNOWLEDGE_MARKER}\nnot a marker"),

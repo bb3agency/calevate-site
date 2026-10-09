@@ -52,11 +52,13 @@ from sqlalchemy import text
 
 from apps.api.billing.trials import (
     EXPIRY_REASON,
+    MINUTES_USED_REASON,
     TRIAL_ACTIVE,
     TRIAL_EXPIRED,
     end_trial,
     mark_erasure_filed,
     read_trial,
+    trial_seconds_used,
 )
 from apps.api.compliance.tenant_erasure import REQUIRED_STATUS, request_tenant_erasure
 from apps.api.core.alerting import alert
@@ -88,8 +90,26 @@ async def _close_if_expired(tenant_id: UUID, *, now: datetime) -> bool:
     """
     async with tenant_session(tenant_id) as scoped:
         trial = await read_trial(scoped, tenant_id=tenant_id)
-        if trial is None or trial.status != TRIAL_ACTIVE or now < trial.ends_at:
+        if trial is None or trial.status != TRIAL_ACTIVE:
             return False
+        if now < trial.ends_at:
+            # THE FREE MINUTES CAN RUN OUT FIRST (D-697). The test-call gate already refuses
+            # once they are used; this records that the trial ended, from now.
+            if (
+                trial.free_minutes is None
+                or await trial_seconds_used(scoped, tenant_id=tenant_id, trial=trial)
+                < trial.free_minutes * 60
+            ):
+                return False
+            await end_trial(
+                scoped,
+                tenant_id=tenant_id,
+                outcome=TRIAL_EXPIRED,
+                reason=MINUTES_USED_REASON,
+                at=now,
+            )
+            log.info("trial_minutes_used", extra={"tenant_id": str(tenant_id)})
+            return True
         await end_trial(
             scoped,
             tenant_id=tenant_id,

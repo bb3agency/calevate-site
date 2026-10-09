@@ -55,6 +55,8 @@ EXPECTED: dict[str, dict[str, Any]] = {
             "cost": '{"anyOf": [{"type": "string"}, {"type": "null"}]}',
             "reversal": '{"type": "string"}',
             "expires_at": '{"format": "date-time", "type": "string"}',
+            # D-694: the step-up string an ADMIN action's confirm must send.
+            "confirm_action": '{"anyOf": [{"type": "string"}, {"type": "null"}]}',
         },
         "required": [
             "cost",
@@ -80,6 +82,11 @@ EXPECTED: dict[str, dict[str, Any]] = {
             "applied": '{"type": "boolean"}',
             "reversal": '{"type": "string"}',
             "where": '{"type": "string"}',
+            # D-694: the log row an Undo posts back to, and until when it is offered.
+            "action_id": '{"anyOf": [{"type": "string"}, {"type": "null"}]}',
+            "undoable_until": (
+                '{"anyOf": [{"format": "date-time", "type": "string"}, {"type": "null"}]}'
+            ),
         },
         "required": [
             "applied",
@@ -102,6 +109,17 @@ EXPECTED: dict[str, dict[str, Any]] = {
             "reversal": '{"type": "string"}',
         },
         "required": ["detail", "reversal", "route", "screen", "tool", "where"],
+    },
+    "job": {
+        "fields": {
+            "job_id": '{"type": "string"}',
+            "status": (
+                '{"enum": ["queued", "running", "done", "failed", "cancelled"], "type": "string"}'
+            ),
+            "goal": '{"type": "string"}',
+            "detail": '{"type": "string"}',
+        },
+        "required": ["detail", "goal", "job_id", "status"],
     },
     "step": {
         "fields": {

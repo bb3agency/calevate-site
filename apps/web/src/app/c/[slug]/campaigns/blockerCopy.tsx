@@ -67,6 +67,10 @@ export const BLOCKER_COPY: Record<string, BlockerNote> = {
     text: "The agent needs its AI disclosure line — required on every call.",
   },
   no_contacts: { text: "Upload the contact list." },
+  trial_campaigns_unavailable: {
+    text: "Campaigns open once you add credit. During your free trial you can try your agents with test calls from your dashboard.",
+    owner: "client",
+  },
 
   /*
    * THE TWO MONEY GATES, and the only two blockers on this list that stop calls the

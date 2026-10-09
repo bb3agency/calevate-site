@@ -94,7 +94,11 @@ export const REFUND_POLICY: LegalDocument = {
               text:
                 "Close it at any time from the dashboard or by writing to " +
                 "{{SUPPORT_EMAIL}}. There is no notice period and no cancellation fee. " +
-                "Closing stops future calls; it does not undo calls already made.",
+                "Closing stops future calls; it does not undo calls already made. Unused " +
+                "credit is forfeited when you close your account: it is not refunded, so " +
+                "use it, or ask us about any charge listed in section 3, before you close. " +
+                "If you have auto-recharge on, closing also turns it off and withdraws the " +
+                "payment approval.",
             },
           ],
         },
@@ -109,8 +113,8 @@ export const REFUND_POLICY: LegalDocument = {
                 "breached and did not fix it, we refund the unused portion of any prepaid " +
                 "fee for the period after termination, and any unused credit balance in " +
                 "full. If we terminate because you breached the Acceptable Use Policy, " +
-                "prepaid fees for the remaining period are not refunded — but any unused " +
-                "credit balance still is, less any amount you owe us.",
+                "prepaid fees for the remaining period are not refunded and unused credit " +
+                "is forfeited, as it is when you close the account yourself.",
             },
           ],
         },
@@ -130,7 +134,8 @@ export const REFUND_POLICY: LegalDocument = {
             "An amount charged in error by us, including a metering fault. Corrected by a " +
               "credit note, and refunded to the payment instrument if you would rather " +
               "have the money than the credit.",
-            "Unused credit on a self-serve account you close, less anything you owe us. " +
+            "A top-up, including an automatic recharge, taken in error or by mistake, up " +
+              "to the part of it you have not yet spent. Ask within 30 days of the payment. " +
               "Credit purchased under a promotion or granted as goodwill has no cash value " +
               "and is not refundable.",
             "Prepaid fees for a period after we terminate for convenience, or after you " +
@@ -150,6 +155,8 @@ export const REFUND_POLICY: LegalDocument = {
           items: [
             "Minutes already used. The call happened, the carrier and the model providers " +
               "were paid for it, and the cost is not recoverable by us.",
+            "Unused credit when you close your account, or when we close it because you " +
+              "breached the Acceptable Use Policy. It is forfeited, not refunded.",
             "The setup fee once the work it pays for has started — configuring your agent, " +
               "building your knowledge base, and running your Principal Entity " +
               "registration. If you cancel before that work starts, it is refunded in full.",
@@ -234,9 +241,12 @@ export const REFUND_POLICY: LegalDocument = {
           kind: "para",
           text:
             "If you raise a chargeback with your card issuer we will respond with the " +
-            "usage and billing records. Raising a chargeback for a charge that is " +
-            "genuinely owed is a breach of the Terms, and we may suspend the account while " +
-            "it is resolved. Nothing here removes your right to go to a consumer forum or " +
+            "usage and billing records. While a dispute is open, outbound calling on your " +
+            "account pauses and the disputed amount is held against your credit; incoming " +
+            "calls keep working. If the dispute is decided in our favour or closed, the " +
+            "held credit is returned to your balance; if it is decided against us, the " +
+            "held amount is the refund. Raising a chargeback for a charge that is genuinely " +
+            "owed is a breach of the Terms. Nothing here removes your right to go to a consumer forum or " +
             "to your card issuer; we would simply rather fix it ourselves.",
         },
       ],

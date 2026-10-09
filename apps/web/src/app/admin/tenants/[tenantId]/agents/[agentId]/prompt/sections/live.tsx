@@ -163,7 +163,7 @@ export function GoLivePanel({
               </ActionButton>
               <span className="text-xs text-ink-muted">
                 {hasAScript === false
-                  ? "This agent has no script yet — complete the client's intake, or save a version in Script, first."
+                  ? "This agent has no script yet — the client's business profile, or a version saved in Script, gives it one."
                   : "A test call and a re-check of the standard scripts are meant to happen before this. Neither is automated here yet, so this button only publishes the agent — it does not sign anything off."}
               </span>
             </div>

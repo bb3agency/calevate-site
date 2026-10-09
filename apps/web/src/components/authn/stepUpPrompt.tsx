@@ -34,7 +34,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 
 import { KeyRound, LogOut, Mail, ShieldCheck } from "lucide-react";
 
-import { AuthField, AuthProblemNotice } from "@/components/authn/fields";
+import { AuthProblemNotice } from "@/components/authn/fields";
+import { OtpInput } from "@/components/interior/otp-input";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
 import {
   ADMIN_SIGN_IN_PATH,
@@ -43,6 +44,7 @@ import {
   requestAdminStepUp,
 } from "@/lib/authn/adminAuthn";
 import { markSignedOut } from "@/lib/authn/signedOutNotice";
+import { OTP_LENGTH, OTP_RESEND_COOLDOWN_MS } from "@/lib/authn/otp";
 import { useCountdown } from "@/lib/authn/useCountdown";
 import {
   completeStepUpPrompt,
@@ -51,14 +53,6 @@ import {
   subscribeToStepUpPrompt,
 } from "@/lib/authn/stepUpPrompt";
 import { useFocusTrap } from "@/lib/focusTrap";
-
-/**
- * The same sixty seconds `SignInForm` waits between codes, and the same reason it gives:
- * this is a courtesy that stops an operator hammering a button, NOT the real limit. The
- * real one is `throttle.OTP_BUDGET` server-side, and a client-side cooldown dressed up as
- * the real limit would invite somebody to relax it.
- */
-const RESEND_COOLDOWN_MS = 60_000;
 
 /**
  * How long a proved factor lasts, in minutes — `authn/stepup.REAUTH_MAX_AGE`.
@@ -76,6 +70,7 @@ export function StepUpPrompt() {
   const prompt = useSyncExternalStore(subscribeToStepUpPrompt, readStepUpPrompt, readStepUpPrompt);
   const panel = useRef<HTMLDivElement>(null);
   const [code, setCode] = useState("");
+  const [shakes, setShakes] = useState(0);
   const [error, setError] = useState<unknown>(null);
   const [sending, setSending] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -145,19 +140,22 @@ export function StepUpPrompt() {
     void requestAdminStepUp()
       .then(() => {
         setSentAt(Date.now());
-        setResendReadyAt(Date.now() + RESEND_COOLDOWN_MS);
+        setResendReadyAt(Date.now() + OTP_RESEND_COOLDOWN_MS);
       })
       .catch(setError)
       .finally(() => setSending(false));
   }, [cooldown, sending]);
 
-  const submit = useCallback(
-    (event: React.FormEvent) => {
-      event.preventDefault();
-      if (checking || code.trim().length === 0) return;
+  // `checkingRef` and not only the `checking` state: the last digit submits the code, and
+  // an Enter or a paste in the same tick would otherwise read a stale `false`.
+  const checkingRef = useRef(false);
+  const confirm = useCallback(
+    (value: string) => {
+      if (checkingRef.current || value.length !== OTP_LENGTH) return;
+      checkingRef.current = true;
       setChecking(true);
       setError(null);
-      void confirmAdminStepUp(code.trim())
+      void confirmAdminStepUp(value)
         .then(() => {
           // Reset BEFORE completing: the ask resolves synchronously into callers that may
           // re-render this tree, and leaving a spent code in state would show it again the
@@ -168,10 +166,25 @@ export function StepUpPrompt() {
         // NOT a dismissal. A wrong code, a 429 and a dropped connection all leave the
         // prompt open with a sentence — closing on a typo would fail the caller's action
         // for a keystroke, which is `problems.ts`'s §5.3 argument applied to this screen.
-        .catch(setError)
-        .finally(() => setChecking(false));
+        .catch((caught: unknown) => {
+          setError(caught);
+          setCode("");
+          setShakes((n) => n + 1);
+        })
+        .finally(() => {
+          checkingRef.current = false;
+          setChecking(false);
+        });
     },
-    [checking, code, reset],
+    [reset],
+  );
+
+  const submit = useCallback(
+    (event: React.FormEvent) => {
+      event.preventDefault();
+      confirm(code);
+    },
+    [code, confirm],
   );
 
   // THE ONLY SUBSCRIBER LEAVING MEANS NOBODY CAN ANSWER. The shell unmounts on sign-out
@@ -236,22 +249,26 @@ export function StepUpPrompt() {
                 {/* The address is not printed back, for the reason `SignInForm` gives:
                     a shoulder-surfed screen should not carry an operator's address. */}
                 <p>We have sent a six-digit code to the address on file for this account.</p>
-                <AuthField
+                <OtpInput
                   label="Six-digit code"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  maxLength={16}
+                  length={OTP_LENGTH}
                   value={code}
-                  onChange={(event) => setCode(event.target.value)}
+                  onChange={setCode}
+                  onComplete={confirm}
+                  status={error && code === "" ? "error" : "idle"}
+                  shakeKey={shakes}
+                  readOnly={checking}
                 />
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="submit"
                     className={PRIMARY_BUTTON}
-                    disabled={checking || code.trim().length === 0}
+                    disabled={checking || code.length !== OTP_LENGTH}
                   >
                     <KeyRound aria-hidden className="h-4 w-4" />
-                    {checking ? "Checking…" : "Confirm"}
+                    {/* One name throughout, so the control is not renamed under focus while the code is
+                        checked; the boxes go read-only meanwhile. */}
+                    Confirm
                   </button>
                   <button
                     type="button"

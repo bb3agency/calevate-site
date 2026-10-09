@@ -126,6 +126,18 @@ there is deliberately no second eraser in this tree.
 A CONVERTING client's `erase_after` stays NULL for ever. Their leads, calls and transcripts
 are the value they just built, and one of those callers may be a patient waiting to be rung
 back.
+
+--------------------------------------------------------------------------------
+6. SINCE D-697 A TRIAL IS OUTBOUND TEST CALLS, UNTIL THE FIRST PAYMENT
+--------------------------------------------------------------------------------
+The founder narrowed what a trial is for (9 Oct 2026): experiencing Calevate. An account on
+a trial that has not yet paid (`compliance/trial_access.py`) may build agents and place test
+calls from the one shared trial number (`agents/trial_calls.py`), and nothing else: no
+inbound, campaigns, numbers, KYC or live outbound. Each refusal lives in the gate it belongs
+to. A trial now carries free test-call MINUTES beside its days, counted from the `calls` rows
+marked `trial_call`, and ends at whichever runs out first, or at once on the first payment
+(`billing/first_payment.on_payment_credited`, which converts it). The billing semantics
+above are unchanged: a trial writes nothing to the ledger.
 """
 
 from __future__ import annotations
@@ -181,6 +193,11 @@ TRIAL_HUMAN_OUTCOMES: Final = (TRIAL_CONVERTED, TRIAL_STOPPED)
 MIN_TRIAL_DAYS: Final = 1
 MAX_TRIAL_DAYS: Final = 365
 
+#: The bounds on a trial's free test-call minutes (D-697), mirrored by
+#: `ck_tenant_trials_free_minutes_range`.
+MIN_FREE_MINUTES: Final = 1
+MAX_FREE_MINUTES: Final = 1000
+
 #: How long after a NON-CONVERTING trial ends before that client's personal data is erased.
 #:
 #: A PLATFORM DEFAULT WITH A PER-TRIAL OVERRIDE, rather than a `Settings` field or a column
@@ -207,10 +224,14 @@ MAX_ERASURE_GRACE_DAYS: Final = 180
 #: same field carries an operator's own words when a human ends a trial, and a NULL there
 #: would read as "nobody said" rather than "nobody had to".
 EXPIRY_REASON: Final = "The trial ran to its end date."
+#: The `ended_reason` the sweep writes when the free minutes ran out first (D-697).
+MINUTES_USED_REASON: Final = "The trial's free minutes were used."
+#: The `ended_reason` the first payment writes when it converts a trial (D-697).
+PAID_REASON: Final = "The client added credit."
 
 _SELECT = (
     "SELECT id, tenant_id, days, started_at, ends_at, status, ended_at, ended_reason, "
-    "erase_after, erasure_filed_at, started_by FROM tenant_trials"
+    "erase_after, erasure_filed_at, started_by, free_minutes FROM tenant_trials"
 )
 
 #: The newest trial for one tenant. `started_at DESC, id DESC` matches
@@ -241,6 +262,9 @@ class TrialState:
     #: 500. NULL once that person's operator row is removed (`SET NULL`): a leaver must not
     #: pin a client's trial history, and the audit row survives them.
     started_by: UUID | None
+    #: The test-call minutes this trial carries (D-697), or None on a trial opened before
+    #: minutes existed, which is bounded by its days alone.
+    free_minutes: int | None = None
 
     def is_active(self, *, at: datetime) -> bool:
         """Is this client inside a funded period at `at`?
@@ -285,6 +309,7 @@ def _state(row: Any) -> TrialState:
         erase_after=row[8],
         erasure_filed_at=row[9],
         started_by=UUID(str(row[10])) if row[10] is not None else None,
+        free_minutes=int(row[11]) if row[11] is not None else None,
     )
 
 
@@ -419,6 +444,7 @@ async def start_trial(
     days: int,
     actor_user_id: UUID | None,
     erasure_grace_days: int = DEFAULT_ERASURE_GRACE_DAYS,
+    free_minutes: int | None = None,
     at: datetime | None = None,
 ) -> TrialState:
     """Open a trial. Does not commit — the caller's audit row shares the transaction.
@@ -452,6 +478,12 @@ async def start_trial(
             remediation="Leave it unset to use the platform default of "
             f"{DEFAULT_ERASURE_GRACE_DAYS} days.",
         )
+    if free_minutes is not None and not MIN_FREE_MINUTES <= free_minutes <= MAX_FREE_MINUTES:
+        raise ProblemError.business_rule(
+            "invalid_trial_minutes",
+            f"A trial carries between {MIN_FREE_MINUTES} and {MAX_FREE_MINUTES} free minutes.",
+            remediation="Enter the test-call minutes the client was promised.",
+        )
 
     await _lock_tenant_trial(session, tenant_id)
     existing = await read_trial(session, tenant_id=tenant_id)
@@ -481,11 +513,11 @@ async def start_trial(
             text(
                 "INSERT INTO tenant_trials "
                 "(id, tenant_id, days, started_at, ends_at, status, erase_after, "
-                " started_by, created_at, updated_at) "
+                " started_by, free_minutes, created_at, updated_at) "
                 "VALUES (:id, :tid, :days, :start, :end, 'active', :erase_after, :by, "
-                " :start, :start) "
+                " :minutes, :start, :start) "
                 "RETURNING id, tenant_id, days, started_at, ends_at, status, ended_at, "
-                "ended_reason, erase_after, erasure_filed_at, started_by"
+                "ended_reason, erase_after, erasure_filed_at, started_by, free_minutes"
             ),
             {
                 "id": trial_id,
@@ -495,6 +527,7 @@ async def start_trial(
                 "end": ends_at,
                 "erase_after": ends_at + timedelta(days=erasure_grace_days),
                 "by": actor_user_id,
+                "minutes": free_minutes,
             },
         )
     ).first()
@@ -632,6 +665,7 @@ async def end_trial(
         erase_after=erase_after,
         erasure_filed_at=trial.erasure_filed_at,
         started_by=trial.started_by,
+        free_minutes=trial.free_minutes,
     )
 
 
@@ -683,14 +717,48 @@ async def mark_erasure_filed(
     )
 
 
+_TRIAL_SECONDS_SQL: Final = (
+    "SELECT COALESCE(SUM(COALESCE(duration_s, 0)), 0) FROM calls "
+    "WHERE tenant_id = :tid AND trial_call AND created_at >= :since"
+)
+_TRIAL_CALLS_SQL: Final = (
+    "SELECT count(*) FROM calls WHERE tenant_id = :tid AND trial_call AND created_at >= :since"
+)
+
+
+async def trial_seconds_used(session: AsyncSession, *, tenant_id: UUID, trial: TrialState) -> int:
+    """Seconds of test calls this trial has used (D-697): every `trial_call` row since it
+    started. A call still running counts as nothing until its length is recorded, which the
+    one-call-at-a-time line and the per-call cut-off bound to one call's worth."""
+    row = await session.execute(
+        text(_TRIAL_SECONDS_SQL), {"tid": tenant_id, "since": trial.started_at}
+    )
+    return int(row.scalar() or 0)
+
+
+async def trial_calls_since(session: AsyncSession, *, tenant_id: UUID, since: datetime) -> int:
+    """Test calls this account has placed since `since`: the daily cap's count."""
+    row = await session.execute(text(_TRIAL_CALLS_SQL), {"tid": tenant_id, "since": since})
+    return int(row.scalar() or 0)
+
+
+def minutes_of(seconds: int) -> int:
+    """Whole minutes, rounded UP: a client who has used 61 seconds has used 2 minutes."""
+    return -(-seconds // 60)
+
+
 __all__ = [
     "DEFAULT_ERASURE_GRACE_DAYS",
     "EXPIRY_REASON",
     "INBOUND_CUTOVER_JOB",
     "MAX_ERASURE_GRACE_DAYS",
+    "MAX_FREE_MINUTES",
     "MAX_TRIAL_DAYS",
+    "MINUTES_USED_REASON",
     "MIN_ERASURE_GRACE_DAYS",
+    "MIN_FREE_MINUTES",
     "MIN_TRIAL_DAYS",
+    "PAID_REASON",
     "TRIAL_ACTIVE",
     "TRIAL_CONVERTED",
     "TRIAL_EXPIRED",
@@ -700,10 +768,13 @@ __all__ = [
     "counter_epoch",
     "end_trial",
     "mark_erasure_filed",
+    "minutes_of",
     "read_trial",
     "reset_client_counters",
     "start_trial",
     "trial_billing_active",
+    "trial_calls_since",
     "trial_cost_to_us_inr",
     "trial_covers",
+    "trial_seconds_used",
 ]

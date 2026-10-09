@@ -18,6 +18,7 @@ export const KIND_COPY: Record<AttentionKind, { label: string; dot: string }> = 
   campaign_stalled: { label: "Campaign stalled", dot: "bg-warn" },
   inbound_stopped: { label: "Calls not being answered", dot: "bg-danger" },
   kb_rejected: { label: "Knowledge not accepted", dot: "bg-ink-faint" },
+  action_broken: { label: "Action needs a connection", dot: "bg-danger" },
 };
 
 /**

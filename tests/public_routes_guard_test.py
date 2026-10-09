@@ -256,8 +256,17 @@ class TestWiring:
         One route for all four tools rather than four. The credential is a per-agent secret
         we generate and seal, compared in constant time before the body is read; an unknown
         agent, an inactive route and a wrong secret all get the same 401. It writes what the
-        worker routes above write (opt-out, call-back), through the same functions."""
-        assert len(exempt) <= 50, sorted(exempt)
+        worker routes above write (opt-out, call-back), through the same functions.
+
+        RAISED 50 -> 52 by D-700, the client's OWN in-call actions, one door per engine:
+        `POST /v1/worker/engine-actions/{engine}/client/{name}` (the hosted platform's
+        custom action, the same per-agent secret, workspace check and live-call check as
+        the route above) and `POST /v1/worker/calls/{engine_call_id}/tools/actions/{name}`
+        (the worker's Bearer token, tenant parsed from the ref). Neither takes a tenant id
+        or a phone number: the caller's number is the platform's or our record of the call,
+        and only an action live on that agent in our database runs, under the tenant's RLS.
+        Both end in the one executor (`actions/in_call.run_in_call_action`)."""
+        assert len(exempt) <= 52, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

@@ -376,8 +376,104 @@ async def accept_carrier_application(tenant_id: uuid.UUID) -> None:
         )
 
 
+#: A business profile complete enough for an agent to go live (D-695): open round the
+#: clock, one address, one service, one person to hand a caller to. Round-the-clock hours
+#: keep the after-hours flag and the handover rota out of the way of a test about
+#: something else; a test whose subject is hours sets its own.
+COMPLETE_PROFILE: dict[str, Any] = {
+    "hours": [
+        {"day": day, "opens": "00:00", "closes": "23:59"}
+        for day in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+    ],
+    "branches": [{"label": "Main", "address": "1 Test Road, Hyderabad 500001"}],
+    "services": [{"name": "Consultation", "price_inr": "500"}],
+    "contacts": [{"label": "Front desk", "phone_e164": "+919000000999"}],
+}
+
+
+async def seed_business_profile(
+    tenant_id: uuid.UUID, profile: dict[str, Any] | None = None, *, replace: bool = True
+) -> None:
+    """Store a business profile WITHOUT carrying it to the agents: no prompt version is
+    minted and nothing is published, so a fixture changes no agent's script. A test about
+    the fan-out itself calls `profile_service.save_profile` instead."""
+    import json
+
+    from apps.api.db.base import uuid7
+    from apps.api.db.session import tenant_session
+    from apps.api.tenancy.profile_service import ProfilePatch, hours_map
+
+    patch = ProfilePatch.model_validate(profile or COMPLETE_PROFILE)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO business_profiles (id, tenant_id, hours, branches, services) "
+                "VALUES (:id, :tid, CAST(:hours AS jsonb), CAST(:branches AS jsonb), "
+                "CAST(:services AS jsonb)) ON CONFLICT (tenant_id) DO "
+                + (
+                    "UPDATE SET hours = EXCLUDED.hours, branches = EXCLUDED.branches, "
+                    "services = EXCLUDED.services"
+                    if replace
+                    else "NOTHING"
+                )
+            ),
+            {
+                "id": uuid7(),
+                "tid": tenant_id,
+                "hours": json.dumps(hours_map(patch.hours or [])),
+                "branches": json.dumps([b.model_dump() for b in patch.branches or []]),
+                "services": json.dumps([s.model_dump() for s in patch.services or []]),
+            },
+        )
+        for position, contact in enumerate(patch.contacts or []):
+            await session.execute(
+                text(
+                    "INSERT INTO business_contacts (id, tenant_id, position, label, phone_e164) "
+                    "SELECT :id, :tid, :pos, :label, :phone WHERE NOT EXISTS "
+                    "(SELECT 1 FROM business_contacts WHERE phone_e164 = :phone)"
+                ),
+                {
+                    "id": uuid7(),
+                    "tid": tenant_id,
+                    "pos": position,
+                    "label": contact.label,
+                    "phone": contact.phone_e164,
+                },
+            )
+
+
+async def business_contact(
+    tenant_id: uuid.UUID, *, phone: str = "+919000000555", label: str = "Reception"
+) -> uuid.UUID:
+    """One business contact, for a test that puts somebody on an agent's handover list."""
+    from apps.api.db.base import uuid7
+    from apps.api.db.session import tenant_session
+
+    async with tenant_session(tenant_id) as session:
+        existing = (
+            await session.execute(
+                text("SELECT id FROM business_contacts WHERE phone_e164 = :p"), {"p": phone}
+            )
+        ).scalar()
+        if existing is not None:
+            return uuid.UUID(str(existing))
+        contact_id = uuid7()
+        await session.execute(
+            text(
+                "INSERT INTO business_contacts (id, tenant_id, position, label, phone_e164) "
+                "VALUES (:id, :tid, (SELECT count(*) FROM business_contacts), :label, :phone)"
+            ),
+            {"id": contact_id, "tid": tenant_id, "label": label, "phone": phone},
+        )
+    return contact_id
+
+
 async def accept_agreements(
-    tenant_id: uuid.UUID, user_id: uuid.UUID | None = None, *, kyc_and_pledge: bool = True
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
+    *,
+    kyc_and_pledge: bool = True,
+    business_profile: bool = True,
 ) -> None:
     """Record the four blocking legal acceptances an operating tenant now has to have —
     and, unless `kyc_and_pledge=False`, the verified KYC and current no-cold-calls pledge
@@ -427,6 +523,26 @@ async def accept_agreements(
             )
     if kyc_and_pledge:
         await verify_kyc_and_pledge_for_tests(tenant_id)
+    # D-695: an agent goes live only once the business profile holds what it needs. A
+    # profile the test already wrote is kept; a test about that gate passes False.
+    if business_profile:
+        await seed_business_profile(tenant_id, replace=False)
+
+
+async def mark_paid_for_tests(tenant_id: uuid.UUID) -> None:
+    """Make the account one that has made its first payment (D-697), so a trial given to it is
+    the D-536 billing gift rather than a test-calls-only trial. Stamped directly rather than
+    through `on_payment_credited`, which would also owe a voice workspace."""
+    from apps.api.db.session import tenant_session
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE organizations SET first_paid_at = now(), first_paid_via = 'manual_topup' "
+                "WHERE id = :tid AND first_paid_at IS NULL"
+            ),
+            {"tid": tenant_id},
+        )
 
 
 async def fund_wallet(tenant_id: uuid.UUID, amount_inr: str = "10000.00") -> None:
@@ -462,6 +578,17 @@ async def fund_wallet(tenant_id: uuid.UUID, amount_inr: str = "10000.00") -> Non
             delta=Decimal(amount_inr),
             reason="topup",
             ref=f"fixture-{uuid.uuid4().hex}",
+        )
+        # Money arriving is the account's first payment (D-697): a funded fixture is a PAID
+        # account, so a trial given to it is the D-536 billing gift and not a test-calls-only
+        # trial. Stamped directly rather than through `on_payment_credited`, which would also
+        # owe a voice workspace this fixture does not want.
+        await session.execute(
+            text(
+                "UPDATE organizations SET first_paid_at = now(), first_paid_via = 'manual_topup' "
+                "WHERE id = :tid AND first_paid_at IS NULL"
+            ),
+            {"tid": tenant_id},
         )
 
 
@@ -1066,3 +1193,23 @@ async def hosted_rows() -> Any:
         yield store
     finally:
         await store.cleanup()
+
+
+#: Put one person on an agent's handover list in a test, as the profile writer would: a
+#: business contact first, then the agent's selection of it (D-695). Parameters: `:id`
+#: (the member row), `:tid`, `:aid`, `:label`, `:phone`, `:pos`.
+INSERT_HANDOFF_MEMBER_SQL = (
+    "WITH c AS (INSERT INTO business_contacts (id, tenant_id, position, label, phone_e164) "
+    "VALUES (gen_random_uuid(), :tid, :pos, :label, :phone) RETURNING id) "
+    "INSERT INTO agent_handoff_members "
+    "(id, tenant_id, agent_id, contact_id, position, label, phone_e164) "
+    "SELECT :id, :tid, :aid, c.id, :pos, :label, :phone FROM c"
+)
+
+#: Set the business's opening hours in a test (`:tid`, `:hours` as JSON text or NULL for
+#: "not answered"), creating the profile row if there is none.
+SET_BUSINESS_HOURS_SQL = (
+    "INSERT INTO business_profiles (id, tenant_id, hours) "
+    "VALUES (gen_random_uuid(), :tid, coalesce(CAST(:hours AS jsonb), '{}'::jsonb)) "
+    "ON CONFLICT (tenant_id) DO UPDATE SET hours = EXCLUDED.hours"
+)

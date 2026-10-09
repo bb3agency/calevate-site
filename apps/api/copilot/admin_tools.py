@@ -224,7 +224,7 @@ async def _search_runbooks(
     return _clean("\n\n".join(passages))
 
 
-ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
+_FIRST_ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="platform_tenants",
         description=(
@@ -317,6 +317,163 @@ ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         permission="admin:tenants",
         scope="platform",
         run=_search_runbooks,
+    ),
+)
+
+# --- D-698: the queues and boards an operator works from ---------------------------------
+
+
+async def _admin_kyc_queue(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """The Identity reviews screen's own route function, `kyc_review_queue`, called with
+    this directory session rather than copied: it reads each client under that client's own
+    RLS session, which is the property worth not re-implementing."""
+    from apps.api.compliance.kyc_admin_routes import kyc_review_queue
+    from apps.api.core.context import Principal
+
+    principal = Principal(realm="admin", user_id=None, tenant_id=None, role=context.role)
+    items = await kyc_review_queue(session, principal, _cap(args.get("limit"), default=MAX_ROWS))
+    lines = [
+        _clean(
+            f"{item.name} ({item.slug}) — {item.status}, {item.kyc_path or 'path unknown'}"
+            + (f", owner ID {item.owner_id_type}" if item.owner_id_type else "")
+            + (", DigiLocker required" if item.digilocker_required else "")
+            + f", submitted {_when(item.submitted_at)}"
+        )
+        for item in items
+    ]
+    return _listing(
+        lines,
+        shown_of="verifications waiting for review",
+        nothing="No client's verification is waiting for review.",
+    ) + (
+        "\nTo decide one, open that client's page; `admin_kyc_review` acts on the client "
+        "whose page is open."
+        if items
+        else ""
+    )
+
+
+async def _admin_held_accounts(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """`admin.holds.held_tenants` — the Held accounts screen's read."""
+    del context, args
+    from apps.api.admin.holds import held_tenants
+
+    rows = await held_tenants(session)
+    lines = [
+        _clean(f"{row.name} ({row.slug}, {row.plan_tier}) — held by: {', '.join(row.rules)}")
+        for row in rows[:MAX_ROWS]
+    ]
+    return _listing(lines, total=len(rows), shown_of="held accounts", nothing="No account is held.")
+
+
+async def _admin_alerts(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """`ops.alerts_service.alert_report` — the Alerts screen's read. Alerts close on their
+    own after an hour of quiet; there is nothing to acknowledge, so triage is reading this
+    and following the runbook (`search_runbooks` with the code)."""
+    del context, args
+    from apps.api.ops.alerts_service import alert_report
+
+    report = await alert_report(session, days=7, limit=MAX_ROWS)
+    open_counts = ", ".join(f"{k} {v}" for k, v in report.open_by_severity.items()) or "none"
+    lines = [
+        _clean(
+            f"{episode.code} · {episode.severity} · {episode.stage} · {episode.service} · "
+            f"{episode.occurrences}x, last {_when(episode.last_seen_at)}"
+        )
+        for episode in report.episodes
+    ]
+    return f"Open alerts by severity: {open_counts}.\n" + _listing(
+        lines, shown_of="alert episodes this week", nothing="No alert in the last 7 days."
+    )
+
+
+async def _admin_voices(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """`voice_curation.list_curated_voices` — the Voices screen's read."""
+    del context, args
+    from apps.api.agents.voice_curation import list_curated_voices
+
+    rows = await list_curated_voices(session, scope="all")
+    lines = [
+        _clean(f"{row.voice.label} · {row.state} · {row.live_agents} live agent(s)")
+        + f" [voice_id {row.voice.id}]"
+        for row in rows[:MAX_ROWS]
+    ]
+    return _listing(
+        lines, total=len(rows), shown_of="voices", nothing="The voice catalogue is empty."
+    )
+
+
+_NO_ARGS: Final[dict[str, Any]] = {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": False,
+}
+
+ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
+    *_FIRST_ADMIN_READ_TOOLS,
+    ReadTool(
+        name="admin_kyc_queue",
+        description=(
+            "Clients whose business verification is waiting for a reviewer, oldest first: "
+            "status, which path (document or DigiLocker), and when they submitted."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "anyOf": [{"type": "integer"}, {"type": "null"}],
+                    "description": f"How many to return, at most {MAX_ROWS}.",
+                }
+            },
+            "required": ["limit"],
+            "additionalProperties": False,
+        },
+        permission="admin:tenants",
+        scope="platform",
+        run=_admin_kyc_queue,
+    ),
+    ReadTool(
+        name="admin_held_accounts",
+        description=(
+            "Accounts whose outbound calling is held, and which hold (KYC, first campaign)."
+        ),
+        parameters=_NO_ARGS,
+        # The console screen declares `org:read`, which every client role also holds; the
+        # admin realm's platform tools are gated on a permission no client role holds.
+        permission="admin:tenants",
+        scope="platform",
+        run=_admin_held_accounts,
+    ),
+    ReadTool(
+        name="admin_alerts",
+        description=(
+            "The platform's alert episodes over the last week and how many are open by "
+            "severity. Use `search_runbooks` with an alert code for what to do."
+        ),
+        parameters=_NO_ARGS,
+        permission="ops:manage",
+        scope="platform",
+        run=_admin_alerts,
+    ),
+    ReadTool(
+        name="admin_voices",
+        description=(
+            "Every voice in the catalogue, whether clients may choose it, and how many "
+            "live agents use it."
+        ),
+        parameters=_NO_ARGS,
+        permission="ops:manage",
+        scope="platform",
+        run=_admin_voices,
     ),
 )
 

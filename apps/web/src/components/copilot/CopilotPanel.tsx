@@ -2,9 +2,12 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { Eraser, Undo2, X } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
 
 import { AcceptChargeDialog, extraUnavailableSentence } from "@/components/aiExtraDialog";
 import { ConfirmDialog } from "@/components/confirmDialog";
+import { DotWave } from "@/components/console/speakingIndicator";
+import { selectionSummary } from "@/lib/copilot/selection";
 import { FIELD, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
 import type { Session } from "@/lib/api/client";
@@ -15,6 +18,7 @@ import { useCopilotConversation } from "@/lib/copilot/useCopilotConversation";
 
 import { AnswerText } from "./answerText";
 import { ActionReceipt } from "./ActionReceipt";
+import { JobCard } from "./JobCard";
 import { NavigationReceipt } from "./NavigationReceipt";
 import { ProposalCard } from "./ProposalCard";
 import { StepList } from "./StepList";
@@ -58,13 +62,25 @@ export function CopilotPanel({
   onNavigate,
   labelledBy,
   placement = "floating",
+  request = null,
 }: {
-  /** Where the launcher is (`CopilotDock`): the panel opens beside it. */
-  placement?: "floating" | "header";
+  /**
+   * WHERE THE PANEL SITS. `side` is the panel on every screen since D-694: a full-height
+   * sheet on the right that leaves the page usable beside it. `page` is the same panel laid
+   * into the assistant's own page, with no close button. `floating` and `header` are the
+   * older popover placements, kept for the view-as notice that shares this frame.
+   */
+  placement?: PanelPlacement;
   session: Session;
   holder: SurfaceHolder;
   realm: "client" | "admin";
-  onClose: () => void;
+  onClose?: () => void;
+  /**
+   * A request a button on the screen asked to prefill (`lib/copilot/launcher.ts`). It is
+   * put in the ask box and never sent: the person reads it and presses Ask. `nonce`
+   * changes per request, so the same words asked twice still land.
+   */
+  request?: { prompt: string; nonce: number } | null;
   /**
    * OPEN THIS SCREEN (D-524). Passed up to the dock rather than done here, and the split is
    * the same one the server made: this component decides WHETHER — it is the half that can
@@ -103,6 +119,7 @@ export function CopilotPanel({
   // only fires for keys pressed inside its own tree. Same reason `useFocusTrap` puts its
   // listener there; this file cannot borrow the hook itself (see the header).
   useEffect(() => {
+    if (onClose === undefined) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
@@ -111,9 +128,26 @@ export function CopilotPanel({
   }, [onClose]);
 
   // Focus the ask box when the panel opens — it is the only thing anybody opens this for.
+  // Not on the assistant's own page, where the panel is one region among several and
+  // stealing the caret on arrival would skip the page's heading for a screen reader.
   useEffect(() => {
+    if (placement === "page") return;
     panel.current?.querySelector("textarea")?.focus();
-  }, []);
+  }, [placement]);
+
+  // A prefilled request: into the box, caret at the end, ready to edit or send.
+  const requestNonce = request?.nonce;
+  const requestPrompt = request?.prompt;
+  useEffect(() => {
+    if (requestNonce === undefined || requestPrompt === undefined) return;
+    setQuestion(requestPrompt);
+    const box = panel.current?.querySelector("textarea");
+    if (box) {
+      box.focus();
+      requestAnimationFrame(() => box.setSelectionRange(box.value.length, box.value.length));
+    }
+  }, [requestNonce, requestPrompt]);
+  const reduced = useReducedMotion();
 
   /*
    * FOLLOW THE ANSWER, BUT ONLY WHILE THE PERSON IS STILL FOLLOWING IT.
@@ -183,33 +217,26 @@ export function CopilotPanel({
     }
     onNavigate(navigation);
   }, [navigation, asking, onNavigate, holder, batch]);
-  // WHETHER A PROPOSAL MAY BE CONFIRMED FROM THIS REALM (D-499).
-  //
-  // The admin assistant streams the same frames as the client one — `admin_routes.py:111`
-  // documents `proposal` among them — but there is NO `POST /v1/admin/copilot/confirm`.
-  // The only confirm route in this console is `/v1/copilot/confirm`, which declares
-  // `copilot:use`; an operator's token is checked against the CLIENT realm there and
-  // refused, and inside a view-as session it is refused again by the D-22 line because
-  // `copilot:use` is not in `rbac.IMPERSONATION_PERMITTED_MUTATIONS`. So a Confirm button
-  // here would be a control whose only possible outcome is a refusal, spending an
-  // operator's click on the wrong realm's endpoint.
-  //
-  // THE CARD IS STILL SHOWN, READ-ONLY. A proposal is not a change, and what it holds —
-  // what would move, from what to what, at what cost, and whether it comes back — is worth
-  // reading even when it cannot be actioned from here. Hiding it would leave an operator
-  // watching an answer refer to an offer that is nowhere on screen.
-  //
-  // WHAT REMOVES THIS BRANCH: `POST /v1/admin/copilot/confirm`, an admin-realm confirm
-  // route whose write tools carry an account-scoped identity. Until it exists this stays,
-  // and `confirmable` is the one place the realm decides.
-  const confirmable = realm === "client";
+  // BOTH REALMS CAN CONFIRM (D-694). The admin realm has its own confirm door,
+  // `POST /v1/admin/copilot/confirm`, for its own platform actions, with the same step-up the
+  // console button asks for; `ProposalCard` picks the door from `realm`.
+  const confirmable = true;
+  const selected = selectionSummary(surface);
 
   return (
-    <div
+    <motion.div
       ref={panel}
-      role="dialog"
+      // A region on the assistant's own page, a non-modal dialog everywhere else: it sits
+      // beside the page and never traps focus (see the header).
+      role={placement === "page" ? "region" : "dialog"}
       aria-labelledby={labelledBy}
-      className={`${panelPlacement(placement)} flex w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-card border border-line bg-surface shadow-overlay`}
+      // Enters along the path it leaves by, from the edge it lives on (`enterFrom`), in
+      // transform and opacity only. Under reduced motion, opacity alone.
+      initial={placement === "page" ? false : enterFrom(placement, reduced === true)}
+      animate={{ opacity: 1, transform: "translateX(0px) translateY(0px)" }}
+      exit={enterFrom(placement, reduced === true)}
+      transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
+      className={panelFrame(placement)}
     >
       {/* WHICH CONSOLE'S ASSISTANT THIS IS — in the chrome, not only in the words.
           Both realms rendered an identical panel, so an operator with both tabs open had
@@ -242,6 +269,17 @@ export function CopilotPanel({
           >
             {surface.title}
           </p>
+          {/* WHAT IT WILL ACT ON. Shown only when the screen has rows ticked, so "summarise
+              these" has a visible "these". */}
+          {selected !== null && (
+            <p
+              className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                realm === "admin" ? "bg-white/10 text-white" : "bg-brand-soft text-brand-strong"
+              }`}
+            >
+              Using: {selected}
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {/* START AGAIN (D-540), and it exists BECAUSE the conversation is now durable.
@@ -270,18 +308,20 @@ export function CopilotPanel({
               <Eraser aria-hidden className="h-4 w-4" />
             </button>
           )}
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close the assistant"
-            className={
-              realm === "admin"
-                ? "-mr-1 rounded-md p-1 text-white/70 hover:bg-white/10 hover:text-white"
-                : "-mr-1 rounded-md p-1 text-ink-muted hover:bg-black/5 hover:text-ink dark:hover:bg-white/10"
-            }
-          >
-            <X aria-hidden className="h-4 w-4" />
-          </button>
+          {onClose !== undefined && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close the assistant"
+              className={
+                realm === "admin"
+                  ? "-mr-1 rounded-md p-1 text-white/70 hover:bg-white/10 hover:text-white touch:p-2.5"
+                  : "-mr-1 rounded-md p-1 text-ink-muted hover:bg-black/5 hover:text-ink touch:p-2.5 dark:hover:bg-white/10"
+              }
+            >
+              <X aria-hidden className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -327,23 +367,20 @@ export function CopilotPanel({
               account — your calls, leads, campaigns and agents — by looking them up.
             </p>
           ) : realm === "admin" ? (
-            /* THE OPERATOR'S OWN SENTENCE. The client copy below promises "it asks you to
-               confirm first", and on this realm that promise cannot be kept — there is no
-               admin confirm route, so a suggestion here is something to read, not something
-               to action (see `confirmable`). Saying so up front is cheaper than an operator
-               discovering it at the card. */
+            /* THE OPERATOR'S OWN SENTENCE (D-694): it can suggest platform actions, which
+               wait for a confirm with a second factor, and it can open admin screens. */
             <p className="text-xs text-ink-muted">
-              It can see the {surface.fields.length} fields on this screen and can fill them
-              in for you — nothing is saved until you press the screen&apos;s own save
-              button. It also answers about platform state and the account you have open. It
-              cannot change a client&apos;s data from here.
+              It can see the {surface.fields.length} fields on this screen and fill them in —
+              nothing is saved until you press the screen&apos;s own save button. It answers
+              about the platform and the account you have open, can take you to another
+              screen, and asks you to confirm before any platform change.
             </p>
           ) : (
             <p className="text-xs text-ink-muted">
-              It can see the {surface.fields.length} fields on this screen and can fill them
-              in for you — nothing is saved until you press the screen&apos;s own save
-              button. If it suggests a change to your leads or campaigns, it asks you to
-              confirm first and does nothing until you do.
+              It can see the {surface.fields.length} fields on this screen and fill them in —
+              nothing is saved until you press the screen&apos;s own save button. Small,
+              reversible changes happen straight away and you can undo them. Anything that
+              calls someone, costs money or cannot be taken back waits for you to confirm.
             </p>
           ))}
 
@@ -421,7 +458,12 @@ export function CopilotPanel({
               // has started there is something real to show — which tool, with what, and how
               // long it has been going — and a spinner beside a live step list is two
               // answers to "is it still working".
-              <Skeleton rows={2} label="Thinking…" />
+              <p className="flex items-center gap-2 text-xs text-ink-muted">
+                <span aria-hidden className="text-brand">
+                  <DotWave active />
+                </span>
+                Thinking…
+              </p>
             ) : (
               conversation.streaming !== "" && (
                 // Through the SAME renderer as a finished answer, so a list does not
@@ -457,6 +499,7 @@ export function CopilotPanel({
               session={session}
               proposal={conversation.proposal}
               confirmable={confirmable}
+              realm={realm}
               onDismiss={conversation.dismissProposal}
             />
           )}
@@ -478,7 +521,12 @@ export function CopilotPanel({
             // and is emptied by the next question — there is no reorder for a key to
             // survive, and `object_id` is empty on an action whose object did not exist
             // when it was described.
-            <ActionReceipt key={index} action={performed} />
+            <ActionReceipt key={index} action={performed} session={session} realm={realm} />
+          ))}
+          {/* BACKGROUND JOBS this panel started (D-694). They outlive the answer, so each
+              card follows its own job; anything irreversible waits for the person. */}
+          {conversation.jobs.map((job) => (
+            <JobCard key={job.job_id} session={session} job={job} />
           ))}
         </div>
 
@@ -657,13 +705,40 @@ export function CopilotPanel({
           }
         />
       )}
-    </div>
+    </motion.div>
   );
 }
+
+export type PanelPlacement = "floating" | "header" | "side" | "page";
 
 /** Beside the launcher: above a floating one, under a header one. */
 export function panelPlacement(placement: "floating" | "header"): string {
   return placement === "header"
     ? "fixed right-4 top-[80px] z-[70] max-h-[min(34rem,calc(100dvh-6.5rem))]"
     : "fixed bottom-20 right-4 z-[70] max-h-[min(34rem,calc(100dvh-7rem))]";
+}
+
+/**
+ * The panel's frame per placement. `side` is full height on the right and full WIDTH below
+ * `sm`, where a 24rem sheet would leave a sliver of page nobody can use; `dvh` and the safe
+ * area keep the ask box above a phone's keyboard and home bar.
+ */
+export function panelFrame(placement: PanelPlacement): string {
+  const card = "flex flex-col overflow-hidden bg-surface";
+  switch (placement) {
+    case "side":
+      return `${card} fixed inset-y-0 right-0 z-[70] h-dvh w-full border-l border-line pb-[env(safe-area-inset-bottom)] shadow-overlay sm:w-[min(26rem,100vw)]`;
+    case "page":
+      return `${card} h-[min(44rem,calc(100dvh-12rem))] min-h-[24rem] w-full rounded-card border border-line`;
+    default:
+      return `${card} ${panelPlacement(placement)} w-[min(24rem,calc(100vw-2rem))] rounded-card border border-line shadow-overlay`;
+  }
+}
+
+/** Where the panel comes from: its own edge for the sheet, a short rise for the popovers. */
+function enterFrom(placement: PanelPlacement, reduced: boolean) {
+  if (reduced) return { opacity: 0 };
+  return placement === "side"
+    ? { opacity: 0, transform: "translateX(24px) translateY(0px)" }
+    : { opacity: 0, transform: "translateX(0px) translateY(8px)" };
 }

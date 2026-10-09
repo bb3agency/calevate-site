@@ -121,6 +121,7 @@ const HANDOFF: HandoffOut = {
   members: [
     {
       id: "m1",
+      contact_id: "c1",
       position: 0,
       label: "Ravi",
       phone_e164: "+919000000001",
@@ -138,18 +139,21 @@ const HANDOFF: HandoffOut = {
 };
 
 describe("an editor that has been touched", () => {
-  it("blocks the unload of the handover list once a name is changed", async () => {
+  it("blocks the unload of the handover list once a note is changed", async () => {
     await renderClientPage(<Handover agent={AGENT} />, {
       "/v1/me": OWNER_ME,
       "/v1/agents/agent-1/handoff": HANDOFF,
+      "/v1/business-profile": {
+        contacts: [{ id: "c1", label: "Ravi", phone_e164: "+919000000001", note: null }],
+      },
     });
-    await screen.findByDisplayValue("Ravi");
+    await screen.findByPlaceholderText("Ask for the manager first");
 
     // Nothing typed yet: the same screen must not ask.
     expect(unloadWasBlocked()).toBe(false);
 
-    fireEvent.change(screen.getByDisplayValue("Ravi"), {
-      target: { value: "Ravi Kumar" },
+    fireEvent.change(screen.getByPlaceholderText("Ask for the manager first"), {
+      target: { value: "Mornings only" },
     });
     await waitFor(() => expect(unloadWasBlocked()).toBe(true));
   });

@@ -101,13 +101,18 @@ from apps.api.agents.write_guard import assert_agent_writable
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance import dnc
 from apps.api.compliance.audit import write_audit
+from apps.api.copilot import action_log
 from apps.api.copilot.actions import (
+    DOES_IT,
     PROPOSES_ONLY,
     ActionTier,
     ActionTool,
     Executed,
     Plan,
     ToolActor,
+    Undo,
+    UndoRecord,
+    UndoRefusedError,
     WriteRefusedError,
     action_schema,
     actor_for,
@@ -117,6 +122,7 @@ from apps.api.copilot.actions import (
     parse_args,
 )
 from apps.api.copilot.agent_actions import AGENT_ACTIONS
+from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.schemas import (
     CopilotActionEvent,
@@ -299,17 +305,13 @@ async def _plan_lead_status(
     return Plan(
         object_id=str(parsed.lead_id),
         title="Change this lead's status",
-        summary=(
-            f"Mark this lead as {proposed}. It is currently {current}. "
-            "Nothing changes until you confirm."
-        ),
+        summary=(f"Mark this lead as {proposed}. It was {current}."),
         current=current,
         proposed=proposed,
-        # A CRM label move: nothing is dialled, nothing is billed, and the previous status
-        # is on the card the person just read, which is what makes the reversal exact
-        # rather than a reassurance.
+        # A CRM label move: nothing is dialled, nothing is billed, and the prior status is
+        # captured before the move, which is what makes the Undo exact (D-694).
         cost=None,
-        reversal=f"Set it back to {current} on the lead's own screen at any time.",
+        reversal=f"Undo puts it back to {current}; you can also change it on the lead's screen.",
         args={"lead_id": str(parsed.lead_id), "status": parsed.status},
     )
 
@@ -346,6 +348,40 @@ async def _execute_lead_status(
         ),
         audit_summary={"to_status": parsed.status, "moved": applied},
     )
+
+
+async def _capture_lead_status(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The one field `lead_set_status` overwrites, read through the same 404 the planner
+    uses (D-694's capture half)."""
+    del actor
+    parsed = parse_args(_LeadStatusArgs, args)
+    lead = await crm_service.get_lead(session, parsed.lead_id)
+    return {"status": lead.status}
+
+
+async def _invert_lead_status(session: AsyncSession, actor: ToolActor, record: UndoRecord) -> str:
+    """Put the status back — through `update_lead`, the button's own function — but only
+    if nobody has moved it since. The row lock makes the compare and the swap one step."""
+    lead_id = UUID(str(record.args["lead_id"]))
+    row = (
+        await session.execute(
+            text("SELECT status FROM leads WHERE id = :lid AND deleted_at IS NULL FOR UPDATE"),
+            {"lid": lead_id},
+        )
+    ).first()
+    if row is None:
+        raise UndoRefusedError("that lead has been deleted, so there is nothing to put back")
+    if str(row[0]) != record.result_state.get("status"):
+        raise UndoRefusedError(
+            "that lead's status has been changed since, so it was left as it is now"
+        )
+    prior = str(record.prior_state["status"])
+    await crm_service.update_lead(
+        session, lead_id, status=prior, name=None, actor=str(actor.user_id)
+    )
+    return f"The lead is back to {_LEAD_STATUS_LABELS.get(prior, prior)}."
 
 
 # --- tool 2: dnc_add --------------------------------------------------------------------
@@ -725,13 +761,11 @@ async def _execute_propose_knowledge(
 
 LEAD_SET_STATUS: Final = WriteTool(
     name="lead_set_status",
-    # TIER 2, AND IT IS THE ONE OF THE FOUR WHERE THAT IS A JUDGEMENT RATHER THAN A
-    # DEDUCTION. Moving a lead to `lost` reaches no caller and spends nothing, so the
-    # tier rule alone would admit `immediate`. It stays `confirm` because the founder's
-    # instruction was to keep the existing confirmable ones confirmable: people have
-    # already learned that this assistant asks before it touches their leads, and quietly
-    # taking the click away is a promise withdrawn without anybody being told.
-    tier="confirm",
+    # IMMEDIATE WITH UNDO (D-694, re-tiering D-500's judgement). A status move reaches no
+    # caller and spends nothing, and its inverse is exact: the prior status is captured
+    # before the move and put back under a CAS.
+    tier="immediate",
+    undo=Undo(capture=_capture_lead_status, invert=_invert_lead_status),
     permission="leads:write",
     object_type="lead",
     # A new action name, in `number.dlt_status_set`'s spelling. The human `PATCH
@@ -741,8 +775,8 @@ LEAD_SET_STATUS: Final = WriteTool(
     where="on the lead's own screen",
     schema=action_schema(
         "lead_set_status",
-        "Propose changing one lead's status (new, contacted, interested, hot, won, lost)."
-        + PROPOSES_ONLY,
+        "Change one lead's status (new, contacted, interested, hot, won, lost). The person "
+        "can undo it from the receipt." + DOES_IT,
         {
             "lead_id": {
                 "type": "string",
@@ -793,6 +827,7 @@ DNC_ADD: Final = WriteTool(
     ),
     plan=_plan_dnc_add,
     execute=_execute_dnc_add,
+    undo=None,
 )
 
 CAMPAIGN_PAUSE: Final = WriteTool(
@@ -817,6 +852,7 @@ CAMPAIGN_PAUSE: Final = WriteTool(
     ),
     plan=_plan_campaign_pause,
     execute=_execute_campaign_pause,
+    undo=None,
 )
 
 PROPOSE_KNOWLEDGE: Final = WriteTool(
@@ -890,6 +926,7 @@ PROPOSE_KNOWLEDGE: Final = WriteTool(
     ),
     plan=_plan_propose_knowledge,
     execute=_execute_propose_knowledge,
+    undo=None,
 )
 
 #: Registration order is wire order and is therefore part of the cacheable prefix. New
@@ -906,6 +943,10 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     # resolve through `_BY_NAME`, and a second registry would be a second answer to "what
     # may the assistant do".
     *AGENT_ACTIONS,
+    # D-698's console actions, appended in their own registration order
+    # (`console_actions.py`): the Leads, Campaigns, Agents, Calls, Call-backs, Knowledge
+    # and phone-number buttons.
+    *CONSOLE_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}
@@ -922,6 +963,11 @@ def write_tool_schemas() -> list[dict[str, Any]]:
     inside `plan_write` instead, where it is also enforceable.
     """
     return [dict(tool.schema) for tool in WRITE_TOOLS]
+
+
+def tool_named(name: str) -> WriteTool | None:
+    """The registered action called `name`, or None."""
+    return _BY_NAME.get(name)
 
 
 def is_write_tool(name: str) -> bool:
@@ -1193,6 +1239,8 @@ async def run_immediate(
     principal: Principal | None,
     seed: str,
     ip: str | None,
+    source: action_log.ActionSource = "interactive",
+    job_id: UUID | None = None,
 ) -> CopilotActionEvent:
     """One TIER 1 action: describe it, claim it, do it, record it. IN THAT ORDER.
 
@@ -1302,6 +1350,7 @@ async def run_immediate(
                 applied=False,
                 reversal=strip_invisible(str(stored.get("reversal", ""))),
                 where=tool.where,
+                action_id=(str(stored["action_id"]) if stored.get("action_id") else None),
             )
 
         # READ, DESCRIBE, NORMALISE — and only now, with the key held.
@@ -1318,6 +1367,12 @@ async def run_immediate(
             raise
 
         try:
+            # THE PRIOR STATE IS READ HERE, AFTER THE PLAN AND IMMEDIATELY BEFORE THE
+            # EXECUTOR, in the same transaction (D-694): enough to invert, captured before
+            # anything is overwritten. `undo` is non-None for every immediate tool —
+            # `ActionTool.__post_init__` refuses to construct one without it.
+            assert tool.undo is not None
+            prior_state = await tool.undo.capture(session, actor, plan.args)
             executed = await tool.execute(session, actor, plan.args)
         except Exception:
             # RELEASE THE KEY so the person's own retry is not refused by a claim that
@@ -1326,6 +1381,36 @@ async def run_immediate(
             await fail_idempotency(session, record_id=claim.record_id)
             raise
         object_id = executed.object_id or plan.object_id
+        # THE COMPARE VALUE FOR THE INVERSE: the same capture, after the write. A create's
+        # capture is asked about the object the act PRODUCED, which only exists now.
+        until = action_log.undoable_until() if executed.applied else None
+        result_state = await tool.undo.capture(
+            session,
+            actor,
+            {**plan.args, f"{tool.object_type}_id": object_id} if object_id else plan.args,
+        )
+        action_id = await action_log.insert(
+            session,
+            action_log.NewAction(
+                realm="client",
+                tool=tool.name,
+                tier=tool.tier,
+                status="done",
+                source=source,
+                object_type=tool.object_type,
+                actor_id=actor.user_id,
+                tenant_id=actor.tenant_id,
+                object_id=object_id or None,
+                args=plan.args,
+                prior_state=prior_state,
+                result_state=result_state,
+                summary=executed.detail,
+                # NOTHING MOVED, NOTHING TO UNDO. An `applied: false` receipt offers no
+                # Undo, because the inverse would "restore" the state that is already there.
+                undoable_until=until,
+                job_id=job_id,
+            ),
+        )
         await write_audit(
             session,
             action=tool.audit_action,
@@ -1354,6 +1439,7 @@ async def run_immediate(
                 "object_id": object_id,
                 "title": plan.title,
                 "reversal": plan.reversal,
+                "action_id": str(action_id),
             },
         )
     log.info(
@@ -1377,6 +1463,8 @@ async def run_immediate(
         applied=executed.applied,
         reversal=strip_invisible(plan.reversal),
         where=tool.where,
+        action_id=str(action_id),
+        undoable_until=until,
     )
 
 
@@ -1638,7 +1726,23 @@ async def confirm(
             # action name to keep in step.
             summary={"via": "copilot", "tool": proposal.tool.name, **executed.audit_summary},
         )
-    except BaseException:
+        await action_log.insert(
+            session,
+            action_log.NewAction(
+                realm="client",
+                tool=proposal.tool.name,
+                tier=proposal.tool.tier,
+                status="done",
+                source="interactive",
+                object_type=proposal.tool.object_type,
+                actor_id=actor.user_id,
+                tenant_id=actor.tenant_id,
+                object_id=proposal.object_id or None,
+                args=proposal.args,
+                summary=executed.detail,
+            ),
+        )
+    except BaseException as failure:
         # THE ID GOES BACK, BECAUSE THE CHANGE IS GOING BACK. `BaseException` and not
         # `Exception`: a cancelled request (the browser gave up on the dialog) rolls the
         # transaction back exactly as an error does, and leaving a token burnt for a change
@@ -1647,6 +1751,16 @@ async def confirm(
         # the executor's own refusal (`409` on a campaign that stopped running, `404` on a
         # lead that was deleted) and can act on the SAME token.
         await _unburn(proposal.jti)
+        if isinstance(failure, ProblemError):
+            await action_log.record_refusal(
+                realm="client",
+                tenant_id=actor.tenant_id,
+                actor_id=actor.user_id,
+                tool=proposal.tool.name,
+                tier=proposal.tool.tier,
+                object_type=proposal.tool.object_type,
+                reason=failure.title,
+            )
         raise
     return CopilotConfirmOut(
         tool=proposal.tool.name,
@@ -1657,6 +1771,201 @@ async def confirm(
         # last surface that renders an executor's prose to a person.
         detail=strip_invisible(executed.detail),
     )
+
+
+# --- the Approvals inbox (background jobs) ------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class StagedApproval:
+    """A confirm-tier action a background job reached, now waiting for a person."""
+
+    action_id: UUID
+    tool: str
+    title: str
+    summary: str
+    cost: str | None
+    reversal: str
+
+
+async def stage_for_approval(
+    name: str, raw_arguments: str, *, principal: Principal, job_id: UUID
+) -> StagedApproval:
+    """A CONFIRM action inside a background job: plan it, and park it in the inbox (D-694).
+
+    NOTHING IRREVERSIBLE RUNS UNATTENDED, which is the founder's rule for routines and the
+    reason this exists. The job cannot show a Confirm button — nobody is watching it — so
+    instead of a five-minute token it writes a `pending_approval` row holding the canonical
+    arguments, and a person approves it from the inbox, where `approve` re-runs the
+    planner against the world as it is then and only then executes. Every check
+    `plan_write` makes is made here, in the same order.
+    """
+    tool = _BY_NAME.get(name)
+    if tool is None or tool.tier != "confirm":
+        raise WriteRefusedError(f"`{name}` is not something that waits for approval")
+    actor = actor_for(principal)
+    if actor is None:
+        raise WriteRefusedError(f"`{name}` needs a signed-in account, so nothing was staged")
+    try:
+        parsed_arguments = json.loads(raw_arguments or "")
+    except ValueError as exc:
+        raise WriteRefusedError("the tool call was not valid JSON") from exc
+    if not isinstance(parsed_arguments, dict):
+        raise WriteRefusedError("the tool call was not an object")
+    async with tenant_session(actor.tenant_id) as session:
+        if assistant_closed_to(actor) is not None:
+            raise WriteRefusedError("this assistant is not available in a view-as session")
+        if not await may_act(session, actor, tool.permission):
+            raise WriteRefusedError(
+                f"this person's role may not do what `{name}` does, so do not stage it"
+            )
+        await _refuse_a_deleted_agent(session, tool, parsed_arguments)
+        plan = await tool.plan(session, actor, parsed_arguments)
+        action_id = await action_log.insert(
+            session,
+            action_log.NewAction(
+                realm="client",
+                tool=tool.name,
+                tier=tool.tier,
+                status="pending_approval",
+                source="job",
+                object_type=tool.object_type,
+                actor_id=actor.user_id,
+                tenant_id=actor.tenant_id,
+                object_id=plan.object_id or None,
+                args=plan.args,
+                pending_args=plan.args,
+                summary=plan.summary,
+                job_id=job_id,
+            ),
+        )
+    return StagedApproval(
+        action_id=action_id,
+        tool=tool.name,
+        title=strip_invisible(plan.title),
+        summary=strip_invisible(plan.summary),
+        cost=None if plan.cost is None else strip_invisible(plan.cost),
+        reversal=strip_invisible(plan.reversal),
+    )
+
+
+def _approval_refused(code: str, detail: str) -> ProblemError:
+    return ProblemError(
+        kind="conflict",
+        code=code,
+        title="That approval could not be used",
+        detail=detail,
+        remediation="Ask the assistant again — nothing has been changed.",
+    )
+
+
+async def _pending_for(
+    session: AsyncSession, action_id: UUID, actor: ToolActor
+) -> tuple[action_log.ActionRow, WriteTool]:
+    """The pending row, locked, for THIS person — or the refusal that says why not.
+
+    Another tenant's id is RLS's zero rows and therefore the same 404 as an id that never
+    existed; another colleague's pending row is the same 404, because whose approval it is
+    is part of what the row says.
+    """
+    row = await action_log.read_for_update(session, realm="client", action_id=action_id)
+    if row is None or row.actor_id != actor.user_id:
+        raise ProblemError.not_found("Approval")
+    if row.status != "pending_approval" or row.pending_args is None:
+        raise _approval_refused(
+            "copilot_approval_decided", "This approval has already been decided."
+        )
+    if row.created_at + action_log.APPROVAL_TTL <= datetime.now(UTC):
+        await action_log.decide_approval(session, action_id=action_id, status="expired", by=None)
+        raise _approval_refused("copilot_approval_expired", "This approval has expired.")
+    tool = _BY_NAME.get(row.tool)
+    if tool is None or tool.tier != "confirm":
+        raise _approval_refused(
+            "copilot_approval_unknown_tool",
+            "This approval refers to something the assistant can no longer do.",
+        )
+    return row, tool
+
+
+async def approve(
+    session: AsyncSession, action_id: UUID, *, principal: Principal, ip: str | None
+) -> CopilotConfirmOut:
+    """Run one pending action, after a person clicked Approve. The click IS the confirm.
+
+    Re-planned, not replayed: the planner reads the world as it is NOW (a campaign whose
+    launch blockers appeared overnight is refused here with them named), and the executor
+    runs on the planner's fresh canonical arguments. The row is decided in the same
+    transaction as the change and its audit row, so an approval that rolled back is still
+    pending and can be approved again.
+    """
+    actor = actor_for(principal)
+    if actor is None:  # pragma: no cover - the route's dependency guarantees a tenant
+        raise ProblemError.not_found("Approval")
+    if assistant_closed_to(actor) is not None:
+        raise ProblemError.forbidden()
+    row, tool = await _pending_for(session, action_id, actor)
+    if not await may_act(session, actor, tool.permission):
+        raise ProblemError(
+            kind="permission",
+            code="forbidden",
+            title="Forbidden",
+            detail="You do not have permission to make this change.",
+            remediation="Ask an owner or manager on this account to approve it instead.",
+        )
+    assert row.pending_args is not None
+    try:
+        plan = await tool.plan(session, actor, row.pending_args)
+    except WriteRefusedError as refused:
+        await action_log.decide_approval(
+            session, action_id=action_id, status="refused", by=actor.user_id, reason=refused.reason
+        )
+        return CopilotConfirmOut(
+            tool=tool.name,
+            object_type=tool.object_type,
+            object_id=row.object_id or "",
+            applied=False,
+            detail=strip_invisible(refused.reason),
+        )
+    executed = await tool.execute(session, actor, plan.args)
+    await write_audit(
+        session,
+        action=tool.audit_action,
+        actor=principal,
+        tenant_id=actor.tenant_id,
+        object_type=tool.object_type,
+        object_id=plan.object_id or None,
+        ip=ip,
+        summary={"via": "copilot", "tool": tool.name, "approval": True, **executed.audit_summary},
+    )
+    await action_log.decide_approval(
+        session, action_id=action_id, status="done", by=actor.user_id, summary=executed.detail
+    )
+    return CopilotConfirmOut(
+        tool=tool.name,
+        object_type=tool.object_type,
+        object_id=plan.object_id,
+        applied=executed.applied,
+        detail=strip_invisible(executed.detail),
+    )
+
+
+async def reject(session: AsyncSession, action_id: UUID, *, principal: Principal) -> None:
+    """Decline one pending action. Nothing runs; the row says who declined it and when."""
+    actor = actor_for(principal)
+    if actor is None:  # pragma: no cover - the route's dependency guarantees a tenant
+        raise ProblemError.not_found("Approval")
+    await _pending_for(session, action_id, actor)
+    await action_log.decide_approval(
+        session, action_id=action_id, status="rejected", by=actor.user_id
+    )
+
+
+#: The admin realm's proposal door (`admin_actions.py`) signs and burns with THIS key and
+#: THIS marker, under its own audience. Public names for the three private helpers, so the
+#: second door shares the mechanism instead of copying it.
+signing_key = _signing_key
+burn_proposal = _burn
+unburn_proposal = _unburn
 
 
 __all__ = [
@@ -1674,10 +1983,13 @@ __all__ = [
     "ActionTool",
     "Executed",
     "Plan",
+    "StagedApproval",
     "ToolActor",
     "WriteRefusedError",
     "WriteTool",
     "actor_for",
+    "approve",
+    "burn_proposal",
     "confirm",
     "conversation_seed",
     "immediate_tool_names",
@@ -1687,7 +1999,12 @@ __all__ = [
     # proves a refusal is refused has to reach the same door the executor does.
     "parse_args",
     "plan_write",
+    "reject",
     "run_immediate",
+    "signing_key",
+    "stage_for_approval",
     "tier_of",
+    "tool_named",
+    "unburn_proposal",
     "write_tool_schemas",
 ]

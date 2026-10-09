@@ -3449,6 +3449,20 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # typed, so it destroys every row rather than matching any.
         turns = await session.execute(text("DELETE FROM copilot_conversation_turns"))
         counts["copilot_turns_erased"] = int(rowcount_of(turns) or 0)
+        # AND THE ASSISTANT'S ACTIVITY LOG AND BACKGROUND JOBS (D-694). The log first: its
+        # rows point at jobs (`job_id`, SET NULL), so this order deletes each row once.
+        actions = await session.execute(text("DELETE FROM copilot_actions"))
+        counts["copilot_actions_erased"] = int(rowcount_of(actions) or 0)
+        # The routines and their runs (migration d3a7f5c19e42) BEFORE the jobs their runs
+        # point at: a routine's instruction is prose a person typed, the same shape as the
+        # conversation above, and runs cascade with their routine.
+        await session.execute(text("DELETE FROM copilot_routine_runs"))
+        routines_erased = await session.execute(text("DELETE FROM copilot_routines"))
+        counts["copilot_routines_erased"] = int(rowcount_of(routines_erased) or 0)
+        copilot_jobs = await session.execute(text("DELETE FROM copilot_jobs"))
+        counts["copilot_jobs_erased"] = int(rowcount_of(copilot_jobs) or 0)
+        # The auto-healer's backup phone (D-701): a staff number, gone with the account.
+        await session.execute(text("DELETE FROM heal_fallback_phones"))
         # THE UPLOADED FILES, WHICH TWO COMMENTS ASSERTED THIS ARM ALREADY SWEPT AND WHICH
         # IT DID NOT (18 Sep 2026). `kb/uploads.py` said an orphaned object sat in the
         # tenant's own prefix "so an offboarding still sweeps it up" and `storage.py` said
@@ -3626,6 +3640,11 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                     f"{counts['copilot_turns_erased']} in-app assistant conversation "
                     "turn(s) deleted: the chat panel's own history, on every device it "
                     "was open on"
+                ),
+                "copilot_actions": (
+                    f"{counts['copilot_actions_erased']} in-app assistant activity record(s), "
+                    f"{counts['copilot_jobs_erased']} background task(s) and "
+                    f"{counts['copilot_routines_erased']} routine(s) deleted"
                 ),
                 "usage_events": "retained — append-only ledger, carries no personal data",
                 "consent_ledger": "retained — append-only proof that consent existed",

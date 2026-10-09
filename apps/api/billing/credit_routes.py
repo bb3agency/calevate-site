@@ -225,6 +225,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
 from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_by_id
+from apps.api.billing.first_payment import on_payment_credited
 from apps.api.billing.lots import split_meta
 from apps.api.billing.rates import PREMIUM_VOICE_TIER, VALUE_VOICE_TIER, voice_tier_label
 from apps.api.billing.service import (
@@ -1360,6 +1361,10 @@ async def record_topup(
             object_id=str(written.entry_id),
             ip=client_request_ip(request),
             summary=summary,
+        )
+        # THE ONE PAYMENT-CREDITED HOOK (D-697): a bank transfer credited here is a payment.
+        await on_payment_credited(
+            scoped, tenant_id=tenant_id, amount_inr=amount, via="manual_topup"
         )
         # THE RECEIPT NAMES THE OBJECT THIS CLICK CREATED, read back inside the same
         # transaction: a list re-read a moment later cannot say which of five lots it was.

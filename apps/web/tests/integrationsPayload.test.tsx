@@ -97,6 +97,13 @@ const page = <IntegrationsPage />;
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": OWNER,
+    "/v1/integrations/credentials": [],
+    "/v1/integrations/connections/status": {
+      google_calendar: false,
+      zoho_crm: false,
+      hubspot: false,
+      sheets_share_with: null,
+    },
     "/v1/integrations/endpoints": ENDPOINTS,
     // The create forms are built from the server's own options read, so the screen asks
     // for it. `sheets_delivery_available` decides whether the Sheets form is offered at
@@ -341,6 +348,13 @@ describe("the integration logs when the read did not answer (§52)", () => {
     // card.
     await renderClientPage(page, {
       ...routes({
+        "/v1/integrations/credentials": [],
+        "/v1/integrations/connections/status": {
+          google_calendar: false,
+          zoho_crm: false,
+          hubspot: false,
+          sheets_share_with: null,
+        },
         "/v1/integrations/endpoints": problem(503, {
           title: "Service unavailable",
           detail: "Your endpoints could not be read.",

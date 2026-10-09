@@ -39,20 +39,34 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from typing import Annotated
+from datetime import UTC, datetime
+from typing import Annotated, Final
+from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.assist_leg import account_assist_leg
-from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
+from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.compliance.audit import write_audit
-from apps.api.copilot import memory, service, session_run, transcript, write_tools
+from apps.api.copilot import (
+    action_log,
+    jobs,
+    memory,
+    model_tiers,
+    service,
+    session_run,
+    transcript,
+    undo,
+    write_tools,
+)
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot.context import live_state_block, viewer_for
+from apps.api.copilot.fair_use import require_copilot_fair_use
 from apps.api.copilot.sanitize import assert_redacted
 from apps.api.copilot.schemas import (
+    CopilotActionOut,
+    CopilotActionPageOut,
     CopilotAskIn,
     CopilotConfirmIn,
     CopilotConfirmOut,
@@ -61,7 +75,11 @@ from apps.api.copilot.schemas import (
     CopilotDoneEvent,
     CopilotFact,
     CopilotFillEvent,
+    CopilotJobOut,
+    CopilotJobPageOut,
+    CopilotJobProgressOut,
     CopilotTextEvent,
+    CopilotUndoOut,
 )
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -69,6 +87,7 @@ from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
+from apps.api.core.settings import get_settings
 from apps.api.crm.assist import ASSIST_FEATURE_COPILOT, meter_assist
 from apps.api.db.session import tenant_session
 
@@ -99,11 +118,16 @@ form fields, and can open another screen of the console. Streams `text/event-str
   untouched; the token stops working at `expires_at`.
 * `event: action` · `data: {"tool": "...", "title": "...", "detail": "...",
   "object_type": "...", "object_id": "...", "applied": true, "reversal": "...",
-  "where": "..."}` — a **Tier 1** action that **has already happened**: reversible, reaching
-  no caller, spending nothing. Render it as a RECEIPT and never as an offer — there is no
-  token and no button. `reversal` says whether and how it can be taken back and `where`
-  says where the result now lives; both are the server's own words. `applied: false` means
-  the world was already in that state.
+  "where": "...", "action_id": "..."|null, "undoable_until": "..."|null}` — an
+  **immediate** action that **has already happened**: reversible, reaching no caller,
+  spending nothing (D-694). Render it as a RECEIPT, never as an offer. While
+  `undoable_until` is in the future, offer an Undo that posts to
+  `POST /v1/copilot/actions/{action_id}/undo`. `applied: false` means the world was
+  already in that state, and then there is nothing to undo.
+* `event: job` · `data: {"job_id": "...", "status": "queued", "goal": "...",
+  "detail": "..."}` — the request was handed to a BACKGROUND JOB. Follow it on
+  `GET /v1/copilot/jobs/{job_id}` or `GET /v1/copilot/jobs/{job_id}/events`; anything
+  irreversible it reaches waits on `GET /v1/copilot/approvals`.
 * `event: navigate` · `data: {"tool": "open_screen", "screen": "...", "route": "...",
   "where": "...", "detail": "...", "reversal": "..."}` — OPEN THIS SCREEN. At most one per
   response. A **Tier 1** frame: reversible (the back button), reaching no caller, spending
@@ -138,8 +162,8 @@ form fields, and can open another screen of the console. Streams `text/event-str
 no thread. What IS kept is one redacted, capped memory row per answered question
 (`copilot_memories`), which the assistant recalls on later questions from the same person;
 it expires on the account's own `copilot_memory` retention policy and is destroyed by
-offboarding. Metered against the account's AI allowance and refused before a token is spent
-when that allowance is used up (`ai_quota_exceeded` opens the wallet dialog).
+offboarding. Free to the account, up to a daily fair-use cap per account (D-694):
+past it the request is refused with `copilot_daily_limit_reached`.
 Requires `copilot:use` — held by owners and staff.\
 """
 
@@ -277,12 +301,13 @@ async def ask_copilot(
         #    client before a token is spent. Its own session, opened and closed here:
         #    everything below this line costs money and holds no connection.
         async with tenant_session(tenant_id) as gate_session:
-            quota = await require_ai_assist(gate_session, tenant_id=tenant_id)
-            # WHOSE AI ANSWERS — the account's own model where it may serve this leg.
-            # On the gate's session rather than a fourth one: it is a single indexed row,
-            # it is needed before the first token is spent, and the alternative is opening
-            # a connection of its own for one SELECT.
-            tenant_leg = await account_assist_leg(gate_session)
+            # THE ASSISTANT IS FREE, UP TO A DAILY FAIR-USE CAP (D-694). The platform brake
+            # still applies; the monthly AI allowance and the wallet do not.
+            await require_copilot_fair_use(gate_session, tenant_id=tenant_id)
+            # WHICH MODEL ANSWERS — the console's tier for this kind of question (D-694,
+            # superseding D-478's "the account's own model" on this surface). A pure read
+            # of settings; the rule is `model_tiers.route_tier`.
+            tenant_leg = model_tiers.tier_leg(model_tiers.route_tier(payload.question))
             # 2b. MEMORY, ON THE GATE'S SESSION AND NOT A FOURTH ONE, for the reason
             #     `account_assist_leg` is here: it is a single indexed read, it is needed
             #     before the first token, and the alternative is opening a connection of
@@ -372,6 +397,8 @@ async def ask_copilot(
     #: own, deliberately (`copilot/navigation.py`: an append-only hash chain is not where a
     #: screen change belongs).
     navigated: str | None = None
+    #: The background job this answer started, or None (D-694).
+    started_job: str | None = None
     # THE ANSWER, KEPT ONLY LONG ENOUGH TO REMEMBER IT. Accumulated rather than re-read,
     # because a stream has no "the answer" to read back; bounded by
     # `service.MAX_ANSWER_TOKENS` * `service.MAX_TURNS`, which is the same ceiling the
@@ -514,6 +541,7 @@ async def ask_copilot(
                         "proposed_tool": proposed,
                         # WHICH SCREEN THIS ANSWER OPENED, or None. A name, never a route.
                         "navigated_to": navigated,
+                        "job_id": started_job,
                     },
                 )
             # 5. THE MEMORY, in the SAME transaction as the meter and the audit, and that
@@ -581,12 +609,11 @@ async def ask_copilot(
     try:
         async for event in service.run_copilot(
             payload,
-            # The gate's verdict, passed IN rather than re-read. It is False on every
-            # path that reaches here — `require_ai_assist` RAISES at the ceiling — and
-            # it is written as the READ so that this caller stays correct if the gate
-            # ever learns to answer instead of raise.
+            # The assistant is FREE (D-694): no allowance ceiling applies, so there is no
+            # quota verdict to pass. The fair-use gate above refuses rather than answers.
             tenant_leg=tenant_leg,
-            quota_exhausted=quota.at_ceiling,
+            quota_exhausted=False,
+            allow_azure=get_settings().copilot_azure_fallback,
             # WHO IS ASKING, for the read tools — the RETRIEVAL PORT INCLUDED. The tenant
             # id is what scopes the RLS session each tool opens for itself AND what scopes
             # the retrieval cache's keyspace; the role is what `tools.run_read_tool` judges
@@ -648,6 +675,11 @@ async def ask_copilot(
                 # screen name is this product's own vocabulary rather than a value.
                 navigated = event.navigate.screen
                 yield ServerSentEvent(event="navigate", data=event.navigate)
+            if event.job is not None:
+                # A BACKGROUND JOB STARTED (D-694). Its row and its outbox message committed
+                # before this frame; the panel follows it on the jobs routes below.
+                started_job = event.job.job_id
+                yield ServerSentEvent(event="job", data=event.job)
             if event.spend is not None:
                 spends.append(event.spend)
         completed = True
@@ -935,6 +967,299 @@ async def clear_copilot_conversation(
         )
     cleared = await transcript.clear(session, realm=transcript.CLIENT, owner_id=principal.user_id)
     return CopilotConversationClearedOut(cleared=cleared)
+
+
+# --- the activity log, Undo, the Approvals inbox and background jobs (D-694) -------------
+
+
+def _client_ids(principal: Principal) -> tuple[UUID, UUID]:
+    """The tenant and the PERSON, or a refusal. Unreachable through `requires("copilot:use")`
+    on the client realm, which resolves both; raised rather than asserted for
+    `load_copilot_conversation`'s reason."""
+    if principal.tenant_id is None or principal.client_user_id is None:
+        raise ProblemError(
+            kind="permission",
+            code="copilot_activity_not_yours",
+            title="This belongs to someone else",
+            detail="Only the person who used the assistant can see what it did for them.",
+            remediation="Sign in to your own dashboard and open the assistant there.",
+        )
+    return principal.tenant_id, principal.client_user_id
+
+
+def action_out(row: action_log.ActionRow, *, realm: action_log.ActionRealm) -> CopilotActionOut:
+    """One log row on the wire. `can_undo` is decided HERE, from the server's clock."""
+    return CopilotActionOut(
+        id=str(row.id),
+        realm=realm,
+        tool=row.tool,
+        tier="confirm" if row.tier == "confirm" else "immediate",
+        status=row.status,  # type: ignore[arg-type]  # CHECK-constrained to the Literal
+        source="job" if row.source == "job" else "interactive",
+        object_type=row.object_type,
+        object_id=row.object_id,
+        args=row.args_redacted,
+        summary=row.summary,
+        refusal_reason=row.refusal_reason,
+        can_undo=row.can_undo(datetime.now(UTC)),
+        undoable_until=row.undoable_until,
+        undone_at=row.undone_at,
+        decided_at=row.decided_at,
+        job_id=None if row.job_id is None else str(row.job_id),
+        undone_by=None if row.undone_by is None else str(row.undone_by),
+        decided_by=None if row.decided_by is None else str(row.decided_by),
+        created_at=row.created_at,
+    )
+
+
+def job_out(job: jobs.JobRow) -> CopilotJobOut:
+    return CopilotJobOut(
+        id=str(job.id),
+        status=job.status,  # type: ignore[arg-type]  # CHECK-constrained to the Literal
+        goal=job.goal,
+        screen_route=job.screen_route,
+        progress=[CopilotJobProgressOut.model_validate(entry) for entry in job.progress],
+        result=job.result,
+        error_code=job.error_code,
+        created_at=job.created_at,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+    )
+
+
+@router.get(
+    "/copilot/actions",
+    response_model=CopilotActionPageOut,
+    openapi_extra=permission_meta("copilot:use"),
+    summary="What the assistant did for you — newest first, with Undo where it still applies",
+)
+async def list_copilot_actions(
+    session: Annotated[AsyncSession, Depends(db)],
+    principal: Principal = Depends(requires("copilot:use")),
+    limit: Annotated[int, Query(ge=1, le=action_log.PAGE_MAX)] = action_log.PAGE_DEFAULT,
+    before: Annotated[datetime | None, Query()] = None,
+) -> CopilotActionPageOut:
+    """One page of THIS person's activity log. Refused attempts are rows too, without their
+    arguments. Scoped on the person as well as the account (`action_log.list_actions`)."""
+    _, user_id = _client_ids(principal)
+    rows, has_more = await action_log.list_actions(
+        session, realm="client", actor_id=user_id, limit=limit, before=before
+    )
+    return CopilotActionPageOut(
+        actions=[action_out(row, realm="client") for row in rows], has_more=has_more
+    )
+
+
+@router.post(
+    "/copilot/actions/{action_id}/undo",
+    response_model=CopilotUndoOut,
+    openapi_extra=permission_meta("copilot:use"),
+    summary="Undo something the assistant did — if nothing has changed it since",
+)
+async def undo_copilot_action(
+    action_id: UUID,
+    session: Annotated[AsyncSession, Depends(db)],
+    request: Request,
+    principal: Principal = Depends(requires("copilot:use")),
+) -> CopilotUndoOut:
+    """Run the action's declared inverse (D-694).
+
+    `copilot:use` at the door and the TOOL's own permission inside, exactly as
+    `POST /v1/copilot/confirm` — an Undo is a change, and nobody may make one through the
+    assistant that the console's own button would refuse them. `409` when the record has
+    changed since (the inverse's compare-and-swap), when the window has passed, or when it
+    was already undone; `404` for an id that is not one of YOUR actions in this account.
+
+    NO `Idempotency-Key`: the row lock and the `done → undone` CAS are the guard, and a
+    second click is answered `copilot_action_already_undone`.
+    """
+    _client_ids(principal)
+    return await undo.undo_client_action(
+        session, action_id, principal=principal, ip=client_request_ip(request)
+    )
+
+
+@router.get(
+    "/copilot/approvals",
+    response_model=CopilotActionPageOut,
+    openapi_extra=permission_meta("copilot:use"),
+    summary="The Approvals inbox — what your background jobs are waiting for you to approve",
+)
+async def list_copilot_approvals(
+    session: Annotated[AsyncSession, Depends(db)],
+    principal: Principal = Depends(requires("copilot:use")),
+    limit: Annotated[int, Query(ge=1, le=action_log.PAGE_MAX)] = action_log.PAGE_DEFAULT,
+) -> CopilotActionPageOut:
+    """Pending approvals, newest first. Approvals older than a day expire on this read."""
+    _, user_id = _client_ids(principal)
+    await action_log.expire_stale_approvals(session)
+    rows, has_more = await action_log.list_actions(
+        session, realm="client", actor_id=user_id, limit=limit, before=None, pending_only=True
+    )
+    return CopilotActionPageOut(
+        actions=[action_out(row, realm="client") for row in rows], has_more=has_more
+    )
+
+
+@router.post(
+    "/copilot/approvals/{action_id}/approve",
+    response_model=CopilotConfirmOut,
+    openapi_extra=permission_meta("copilot:use"),
+    summary="Approve one waiting action — it runs now, after a fresh check",
+)
+async def approve_copilot_action(
+    action_id: UUID,
+    session: Annotated[AsyncSession, Depends(db)],
+    request: Request,
+    principal: Principal = Depends(requires("copilot:use")),
+) -> CopilotConfirmOut:
+    """The click that lets a background job's irreversible step happen (D-694).
+
+    The planner runs again against the world as it is NOW and the executor runs on its
+    fresh arguments, through the same service function the console's button calls; the
+    change, its audit row and the decision commit together. `applied: false` with a
+    sentence is a real answer: the step no longer applies and nothing was done.
+    """
+    _client_ids(principal)
+    return await write_tools.approve(
+        session, action_id, principal=principal, ip=client_request_ip(request)
+    )
+
+
+@router.post(
+    "/copilot/approvals/{action_id}/reject",
+    response_model=CopilotActionOut,
+    openapi_extra=permission_meta("copilot:use"),
+    summary="Decline one waiting action — nothing runs",
+)
+async def reject_copilot_action(
+    action_id: UUID,
+    session: Annotated[AsyncSession, Depends(db)],
+    principal: Principal = Depends(requires("copilot:use")),
+) -> CopilotActionOut:
+    _, user_id = _client_ids(principal)
+    await write_tools.reject(session, action_id, principal=principal)
+    row = await action_log.read_for_update(session, realm="client", action_id=action_id)
+    if row is None or row.actor_id != user_id:  # pragma: no cover - `reject` just read it
+        raise ProblemError.not_found("Approval")
+    return action_out(row, realm="client")
+
+
+@router.get(
+    "/copilot/jobs",
+    response_model=CopilotJobPageOut,
+    openapi_extra=permission_meta("copilot:use"),
+    summary="Your recent background jobs",
+)
+async def list_copilot_jobs(
+    session: Annotated[AsyncSession, Depends(db)],
+    principal: Principal = Depends(requires("copilot:use")),
+    limit: Annotated[int, Query(ge=1, le=jobs.JOBS_PAGE_MAX)] = jobs.JOBS_PAGE_MAX,
+) -> CopilotJobPageOut:
+    _, user_id = _client_ids(principal)
+    rows = await jobs.list_jobs(session, user_id=user_id, limit=limit)
+    return CopilotJobPageOut(jobs=[job_out(row) for row in rows])
+
+
+async def _own_job(session: AsyncSession, job_id: UUID, principal: Principal) -> jobs.JobRow:
+    _, user_id = _client_ids(principal)
+    job = await jobs.read_job(session, job_id=job_id, user_id=user_id)
+    if job is None:
+        raise ProblemError.not_found("Background job")
+    return job
+
+
+@router.get(
+    "/copilot/jobs/{job_id}",
+    response_model=CopilotJobOut,
+    openapi_extra=permission_meta("copilot:use"),
+    summary="One background job — its state, its progress and its result",
+)
+async def read_copilot_job(
+    job_id: UUID,
+    session: Annotated[AsyncSession, Depends(db)],
+    principal: Principal = Depends(requires("copilot:use")),
+) -> CopilotJobOut:
+    return job_out(await _own_job(session, job_id, principal))
+
+
+@router.post(
+    "/copilot/jobs/{job_id}/cancel",
+    response_model=CopilotJobOut,
+    openapi_extra=permission_meta("copilot:use"),
+    summary="Stop a background job that has not finished",
+)
+async def cancel_copilot_job(
+    job_id: UUID,
+    session: Annotated[AsyncSession, Depends(db)],
+    principal: Principal = Depends(requires("copilot:use")),
+) -> CopilotJobOut:
+    """Stops it before its next step. What it has already done stays done (and stays
+    undoable from the activity log); what it staged for approval stays in the inbox."""
+    _, user_id = _client_ids(principal)
+    await jobs.cancel_job(session, job_id=job_id, user_id=user_id)
+    return job_out(await _own_job(session, job_id, principal))
+
+
+async def _job_is_yours(
+    job_id: UUID, principal: Principal = Depends(requires("copilot:use"))
+) -> None:
+    """The job stream's ownership check, as a dependency so it answers a real `404`."""
+    tenant_id, _ = _client_ids(principal)
+    async with tenant_session(tenant_id) as session:
+        await _own_job(session, job_id, principal)
+
+
+#: How often the job stream re-reads the row, and how long it stays open. The stream is a
+#: poll held server-side (D-24's polling, moved behind one request), so its cost is one
+#: indexed read per second per open panel. 300 s covers a job's whole budget
+#: (`service.JOB_TOTAL_BUDGET_S`); a panel still open after that reconnects.
+JOB_STREAM_POLL_S: Final = 1.0
+JOB_STREAM_MAX_S: Final = 300.0
+
+
+@router.get(
+    "/copilot/jobs/{job_id}/events",
+    response_class=EventSourceResponse,
+    openapi_extra=permission_meta("copilot:use"),
+    summary="Follow a background job as it runs — streamed",
+    description=(
+        "Streams `event: job` frames, each the whole job as `GET /v1/copilot/jobs/{job_id}` "
+        "returns it, whenever it changes, and ends with `event: done` once the job has "
+        "finished (or after five minutes; reconnect to keep following it)."
+    ),
+)
+async def stream_copilot_job(
+    job_id: UUID,
+    principal: Principal = Depends(requires("copilot:use")),
+    _owned: None = Depends(_job_is_yours),
+) -> AsyncIterator[ServerSentEvent]:
+    """NO `Depends(db)`, for `ask_copilot`'s reason: a stream must not hold a pooled
+    connection while it waits. Each poll opens and closes its own short session.
+
+    OWNERSHIP IS A DEPENDENCY (`_job_is_yours`), so another account's or another person's
+    job id is an ordinary `404` before the stream opens — a stream's status is committed
+    with its headers, and a refusal inside it would be a `200` carrying an error frame."""
+    tenant_id, _ = _client_ids(principal)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + JOB_STREAM_MAX_S
+    last_seen: str | None = None
+    while True:
+        try:
+            async with tenant_session(tenant_id) as session:
+                job = await _own_job(session, job_id, principal)
+        except ProblemError as refusal:
+            yield _error_event(refusal)
+            return
+        snapshot = job_out(job)
+        fingerprint = snapshot.model_dump_json()
+        if fingerprint != last_seen:
+            last_seen = fingerprint
+            yield ServerSentEvent(event="job", data=snapshot)
+        if job.status in ("done", "failed", "cancelled") or loop.time() >= deadline:
+            break
+        await asyncio.sleep(JOB_STREAM_POLL_S)
+    yield ServerSentEvent(event="done", data=CopilotDoneEvent(disclosure=None, metered=False))
 
 
 __all__ = ["router"]

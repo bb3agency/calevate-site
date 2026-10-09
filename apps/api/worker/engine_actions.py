@@ -63,12 +63,14 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.actions.execution import CallFacts
+from apps.api.actions.in_call import run_in_call_action
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
-from apps.api.db.session import untenanted_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine.thinnest_actions import (
     CALL_ID_FIELD,
     CALL_ID_HEADER,
@@ -83,6 +85,7 @@ from apps.api.reliability.engine_actions import (
     ACTIONS_PATH,
     CALLBACK,
     CALLBACK_CANCEL,
+    CLIENT_LEAF,
     HANDOFF,
     OPT_OUT,
     envelope_of,
@@ -416,6 +419,91 @@ async def engine_action(
         return _answer("caller_not_matched", NOT_MATCHED_SAY)
 
 
+#: A client action's body: up to 20 agent-filled values (create-action.md
+#: `parameters.maxItems`), each bounded by the in-call door.
+_CLIENT_BODY_MAX: Final = 32 * 1024
+_CLIENT_NAME: Final = r"^[a-z][a-z0-9_]{2,39}$"
+
+NO_CALL_SAY: Final = (
+    "Nothing was done: this only works during a call. Do NOT tell the caller it is done."
+)
+
+
+@router.post(f"/{{engine}}/{CLIENT_LEAF}/{{name}}", include_in_schema=False)
+async def client_action(
+    request: Request,
+    engine: Annotated[str, Path(max_length=32)],
+    name: Annotated[str, Path(pattern=_CLIENT_NAME)],
+    agent: Annotated[str, Query(max_length=_REF_MAX)] = "",
+) -> JSONResponse:
+    """A client's own action (D-700), called by the voice platform on its agent's behalf.
+
+    The same gates as the platform's four tools, in the same order: the agent's secret, the
+    workspace, the engine, then the live call. What runs is decided by
+    `actions/in_call.run_in_call_action`, the door the Pipecat worker uses too.
+    """
+    route = await verify_agent_secret(engine, agent, request.headers.get(SECRET_HEADER))
+    if route is None:
+        log.warning("engine_action_unauthorised", extra={"engine": engine[:32]})
+        return JSONResponse(_UNAUTHORISED, status_code=401)
+    if not workspace_matches(agent, request.headers.get(WORKSPACE_ID_HEADER)):
+        alert(
+            "ROUTE_HANDLER",
+            "engine_action_workspace_mismatch",
+            detail=(
+                "a client's in-call action arrived with this agent's secret but from a "
+                "different voice platform workspace than the agent lives in, and was refused. "
+                "Republish the agent to re-register its actions."
+            ),
+            agent_id=str(route.agent_id),
+        )
+        return JSONResponse(_UNAUTHORISED, status_code=401)
+    if get_settings().engine != engine:
+        raise refuse_wrong_engine()
+    raw = await request.body()
+    args = _arguments(raw) if len(raw) <= _CLIENT_BODY_MAX else None
+    if args is None:
+        raise ProblemError(
+            kind="validation",
+            code="engine_action_body_unreadable",
+            title="The action's body could not be read",
+            detail="The action body must be a JSON object of short text values.",
+        )
+    ids = {"tenant_id": str(route.tenant_id), "agent_id": str(route.agent_id), "tool": "client"}
+    call_id = named_call_id(request.headers.get(CALL_ID_HEADER), args.pop(CALL_ID_FIELD, None))
+    if call_id is None:
+        # The vendor's own test (`POST …/actions/{id}/test`) has no conversation and so no
+        # call id: answered without running anything, because a client action writes to
+        # the client's systems and a test from the vendor console is not their instruction.
+        return _answer("no_call", NO_CALL_SAY)
+    client = thinnest_actions()
+    try:
+        live = await resolve_live_call(client, agent, call_id)
+    except ProblemError as exc:
+        log.warning("engine_action_live_calls_unreadable", extra={**ids, "reason": exc.code})
+        return _answer("unavailable", UNAVAILABLE_SAY)
+    phone = normalize_phone(live.phone) if live is not None and live.phone else None
+    if live is None or phone is None:
+        log.info("engine_action_caller_not_matched", extra=ids)
+        return _answer("caller_not_matched", NOT_MATCHED_SAY)
+    try:
+        # The call row a background write reads the caller back from (an inbound call has
+        # none until its results arrive), and the proof the call is this agent's.
+        async with tenant_session(route.tenant_id) as session:
+            await call_locator(route, live, phone)(session)
+    except _CallNotMatchedError:
+        log.info("engine_action_call_row_not_matched", extra=ids)
+        return _answer("caller_not_matched", NOT_MATCHED_SAY)
+    answer = await run_in_call_action(
+        tenant_id=route.tenant_id,
+        agent_id=route.agent_id,
+        name=name,
+        args=args,
+        call=CallFacts(call_ref=live.engine_call_id, caller_e164=phone, direction=live.direction),
+    )
+    return JSONResponse(answer.body())
+
+
 async def verify_agent_secret(
     engine: str, engine_agent_ref: str, presented: str | None
 ) -> ActionRoute | None:
@@ -429,9 +517,11 @@ async def verify_agent_secret(
 
 __all__ = [
     "NOT_MATCHED_SAY",
+    "NO_CALL_SAY",
     "UNAVAILABLE_SAY",
     "ActionRoute",
     "call_locator",
+    "client_action",
     "named_call_id",
     "resolve_live_call",
     "router",

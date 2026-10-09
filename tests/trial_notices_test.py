@@ -116,7 +116,7 @@ async def _open_through_the_route(tenant_id: UUID, days: int = 3) -> str:
                 "Authorization": f"Bearer {token}",
                 "X-Confirm-Action": start_trial_confirmation(tenant_id, days),
             },
-            json={"days": days, "reason": "Founder promised three days."},
+            json={"days": days, "reason": "Founder promised three days.", "free_minutes": 30},
         )
     assert posted.status_code == 201, posted.text
     return str(posted.json()["trial_id"])

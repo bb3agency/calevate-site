@@ -207,27 +207,21 @@ THIS document, recorded because the document was wrong and the code is right:
 
 ## 6. Open questions
 
-- **⚠ PHASE 3 IS HALF-WIRED AT THE BROWSER, AND THE SERVER HALF IS COMPLETE.** The
-  `event: proposal` frame is emitted, documented in the route description and in the
-  OpenAPI, and `POST /v1/copilot/confirm` is mounted, permissioned and tested — but
-  `apps/web/src/lib/copilot/stream.ts` handles `text`, `fill`, `done` and `error` and
-  **drops every other event on the floor**, and nothing in `apps/web/src` posts a token
-  back. So today a model that calls a write tool tells the person "I've suggested pausing
-  that campaign", the proposal is emitted, and the person sees nothing — which is the exact
-  failure the system prompt's "say you have suggested it, never that you have done it" was
-  written to avoid, arriving by the other door. Nothing is unsafe: a proposal changes
-  nothing and expires in five minutes. **What closes it** is one branch in `stream.ts`, a
-  proposal card in `CopilotPanel.tsx` showing `title`, `summary` and `current → proposed`,
-  and one mutation posting `token` to `/v1/copilot/confirm` — a frontend change, deliberately
-  not made by the backend lane that found it (31 Aug 2026).
-
-- **Streaming vs the client's own model** (§3①). Azure streams with tools; the client's own
-  Gemini key does not. Whether the assistant streams is therefore currently a function of
-  which leg answers, and that is a product decision nobody has made.
-- **Gemini function-calling wire details are UNVERIFIED here** — Google's doc host is
-  egress-blocked. We build to the OpenAI-compatible shape `chat.py` proves against the live
-  endpoint, and nothing in this tree may assert Gemini's native `functionDeclarations`
-  semantics until somebody reads the page or probes with a real key.
+- **Phase 3 is wired end to end (closed).** The browser handles every frame the ask route
+  emits: `lib/copilot/stream.ts` dispatches `proposal`, `action`, `navigate`, `step` and,
+  since D-694, `job`; `ProposalCard` posts the token to `POST /v1/copilot/confirm` (and, on
+  the admin realm, to `POST /v1/admin/copilot/confirm` with the step-up header);
+  `ActionReceipt` offers Undo through `POST /v1/copilot/actions/{id}/undo`. How to add a
+  tool is `docs/COPILOT-CONTRACT.md`.
+- **Streaming is no longer a function of the leg (closed by D-694).** Both tool-capable
+  legs stream. The assistant runs on console-chosen Gemini tiers for every account rather
+  than on the account's own model, and the Gemini leg streams with tools; how Gemini shapes
+  a streamed tool call is not on Google's page and is OPERATIONS §2 gate 61.
+- **Gemini function-calling wire details.** Google's OpenAI-compatibility page was read on
+  9 Oct 2026 (ai.google.dev/gemini-api/docs/openai, last updated 2026-09-02): streaming,
+  function calling, `stream_options.include_usage` and `reasoning_effort` are documented;
+  a streamed tool call's shape is not (gate 61). Nothing in this tree asserts Gemini's
+  native `functionDeclarations` semantics.
 - **Memory retention and DPDP.** Episodic memory stores what a user did; semantic memory
   stores facts about their business. Both are personal data under the tenant's own
   retention policy and must inherit it — routed to the retention worker, not invented here.

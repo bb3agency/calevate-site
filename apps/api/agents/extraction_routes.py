@@ -427,3 +427,10 @@ async def admin_set_extraction_schema(
             summary=_audit_summary(result),
         )
         return result
+
+
+#: The client route's two steps under public names, for the assistant's
+#: `agent_capture_fields_set` (copilot/console_actions.py): it must validate and write
+#: exactly as the Save button does, so it calls these rather than a copy of them.
+validate_fields = _validate_fields
+write_schema = _write_schema

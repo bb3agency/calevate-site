@@ -151,7 +151,8 @@ async def test_no_client_payload_carries_what_the_trial_costs_us() -> None:
     async with tenant_session(tenant_id) as session:
         usage = await usage_panel(session=session, month=None, principal=_owner(tenant_id))
 
-    # The client's trial block is exactly dates and a count.
+    # The client's trial block is dates and counts: days, and (D-697) its free test-call minutes
+    # and whether it is test calls only.
     assert set(WalletTrialOut.model_fields) == {
         "active",
         "status",
@@ -160,6 +161,9 @@ async def test_no_client_payload_carries_what_the_trial_costs_us() -> None:
         "ends_at",
         "days_remaining",
         "ended_at",
+        "test_calls_only",
+        "free_minutes",
+        "minutes_left",
     }
     # The operator's read DOES carry the figure, so the absence below is a choice and not
     # an accident of naming.

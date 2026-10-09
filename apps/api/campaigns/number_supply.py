@@ -71,6 +71,7 @@ from apps.api.campaigns.provisioning import (
     assert_number_supply_authorized,
 )
 from apps.api.compliance.carrier_application import assert_carrier_application_accepted
+from apps.api.compliance.trial_access import refuse_trial_numbers
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -139,6 +140,7 @@ async def buy_number(
     under the 2025 TCCCPR amendments.
     """
     assert_number_supply_authorized()
+    await refuse_trial_numbers(session, tenant_id=tenant_id)
     if monthly_rental_usd is None or monthly_rental_usd <= 0:
         raise ProblemError.business_rule(
             "number_rental_price_unknown",

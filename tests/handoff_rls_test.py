@@ -21,7 +21,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import INSERT_HANDOFF_MEMBER_SQL, accept_agreements
 
 pytestmark = pytest.mark.asyncio
 
@@ -47,12 +47,15 @@ async def _plant(tenant_id: uuid.UUID, agent_id: uuid.UUID, phone: str) -> uuid.
     member_id = uuid7()
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text(
-                "INSERT INTO agent_handoff_members "
-                "(id, tenant_id, agent_id, position, label, phone_e164) "
-                "VALUES (:id, :tid, :aid, 0, 'Owner', :phone)"
-            ),
-            {"id": member_id, "tid": tenant_id, "aid": agent_id, "phone": phone},
+            text(INSERT_HANDOFF_MEMBER_SQL),
+            {
+                "id": member_id,
+                "tid": tenant_id,
+                "aid": agent_id,
+                "pos": 0,
+                "label": "Owner",
+                "phone": phone,
+            },
         )
         await session.execute(
             text(

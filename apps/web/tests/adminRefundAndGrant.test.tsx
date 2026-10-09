@@ -234,9 +234,9 @@ describe("refunding a payment", () => {
     // ABSENT, not `"0"` and not `null`: absent means "the whole top-up recorded for this
     // payment", which the route reads off the ledger so nobody retypes a figure.
     expect("amount_inr" in body).toBe(false);
-    // The route accepts no confirmation header — a header the API ignores is a
-    // confirmation of nothing. The ceremony here is the re-keyed reference on screen.
-    expect(post?.headers["X-Confirm-Action"]).toBeUndefined();
+    // The step-up header the route demands (D-699), bound to this tenant and payment; the
+    // re-keyed reference on screen stays the human check.
+    expect(post?.headers["X-Confirm-Action"]).toMatch(new RegExp(`^refund_payment:[^:]+:${REF}$`));
     expect(post?.headers["X-Impersonate-Org"]).toBeUndefined();
   });
 

@@ -29,6 +29,10 @@ from apps.api.main import app
 # no `X-Impersonate-Org` header. Impersonation never touches them, so gating them on a
 # mutating permission costs nobody a view.
 ADMIN_CONSOLE_GETS: dict[str, str] = {
+    "/v1/ops/trial-number": (
+        "the platform's shared free-trial number and the numbers that may be it (D-697): a "
+        "platform setting, not a client's view; nothing about it is a client screen"
+    ),
     "/v1/admin/engine-workspaces/tenants/{tenant_id}": (
         "the operator's view of one client's voice workspace (D-693); the client's own is "
         "GET /v1/numbers/own/status, which is org:read"
@@ -200,7 +204,57 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "asking, it is an admin-console surface with no client-realm counterpart at all, "
         "and a client dashboard has no screen showing an operator's notes to themselves"
     ),
+    # D-694. ONE PERSON'S record of what the assistant did, its Approvals inbox and its
+    # background jobs — the `/v1/copilot/conversation` argument exactly: every read is
+    # scoped on `principal.client_user_id`, which is None for an operator, so an
+    # impersonated read has no person to read for and a read permission would buy nothing.
+    # What support can see is the `audit_log` row each action writes.
+    "/v1/copilot/actions": (
+        "one PERSON'S assistant activity log (D-694), scoped on the client user id an "
+        "impersonating operator does not have — the conversation entry's argument"
+    ),
+    "/v1/copilot/approvals": (
+        "one PERSON'S Approvals inbox (D-694), scoped on the client user id an "
+        "impersonating operator does not have — the conversation entry's argument"
+    ),
+    "/v1/copilot/jobs": (
+        "one PERSON'S background assistant jobs (D-694), scoped on the client user id an "
+        "impersonating operator does not have — the conversation entry's argument"
+    ),
+    "/v1/copilot/jobs/{job_id}": (
+        "one PERSON'S background assistant job (D-694), scoped on the client user id an "
+        "impersonating operator does not have — the conversation entry's argument"
+    ),
+    "/v1/copilot/jobs/{job_id}/events": (
+        "the same job as a stream (D-694), scoped the same way as the entry above"
+    ),
+    "/v1/copilot/approvals/{action_id}/preview": (
+        "a re-plan of one PERSON'S waiting approval (D-694), scoped on the client user id "
+        "an impersonating operator does not have — the conversation entry's argument"
+    ),
+    "/v1/copilot/routines": (
+        "one PERSON'S assistant routines (D-694), which run as that person and are scoped "
+        "on the client user id an impersonating operator does not have"
+    ),
+    "/v1/copilot/routines/{routine_id}/runs": (
+        "one PERSON'S routine run history (D-694), scoped the same way as the entry above"
+    ),
+    "/v1/admin/copilot/actions": (
+        "the OPERATOR'S own admin-assistant activity log (D-694) — keyed on the operator "
+        "asking, an admin-console surface with no client-realm counterpart"
+    ),
     "/v1/ops/platform": "the platform switches — superadmin surface",
+    "/v1/ops/healer": (
+        "the auto-healer's playbooks, kill switches and paging channels (D-701) — admin "
+        "console, platform-wide, never impersonated"
+    ),
+    "/v1/ops/healer/incidents": (
+        "every healer incident across every client (D-701); a client's own view is "
+        "GET /v1/healer/incidents, which is org:read"
+    ),
+    "/v1/ops/healer/actions": (
+        "the healer's cross-client ledger (D-701) — admin console, never impersonated"
+    ),
     "/v1/ops/audit/verify": "the audit chain check — superadmin surface",
     "/v1/ops/alerts": (
         "the platform's own alarm board (D-591) — superadmin surface, and the one list in "

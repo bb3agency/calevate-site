@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { PageHeader } from "@/components/console/pageHeader";
+import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
@@ -31,6 +32,7 @@ import { NewCampaignFlow } from "./NewCampaignFlow";
 import { useCampaignForm, useScheduleForm, type StartMode } from "./campaignForm";
 import type { ContactPayload } from "./contactList";
 import { useCampaignsCopilotSurface } from "./campaignsCopilotSurface";
+import { TrialLockNotice } from "../TrialLockNotice";
 
 /**
  * Outbound campaigns (FLOWS §5, SURFACES §2b) — the screen, kept thin.
@@ -230,19 +232,23 @@ export function CampaignsScreen() {
         <PageHeader
           description="Call a list of people with one of your agents."
           actions={
-            <button
-              type="button"
-              onClick={startNew}
-              disabled={!write.allowed}
-              title={refusal}
-              className={PRIMARY_BUTTON}
-            >
-              New campaign
-            </button>
+            <>
+              <AskAssistant prompt="Help me set up a new campaign: who to call, which agent, and when." />
+              <button
+                type="button"
+                onClick={startNew}
+                disabled={!write.allowed}
+                title={refusal}
+                className={PRIMARY_BUTTON}
+              >
+                New campaign
+              </button>
+            </>
           }
         />
       )}
 
+      <TrialLockNotice lock="campaigns" />
       <RestrictionNote reason={write.reason} />
 
       {campaigns.error && (

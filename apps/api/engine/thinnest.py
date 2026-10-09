@@ -117,6 +117,7 @@ from apps.api.engine.document import engine_document
 from apps.api.engine.recording_source import EngineRecordingSource, RecordingFetchRules
 from apps.api.engine.text_split import split_for_text_cap
 from apps.api.engine.thinnest_workspace import (
+    trial_agent_allowed,
     workspace_headers,
     workspace_not_provisioned,
     workspace_of,
@@ -184,6 +185,8 @@ KB_TOTAL_MAX_CHARS: Final = KB_TEXT_MAX_CHARS * KB_MAX_PARTS
 CALL_SECONDS_MIN: Final = 60
 CALL_SECONDS_MAX: Final = 1200
 CALL_VARIABLES_MAX: Final = 20
+#: `name` on a placed call (place-call.md:895-899).
+LEAD_NAME_MAX: Final = 120
 #: `text` on `POST /byok/voices/preview` (snapshots/2026-10-07b/pages/api-reference/
 #: bring-your-own-keys/preview-byok-voice.md:453-458).
 BYOK_PREVIEW_TEXT_MAX_CHARS: Final = 200
@@ -307,10 +310,12 @@ _VOICE_BANDS: Final[dict[str, HostedVoiceBand]] = {band: band for band in get_ar
 #   transfers on numbers rented from ThinnestAI and on Plivo or Telnyx numbers; on any other
 #   carrier the platform falls back to a chat hand-over (its team is told, and the agent says
 #   somebody will follow up).
-# * `action_tools` False: a CLIENT's own during-call actions (D-615, `AgentConfig.action_tools`)
-#   are not sent by this adapter. Our platform's in-call tools (opt-out, call-back, call-back
-#   cancel, handoff) ARE vendor custom actions, registered beside the agent by
-#   `reliability/engine_actions.py`; they are not what this capability describes.
+# * `action_tools` True (D-700): a CLIENT's own during-call actions (D-615,
+#   `AgentConfig.action_tools`) are vendor custom actions on the agent, in its own workspace,
+#   registered and kept in shape beside our four platform tools by
+#   `reliability/engine_actions.py` (converge by name, the agent's sealed secret, the drift
+#   sweep) and executed by `actions/in_call.py`. This adapter renders nothing for them: the
+#   agent body carries no tool list, so the capability is the promise the sync keeps.
 # * `script_override` True: `PATCH /agents/{id}` changes "any subset" (agents.md:81), so the
 #   greeting and instructions move without rewriting the rest of the agent.
 # * `webhook_auth` `hmac`: see SIGNATURE_HEADER.
@@ -327,7 +332,7 @@ THINNEST_CAPABILITIES = EngineCapabilities(
     inbound_binding=False,
     transfer=False,
     in_call_handoff=True,
-    action_tools=False,
+    action_tools=True,
     script_override=True,
     webhook_auth="hmac",
 )
@@ -965,8 +970,6 @@ class ThinnestEngine:
         require_speech_leg("tts", engine=self, value=cfg.models.tts_voice)
         if cfg.handoff is not None:
             require_capability("in_call_handoff", engine=self)
-        if cfg.action_tools:
-            require_capability("action_tools", engine=self)
 
     @staticmethod
     def _within(value: str, limit: int, *, code: str, what: str) -> str:
@@ -1200,7 +1203,9 @@ class ThinnestEngine:
         in the developer workspace: without a customer workspace this refuses before any
         request, and the handle returned carries the workspace."""
         workspace = cfg.engine_workspace
-        if workspace is None:
+        # A free-trial account's agent is the one exception (D-697): it is made in the
+        # developer workspace, beside the shared trial number it calls from.
+        if workspace is None and not trial_agent_allowed():
             raise workspace_not_provisioned()
         body = self._agent_body(cfg)
         # Built (and so checked) before any write, so a refusal leaves nothing behind.
@@ -1275,6 +1280,83 @@ class ThinnestEngine:
         await self._request(
             "PATCH", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace, json=body
         )
+
+    async def forward_line(
+        self,
+        ref: EngineAgentRef,
+        *,
+        phone_e164: str,
+        line: str,
+        opening_line: str,
+        system_prompt: str,
+    ) -> None:
+        """Hand every caller of this agent to `phone_e164` (the auto-healer, D-701).
+
+        The documented API has no number-level forward (`api-reference/phone-numbers/
+        update-phone-number.md:439-468` takes only label, agent and callingAgent), so this
+        is the closest supported behaviour: the line stays on, the agent greets and is told
+        to escalate at once, and `handOver` names the client's phone
+        (`api-reference/tools/update-built-in-tools.md:597-624`; transfer works only on
+        numbers rented from the platform and Plivo/Telnyx numbers, `channels/voice.md:
+        483-492`). Whether the agent escalates on the first turn is UNVERIFIED (OPERATIONS
+        gate T-26); the healer falls back to a pause when forwarded calls still fail. The
+        tools are read back like a publish's, so a refused or partial hand-over raises.
+        The restoring publish rewrites both the script and the tools."""
+        raw, workspace = self._at(ref)
+        script: dict[str, Any] = {
+            "greeting": self._within(
+                opening_line.strip(),
+                GREETING_MAX_CHARS,
+                code="engine_greeting_too_long",
+                what="hand-over opening line",
+            ),
+            "instructions": self._within(
+                system_prompt,
+                INSTRUCTIONS_MAX_CHARS,
+                code="engine_prompt_too_long",
+                what="hand-over script",
+            ),
+            "voice": {"answersCalls": True, "unavailableMessage": None},
+            "escalation": {"onNoAnswer": False, "onRequest": True},
+        }
+        await self._request(
+            "PATCH", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace, json=script
+        )
+        wanted: dict[str, Any] = {
+            "tools": {
+                "call_them_now": False,
+                "send_sms": False,
+                "send_whatsapp": False,
+                "reply_by_email": False,
+                "capture_lead": False,
+                "schedule_callback": False,
+                "escalate_to_human": True,
+            },
+            "handOver": {
+                "mode": "call",
+                "phone": phone_e164,
+                "line": self._within(
+                    line.strip(),
+                    HANDOVER_LINE_MAX_CHARS,
+                    code="engine_handover_line_too_long",
+                    what="hand-over line",
+                ),
+            },
+        }
+        try:
+            saved = await self._request(
+                "PATCH",
+                f"/agents/{raw}/tools",
+                route="/agents/{ref}/tools",
+                workspace=workspace,
+                json=wanted,
+            )
+        except EngineRejectedError as exc:
+            if exc.vendor_status != 400:
+                raise
+            raise _tools_not_pinned() from exc
+        if _tools_drift(wanted, saved):
+            raise _tools_not_pinned()
 
     async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
         """`GET /agents/{id}` (agents.md:80), with the agent's documents from its knowledge
@@ -1424,6 +1506,15 @@ class ThinnestEngine:
         }
         if ctx.from_e164:
             body["from"] = ctx.from_e164
+        if ctx.lead_name:
+            # "The lead's name": a number that is not yet a contact in the agent's workspace
+            # becomes one with it, and an existing contact's name is never overwritten
+            # (snapshots/2026-10-08/pages/api-reference/calls/place-call.md:895-899).
+            body["name"] = ctx.lead_name.strip()[:LEAD_NAME_MAX]
+        if ctx.max_call_seconds is not None:
+            # "Changes to the agent for this call only", 60..1200 seconds
+            # (snapshots/2026-10-08/pages/api-reference/calls/place-call.md:1103-1126).
+            body["overrides"] = {"maxCallSeconds": ctx.max_call_seconds}
         if variables:
             body["variables"] = variables
         metadata = {

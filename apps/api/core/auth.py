@@ -892,8 +892,8 @@ async def current_principal(request: Request) -> Principal:
             code="impersonation_not_available_here",
             title="Not available in a view-as session",
             detail=(
-                "This endpoint is part of the client's own sign-in and is not reachable "
-                "from a view-as session."
+                "This belongs to the client's own sign-in, so it is not available while "
+                "viewing as them."
             ),
             remediation=(
                 "Perform this from the operator console's own surfaces for this client, "
@@ -1149,7 +1149,7 @@ async def tenant_of(principal: Principal = Depends(current_any)) -> UUID:
             kind="validation",
             code="org_required",
             title="Account not specified",
-            detail="This endpoint is tenant-scoped and no account was resolved.",
+            detail="This needs a business account, and none was found for this sign-in.",
             remediation=(
                 f"Send the {ORG_HEADER} header (client), or {IMPERSONATE_HEADER} plus "
                 f"{IMPERSONATION_GRANT_HEADER} (admin view-as)."

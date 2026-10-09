@@ -89,7 +89,8 @@ export interface RefundDraft {
 /**
  * The typed confirmation this console asks a human for.
  *
- * **The API asks for none**, and that is exactly why the console must: a refund cannot
+ * The API also demands its own header (`refundConfirmationHeader`); this typed word is the
+ * HUMAN check on top, because a refund cannot
  * be taken back — the money has left, and `credit_ledger` is append-only, so the repair
  * for a wrong one is a fresh payment from the client. Per the friction rule, ceremony
  * belongs on the irreversible act. It is deliberately the opposite call from
@@ -99,9 +100,14 @@ export interface RefundDraft {
  * The word is the PAYMENT'S OWN REFERENCE, for `credits/page.tsx`'s reason: a fixed word
  * becomes muscle memory within a week, a reference is different every time, and typing
  * it is simultaneously the check that the operator is refunding the payment they think
- * they are. It is not sent anywhere — no header exists for it — so this file is the only
+ * they are. The word itself is not sent anywhere, so this file is the only
  * place the rule lives and `tests/adminRefund.test.tsx` is what keeps it there.
  */
+/** The step-up header value for one refund, `payment_routes.refund_confirmation`'s twin. */
+export function refundConfirmationHeader(tenantId: string, paymentRef: string): string {
+  return `refund_payment:${tenantId}:${paymentRef.trim()}`;
+}
+
 export function refundConfirmationWord(payment: Payment): string {
   return payment.payment_ref.trim();
 }
@@ -217,9 +223,10 @@ export function bonusClawedBack(result: RefundResult): string | null {
  * `admin:tenants` on the ADMIN session with the tenant in the PATH — the permission is
  * in `MUTATING_PERMISSIONS`, so D-22 would correctly refuse an impersonating one.
  *
- * **No `confirmAction`**, because the route accepts no confirmation header and a header
- * the API ignores is a confirmation of nothing (`credits.ts` states the rule). The human
- * confirmation this act does need is the re-keyed payment reference on the screen.
+ * **`X-Confirm-Action: refund_payment:<tenant>:<payment>`** (D-699): the route demands it
+ * with a fresh second factor (`payment_routes.refund_confirmation`), bound to this payment
+ * so a confirmation for one refund cannot replay against another. The re-keyed payment
+ * reference on the screen stays as the human check that it is the right payment.
  *
  * It invalidates the wallet whichever outcome came back — `credited` moved the balance,
  * and `accepted` moved nothing YET but leaves a refund the next reader must see
@@ -240,6 +247,7 @@ export function useIssueRefund(session: Session, tenantId: string) {
       return apiRequest<RefundResult>(session, refundsPath(tenantId), {
         method: "POST",
         body,
+        confirmAction: refundConfirmationHeader(tenantId, draft.payment.payment_ref),
       });
     },
     onSuccess: () => void client.invalidateQueries({ queryKey: creditsKey(tenantId) }),

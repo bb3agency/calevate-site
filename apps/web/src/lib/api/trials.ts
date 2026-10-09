@@ -80,6 +80,10 @@ export type TrialOutcome = (typeof TRIAL_OUTCOMES)[number];
 export const MIN_TRIAL_DAYS = 1;
 export const MAX_TRIAL_DAYS = 365;
 
+/** The bounds on a trial's free test-call minutes (`MIN_FREE_MINUTES` / `MAX_FREE_MINUTES`, D-697). */
+export const MIN_FREE_MINUTES = 1;
+export const MAX_FREE_MINUTES = 1000;
+
 /** The platform default grace before a NON-converting client's data is erased
  * (`trials.DEFAULT_ERASURE_GRACE_DAYS`), and its bounds. Stamped onto the trial row at
  * START and frozen there, so what an operator picks here is a term of THIS arrangement
@@ -134,6 +138,9 @@ export interface TrialStartDraft {
   /** How long after a non-converting trial ends before this client's data is erased.
    * Omitted means the platform default; the route applies the same number. */
   erasureGraceDays?: number;
+  /** The free test-call minutes (D-697): the trial ends when these are used, if that comes
+   * before its last day. */
+  freeMinutes: number;
 }
 
 /**
@@ -157,9 +164,10 @@ export interface TrialStartDraft {
 export function useStartTrial(session: Session, tenantId: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ days, reason, erasureGraceDays }: TrialStartDraft) => {
+    mutationFn: ({ days, reason, erasureGraceDays, freeMinutes }: TrialStartDraft) => {
       const body: TrialStartIn = {
         days,
+        free_minutes: freeMinutes,
         reason: reason.trim(),
         erasure_grace_days: erasureGraceDays ?? DEFAULT_ERASURE_GRACE_DAYS,
       };

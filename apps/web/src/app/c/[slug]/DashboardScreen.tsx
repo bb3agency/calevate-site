@@ -16,8 +16,11 @@ import { CallingCreditTile } from "./CallingCreditTile";
 import { DailyCalls } from "./DailyCalls";
 import { KnowledgeGaps } from "./KnowledgeGaps";
 import { LatestCalls } from "./LatestCalls";
+import { LineNotice } from "./LineNotice";
 import { SentimentSplit } from "./SentimentSplit";
+import { SetupChecklist } from "./SetupChecklist";
 import { SpendThisMonth } from "./SpendThisMonth";
+import { TrialCallPanel } from "./TrialCallPanel";
 
 /**
  * The client's home screen.
@@ -102,7 +105,9 @@ export function DashboardScreen({ slug }: { slug: string }) {
         key: "calling_credit",
         label: "Calling credit on this account",
         value: wallet.data
-          ? trial !== null
+          ? trial !== null && trial.test_calls_only
+            ? `the account is on a free trial until ${trialEndsAt(trial)}: it can place test calls from the dashboard, and adding credit ends the trial and opens business verification, its own number and live calls`
+            : trial !== null
             ? `${wallet.data.prepaid ? `${wallet.data.balance_inr} INR left; ` : ""}the account is on a free trial until ${trialEndsAt(trial)}, so calls are on us, nothing is taken from the credit, and an empty balance stops no calls`
             : wallet.data.prepaid
             ? `${wallet.data.balance_inr} INR left${
@@ -203,7 +208,10 @@ export function DashboardScreen({ slug }: { slug: string }) {
 
   return (
     <div className="space-y-4 pb-12 lg:space-y-5">
+      <LineNotice session={session} href={href(`/c/${slug}/settings/line-protection`)} />
       <AttentionBanner attention={attention} href={href(`/c/${slug}/attention`)} />
+      <SetupChecklist />
+      <TrialCallPanel slug={slug} />
 
       {/* THE DAY AT A GLANCE — four figures in one strip, each marking itself when a poll
           changes it. */}

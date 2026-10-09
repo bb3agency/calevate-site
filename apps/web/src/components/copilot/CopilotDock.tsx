@@ -3,13 +3,15 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { BotMessageSquare } from "lucide-react";
+import { AnimatePresence } from "motion/react";
 
 import { MAIN_CONTENT_ID } from "@/components/ui";
 import { adminSession } from "@/lib/api/admin";
 import type { Session } from "@/lib/api/client";
 import { useClientRealm } from "@/lib/api/session";
 import { fallbackSurface } from "@/lib/copilot/fallback";
-import { resolveDestination } from "@/lib/copilot/navigate";
+import { useAssistantRequests } from "@/lib/copilot/launcher";
+import { resolveAdminDestination, resolveDestination } from "@/lib/copilot/navigate";
 import { useCopilotSurfaceHolder, type SurfaceHolder } from "@/lib/copilot/registry";
 
 import { CopilotPanel } from "./CopilotPanel";
@@ -93,7 +95,12 @@ export function CopilotDock({
    * `useClientRealm()` throws outside its provider, and this component is mounted in both
    * shells.
    */
-  navigation?: { slug: string; href: (path: string) => string };
+  navigation?: {
+    slug: string;
+    href: (path: string) => string;
+    /** The admin realm checks a destination against its own sidebar (D-694). */
+    resolve?: (route: string) => string | null;
+  };
 }) {
   const declared = useCopilotSurfaceHolder();
   const pathname = usePathname();
@@ -120,6 +127,21 @@ export function CopilotDock({
   useEffect(() => {
     setIsOpen(false);
   }, [holder]);
+
+  // A button on the screen asked for the panel ("Let the assistant do this"). Opening is
+  // the screen's request; SENDING stays the person's (`lib/copilot/launcher.ts`).
+  const [request, setRequest] = useState<{ prompt: string; nonce: number } | null>(null);
+  const nonce = useRef(0);
+  useAssistantRequests((asked) => {
+    nonce.current += 1;
+    setRequest(asked.prompt ? { prompt: asked.prompt, nonce: nonce.current } : null);
+    shouldRestoreFocus.current = false;
+    setIsOpen(true);
+  });
+
+  // ON THE ASSISTANT'S OWN PAGE the conversation is laid into the page, so a second copy of
+  // it in a side panel would be two transcripts of one thread on one screen.
+  const onWorkspace = /^\/(c\/[^/]+|admin)\/assistant\/?$/.test(pathname ?? "");
 
   useEffect(() => {
     if (isOpen || !shouldRestoreFocus.current) return;
@@ -159,7 +181,10 @@ export function CopilotDock({
   const navigateTo = useCallback(
     (destination: { route: string; screen: string; where: string }) => {
       if (navigation === undefined) return;
-      const path = resolveDestination(destination.route, navigation.slug);
+      const path =
+        navigation.resolve !== undefined
+          ? navigation.resolve(destination.route)
+          : resolveDestination(destination.route, navigation.slug);
       // A DESTINATION THIS CONSOLE DOES NOT HAVE MOVES NOBODY, and says nothing: the answer
       // beside it has already named the screen in words, so the honest response is to leave
       // the person where they are rather than to explain a defect they did not cause.
@@ -178,6 +203,7 @@ export function CopilotDock({
 
   return (
     <>
+      {!onWorkspace && (
       <button
         ref={launcher}
         type="button"
@@ -228,6 +254,7 @@ export function CopilotDock({
          * top so it does not read as a plain square against the round launcher. */}
         <BotMessageSquare aria-hidden className="h-5 w-5" />
       </button>
+      )}
       {/* WHERE THEY WERE JUST TAKEN. Always mounted and empty until there is something to
           say: a live region added to the DOM at the same moment as its text is not reliably
           announced, which is the classic way to ship an announcement nobody hears. */}
@@ -244,20 +271,32 @@ export function CopilotDock({
           matters: `session.impersonateOrg` is exactly what makes `apiRequest` send
           `X-Impersonate-Org`, so this branch is true precisely when the request would be
           refused, and cannot drift from it. The admin realm never sets it. */}
-      {isOpen &&
-        (session.impersonateOrg ? (
-          <ViewAsPanel labelledBy={titleId} onClose={closePanel} placement={placement} />
-        ) : (
-          <CopilotPanel
-            session={session}
-            holder={holder}
-            realm={realm}
-            labelledBy={titleId}
-            onNavigate={navigation === undefined ? undefined : navigateTo}
-            onClose={closePanel}
-            placement={placement}
-          />
-        ))}
+      {/* THE SIDE PANEL (D-694): every screen, both realms, whichever corner the launcher
+          sits in. `AnimatePresence` lets it leave the way it came in. */}
+      <AnimatePresence>
+        {isOpen &&
+          !onWorkspace &&
+          (session.impersonateOrg ? (
+            <ViewAsPanel
+              key="view-as"
+              labelledBy={titleId}
+              onClose={closePanel}
+              placement="side"
+            />
+          ) : (
+            <CopilotPanel
+              key="panel"
+              session={session}
+              holder={holder}
+              realm={realm}
+              labelledBy={titleId}
+              onNavigate={navigation === undefined ? undefined : navigateTo}
+              onClose={closePanel}
+              placement="side"
+              request={request}
+            />
+          ))}
+      </AnimatePresence>
     </>
   );
 }
@@ -290,5 +329,13 @@ export function AdminCopilotDock() {
   // silently defeated. The credential itself is read lazily through `session.token()`, so
   // holding the wrapper holds nothing stale.
   const session = useMemo(() => adminSession(), []);
-  return <CopilotDock session={session} realm="admin" />;
+  // THE ADMIN ASSISTANT CAN OPEN ITS OWN SCREENS (D-694): a destination is accepted only if
+  // it is one of the admin sidebar's own entries.
+  return (
+    <CopilotDock
+      session={session}
+      realm="admin"
+      navigation={{ slug: "", href: (path) => path, resolve: resolveAdminDestination }}
+    />
+  );
 }

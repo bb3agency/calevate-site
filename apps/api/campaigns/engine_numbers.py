@@ -286,6 +286,13 @@ async def record_engine_number(
     provider = engine_number_provider()
     if provider is None:
         raise _refuse_off_engine()
+    if is_trial_number(e164) or is_trial_number(engine_number_ref):
+        raise ProblemError.conflict(
+            "engine_number_is_trial_number",
+            "This number is the shared number free-trial test calls ring from, so it cannot "
+            "be recorded against a client.",
+            remediation="Record another number, or set a different shared trial number first.",
+        )
     held = await held_number(e164, own_workspace=await resolve_workspace(session, tenant_id))
     vendor_ref = held.engine_number_ref or held.e164
     if engine_number_ref is not None and digits(engine_number_ref) != digits(vendor_ref):
@@ -563,11 +570,19 @@ async def reconcile_engine_number_attachments() -> NumberReconciliation:
         for number_id, e164, ref in rows:
             handle = str(ref or e164)
             key = _key(scope_of(handle), handle)
+            if scope_of(handle) is None and is_trial_number(handle):
+                # The shared trial number is the platform's, lent per test call (D-697).
+                # Recorded against a client, the sweep would re-point it under a live call.
+                _alarm_trial_number_recorded(tenant_id)
+                continue
             if key in listed:
                 ours[key] = (tenant_id, UUID(str(number_id)))
             else:
                 missing.add(key)
     unrecorded = set(listed) - set(ours)
+    trial = trial_number_ref()
+    if trial is not None:
+        unrecorded.discard(_key(None, trial))
     repaired = failed = priced = 0
     both = sorted(ours, key=lambda k: (k[0] or "", k[1]))
     for key in both[:ATTACHMENT_SWEEP_BUDGET]:
@@ -593,6 +608,20 @@ async def reconcile_engine_number_attachments() -> NumberReconciliation:
     )
     log.info("engine_number_reconciliation", extra=asdict(summary))
     return summary
+
+
+def _alarm_trial_number_recorded(tenant_id: UUID) -> None:
+    alert(
+        "CORE_LOGIC",
+        "trial_number_recorded_to_client",
+        detail=(
+            "the number set as the shared trial number is also recorded against a client. "
+            "The number sweep leaves it alone, because free-trial test calls lend it to a "
+            "different agent for every call. Release that client's record of it, or set "
+            "another number as the shared trial number."
+        ),
+        tenant_id=str(tenant_id),
+    )
 
 
 def _alarm_reconciliation(*, unrecorded: int, missing: int, repaired: int) -> None:
@@ -633,6 +662,62 @@ def _alarm_reconciliation(*, unrecorded: int, missing: int, repaired: int) -> No
             ),
             count=str(repaired),
         )
+
+
+# --- the shared trial number (D-697) -----------------------------------------------------
+
+
+def trial_number_ref() -> str | None:
+    """The shared trial number as our handle (its digits, unscoped: it is held in the
+    developer workspace), or None while the console names none."""
+    number = get_settings().trial_caller_number
+    return digits(number) if number else None
+
+
+def is_trial_number(e164_or_ref: str | None) -> bool:
+    trial = trial_number_ref()
+    return bool(trial and e164_or_ref) and digits(str(e164_or_ref)) == trial
+
+
+async def lend_trial_line(agent_ref: str) -> bool:
+    """Lend the shared trial number to `agent_ref` for one test call, and make sure nothing
+    answers it. True once the platform holds exactly that.
+
+    `callingAgent` "calls out on the number without answering it", and `agent: null` "makes
+    nothing answer it" (`thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/
+    phone-numbers/update-phone-number.md:451-470`), so an inbound call to the shared number
+    can never reach a trial client's agent. A call's `from` must be one of the agent's
+    numbers, "its own, or one lent to it" (`calls/place-call.md:430-433,971-977`), which is
+    why the number is lent before each call. The caller holds the trial line
+    (`agents.service._hold_trial_line`) from before this until the call ends: what
+    re-pointing `callingAgent` does to a call already in progress is not documented.
+    """
+    number = trial_number_ref()
+    if number is None:
+        return False
+    try:
+        result = await _attach(number, agent=None, calling_agent=agent_ref)
+    except ProblemError as exc:
+        _trial_line_failed(outcome="refused", refusal=exc.code)
+        return False
+    if result.outcome in ("partial", "refused"):
+        _trial_line_failed(outcome=result.outcome, refusal=result.refusal)
+        return False
+    return True
+
+
+def _trial_line_failed(*, outcome: str, refusal: str | None) -> None:
+    alert(
+        "CORE_LOGIC",
+        "trial_line_lend_failed",
+        detail=(
+            "a free-trial test call could not be placed because the voice platform did not "
+            f"lend the shared trial number to the calling agent ({outcome}, "
+            f"{refusal or 'no code'}). Check that the number set as the shared trial number "
+            "is held in our developer workspace and that the agent is published with voice "
+            "switched on."
+        ),
+    )
 
 
 # --- business details --------------------------------------------------------------------
@@ -708,6 +793,8 @@ __all__ = [
     "engine_number_provider",
     "held_number",
     "is_platform_held",
+    "is_trial_number",
+    "lend_trial_line",
     "live_tenants",
     "price_recorded_number",
     "read_business_details",
@@ -716,6 +803,7 @@ __all__ = [
     "releasable_by",
     "search_available",
     "sync_number_attachment",
+    "trial_number_ref",
     "vendor_numbers",
     "wanted_attachment",
 ]

@@ -306,7 +306,8 @@ export function BuyNumber() {
   const holder = useNumberHolder(session, offers.data !== undefined);
   const kyc = useKycRecord(session);
   const wallet = useWallet(session);
-  const trial = activeTrial(wallet.data);
+  // A trial that is test calls only (D-697) buys no number at all; the screen above says so.
+  const trial = wallet.data?.trial?.test_calls_only === true ? null : activeTrial(wallet.data);
   const purchase = usePurchaseNumber(session);
   const write = useWriteAccess(session, "org:manage", "buy a phone number");
 

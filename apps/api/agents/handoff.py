@@ -69,8 +69,8 @@ from apps.workers.redaction import redact
 #: How many people one agent may hand a call to. A BOUNDED LIST for the reason every
 #: bounded list in this repo exists: the roster is rewritten wholesale on every edit, it is
 #: read on every publish, and a client pasting a contact export must be refused at the
-#: boundary rather than turning one publish into a thousand-row scan. Ten is the intake
-#: wizard's own limit for the same list (`admin/intake.IntakeFacts.escalation_contacts`),
+#: boundary rather than turning one publish into a thousand-row scan. Ten is the business
+#: profile's limit on contacts (`tenancy/business_profile.MAX_CONTACTS`),
 #: kept identical so the two screens cannot disagree about what a roster is.
 MAX_HANDOFF_MEMBERS: Final = 10
 
@@ -88,8 +88,9 @@ def india_handoff_number(value: str) -> str:
     bridged leg at call time (`transfer_providers/vobiz.start_transfer`); this refuses it
     when the number is registered, so the roster never holds a number the platform will
     not ring and the client is told while they are looking at the form rather than by a
-    caller who was never put through. Both roster writers — the client's whole-list PUT
-    and the admin intake — validate through this one function.
+    caller who was never put through. The business profile's contacts
+    (`tenancy/business_profile.BusinessContactIn`), the one place a roster number is typed,
+    validate through this function.
 
     Imported inside the function because `compliance.service` imports `agents.service`,
     which imports this module.
@@ -216,6 +217,8 @@ class RosterMember:
     hours: dict[str, Any] | None
     active: bool
     note: str | None
+    #: The business contact this rung is (D-695). Defaulted for rows built in tests.
+    contact_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -240,7 +243,7 @@ class OnDuty:
 
 
 _ROSTER_SQL = (
-    "SELECT id, position, label, phone_e164, hours, active, note "
+    "SELECT id, position, label, phone_e164, hours, active, note, contact_id "
     "FROM agent_handoff_members WHERE agent_id = :aid ORDER BY position"
 )
 
@@ -262,6 +265,7 @@ async def roster(session: AsyncSession, *, agent_id: UUID) -> list[RosterMember]
             hours=row[4],
             active=row[5],
             note=row[6],
+            contact_id=row[7],
         )
         for row in rows
     ]

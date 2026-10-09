@@ -11,8 +11,8 @@ Every job here is reached through the outbox or a cron, and every one is idempot
   `:191-200`) the vendor answers 402 (`plan_limit` / `plan_required`, `errors.md:156-157`):
   the tenant is left in `plan_limit`, an operator is alarmed, and the client is told its
   account is being set up.
-* `retry_engine_workspaces` is the daily sweep: every live tenant without a workspace row
-  (the backfill of tenants made before D-693) and every tenant whose provisioning is still
+* `retry_engine_workspaces` is the daily sweep: every live tenant that has paid and has no
+  workspace row (D-697: owed from the first payment) and every tenant whose provisioning is still
   owed is queued through the same job.
 * `submit_engine_business_details` sends the client's verified details to its workspace.
 * `sweep_engine_workspaces` walks every client workspace each day, bounded and resumable:
@@ -39,6 +39,7 @@ from calevate_shared.engine_scope import scope_of
 from sqlalchemy import text
 
 from apps.api.agents.service import retire_in_call_actions
+from apps.api.billing.first_payment import PAID_TENANT_SQL
 from apps.api.campaigns.engine_business_details import (
     refresh_business_details,
     submit_business_details,
@@ -275,24 +276,34 @@ async def _provision_failed(job_ctx: dict[str, Any], tenant_id: UUID, exc: Excep
     )
 
 
+#: Live tenants, each with whether it has made its first payment (`PAID_TENANT_SQL`, the
+#: one definition of "owed a workspace" since D-697).
 _LIVE_TENANTS: Final = (
-    "SELECT id FROM organizations WHERE deleted_at IS NULL AND status <> 'churned' ORDER BY id"
+    f"SELECT o.id, {PAID_TENANT_SQL} FROM organizations o "
+    "WHERE o.deleted_at IS NULL AND o.status <> 'churned' ORDER BY o.id"
 )
 
 
 async def retry_engine_workspaces(ctx: dict[str, Any]) -> str:
-    """Daily. Queue provisioning for every live tenant that has no workspace yet — the
-    backfill of tenants made before D-693 runs through here — and for every tenant whose
-    provisioning is still owed. Bounded per tick; the rows it writes are its progress."""
+    """Daily. Queue provisioning for every live tenant that has PAID and has no workspace
+    yet (D-697: a workspace is owed from the first payment, which queues it at once; this is
+    the backfill if that job was lost), and for every tenant whose provisioning is still
+    owed — including one an operator asked for by hand. Bounded per tick; the rows it
+    writes are its progress."""
     if not engine_has_workspaces():
         return "not_applicable"
     async with admin_session() as directory:
-        tenants = [UUID(str(t)) for t in (await directory.execute(text(_LIVE_TENANTS))).scalars()]
+        paid = {
+            UUID(str(row[0])): bool(row[1])
+            for row in (await directory.execute(text(_LIVE_TENANTS))).all()
+        }
+    tenants = list(paid)
     rows = {row.tenant_id: row for row in await workspace_directory()}
     owed = [
         tenant_id
         for tenant_id in tenants
-        if tenant_id not in rows or rows[tenant_id].status in OWED_STATES
+        if (tenant_id not in rows and paid[tenant_id])
+        or (tenant_id in rows and rows[tenant_id].status in OWED_STATES)
     ]
     queued = 0
     for tenant_id in owed[:PROVISION_SWEEP_BUDGET]:

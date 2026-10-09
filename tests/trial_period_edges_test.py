@@ -119,7 +119,12 @@ async def _audit_rows(tenant_id: uuid.UUID, action: str) -> list[Any]:
 async def _open_through_the_route(
     token: str, tenant_id: uuid.UUID, days: int = 14, **extra: Any
 ) -> dict[str, Any]:
-    body = {"days": days, "reason": "Founder promised a fortnight on us.", **extra}
+    body = {
+        "days": days,
+        "reason": "Founder promised a fortnight on us.",
+        "free_minutes": 30,
+        **extra,
+    }
     async with _client() as http:
         posted = await http.post(
             f"/v1/admin/tenants/{tenant_id}/trial",
@@ -170,7 +175,7 @@ async def test_opening_a_trial_is_double_keyed_on_the_days() -> None:
         refused = await http.post(
             f"/v1/admin/tenants/{tenant_id}/trial",
             headers=_headers(token, start_trial_confirmation(tenant_id, 14)),
-            json={"days": 140, "reason": "Slipped a zero."},
+            json={"days": 140, "reason": "Slipped a zero.", "free_minutes": 30},
         )
 
     assert refused.status_code == 403, refused.text
@@ -192,7 +197,7 @@ async def test_a_trial_may_not_be_opened_without_saying_why() -> None:
         refused = await http.post(
             f"/v1/admin/tenants/{tenant_id}/trial",
             headers=_headers(token, start_trial_confirmation(tenant_id, 7)),
-            json={"days": 7, "reason": "   "},
+            json={"days": 7, "reason": "   ", "free_minutes": 30},
         )
 
     assert refused.status_code == 422, refused.text

@@ -1,5 +1,18 @@
 "use client";
 
+// Layout adapted from Invoicely (https://github.com/legions-developer/invoicely), commit
+// 820d3c51604faa10d44126e019c1fad51b54d96f, apps/web/src/components/pdf/default.tsx and
+// apps/web/src/components/pdf/vercel.tsx. MIT licence, Copyright (c) 2025 Invoicely.
+// Full notice: ./billing/LICENSE.
+
+import {
+  DocumentSheet,
+  Masthead,
+  MetaRows,
+  PartyCard,
+  PartyDetail,
+  TotalsBlock,
+} from "@/components/billing/documentParts";
 import { ScrollRegion, formatINR, formatIST, formatRupeeRate } from "@/components/ui";
 import type { Invoice } from "@/lib/api/invoice";
 import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
@@ -11,6 +24,9 @@ import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
  * same document: `build_invoice` is the only thing that derives a bill, and this is the
  * only thing that draws one. A "client version" of this markup is the exact accumulation
  * CLAUDE.md forbids — two renderers drift, and the first thing they drift on is a figure.
+ * Saving it as a PDF is the browser's print-to-PDF of this markup through
+ * `lib/printDocument.ts`; `billing/documentParts.tsx` says why no PDF library draws a
+ * second copy.
  *
  * ## Why the paper is not tokenised (the one exception in the design system)
  *
@@ -18,26 +34,23 @@ import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
  * drop background colours when printing: in dark mode that is near-white ink on the
  * paper's own white, i.e. an invoice that prints blank. A document that is identical on
  * every screen and on paper is the property this component exists for, so the sheet stays
- * white with dark ink and says why. The chrome around it (back link, month picker, print
- * button) belongs to the PAGE and is `print:hidden` there.
+ * white with dark ink. The chrome around it (back link, month picker, print button)
+ * belongs to the PAGE and is `print:hidden` there.
  *
  * ## MONEY — the reason this file is read before it is edited
  *
  * Every figure arrives as an exact decimal STRING and is never parsed (hard rule 7's
  * frontend shadow): `Number("10159.00")` is how ₹10,159.00 becomes ₹10,158.999999999998
- * on a document an accountant files.
- *
- * TOTALS and line AMOUNTS go through `formatINR`, which formats the digits without
- * parsing them and groups them the Indian way.
+ * on a document an accountant files. TOTALS and line AMOUNTS go through `formatINR`, which
+ * formats the digits without parsing them and groups them the Indian way.
  *
  * The `Unit ₹` column does NOT, and that is the load-bearing decision here.
  * `overage_rate_inr` is NUMERIC(12,4) published unrounded on purpose
- * (`billing/service.py::rate_to_display`, and the client's own usage screen makes the
- * same exception): the invoice promises `qty × unit = amount`, and rounding ₹7.1250/min
- * to ₹7.12 breaks that arithmetic IN OUR FAVOUR — which is the version of wrong a client
- * notices and a regulator asks about. `qty` is a decimal string for the same reason and
- * is printed as sent. So: the column an accountant ADDS UP is formatted, the column they
- * MULTIPLY BY is verbatim.
+ * (`billing/service.py::rate_to_display`): the invoice promises `qty × unit = amount`, and
+ * rounding ₹7.1250/min to ₹7.12 breaks that arithmetic IN OUR FAVOUR — which is the
+ * version of wrong a client notices and a regulator asks about. `qty` is a decimal string
+ * for the same reason and is printed as sent. So: the column an accountant ADDS UP is
+ * formatted, the column they MULTIPLY BY is verbatim.
  *
  * ## Why the heading comes off the wire
  *
@@ -52,12 +65,24 @@ export function InvoiceDocument({ data }: { data: Invoice }) {
   const isTaxInvoice = data.document_type === "tax_invoice";
 
   return (
-    <div className="rounded-card bg-white p-8 text-slate-900 shadow print:rounded-none print:p-0 print:shadow-none">
-      <header className="flex items-start justify-between border-b border-slate-200 pb-4">
-        <div>
-          <h1 className="text-lg font-bold tracking-wide">
-            {isTaxInvoice ? "TAX INVOICE" : "BILL OF SUPPLY"}
-          </h1>
+    <DocumentSheet className="p-8 shadow">
+      <Masthead
+        title={isTaxInvoice ? "TAX INVOICE" : "BILL OF SUPPLY"}
+        numberLabel="Invoice number"
+        number={data.invoice_number}
+      />
+
+      <MetaRows
+        rows={[
+          ["Billing month", data.month],
+          ["Generated", formatIST(data.generated_at)],
+        ]}
+      />
+
+      {!isTaxInvoice && <NotATaxInvoice note={data.tax_note} />}
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <PartyCard heading="Billed by">
           {/* The supplier's LEGAL NAME from config, never a literal. Calevate is a trade
               name of a sole proprietor (`docs/legal/LEGAL-OPS-PLAYBOOK.md:16`, `:80-96`),
               so the party to the supply is the individual and what an accountant needs to
@@ -65,41 +90,23 @@ export function InvoiceDocument({ data }: { data: Invoice }) {
               taken with a CA, not one this component may make. The fallback is the trade
               name the founder contracts under (`lib/legal/placeholders.ts`,
               LEGAL_ENTITY_NAME), so an unconfigured document still names somebody. */}
-          <p className="mt-1 text-sm font-medium">{data.supplier.legal_name ?? "Calevate"}</p>
-          {data.supplier.address && (
-            <p className="mt-0.5 whitespace-pre-line text-sm text-slate-600">
-              {data.supplier.address}
-            </p>
-          )}
+          <p className="font-medium">{data.supplier.legal_name ?? "Calevate"}</p>
+          {data.supplier.address && <PartyDetail preLine>{data.supplier.address}</PartyDetail>}
           {data.supplier.gstin && (
-            <p className="mt-0.5 text-sm text-slate-600">
+            <PartyDetail>
               GSTIN <span className="font-mono">{data.supplier.gstin}</span>
               {data.supplier.state_name ? ` · ${data.supplier.state_name}` : ""}
-            </p>
+            </PartyDetail>
           )}
-          <p className="mt-1 text-sm text-slate-600">Billing month {data.month}</p>
-        </div>
-        <div className="text-right text-sm">
-          <p className="font-mono font-medium">{data.invoice_number}</p>
-          <p className="mt-1 text-slate-600">Generated {formatIST(data.generated_at)}</p>
-        </div>
-      </header>
+        </PartyCard>
 
-      {!isTaxInvoice && <NotATaxInvoice note={data.tax_note} />}
-
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Billed to
-          </h2>
-          <p className="mt-1 text-sm font-medium">{data.organization.name}</p>
-          <p className="text-sm text-slate-600">
-            {data.organization.billing_email ?? "no billing email on file"}
-          </p>
+        <PartyCard heading="Billed to">
+          <p className="font-medium">{data.organization.name}</p>
+          <PartyDetail>{data.organization.billing_email ?? "no billing email on file"}</PartyDetail>
           {/* Rule 46(e)-(f). The absence is stated rather than left blank: a client
               looking for their own GSTIN on a bill they cannot claim credit against
               needs to know that WE do not hold one, not to wonder where it went. */}
-          <p className="mt-0.5 text-sm text-slate-600">
+          <PartyDetail>
             {data.organization.gstin ? (
               <>
                 GSTIN <span className="font-mono">{data.organization.gstin}</span>
@@ -107,109 +114,104 @@ export function InvoiceDocument({ data }: { data: Invoice }) {
             ) : (
               "GSTIN not on file — no input tax credit is claimable against this document."
             )}
-          </p>
-        </section>
+          </PartyDetail>
+        </PartyCard>
 
-        <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Place of supply
-          </h2>
+        <PartyCard heading="Place of supply">
           {/* Rule 46(n) wants the place of supply with the name of the State on an
               inter-State supply; it is shown on both because a reader asking why they
               were charged IGST rather than CGST+SGST needs it either way. */}
-          <p className="mt-1 text-sm font-medium">
+          <p className="font-medium">
             {data.place_of_supply.state_name
               ? `${data.place_of_supply.state_name} (${data.place_of_supply.state_code})`
               : "Not determined"}
           </p>
-          <p className="text-sm text-slate-600">{data.place_of_supply.basis}</p>
-        </section>
+          <PartyDetail>{data.place_of_supply.basis}</PartyDetail>
+        </PartyCard>
       </div>
 
-      <ScrollRegion label="Invoice line items" className="-mx-4 mt-6 px-4 sm:mx-0 sm:px-0">
-        <table className="w-full min-w-[600px] text-sm">
+      <ScrollRegion
+        label="Invoice line items"
+        className="-mx-4 mt-6 px-4 sm:mx-0 sm:px-0 print:mx-0 print:overflow-visible print:px-0"
+      >
+        <table className="w-full min-w-[600px] text-sm print:min-w-0">
           <thead>
-            <tr className="border-b border-slate-300 text-xs uppercase tracking-wide text-slate-500">
-              <th className="py-2 text-left font-semibold">Description</th>
+            <tr className="bg-slate-900 text-xs uppercase tracking-wide text-white">
+              <th className="rounded-l px-3 py-2 text-left font-semibold">Description</th>
               {/* Rule 46(g): the SAC of the supply, on the line. */}
-              <th className="py-2 text-left font-semibold">SAC</th>
-              <th className="py-2 text-right font-semibold">Qty</th>
-              <th className="py-2 text-right font-semibold">Unit ₹</th>
-              <th className="py-2 text-right font-semibold">Amount ₹</th>
+              <th className="px-3 py-2 text-left font-semibold">SAC</th>
+              <th className="px-3 py-2 text-right font-semibold">Qty</th>
+              <th className="px-3 py-2 text-right font-semibold">Unit ₹</th>
+              <th className="rounded-r px-3 py-2 text-right font-semibold">Amount ₹</th>
             </tr>
           </thead>
           <tbody>
             {data.line_items.map((item, idx) => (
-              <tr key={idx} className="border-b border-slate-100">
-                <td className="py-2 pr-2">{item.description}</td>
-                <td className="py-2 font-mono text-xs">{item.sac ?? "—"}</td>
+              <tr key={idx} className="break-inside-avoid border-b border-slate-100 even:bg-slate-50">
+                <td className="px-3 py-2.5 font-medium">{item.description}</td>
+                <td className="px-3 py-2.5 font-mono text-xs">{item.sac ?? "—"}</td>
                 {/* Qty and unit as the server sent them — this is the multiplication a
                     client checks by hand. */}
-                <td className="py-2 text-right tabular-nums">{item.qty}</td>
-                <td className="py-2 text-right tabular-nums">{formatRupeeRate(item.unit_inr)}</td>
-                <td className="py-2 text-right tabular-nums">{formatINR(item.amount_inr)}</td>
+                <td className="px-3 py-2.5 text-right font-mono tabular-nums">{item.qty}</td>
+                <td className="px-3 py-2.5 text-right font-mono tabular-nums">
+                  {formatRupeeRate(item.unit_inr)}
+                </td>
+                <td className="px-3 py-2.5 text-right font-mono tabular-nums">
+                  {formatINR(item.amount_inr)}
+                </td>
               </tr>
             ))}
             {data.line_items.length === 0 && (
               // Empty on purpose (no plan fee, no billable overage): the API still
               // returns totals so this renders as a usage-only statement.
               <tr className="border-b border-slate-100">
-                <td colSpan={5} className="py-3 text-center text-slate-500">
+                <td colSpan={5} className="px-3 py-3 text-center text-slate-600">
                   No charges this month — usage statement only.
                 </td>
               </tr>
             )}
           </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={4} className="py-2 text-right text-slate-600">
-                Subtotal
-              </td>
-              <td className="py-2 text-right tabular-nums">{formatINR(data.subtotal_inr)}</td>
-            </tr>
-            {/* ONE ROW PER HEAD OF TAX (Rule 46(l)-(m)). The single "GST @ 18%" line this
-                replaces was not merely terse: CGST, SGST/UTGST and IGST are three
-                different ledgers on the recipient's side, and tax charged without saying
-                which one cannot be claimed. The components are the server's and sum to
-                `gst_inr` exactly — nothing is added up here. */}
-            {data.tax_components.map((component) => (
-              <tr key={component.label}>
-                <td colSpan={4} className="py-1 text-right text-slate-600">
-                  {/* A RATE, printed as published: 9, not ₹9.00. */}
-                  {component.label} @ {component.rate_pct}%
-                </td>
-                <td className="py-1 text-right tabular-nums">{formatINR(component.amount_inr)}</td>
-              </tr>
-            ))}
-            <tr className="border-t border-slate-300 font-bold">
-              <td colSpan={4} className="py-2 text-right">
-                Total
-              </td>
-              <td className="py-2 text-right tabular-nums">{formatINR(data.total_inr)}</td>
-            </tr>
-          </tfoot>
         </table>
       </ScrollRegion>
 
-      <footer className="mt-6 space-y-1 border-t border-slate-200 pt-3 text-xs text-slate-500">
-        <p>
-          {data.usage.minutes_used} minutes across {data.usage.calls} calls this month
-          {data.usage.included_minutes > 0
-            ? ` (${data.usage.included_minutes} minutes included in plan).`
-            : "."}
-        </p>
-        {isTaxInvoice && (
-          // The proviso to Rule 46 (inserted by Notification 74/2018-Central Tax) removes
-          // the signature requirement for an electronically issued invoice. Said on the
-          // document rather than assumed, so a recipient's accounts team does not send it
-          // back asking for one.
+      <div className="mt-6 flex flex-col-reverse gap-6 sm:flex-row sm:items-end sm:justify-between">
+        <footer className="space-y-1 text-xs text-slate-600 sm:max-w-sm">
           <p>
-            Electronically issued; signature not required (proviso to Rule 46, CGST Rules
-            2017).
+            {data.usage.minutes_used} minutes across {data.usage.calls} calls this month
+            {data.usage.included_minutes > 0
+              ? ` (${data.usage.included_minutes} minutes included in plan).`
+              : "."}
           </p>
-        )}
-      </footer>
-    </div>
+          {isTaxInvoice && (
+            // The proviso to Rule 46 (inserted by Notification 74/2018-Central Tax) removes
+            // the signature requirement for an electronically issued invoice. Said on the
+            // document rather than assumed, so a recipient's accounts team does not send it
+            // back asking for one.
+            <p>
+              Electronically issued; signature not required (proviso to Rule 46, CGST Rules
+              2017).
+            </p>
+          )}
+        </footer>
+
+        {/* ONE ROW PER HEAD OF TAX (Rule 46(l)-(m)): CGST, SGST/UTGST and IGST are three
+            different ledgers on the recipient's side, and tax charged without saying which
+            one cannot be claimed. The components are the server's and sum to `gst_inr`
+            exactly — nothing is added up here. A rate is printed as published: 9, not
+            ₹9.00. */}
+        <TotalsBlock
+          rows={[
+            ["Subtotal", formatINR(data.subtotal_inr)],
+            ...data.tax_components.map(
+              (component) =>
+                [`${component.label} @ ${component.rate_pct}%`, formatINR(component.amount_inr)] as const,
+            ),
+          ]}
+          totalLabel="Total"
+          total={formatINR(data.total_inr)}
+        />
+      </div>
+    </DocumentSheet>
   );
 }
 

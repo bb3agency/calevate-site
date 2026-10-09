@@ -9,14 +9,17 @@ from apps.api.actions import models as actions_models
 from apps.api.agents import models as agents_models
 from apps.api.authn import models as authn_models
 from apps.api.billing import models as billing_models
+from apps.api.billing import payment_models as billing_payment_models
 from apps.api.callbacks import models as callbacks_models
 from apps.api.campaigns import models as campaigns_models
 from apps.api.campaigns import number_models as campaigns_number_models
 from apps.api.compliance import models as compliance_models
 from apps.api.copilot import models as copilot_models
+from apps.api.copilot import routine_models as copilot_routine_models
 from apps.api.crm import models as crm_models
 from apps.api.db.base import Base
 from apps.api.flags import models as flags_models
+from apps.api.healer import models as healer_models
 from apps.api.insights import models as insights_models
 from apps.api.integrations import models as integrations_models
 from apps.api.kb import models as kb_models
@@ -35,13 +38,16 @@ __all__ = [
     "agents_models",
     "authn_models",
     "billing_models",
+    "billing_payment_models",
     "callbacks_models",
     "campaigns_models",
     "campaigns_number_models",
     "compliance_models",
     "copilot_models",
+    "copilot_routine_models",
     "crm_models",
     "flags_models",
+    "healer_models",
     "insights_models",
     "integrations_models",
     "kb_models",
@@ -63,6 +69,8 @@ TENANT_TABLES = [
     # tool definitions. Both carry tenant_id and get the FORCEd tenant_isolation policy.
     "integration_credentials",
     "action_tools",
+    # D-700: the per-action run log (migration f8b3d6a2c917).
+    "action_invocations",
     "campaigns",
     "campaign_contacts",
     "dlt_templates",
@@ -138,6 +146,24 @@ TENANT_TABLES = [
     # append-only record of the money itself is the `credit_ledger` entry the same webhook
     # writes. A lost UPDATE here costs a stale word on a screen; it cannot cost a rupee.
     "topup_attempts",
+    # Razorpay objects we created, by tenant (D-699, migration e1a7c93b5d24): an order, a
+    # recurring token or a customer id, with what WE asked an order for. Opaque ids and an
+    # amount, no PII. Ops-readable (one `FOR SELECT` policy for an UNTENANTED session),
+    # because a webhook carries no session and a token event carries no notes, so the
+    # receiver resolves the tenant here before it opens one.
+    "razorpay_object_routes",
+    # A client's auto-recharge preferences and the Razorpay customer/token ids of the
+    # method they authorised (D-699). Never a card or UPI detail. Ops-readable for the
+    # recharge sweep. NOT append-only: the mandate's state follows Razorpay's token events.
+    "auto_recharge_settings",
+    # One recharge we started against a mandate, and what became of it (D-699). A claim,
+    # not money: the money is the `credit_ledger` top-up the capture writes. Ops-readable
+    # for the sweep that times out a charge Razorpay never answered.
+    "auto_recharge_charges",
+    # A chargeback or dispute against one of this client's payments (D-699), with the
+    # credit we held against it. Ops-readable for the admin disputes queue, which lists
+    # every client's open disputes. The holds themselves are `credit_ledger` adjustments.
+    "payment_disputes",
     # The time-boxed period a client is billed nothing for (D-536, migration a71f3c9e5d84).
     # Tenant data — it names one client's commercial arrangement and the instant their
     # personal data becomes erasable — and every read runs inside `tenant_session`. NOT
@@ -307,6 +333,11 @@ TENANT_TABLES = [
     # (`started -> connected | unreached | unknown | abandoned`) that lets one handover
     # stay one row from the mid-call notification to the post-call settlement.
     "agent_handoff_members",
+    # THE CLIENT'S ONE BUSINESS PROFILE AND ITS ESCALATION ROSTER (D-695, migration
+    # f4c8b2e6a1d9). Staff names, prices and staff mobiles; both FORCE-RLS'd. Not
+    # append-only: the client edits both, and `audit_log` holds the trail.
+    "business_profiles",
+    "business_contacts",
     "handoff_attempts",
     "kb_retrieval_logs",
     # The stored monthly QA report (SURFACES §2) and the weekly 5% spot-check queue
@@ -336,6 +367,31 @@ TENANT_TABLES = [
     # retention category on the same clock as call transcripts, and DELETEd whole by
     # tenant erasure. NOT append-only: every one of those three is a deletion.
     "copilot_conversation_turns",
+    # The assistant's activity log and its background jobs (migration e6c2a9d41f07,
+    # D-694). Tenant data: what the assistant did in this account, the redacted arguments
+    # and the prior state it can restore, the Approvals inbox, and the progress of jobs it
+    # ran here. NOT append-only: an action becomes `undone`, an approval is decided, a job
+    # moves through its states — the immutable record of each act is `audit_log`. DELETEd
+    # whole by tenant erasure.
+    "copilot_actions",
+    "copilot_jobs",
+    # The assistant's routines and their run history (migration d3a7f5c19e42). Tenant data:
+    # a standing instruction one person wrote, redacted on write, and when it ran. The
+    # routines table carries `kb_uploads`' asymmetric pair — the strict own-tenant
+    # policy for every verb plus a `FOR SELECT` policy for the UNTENANTED routine tick —
+    # so both USING clauses consult the GUC and it stays an ordinary tenant table. NOT
+    # append-only: a routine is edited and its schedule advances. DELETEd by tenant erasure.
+    "copilot_routines",
+    "copilot_routine_runs",
+    # The auto-healer's tenant tables (D-701, migration b7d4e2a91c3f). A client's side of
+    # an incident (`heal_client_incidents`, which also carries a `FOR SELECT` read for the
+    # untenanted notice sweep), the owner-set fallback phone, the per-agent health windows
+    # scored from real calls, and the behaviour changes waiting for a person. NOT
+    # append-only: incidents resolve, proposals are decided, windows are re-scored.
+    "heal_client_incidents",
+    "heal_fallback_phones",
+    "agent_health_windows",
+    "heal_proposals",
 ]
 
 # Tables deliberately OUTSIDE tenant isolation, with reasons — the RLS coverage
@@ -650,6 +706,15 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "cleared when that operator's last session ends — which on this realm is an "
         "8-hour absolute bound, shorter than any retention period we publish."
     ),
+    "admin_copilot_actions": (
+        "platform-scoped, admin realm only (D-694). The ADMIN assistant's activity log for "
+        "one OPERATOR — the admin-realm twin of `copilot_actions`, which is tenant-scoped "
+        "and whose actor is a `users.id`. An operator is a row in `admin_users` and the "
+        "actions it logs change PLATFORM state (the outbound halt), so there is no tenant "
+        "whose row this could be. `viewing_tenant_id` records which account was on screen "
+        "as context; it is nullable and SET NULL on tenant delete. Arguments are redacted "
+        "on the way in, and every act it records also has its own audit_log row."
+    ),
     "platform_list_rates": (
         "platform-scoped, admin realm only (PLATFORM-CONFIG §5). The self-serve list price "
         "per calling minute, effective-dated (D-492) — ONE published price for the whole "
@@ -713,6 +778,25 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "no transcript, no PII. NOT append-only (see APPEND_ONLY_TABLES) because it is a "
         "counter and not a ledger — every figure is re-derivable from the `usage_events` "
         "rows that produced it, which is how migration f7c2a94e18b3 backfills it."
+    ),
+    "heal_incidents": (
+        "platform-scoped, admin realm only (D-701). One problem the auto-healer is working "
+        "on, from detection to resolution: which playbook, which alarm woke it, its state, "
+        "attempts and next step, and whether it is shown on the public status page. It "
+        "carries a NULLABLE tenant_id and agent_id because most of what the healer repairs "
+        "is platform machinery with no client in scope (a dead-letter queue, a voice-platform "
+        "outage) and the rest names the one client it is about; a tenant policy would make "
+        "the platform incidents unreadable and let a client's session read the operator's "
+        "incident history. The client's own view is `heal_client_incidents`, which IS "
+        "tenant-isolated. No personal data: ids, codes and an authored public title only."
+    ),
+    "heal_actions": (
+        "platform-scoped, admin realm only, append-only (D-701). Every step any healer "
+        "playbook took, skipped or was told to take, the way `audit_log` records every "
+        "audited act: one global ledger an operator reads in time order across every client, "
+        "so a nullable tenant_id rather than a policy that would split it per tenant. The "
+        "detail column is authored by us and written through `core/logging.redact_mapping` "
+        "and a 500-character cap (hard rule 6); no payload or transcript text reaches it."
     ),
     "platform_alerts": (
         "platform-scoped, admin realm only (D-591). ONE EPISODE OF ONE ALARM: what "
@@ -959,4 +1043,7 @@ APPEND_ONLY_TABLES = [
     # version. The blanket `calevate_forbid_mutation` applies with no carve-out.
     "agent_config_versions",
     "agent_config_attestations",
+    # Every step the auto-healer took (D-701). A record of automatic action on clients'
+    # lines is evidence; an editable one is not. Corrections are new rows.
+    "heal_actions",
 ]

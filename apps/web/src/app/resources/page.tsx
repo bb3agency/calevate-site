@@ -118,7 +118,7 @@ const GLOSSARY: readonly { term: string; detail: string; sample?: ReactNode }[] 
       "instance — each with its own language, its own opening line and its own questions.",
   },
   {
-    term: "Your columns (an extraction schema)",
+    term: "Your columns",
     detail:
       "The list of things you said you needed to know from every caller. It is the single " +
       "most important thing you set up: it becomes the columns of your leads list, the " +

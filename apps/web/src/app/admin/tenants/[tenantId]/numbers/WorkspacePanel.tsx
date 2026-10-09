@@ -141,6 +141,12 @@ function WorkspaceBody({
         </p>
       </div>
 
+      {status === "not_provisioned" && (
+        <p className="text-sm text-ink-muted">
+          No workspace yet: one is not made when an account is created, so an account nobody
+          uses never takes a plan slot. Create workspace now makes one straight away.
+        </p>
+      )}
       {status === "plan_limit" && (
         <NoticeBox tone="stop" title="Plan's customer limit reached">
           <p className="mt-1">Upgrade the ThinnestAI plan, then Retry provisioning.</p>
@@ -203,7 +209,11 @@ function WorkspaceBody({
           disabled={!canWrite || !retryable || provision.isPending}
           onClick={() => provision.mutate()}
         >
-          {provision.isPending ? "Retrying…" : "Retry provisioning"}
+          {provision.isPending
+            ? "Working…"
+            : status === "not_provisioned"
+              ? "Create workspace now"
+              : "Retry provisioning"}
         </button>
         <button
           type="button"

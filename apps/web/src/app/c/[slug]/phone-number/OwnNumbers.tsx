@@ -63,6 +63,8 @@ import { DIRECTIONS } from "./direction";
 
 /** The refusals this journey can meet, each in the words of what to do next. */
 const REFUSALS: Record<string, string> = {
+  trial_numbers_unavailable:
+    "Phone numbers are available once you add credit and verify your business. Nothing was charged.",
   engine_workspace_not_provisioned:
     "Your calling account is still being set up. Nothing was charged — try again in a few minutes.",
   kyc_not_verified: "Verify your business first. Nothing was charged.",
@@ -191,6 +193,15 @@ export function OwnNumbersJourney({ status }: { status: OwnNumbersStatus }) {
           Your phone numbers are registered in your business&apos;s own name. Three steps get you
           there, and this shows where each one stands.
         </p>
+
+        {status.step === "add_credit" && (
+          <NoticeBox tone="neutral" icon={<Clock aria-hidden className="h-4 w-4" />} title="Add credit to get started">
+            <p className="mt-1">
+              During your free trial, test calls ring from a shared Calevate number. Add credit
+              to end the trial; then these three steps get you a number in your business&apos;s name.
+            </p>
+          </NoticeBox>
+        )}
 
         {status.step === "workspace" && (
           <NoticeBox tone="neutral" icon={<Clock aria-hidden className="h-4 w-4" />} title="Your calling account is being set up">

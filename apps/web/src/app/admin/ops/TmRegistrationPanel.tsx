@@ -137,12 +137,12 @@ export function TmRegistrationPanel({
               <CircleAlert aria-hidden className="h-5 w-5" />
             )
           }
-          title={live ? "LIVE — on record" : "NOT REQUIRED (D-692)"}
+          title={live ? "LIVE — on record" : "Not required for outbound"}
         >
           <p className="mt-1">
             {live
-              ? "Kept on record. Under D-692 no outbound gate asks for this registration."
-              : "Under D-692 Calevate does not register as a telemarketer and no outbound gate asks for this. Outbound needs each client's verified KYC and accepted no-cold-calls pledge instead."}
+              ? "Kept on record. No outbound gate asks for this registration."
+              : "Calevate does not register as a telemarketer and no outbound gate asks for this. Outbound needs each client's verified KYC and accepted no-cold-calls pledge instead."}
           </p>
         </NoticeBox>
 
@@ -284,7 +284,7 @@ export function TmRegistrationPanel({
           <div className="flex gap-3 rounded-card border border-line bg-app p-4 text-sm">
             <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
             <p className="text-ink-muted">
-              Recording this changes no outbound gate under D-692; it is kept for the record.
+              Recording this changes no outbound gate; it is kept for the record.
             </p>
           </div>
 

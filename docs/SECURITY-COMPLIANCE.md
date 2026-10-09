@@ -116,8 +116,10 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
 >
 > - **a verified KYC record** (`kyc_missing`, `kyc_not_verified`), reached by either path
 >   the client chooses: document upload with manual admin review (business certificate +
->   the owner's Aadhaar — masked copy — or PAN card), or DigiLocker through a licensed
->   provider (Cashfree; `docs/evidence/digilocker-kyc-providers-2026-10-08.md`). The
+>   the owner's PAN card ONLY since D-696 — an Aadhaar copy is refused, Aadhaar regs 2021
+>   reg. 16C(1) — with the PAN matched at Income Tax before approval), or DigiLocker
+>   (Aadhaar or PAN) through a licensed provider, unavailable until one is configured:
+>   Cashfree refused us, OPERATIONS gate K-2 (`docs/evidence/digilocker-kyc-providers-2026-10-08.md`). The
 >   business certificate (GST, or Certificate of Incorporation / Udyam) is required on
 >   both paths;
 > - **no outstanding admin "require DigiLocker"** (`kyc_digilocker_required`): an operator
@@ -1072,11 +1074,18 @@ Data
   AAD) before it reaches the bucket, and the store's SSE applies on top; the object is
   ciphertext and is never served by presigned URL — an admin download is decrypted in
   memory and audited. Prefix `kyc-documents/{tenant}/`, destroyed by the account erasure.
-  A manually uploaded owner ID (Aadhaar masked copy, or PAN card) is deleted when an admin
-  decides the review, or after 30 days undecided (`workers/kyc_owner_id_purge`).
+  A manually uploaded owner ID — the PAN card only since D-696; an Aadhaar copy is refused
+  (Aadhaar regs 2021 reg. 16C(1), `docs/evidence/aadhaar-offline-and-pan-verification-2026-10-09.md`)
+  and every one held before has its deletion requested (migration `c5e9a2d71b48`, CHECK
+  `aadhaar_copy_never_held`) — is deleted when an admin decides the review, or after 30
+  days undecided (`workers/kyc_owner_id_purge`). Before approving, the reviewer matches the
+  PAN, full name and date of birth at the Income Tax "Verify Your PAN" service; we keep
+  only `owner_pan_checked` with who and when (and the `kyc.reviewed` audit row), never the
+  date of birth.
   DigiLocker documents are never stored: the provider's response is read in memory for
   the name and a masked number. Kept: status, ID type, name, name match, masked ID
-  (`XXXX-XXXX-1234` / `XXXXX1234X`, CHECK-pinned), provider reference, timestamps.
+  (`XXXXX1234X`, or `XXXX-XXXX-1234` from DigiLocker only, CHECK-pinned), the PAN check
+  and its reviewer, provider reference, timestamps.
 - Secrets: engine/model/client keys in secrets manager only; DB stores references.
   Quarterly rotation; per-integration webhook secrets.
 - usage_events, consent_ledger, audit_log: INSERT-only DB grants (no UPDATE/DELETE for app role).

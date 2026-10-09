@@ -6,6 +6,7 @@ import { Plus } from "lucide-react";
 
 import { PRIMARY_BUTTON, ProblemNotice, Skeleton } from "@/components/ui";
 import { PageHeader } from "@/components/console/pageHeader";
+import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { useAgents } from "@/lib/api/agents";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { agentGroup } from "@/lib/agentState";
@@ -14,6 +15,7 @@ import { noFill } from "@/lib/copilot/types";
 
 import { HowChangesTakeEffect } from "./LaneGuide";
 import { Archive, Roster } from "./Roster";
+import { TrialLockNotice } from "../TrialLockNotice";
 
 /**
  * Your agents — which ones are answering calls right now, one row each, and the way to make
@@ -110,12 +112,16 @@ export default function AgentsPage({
           ) : undefined
         }
         actions={
-          <Link href={href(`/c/${slug}/agents/new`)} className={PRIMARY_BUTTON}>
-            <Plus aria-hidden className="h-4 w-4" />
-            New agent
-          </Link>
+          <>
+            <AskAssistant prompt="Look over my agents and tell me what to improve first." />
+            <Link href={href(`/c/${slug}/agents/new`)} className={PRIMARY_BUTTON}>
+              <Plus aria-hidden className="h-4 w-4" />
+              New agent
+            </Link>
+          </>
         }
       />
+      <TrialLockNotice lock="agents" />
 
       {agents.error && (
         <ProblemNotice error={agents.error} onRetry={() => void agents.refetch()} />

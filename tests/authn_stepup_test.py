@@ -468,7 +468,16 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # deleting a clone moves every agent on it to a standard voice and cannot be undone;
     # switching Studio voices on installs our Cartesia key and changes which voice every agent
     # not kept off speaks; switching them off moves every Studio agent to the default voice.
-    assert sites == 44, f"found {sites} step-up call sites, expected 44; the census went stale"
+    # THE FORTY-FIFTH is the ADMIN ASSISTANT'S CONFIRM DOOR
+    # (`copilot/admin_routes.py::confirm_admin_copilot_proposal`, D-694): an operator
+    # confirming an action the admin assistant proposed. It demands the SAME confirmation
+    # string the console button for that action demands (`AdminActionTool.confirm_action`;
+    # the outbound halt is `halt_outbound`), so a proposal cannot be a way around a gate.
+    # THE FORTY-SIXTH TO FORTY-EIGHTH move money at Razorpay and cannot be undone (D-699): a
+    # refund (`billing/payment_routes.py::issue_tenant_refund`, bound to the payment), and
+    # accepting or contesting a chargeback (`billing/payment_admin_routes.py`, bound to the
+    # dispute). Accepting refunds the customer and is irreversible at Razorpay.
+    assert sites == 48, f"found {sites} step-up call sites, expected 48; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

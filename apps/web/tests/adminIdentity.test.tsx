@@ -10,6 +10,7 @@ import { HOLDS_PATH } from "@/lib/api/holds";
 import { act } from "@testing-library/react";
 
 import { problem, renderAdminPage, stillLoading, type Routes } from "./harness";
+import { NO_UNFINISHED } from "./businessProfileFixture";
 
 /**
  * What the admin realm's identity read drives — the nav and the screens' own gates.
@@ -123,6 +124,7 @@ function shell(over: Routes = {}): Routes {
   return {
     [ADMIN_ME_PATH]: OPERATOR,
     [HOLDS_PATH]: [],
+    "/v1/admin/onboarding/unfinished": NO_UNFINISHED,
     ...over,
   };
 }
@@ -421,6 +423,7 @@ describe("the admin nav, once the console knows who it is", () => {
 describe("the client directory's create gate", () => {
   it("offers New client to a session that holds admin:tenants", async () => {
     renderAdminPage(<AdminClientsPage />, {
+      "/v1/admin/onboarding/unfinished": NO_UNFINISHED,
       [ADMIN_ME_PATH]: OPERATOR,
       [TENANTS_PATH]: directoryPage(),
     });
@@ -433,6 +436,7 @@ describe("the client directory's create gate", () => {
     // The directory answers 200 here, which is the case the old mechanism could not see
     // at all: it could only refuse once its OWN read had failed.
     const { container } = renderAdminPage(<AdminClientsPage />, {
+      "/v1/admin/onboarding/unfinished": NO_UNFINISHED,
       [ADMIN_ME_PATH]: me({ permissions: ["org:read", "agents:read"] }),
       [TENANTS_PATH]: directoryPage(),
     });
@@ -448,6 +452,7 @@ describe("the client directory's create gate", () => {
     // Unchanged and NOT a permission fact: a directory we could not read is one whose
     // slug collisions we cannot see, so the wizard stays shut whatever the role.
     const { container } = renderAdminPage(<AdminClientsPage />, {
+      "/v1/admin/onboarding/unfinished": NO_UNFINISHED,
       [ADMIN_ME_PATH]: OPERATOR,
       [TENANTS_PATH]: problem(503, {
         title: "Service unavailable",
@@ -463,6 +468,7 @@ describe("the client directory's create gate", () => {
 
   it("offers nothing and explains nothing until an answer is in hand", () => {
     const { container } = renderAdminPage(<AdminClientsPage />, {
+      "/v1/admin/onboarding/unfinished": NO_UNFINISHED,
       [ADMIN_ME_PATH]: OPERATOR,
       [TENANTS_PATH]: directoryPage(),
     });

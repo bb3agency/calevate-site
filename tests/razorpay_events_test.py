@@ -1,8 +1,8 @@
 """Razorpay wire hardening (this slice): the callback signature, the extra webhook events
 (order.paid / payment.failed / refund.processed), and the refund flow end to end.
 
-The verified facts these exercise (razorpay.com is egress-blocked here; WebSearch 2026-08-24
-corroborated each across independent secondaries — see `billing/payments.py`):
+The documented facts these exercise (Razorpay's docs, read 9 Oct 2026, cited in
+`billing/payments.py`):
 
 * the CALLBACK signature is `HMAC-SHA256(order_id + "|" + payment_id)` keyed with the
   KEY SECRET, a different scheme and secret from the webhook (which keys HMAC-SHA256 of the
@@ -37,20 +37,38 @@ from apps.api.billing.payment_routes import (
     CheckoutCallbackIn,
     RefundIn,
     confirm_topup_callback,
-    issue_tenant_refund,
+    refund_confirmation,
     webhook_router,
 )
+from apps.api.billing.payment_routes import issue_tenant_refund as _issue_tenant_refund
 from apps.api.billing.payments import RazorpayOrders
 from apps.api.billing.service import get_balance
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.core.settings import get_settings
+from apps.api.core.stepup import StepUp
 from apps.api.db.session import tenant_session
 from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
 pytestmark = [pytest.mark.rls]
+
+
+async def issue_tenant_refund(
+    tenant_id: UUID, payload: RefundIn, request: Request, principal: Principal
+) -> Any:
+    """The route as an operator with a confirmed step-up calls it (D-699): the header
+    echoes this refund, and `present=False` is the local dev-token shape (D-178)."""
+    return await _issue_tenant_refund(
+        tenant_id,
+        payload,
+        request,
+        principal,
+        StepUp(present=False, verified_at=None),
+        refund_confirmation(tenant_id, payload.payment_id),
+    )
+
 
 WEBHOOK_SECRET = "whsec_razorpay_events_test"
 KEY_ID = "rzp_test_events"

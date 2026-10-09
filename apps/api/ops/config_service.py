@@ -137,7 +137,7 @@ def _assert_resource_attested(effective: Any) -> None:
             ),
             remediation=(
                 f"Have someone confirm the resource in the Azure portal and file "
-                f"{ATTESTATION_PATH} naming it (OPERATIONS §2 gate 20). The console cannot "
+                f"{ATTESTATION_PATH} naming it. The console cannot "
                 "move where calls are processed without that reading."
             ),
         )
@@ -154,7 +154,7 @@ def _assert_resource_attested(effective: Any) -> None:
             ),
             remediation=(
                 "Point it at the attested resource, or file a new attestation naming the "
-                "one you intend (OPERATIONS §2 gate 20) — the region is a property of the "
+                "one you intend — the region is a property of the "
                 "resource and no automated check here can see it."
             ),
         )
@@ -578,6 +578,12 @@ async def set_value(
     # and never holds the per-key lock. Only this one key carries the gate.
     if key == _RESOURCE_KEY:
         _assert_resource_attested(stored)
+    # THE SHARED TRIAL NUMBER must be one the developer workspace holds and no client has
+    # recorded (D-697), read live from the voice platform; the console offers only those.
+    if key == "trial_caller_number":
+        from apps.api.ops.trial_number import assert_trial_number_selectable
+
+        await assert_trial_number_selectable(stored)
     # The lock comes FIRST — before the read whose result the precondition is checked
     # against — or the check-then-write is not atomic and the precondition is decoration.
     await _lock_key(session, key)

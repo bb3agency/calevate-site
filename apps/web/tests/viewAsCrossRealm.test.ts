@@ -115,11 +115,25 @@ describe("the way OUT of the marketing site, which is served on the apex", () =>
 
   it.each(EXITS)("%s sends the user through clientConsoleUrl", (file, what) => {
     const text = readFileSync(join(process.cwd(), file), "utf8");
+    // The sign-in page calls `clientSignedInDestination` (it also honours `?next=`); that
+    // helper is where the origin must then be applied, so follow it there.
+    const viaHelper =
+      text.includes("clientSignedInDestination()") &&
+      readFileSync(join(process.cwd(), "src/lib/authn/clientAuthn.ts"), "utf8").includes(
+        "clientConsoleUrl(nextFromLocation(CLIENT_CONSOLE_PATH) ?? CLIENT_CONSOLE_PATH)",
+      );
     expect(
-      text.includes("clientConsoleUrl(CLIENT_CONSOLE_PATH)"),
+      text.includes("clientConsoleUrl(CLIENT_CONSOLE_PATH)") || viaHelper,
       `${what} must be resolved against NEXT_PUBLIC_CLIENT_CONSOLE_ORIGIN — a bare ` +
         `CLIENT_CONSOLE_PATH is a 404 one redirect later for anyone on the apex`,
     ).toBe(true);
+  });
+
+  it("resolves the operator destination against its own origin too", () => {
+    const text = readFileSync(join(process.cwd(), "src/lib/authn/adminAuthn.ts"), "utf8");
+    expect(text).toContain(
+      "adminConsoleUrl(nextFromLocation(ADMIN_CONSOLE_PATH) ?? ADMIN_CONSOLE_PATH)",
+    );
   });
 });
 

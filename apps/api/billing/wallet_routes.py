@@ -83,6 +83,7 @@ from apps.api.billing.wallet import (
     tier_minutes,
 )
 from apps.api.compliance.service import credits_exhausted
+from apps.api.compliance.trial_access import read_trial_access
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
@@ -251,6 +252,12 @@ class WalletTrialOut(Strict):
     #: rounding down would tell somebody with a working service it had stopped.
     days_remaining: int | None
     ended_at: datetime | None
+    #: True while this account is on a free trial it has not yet paid for (D-697): it may
+    #: place test calls and build agents, and everything else opens on the first payment.
+    test_calls_only: bool = False
+    #: The free test-call minutes, and how many are left; null on a trial with no cap.
+    free_minutes: int | None = None
+    minutes_left: int | None = None
 
 
 class WalletEntryOut(Strict):
@@ -436,6 +443,7 @@ async def read_wallet_summary(principal: WalletRead) -> WalletOut:
         # ASKED, not re-derived. It is False for an invoiced client by the gate's own
         # rule, so this is also the answer for a tenant with no wallet.
         stopped = await credits_exhausted(session, tenant_id=tenant_id)
+        access = await read_trial_access(session, tenant_id=tenant_id)
         summary = await read_wallet(
             session,
             tenant_id=tenant_id,
@@ -484,6 +492,9 @@ async def read_wallet_summary(principal: WalletRead) -> WalletOut:
                 ends_at=summary.trial.ends_at,
                 days_remaining=summary.trial.days_remaining(at=datetime.now(UTC)),
                 ended_at=summary.trial.ended_at,
+                test_calls_only=access is not None,
+                free_minutes=summary.trial.free_minutes,
+                minutes_left=access.minutes_left if access is not None else None,
             )
             if summary.trial is not None
             else None

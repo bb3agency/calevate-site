@@ -142,7 +142,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.lots import AiAssistDemand
-from apps.api.billing.models import AI_ASSIST_UNIT_TYPES, KB_INGESTION_FEATURES
+from apps.api.billing.models import (
+    AI_ASSIST_UNIT_TYPES,
+    FREE_ASSIST_FEATURES,
+    KB_INGESTION_FEATURES,
+)
 from apps.api.billing.plans import ist_month_end, parse_billing_month
 
 # `PREPAID_TIERS` IS IMPORTED, NOT RESPELLED, and this module used to hold its own copy.
@@ -621,6 +625,10 @@ _USAGE_SQL = (
     "COUNT(DISTINCT ref) FILTER (WHERE meta->>'feature' = ANY(:kb_features)) "
     "FROM usage_events "
     "WHERE tenant_id = :tid AND unit_type = ANY(:units) AND ref IS NOT NULL "
+    # THE ASSISTANT IS FREE (D-694): its rows stay on this ledger — they are what the
+    # platform brake and the daily fair-use cap count — and they draw nothing from the
+    # monthly allowance this panel reports, so no overage block is ever offered for them.
+    "AND COALESCE(meta->>'feature', '') <> ALL(:free_features) "
     # The month is a half-open range on `occurred_at`, not a rendered string: the rendered
     # form cannot be an index condition (`billing/service._IST_MONTH_WINDOW` carries the
     # measurement), so this panel used to read the tenant's whole metering history.
@@ -651,6 +659,7 @@ async def read_ai_quota(
                 "tid": tenant_id,
                 "units": list(AI_ASSIST_UNIT_TYPES),
                 "kb_features": list(KB_INGESTION_FEATURES),
+                "free_features": list(FREE_ASSIST_FEATURES),
                 **_month_bounds(period),
             },
         )

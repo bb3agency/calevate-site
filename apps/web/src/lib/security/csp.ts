@@ -53,16 +53,14 @@
  *    it is fixed here rather than discovered in production.
  * 5. **`frame-src`** carries both Razorpay origins Checkout needs.
  *
- * ⚠ **WHAT IS NOT VERIFIED, and cannot be from here**: whether Razorpay Checkout's own
- * script pulls further subresources (its own analytics endpoint, a font, a second frame)
- * from origins this policy does not name. `razorpay.com` is egress-blocked from this
- * environment (403 on CONNECT, re-measured 25 Aug 2026) and their published integration
- * code — the only Razorpay source anybody here has read — shows the script tag and nothing
- * about what it then loads. **No origin has been invented to cover the gap.** It is
- * carried as an operator-attested input on OPERATIONS §2 gate 44, which is an ATTENDED
- * first payment: whoever runs it watches the browser console for a CSP refusal on the
- * checkout screen, and the collector (`apps/api/security/`) records any violation whether
- * they are watching or not.
+ * **Razorpay Checkout's own origins (D-699), READ AT SOURCE** from the script itself,
+ * `https://checkout.razorpay.com/v1/checkout.js`, fetched 9 Oct 2026: it frames
+ * `api.razorpay.com/v1/checkout/public`, posts telemetry to `lumberjack.razorpay.com`,
+ * `lumberjack-cx.razorpay.com` and `lumberjack-metrics.razorpay.com`, and loads app icons from
+ * `cdn.razorpay.com`. Razorpay's documentation names no origins. Telemetry blocked by the
+ * policy would not stop a payment, but it is admitted rather than left to report as a
+ * violation on every payment. Any further origin is caught by the collector
+ * (`apps/api/security/`) at the attended first payment (`runbooks/topup-payments.md` §A6).
  *
  * ## The directives, each with its reason
  *
@@ -107,6 +105,14 @@
 
 const RAZORPAY_CHECKOUT_ORIGIN = "https://checkout.razorpay.com";
 const RAZORPAY_API_ORIGIN = "https://api.razorpay.com";
+/** Checkout's telemetry and icon hosts, read from `checkout.js` (module docstring). */
+const RAZORPAY_CONNECT_ORIGINS = [
+  RAZORPAY_API_ORIGIN,
+  "https://lumberjack.razorpay.com",
+  "https://lumberjack-cx.razorpay.com",
+  "https://lumberjack-metrics.razorpay.com",
+];
+const RAZORPAY_IMAGE_ORIGIN = "https://cdn.razorpay.com";
 
 /** The collector's path in `apps/api` (`apps/api/security/routes.py`). One spelling. */
 export const CSP_REPORT_PATH = "/reports/v1/csp";
@@ -204,7 +210,7 @@ export function buildContentSecurityPolicy(
 ): string {
   const apiOrigin = opts.apiOrigin ?? apiConnectOrigin();
   const media = opts.mediaOrigin ?? mediaOrigin();
-  const connect = ["'self'", apiOrigin].filter(Boolean).join(" ");
+  const connect = ["'self'", apiOrigin, ...RAZORPAY_CONNECT_ORIGINS].filter(Boolean).join(" ");
   const mediaSources = ["'self'", media].filter(Boolean).join(" ");
   // The second of the two refusals: asking for it in production does not get it.
   const evalSource = opts.devEval && process.env.NODE_ENV !== "production" ? " 'unsafe-eval'" : "";
@@ -212,7 +218,7 @@ export function buildContentSecurityPolicy(
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}'${evalSource} ${RAZORPAY_CHECKOUT_ORIGIN}`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
+    `img-src 'self' data: blob: ${RAZORPAY_IMAGE_ORIGIN}`,
     "font-src 'self'",
     `connect-src ${connect}`,
     `media-src ${mediaSources}`,

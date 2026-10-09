@@ -453,10 +453,23 @@ export function useCreateTenant() {
 export function useInvite() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ tenantId, email, role }: { tenantId: string; email: string; role: string }) =>
+    mutationFn: ({
+      tenantId,
+      email,
+      role,
+      name,
+      phone,
+    }: {
+      tenantId: string;
+      email: string;
+      role: string;
+      /** The invitee's name and mobile, kept with the invitation for their account. */
+      name?: string | null;
+      phone?: string | null;
+    }) =>
       apiRequest<InviteOut>(adminSession(), `/v1/admin/tenants/${tenantId}/invitations`, {
         method: "POST",
-        body: { email, role },
+        body: { email, role, name: name ?? null, phone_e164: phone ?? null },
       }),
     // The Invitations screen tells the operator the new link "appears in the list above",
     // and that list is `useTenantInvitations`, which has no poll of its own.

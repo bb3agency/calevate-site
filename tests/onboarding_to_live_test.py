@@ -33,29 +33,29 @@ import uuid
 from typing import Any
 from uuid import UUID
 
-from apps.api.admin import intake
+import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.main import app
+from apps.api.tenancy.profile_service import ProfilePatch, save_profile
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.conftest import accept_agreements
 from tests.member_invitations_test import mailed_invitation_token
 
 PUBLISH = "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/publish"
-INTAKE = "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake"
 PROMPT = "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt"
 PENDING = "/v1/agents/{agent_id}/pending"
 INVITE = "/v1/admin/tenants/{tenant_id}/invitations"
 ACCEPT = "/v1/auth/client/invitations/accept"
 
-#: A clinic's answers, complete enough for `submission_blockers` to pass. Mundane on
-#: purpose: every assertion looks for one of these strings arriving somewhere it could
-#: only have reached through the intake.
+#: A clinic's business profile, complete enough to go live (D-695). Mundane on purpose:
+#: every assertion looks for one of these strings arriving somewhere it could only have
+#: reached through the profile.
 FACTS: dict[str, Any] = {
-    "business_hours": [
+    "hours": [
         {"day": "mon", "opens": "09:30", "closes": "18:00"},
         {"day": "sun", "closed": True},
     ],
@@ -64,9 +64,18 @@ FACTS: dict[str, Any] = {
     "faqs": [{"question": "Do you take insurance?", "answer": "Cashless with four insurers."}],
     "staff": [{"name": "Dr. Sowmya", "pronunciation": "సౌమ్య"}],
     "booking_rules": "Same-day slots close at 17:00.",
-    "escalation_contacts": [{"name": "Reception", "phone_e164": "+919000000123"}],
+    "contacts": [{"label": "Reception", "phone_e164": "+919000000123"}],
     "languages": ["en-IN"],
 }
+
+
+async def _fill(tenant_id: UUID, facts: dict[str, Any] = FACTS) -> int:
+    """The client fills in their business profile (D-695). Returns agents updated."""
+    async with tenant_session(tenant_id) as session:
+        _, updated = await save_profile(
+            session, tenant_id=tenant_id, patch=ProfilePatch.model_validate(facts), user_id=None
+        )
+    return updated
 
 
 def _client() -> AsyncClient:
@@ -112,6 +121,7 @@ async def _new_client(token: str) -> tuple[UUID, UUID, str]:
                 "name": "Necklace Road Dental",
                 "slug": slug,
                 "vertical_template": "clinic",
+                "owner": {"email": f"owner-{uuid.uuid4().hex[:8]}@example.com"},
                 "language": "te-IN",
             },
         )
@@ -162,18 +172,11 @@ async def test_a_freshly_onboarded_published_agent_reports_nothing_pending() -> 
     tenant_id, agent_id, slug = await _new_client(token)
     admin_headers = {"Authorization": f"Bearer {token}"}
 
-    async with _client() as http:
-        recorded = await http.post(
-            INTAKE.format(tenant_id=tenant_id, agent_id=agent_id),
-            headers=admin_headers,
-            json=FACTS,
-        )
-        assert recorded.status_code == 200, recorded.text
-        assert recorded.json()["prompt_version"] == 1
-        assert recorded.json()["staged_behind_script"] is False, (
-            "nothing was staged, so the facts apply immediately (SURFACES §2b training lane)"
-        )
+    assert await _fill(tenant_id) == 1
+    # Nothing was staged, so the facts apply immediately (SURFACES §2b training lane).
+    assert await _pointers(agent_id, tenant_id) == (1, 1)
 
+    async with _client() as http:
         published = await http.post(
             PUBLISH.format(tenant_id=tenant_id, agent_id=agent_id), headers=admin_headers
         )
@@ -205,7 +208,7 @@ async def test_a_freshly_onboarded_published_agent_reports_nothing_pending() -> 
     assert state.json()["pending"] == []
 
 
-async def test_an_intake_over_a_staged_script_stages_with_it_and_says_so() -> None:
+async def test_a_profile_change_over_a_staged_script_stages_with_it() -> None:
     """The second direction of the same defect, and the expensive one.
 
     A hand-written script edit on a LIVE agent is staged behind Apply. Re-submitting the
@@ -218,10 +221,8 @@ async def test_an_intake_over_a_staged_script_stages_with_it_and_says_so() -> No
     tenant_id, agent_id, _slug = await _new_client(token)
     headers = {"Authorization": f"Bearer {token}"}
 
+    await _fill(tenant_id)
     async with _client() as http:
-        await http.post(
-            INTAKE.format(tenant_id=tenant_id, agent_id=agent_id), headers=headers, json=FACTS
-        )
         ref = (
             await http.post(PUBLISH.format(tenant_id=tenant_id, agent_id=agent_id), headers=headers)
         ).json()["engine_agent_ref"]
@@ -241,17 +242,9 @@ async def test_an_intake_over_a_staged_script_stages_with_it_and_says_so() -> No
         assert staged.status_code in (200, 201), staged.text
         assert await _pointers(agent_id, tenant_id) == (2, 1)
 
-        # Now the facts change — a new price the client rang up about.
-        moved = dict(FACTS, services=[{"name": "Root canal", "price_inr": "9500"}])
-        again = await http.post(
-            INTAKE.format(tenant_id=tenant_id, agent_id=agent_id), headers=headers, json=moved
-        )
+    # Now the facts change — a new price the client typed into their profile.
+    await _fill(tenant_id, {"services": [{"name": "Root canal", "price_inr": "9500"}]})
 
-    assert again.status_code == 200, again.text
-    assert again.json()["prompt_version"] == 3
-    assert again.json()["staged_behind_script"] is True, (
-        "the step must say the facts are held behind Apply rather than report a bare version"
-    )
     assert await _pointers(agent_id, tenant_id) == (3, 1), "the applied pointer must not move"
 
     running = get_engine()._agents[ref].system_prompt  # type: ignore[attr-defined]
@@ -311,17 +304,15 @@ async def test_publishing_an_agent_with_no_script_is_refused_not_placeholdered()
     assert routes == 0, "no routing row may exist for an agent that was never published"
 
 
-async def test_the_same_agent_publishes_once_the_intake_has_given_it_a_script() -> None:
+async def test_the_same_agent_publishes_once_the_profile_has_given_it_a_script() -> None:
     """The refusal is a precondition, not a wall — the very next step clears it, and
     what reaches the engine is the CLIENT's script rather than any default of ours."""
     token = await _admin()
     tenant_id, agent_id, _slug = await _new_client(token)
     headers = {"Authorization": f"Bearer {token}"}
 
+    await _fill(tenant_id)
     async with _client() as http:
-        await http.post(
-            INTAKE.format(tenant_id=tenant_id, agent_id=agent_id), headers=headers, json=FACTS
-        )
         response = await http.post(
             PUBLISH.format(tenant_id=tenant_id, agent_id=agent_id), headers=headers
         )
@@ -501,12 +492,8 @@ async def test_no_writer_of_a_prompt_version_can_leave_the_applied_pointer_null(
     tenant_id, agent_id, _slug = await _new_client(token)
 
     async with tenant_session(tenant_id) as session:
-        await intake.record_intake(
-            session,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            facts=intake.IntakeFacts.model_validate(FACTS),
-            recorded_by=None,
+        await save_profile(
+            session, tenant_id=tenant_id, patch=ProfilePatch.model_validate(FACTS), user_id=None
         )
         after_intake = (
             await session.execute(
@@ -531,51 +518,33 @@ async def test_no_writer_of_a_prompt_version_can_leave_the_applied_pointer_null(
     assert still_set is False
 
 
-def test_the_intake_mints_no_second_prompt_version_writer() -> None:
+def test_the_profile_mints_no_second_prompt_version_writer() -> None:
     """One statement may create a `prompt_versions` row (agents/prompts.py says so).
 
-    The wizard's copy of that INSERT is what dropped the applied pointer, so its absence
-    is the property — a future edit that reintroduces a local INSERT fails here rather
-    than at a client's phone line six weeks later.
+    The old wizard's own copy of that INSERT is what dropped the applied pointer, so its
+    absence from the profile writer is the property.
     """
     from pathlib import Path
 
-    source = Path(intake.__file__).read_text(encoding="utf-8")
+    from apps.api.tenancy import profile_service
+
+    source = Path(profile_service.__file__).read_text(encoding="utf-8")
     assert "INSERT INTO prompt_versions" not in source, (
         "prompt versions are minted by agents/prompts.py::insert_prompt_version only"
     )
-    assert "insert_prompt_version" in source
 
 
-async def test_reopening_a_submitted_intake_and_saving_it_unchanged_mints_nothing() -> None:
-    """FLOWS §1's "every step idempotent", and the unchanged branch's own report.
-
-    An operator reopens step 3, reads it and presses submit. Nothing may be minted, the
-    pointers may not move, and the answer must still carry `staged_behind_script` — the
-    branch returns a different dict from the regenerated one, so a field added to only
-    the busy half is a 500 on the wizard the first time somebody re-saves a form.
-    """
+async def test_saving_an_unchanged_profile_mints_nothing() -> None:
+    """A client reopens a step, reads it and saves. Nothing may be minted and the
+    pointers may not move."""
     token = await _admin()
     tenant_id, agent_id, _slug = await _new_client(token)
     headers = {"Authorization": f"Bearer {token}"}
 
+    await _fill(tenant_id)
     async with _client() as http:
-        await http.post(
-            INTAKE.format(tenant_id=tenant_id, agent_id=agent_id), headers=headers, json=FACTS
-        )
         await http.post(PUBLISH.format(tenant_id=tenant_id, agent_id=agent_id), headers=headers)
-        again = await http.post(
-            INTAKE.format(tenant_id=tenant_id, agent_id=agent_id), headers=headers, json=FACTS
-        )
-
-    assert again.status_code == 200, again.text
-    body = again.json()
-    assert body["regenerated"] is False, "the unchanged branch is the one under test here"
-    assert body["prompt_version"] == 1
-    assert body["kb_source_id"] is None
-    assert body["staged_behind_script"] is False, (
-        "the applied version carries these facts, so callers have them"
-    )
+    assert await _fill(tenant_id) == 0
     assert await _pointers(agent_id, tenant_id) == (1, 1), "nothing minted, nothing moved"
 
 
@@ -745,13 +714,14 @@ async def test_the_console_lists_pending_invitations_in_full_and_per_tenant() ->
         elsewhere = await http.get(INVITE.format(tenant_id=other_tenant), headers=headers)
 
     assert listed.status_code == 200, listed.text
-    rows = listed.json()
+    # The account was born with its owner's invitation (D-695), so the list holds that one too.
+    rows = [row for row in listed.json() if row["email"] == email]
     assert [row["id"] for row in rows] == [minted.json()["id"]]
     assert rows[0]["role"] == "owner"
     # WAS `email not in listed.text` + a first-letter/domain shape assertion.
     assert rows[0]["email"] == email
     assert "•" not in listed.text, "no dots survive anywhere in the body"
-    assert elsewhere.json() == [], "another account's keys are not this account's list"
+    assert email not in elsewhere.text, "another account's keys are not this account's list"
 
 
 async def test_the_pending_list_drops_an_invitation_once_it_is_redeemed() -> None:
@@ -772,7 +742,7 @@ async def test_the_pending_list_drops_an_invitation_once_it_is_redeemed() -> Non
             )
         ).status_code == 201
         assert (
-            len((await http.get(INVITE.format(tenant_id=tenant_id), headers=headers)).json()) == 1
+            len((await http.get(INVITE.format(tenant_id=tenant_id), headers=headers)).json()) == 2
         )
         _owner_token, _owner_id = await _user(email)
         await http.post(
@@ -784,4 +754,89 @@ async def test_the_pending_list_drops_an_invitation_once_it_is_redeemed() -> Non
         )
         after = await http.get(INVITE.format(tenant_id=tenant_id), headers=headers)
 
-    assert after.json() == []
+    # Only the invitation the account was born with is left.
+    assert len(after.json()) == 1 and email not in after.text
+
+
+# =====================================================================================
+# 4. Creating an account and inviting its owner are ONE act (D-695)
+# =====================================================================================
+
+
+async def _org_by_slug(slug: str) -> int:
+    async with untenanted_session() as session:
+        return int(
+            (
+                await session.execute(
+                    text("SELECT count(*) FROM organizations WHERE slug = :s"), {"s": slug}
+                )
+            ).scalar()
+            or 0
+        )
+
+
+async def test_creating_an_account_invites_its_owner_in_the_same_act(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api.admin import routes as admin_routes
+
+    queued: list[str] = []
+    real = admin_routes.enqueue_invitation_email
+
+    async def record(session: Any, *, to: str, token: str) -> None:
+        queued.append(to)
+        await real(session, to=to, token=token)
+
+    monkeypatch.setattr(admin_routes, "enqueue_invitation_email", record)
+    token = await _admin()
+    tenant_id, _agent_id, _slug = await _new_client(token)
+    async with tenant_session(tenant_id) as session:
+        invites = (
+            await session.execute(
+                text("SELECT count(*) FROM invitations WHERE role = 'owner' AND used_at IS NULL")
+            )
+        ).scalar()
+    assert invites == 1, "the account was created without its owner's invitation"
+    assert len(queued) == 1 and queued[0].startswith("owner-"), "no invitation email queued"
+
+
+async def test_a_failed_invitation_leaves_no_account_behind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The closed-tab bug, from the server's side: the invitation is part of the birth
+    transaction, so when it fails the account is not there either."""
+
+    async def refuse(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("mail queue down")
+
+    monkeypatch.setattr("apps.api.admin.routes.enqueue_invitation_email", refuse)
+    token = await _admin()
+    slug = f"atomic-{uuid.uuid4().hex[:8]}"
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://api"
+    ) as http:
+        response = await http.post(
+            "/v1/admin/tenants",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "name": "Half Made Dental",
+                "slug": slug,
+                "vertical_template": "clinic",
+                "owner": {"email": "owner@half-made.example"},
+            },
+        )
+    assert response.status_code >= 500
+    assert await _org_by_slug(slug) == 0, "an account was left with nobody invited into it"
+
+
+async def test_an_account_cannot_be_created_without_an_owner_to_invite() -> None:
+    token = await _admin()
+    slug = f"noowner-{uuid.uuid4().hex[:8]}"
+    async with _client() as http:
+        response = await http.post(
+            "/v1/admin/tenants",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"name": "Nobody Dental", "slug": slug, "vertical_template": "clinic"},
+        )
+    assert response.status_code == 422
+    assert await _org_by_slug(slug) == 0

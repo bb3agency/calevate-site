@@ -15,6 +15,9 @@
  * browser half mirrors that by having no client-realm spelling of it either.
  */
 
+import { adminConsoleUrl } from "@/lib/consoleOrigin";
+
+import { nextFromLocation } from "./nextPath";
 import { needsReauthentication } from "./problems";
 import { createRealmAuthn, type AuthnSession } from "./realm";
 import { requireStepUp } from "./stepUpPrompt";
@@ -122,4 +125,14 @@ export async function changeAdminPassword(input: {
     if (!proved) throw error;
     return await adminAuthn.changePassword(input);
   }
+}
+
+/**
+ * Where a successful sign-in sends an operator: the console page in `?next=` when it is a
+ * path inside `/admin`, otherwise the console's front page. The sign-in form and
+ * `AdminGuestOnly` both call this, so the two navigations that fire together after a
+ * sign-in can never name different places.
+ */
+export function adminSignedInDestination(): string {
+  return adminConsoleUrl(nextFromLocation(ADMIN_CONSOLE_PATH) ?? ADMIN_CONSOLE_PATH);
 }

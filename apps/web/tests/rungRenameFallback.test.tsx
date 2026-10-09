@@ -13,6 +13,7 @@ import {
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { KB_ALL_DELIVERED, WHATSAPP_NEVER_ASKED } from "./fixtures/sharedReads";
+import { OWNER_JOINED } from "./businessProfileFixture";
 
 /**
  * THE CONSOLE STILL RENDERS AGAINST AN API THAT HAS NOT BEEN REDEPLOYED (D-558).
@@ -184,6 +185,7 @@ describe("the console reads the deprecated rung names when the API has not moved
     const { container } = await renderAdminRoute(
       <TenantDetailPage params={routeParams({ tenantId: TENANT })} />,
       {
+        [`${TENANT_PATH}/owner-status`]: OWNER_JOINED,
         [TENANT_PATH]: tenant(),
         [ADMIN_ME_PATH]: ME,
         [MARGIN_PATH]: legacyMargin(),
@@ -222,6 +224,7 @@ describe("the console reads the deprecated rung names when the API has not moved
     const { container } = await renderAdminRoute(
       <CommercialsPage params={routeParams({ tenantId: TENANT })} />,
       {
+        [`${TENANT_PATH}/owner-status`]: OWNER_JOINED,
         [TENANT_PATH]: tenant(),
         [ADMIN_ME_PATH]: ME,
         [TERMS_PATH]: legacyTerms(),

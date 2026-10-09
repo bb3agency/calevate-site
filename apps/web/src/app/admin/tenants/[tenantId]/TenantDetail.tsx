@@ -12,6 +12,7 @@ import { holdRule } from "@/lib/api/holds";
 
 import { AccountStateBanner } from "./AccountStateBanner";
 import { HoldsBanner } from "./HoldsBanner";
+import { NoOwnerBanner } from "./NoOwnerBanner";
 import { KnowledgeDeliveryPanel } from "./KnowledgeDeliveryPanel";
 import { KnowledgeQueue, unpublishedSources } from "./KnowledgeQueue";
 import { MarginPanel } from "./MarginPanel";
@@ -181,6 +182,8 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
           a hold is also open, and an operator told only about the hold would clear it and
           watch nothing change. */}
       <AccountStateBanner tenantId={tenantId} status={tenant.status} />
+
+      <NoOwnerBanner tenantId={tenantId} slug={tenant.slug} />
 
       <HoldsBanner tenantId={tenantId} holds={tenant.holds} />
 

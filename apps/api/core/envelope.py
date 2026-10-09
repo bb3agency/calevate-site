@@ -499,7 +499,7 @@ def unseal_bytes(envelope: Envelope, *, context: str, ring: KekRing | None = Non
             remediation=(
                 "The row was modified outside the application, or moved from another "
                 "key's row. Do not overwrite it — capture it and treat this as a "
-                "security incident (PLATFORM-CONFIG §10)."
+                "security incident."
             ),
         ) from None
 

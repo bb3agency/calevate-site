@@ -105,9 +105,9 @@ export function VoicePanel({
           agent, callers hear a new voice from their next call.
         </span>
         <InfoTip label="How a voice change lands">
-          Two voice qualities, at two different per-minute rates (D-547), and the rate shown
+          Two voice qualities, at two different per-minute rates, and the rate shown
           against each quality is the one frozen on this client&apos;s oldest unspent credit.
-          Setting a voice on a LIVE agent re-publishes it in the same transaction (D-586) — a
+          Setting a voice on a LIVE agent re-publishes it in the same transaction — a
           call in progress finishes as it started, and if the calling system refuses the
           change nothing is saved. A draft or paused agent is written but not published; the
           next publish carries the voice.

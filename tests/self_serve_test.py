@@ -715,7 +715,9 @@ async def test_an_uninteresting_event_is_acknowledged_and_ignored() -> None:
     the provider stops retrying, and touches no money."""
     tenant_id, _ = await _self_serve_tenant()
     raw, headers = _sign(
-        _envelope(payment_id=_payment_id("AUTH"), tenant_id=tenant_id, event="payment.authorized")
+        _envelope(
+            payment_id=_payment_id("DOWN"), tenant_id=tenant_id, event="payment.downtime.started"
+        )
     )
     async with _client() as http:
         response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
@@ -843,7 +845,7 @@ async def test_a_signed_body_that_is_not_a_capture_envelope_is_acked_not_500ed()
         ("a JSON list, not an envelope", b'["payment.captured"]', "ignored"),
         ("a bare JSON string", b'"payment.captured"', "ignored"),
         ("an object with no event", b"{}", "ignored"),
-        ("an event this deployment ignores", b'{"event": "payment.authorized"}', "ignored"),
+        ("an event this deployment ignores", b'{"event": "payment.downtime.started"}', "ignored"),
         ("a failed payment, acked", b'{"event": "payment.failed"}', "failed"),
     ):
         signature = hmac.new(WEBHOOK_SECRET.encode(), raw, hashlib.sha256).hexdigest()

@@ -16,8 +16,10 @@ import { Term } from "@/lib/glossary";
 import {
   DEFAULT_ERASURE_GRACE_DAYS,
   MAX_ERASURE_GRACE_DAYS,
+  MAX_FREE_MINUTES,
   MAX_TRIAL_DAYS,
   MIN_ERASURE_GRACE_DAYS,
+  MIN_FREE_MINUTES,
   MIN_TRIAL_DAYS,
   useStartTrial,
 } from "@/lib/api/trials";
@@ -42,6 +44,7 @@ interface StartDraft {
   confirm: string;
   reason: string;
   grace: string;
+  minutes: string;
 }
 
 const NO_START: StartDraft = {
@@ -49,6 +52,7 @@ const NO_START: StartDraft = {
   confirm: "",
   reason: "",
   grace: String(DEFAULT_ERASURE_GRACE_DAYS),
+  minutes: "",
 };
 
 /** Whole days only, inside the bounds the route and the table both enforce. Parsed as an
@@ -89,10 +93,20 @@ export function StartTrialForm({
     "The grace period",
   );
   const graceReady = draft.grace.trim() !== "" && graceProblem === null;
+  const minutesRaw = draft.minutes.trim();
+  const minutesProblem =
+    minutesRaw === ""
+      ? null
+      : !/^\d{1,4}$/.test(minutesRaw) ||
+          Number(minutesRaw) < MIN_FREE_MINUTES ||
+          Number(minutesRaw) > MAX_FREE_MINUTES
+        ? `Free minutes are a whole number between ${MIN_FREE_MINUTES} and ${MAX_FREE_MINUTES}.`
+        : null;
+  const minutesReady = minutesRaw !== "" && minutesProblem === null;
   const reason = draft.reason.trim();
   const reasonReady = reason.length >= 3;
   const ready =
-    write.allowed && confirmed && graceReady && reasonReady && !start.isPending;
+    write.allowed && confirmed && graceReady && minutesReady && reasonReady && !start.isPending;
   const days = daysReady ? Number(draft.days.trim()) : null;
 
   return (
@@ -103,7 +117,12 @@ export function StartTrialForm({
         event.preventDefault();
         if (days === null) return;
         start.mutate(
-          { days, reason, erasureGraceDays: Number(draft.grace.trim()) },
+          {
+            days,
+            reason,
+            erasureGraceDays: Number(draft.grace.trim()),
+            freeMinutes: Number(minutesRaw),
+          },
           { onSuccess: () => setDraft(NO_START) },
         );
       }}
@@ -153,6 +172,25 @@ export function StartTrialForm({
           />
         </Field>
       </div>
+
+      <Field
+        label="Free test-call minutes"
+        id="trial-minutes"
+        hint={`Between ${MIN_FREE_MINUTES} and ${MAX_FREE_MINUTES}. The trial ends when these are used or on its last day, whichever comes first, and at once when the client adds credit.`}
+        error={minutesProblem}
+      >
+        <input
+          id="trial-minutes"
+          value={draft.minutes}
+          disabled={!write.allowed}
+          onChange={(event) => set("minutes", event.target.value)}
+          inputMode="numeric"
+          autoComplete="off"
+          aria-describedby={describedBy("trial-minutes", minutesProblem !== null)}
+          aria-invalid={minutesProblem !== null}
+          className={FIELD}
+        />
+      </Field>
 
       <Field
         label="Why this client is being carried (required)"
@@ -205,19 +243,20 @@ export function StartTrialForm({
               : `This carries ${clientName} for ${days} day(s), starting the moment you press it`}
           </p>
           <p className="mt-1 text-ink-muted">
-            For that whole period their wallet is not debited and an empty wallet stops
-            neither their outgoing calls nor their agents answering incoming ones. Every
-            minute is still metered at what it costs US, and there is{" "}
-            <span className="font-semibold">no spend ceiling</span> — the days are the only
-            bound, which is why they are typed twice. What it has cost appears above while
-            it runs.
+            A client that has not paid builds agents and places outbound test calls from the
+            shared trial number, nothing else: no inbound, campaigns, numbers,{" "}
+            <Term id="kyc" audience="operator" /> or live calling until their first top-up,
+            which also ends the trial. The trial ends on its last day or when the free
+            minutes are used, whichever comes first. Every minute is still metered at what
+            it costs US; the days are typed twice because they and the minutes are the only
+            bounds. What it has cost appears above while it runs.
           </p>
           <p className="mt-1 text-ink-muted">
             <span className="font-semibold">A trial is a billing state, not a licence.</span>{" "}
-            <Term id="kyc" audience="operator" />, the signed agreements, this
-            client&apos;s own spend cap, calling hours, do-not-call, consent, the AI
-            disclosure and the <Term id="dlt" /> chain all still apply and still block
-            exactly as they do today.
+            The no-cold-calls pledge, the signed agreements, this client&apos;s own spend
+            cap, calling hours, do-not-call, consent and the AI disclosure still apply to
+            every test call. A client that has already paid keeps everything it had, and a
+            trial only puts its calls on us.
           </p>
           <p className="mt-1 text-xs text-ink-faint">
             Recorded in the audit log against your admin account with the reason you type
@@ -264,7 +303,9 @@ export function StartTrialForm({
                 ? "Say why. It is stored on the audit record."
                 : !graceReady
                   ? "Enter how long to keep their data if they do not buy."
-                  : "Ready. Their calling is on us from the moment you press this."}
+                  : !minutesReady
+                    ? "Enter the free test-call minutes this client was promised."
+                    : "Ready. Their test calls are on us from the moment you press this."}
         </p>
       )}
     </form>

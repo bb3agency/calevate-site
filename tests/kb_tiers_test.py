@@ -4,7 +4,7 @@ TRD §6 names five retrieval tiers. Four of the five are not code in this reposi
 they are not absent for the same reason — which is the whole point of writing them down
 here rather than in a paragraph nobody re-reads:
 
-* **T0 compiled context** is real and is exercised below. `apps/api/admin/intake.py`
+* **T0 compiled context** is real and is exercised below. `apps/api/tenancy/business_profile.py`
   compiles the client's own business facts into a `[T0 FACTS]` block, splices it into
   the prompt body and stores it as `prompt_versions.compiled_t0_context` (D-39), and
   `apps/api/agents/t0.py` REGENERATES that block on every knowledge publish — the
@@ -39,12 +39,12 @@ import tokenize
 import uuid
 from pathlib import Path
 
-from apps.api.admin import intake
 from apps.api.agents import t0
 from apps.api.db.session import tenant_session
 from apps.api.kb import service as kb_service
+from apps.api.tenancy.profile_service import ProfilePatch, save_profile
 from sqlalchemy import text
-from tests.intake_test import FACTS, _tenant
+from tests.business_profile_test import PROFILE, _tenant
 from tests.kb_workflow_test import _tenant_with_published_agent
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -72,11 +72,11 @@ async def test_t0_context_is_compiled_from_the_clients_own_facts_and_stored() ->
     suite makes rather than one a reader has to take on trust from another file."""
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
-        result = await intake.record_intake(
-            session, tenant_id=tenant_id, agent_id=agent_id, facts=FACTS, recorded_by=None
+        await save_profile(
+            session, tenant_id=tenant_id, patch=ProfilePatch.model_validate(PROFILE), user_id=None
         )
     versions = await _prompt_versions(agent_id, tenant_id)
-    compiled = dict(versions)[int(result["prompt_version"])]
+    compiled = versions[-1][1]
     assert compiled.startswith(t0.T0_HEADER)
     assert "Root canal" in compiled, "a fact the client typed reached the compiled block"
 

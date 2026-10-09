@@ -13,8 +13,10 @@ records that nothing was sent. `workspace_for_tenant` is the same read in a sess
 own, for callers that hold none.
 
 Provisioning goes through the outbox (`queue_workspace_provisioning`, job
-`provision_engine_workspace` in `apps/workers/engine_workspaces.py`), in the transaction
-that made the tenant, so a tenant cannot exist without its provisioning being owed.
+`provision_engine_workspace` in `apps/workers/engine_workspaces.py`). It is owed from the
+account's FIRST PAYMENT (D-697): `billing/first_payment.on_payment_credited` queues it in
+the crediting transaction, the daily sweep backfills paid tenants, and an operator may ask
+for it by hand. A free-trial account has none; its agents live in the developer workspace.
 """
 
 from __future__ import annotations

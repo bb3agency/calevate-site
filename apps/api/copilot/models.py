@@ -275,13 +275,212 @@ class AdminCopilotConversationTurn(_ConversationTurnColumns, PKMixin, TimestampM
     )
 
 
+#: Every state one action-log row can be in (D-694, migration `e6c2a9d41f07`).
+#:
+#: * `done`             — it ran. An immediate row may then become `undone`.
+#: * `undone`           — its inverse ran.
+#: * `refused`          — the tool, the permission ladder or the platform said no. No args.
+#: * `pending_approval` — a background job reached a CONFIRM-tier action, which waits in the
+#:                        Approvals inbox; it becomes `done`, `rejected` or `expired`.
+ACTION_STATUSES: Final[tuple[str, ...]] = (
+    "done",
+    "undone",
+    "refused",
+    "pending_approval",
+    "rejected",
+    "expired",
+)
+
+#: Where the action came from: a question asked in the panel, or a background job.
+ACTION_SOURCES: Final[tuple[str, ...]] = ("interactive", "job")
+
+#: The longest authored sentence a row keeps (`summary`, `refusal_reason`).
+MAX_ACTION_TEXT: Final = 500
+
+#: The states a background job moves through.
+JOB_STATUSES: Final[tuple[str, ...]] = ("queued", "running", "done", "failed", "cancelled")
+
+#: How many progress entries one job keeps. A list bound (`scripts/check_list_bounds.py`'s
+#: subject): a job is capped at `service.JOB_LIMITS.max_turns` turns, each emitting at most
+#: a handful of entries, so this is generous and still a row a panel can render.
+MAX_JOB_PROGRESS: Final = 200
+
+
+class _ActionColumns:
+    """The columns both realms' action logs share (D-694).
+
+    TWO TABLES, NOT ONE WITH A REALM COLUMN, for `AdminCopilotMemory`'s reason: the actor is
+    a `users.id` on the client realm and an `admin_users.id` on the admin realm, and an
+    admin row has no tenant whose RLS policy could hold it. A nullable `tenant_id` under a
+    realm discriminator is a policy that cannot be written; two tables are two policies
+    that can.
+    """
+
+    tool: Mapped[str] = mapped_column(String(80), nullable=False)
+    tier: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    object_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    object_id: Mapped[str | None] = mapped_column(String(80))
+    #: The canonical arguments after `workers.redaction.redact` — for reading, never for
+    #: running. NULL on a refusal (the founder: "attempts are logged even when refused",
+    #: without their arguments).
+    args_redacted: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    #: What `Undo.capture` read BEFORE the executor ran — enough to invert.
+    prior_state: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    #: What it read AFTER. The inverse's compare value.
+    result_state: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    #: The exact arguments a pending approval will run with. Set ONLY while the row is
+    #: `pending_approval`, and cleared when it is decided, so executable intent never
+    #: outlives the decision about it.
+    pending_args: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    #: The server's own sentence about what happened (or would happen), redacted.
+    summary: Mapped[str | None] = mapped_column(Text)
+    refusal_reason: Mapped[str | None] = mapped_column(Text)
+    undoable_until: Mapped[datetime | None]
+    undone_at: Mapped[datetime | None]
+    decided_at: Mapped[datetime | None]
+
+
+class CopilotAction(_ActionColumns, PKMixin, TimestampMixin, Base):
+    """One thing the CLIENT assistant did, tried, or is waiting to be allowed to do."""
+
+    __tablename__ = "copilot_actions"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('done', 'undone', 'refused', 'pending_approval', 'rejected', 'expired')",
+            name="status_enum",
+        ),
+        CheckConstraint("tier IN ('immediate', 'confirm')", name="tier_enum"),
+        CheckConstraint("source IN ('interactive', 'job')", name="source_enum"),
+        CheckConstraint("(status = 'undone') = (undone_at IS NOT NULL)", name="undone_pair"),
+        CheckConstraint(
+            "pending_args IS NULL OR status = 'pending_approval'", name="pending_args_only_pending"
+        ),
+        CheckConstraint("status <> 'refused' OR args_redacted IS NULL", name="refusal_has_no_args"),
+        CheckConstraint(
+            f"summary IS NULL OR length(summary) <= {MAX_ACTION_TEXT}", name="summary_cap"
+        ),
+        CheckConstraint(
+            f"refusal_reason IS NULL OR length(refusal_reason) <= {MAX_ACTION_TEXT}",
+            name="refusal_reason_cap",
+        ),
+        Index("ix_copilot_actions_tenant_actor_recent", "tenant_id", "actor_user_id", "created_at"),
+        Index(
+            "ix_copilot_actions_pending",
+            "tenant_id",
+            "created_at",
+            postgresql_where=text("status = 'pending_approval'"),
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: SET NULL rather than CASCADE: the row is the account's record of what its assistant
+    #: did, and it outlives the colleague who asked. `audit_log` holds the attribution.
+    actor_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    job_id: Mapped[UUID | None] = mapped_column(ForeignKey("copilot_jobs.id", ondelete="SET NULL"))
+    undone_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    decided_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+
+class AdminCopilotAction(_ActionColumns, PKMixin, TimestampMixin, Base):
+    """One thing the ADMIN assistant did or tried (D-694). Platform-scoped, no RLS."""
+
+    __tablename__ = "admin_copilot_actions"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('done', 'undone', 'refused', 'pending_approval', 'rejected', 'expired')",
+            name="status_enum",
+        ),
+        CheckConstraint("tier IN ('immediate', 'confirm')", name="tier_enum"),
+        CheckConstraint("source IN ('interactive', 'job')", name="source_enum"),
+        CheckConstraint("(status = 'undone') = (undone_at IS NOT NULL)", name="undone_pair"),
+        CheckConstraint(
+            "pending_args IS NULL OR status = 'pending_approval'", name="pending_args_only_pending"
+        ),
+        CheckConstraint("status <> 'refused' OR args_redacted IS NULL", name="refusal_has_no_args"),
+        CheckConstraint(
+            f"summary IS NULL OR length(summary) <= {MAX_ACTION_TEXT}", name="summary_cap"
+        ),
+        CheckConstraint(
+            f"refusal_reason IS NULL OR length(refusal_reason) <= {MAX_ACTION_TEXT}",
+            name="refusal_reason_cap",
+        ),
+        Index("ix_admin_copilot_actions_actor_recent", "admin_user_id", "created_at"),
+    )
+
+    admin_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="SET NULL")
+    )
+    viewing_tenant_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="SET NULL")
+    )
+    undone_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="SET NULL")
+    )
+    decided_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="SET NULL")
+    )
+
+
+class CopilotJob(PKMixin, TimestampMixin, Base):
+    """One background job the client assistant is running (D-694 item 7).
+
+    A request bigger than the interactive budget is handed to an ARQ worker
+    (`apps/workers/copilot_jobs.py`) and progress is written here, so the panel reads it by
+    polling (`GET /v1/copilot/jobs/{id}`) or by a stream that polls for it
+    (`GET /v1/copilot/jobs/{id}/events`). `goal` and `result` are redacted on write.
+    """
+
+    __tablename__ = "copilot_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'done', 'failed', 'cancelled')", name="status_enum"
+        ),
+        CheckConstraint("length(btrim(goal)) > 0", name="goal_not_blank"),
+        CheckConstraint(f"length(goal) <= {MAX_CONTENT_CHARS}", name="goal_cap"),
+        CheckConstraint(
+            f"result IS NULL OR length(result) <= {MAX_CONTENT_CHARS * 2}", name="result_cap"
+        ),
+        CheckConstraint(f"jsonb_array_length(progress) <= {MAX_JOB_PROGRESS}", name="progress_cap"),
+        Index("ix_copilot_jobs_tenant_user_recent", "tenant_id", "user_id", "created_at"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    goal: Mapped[str] = mapped_column(Text, nullable=False)
+    screen_route: Mapped[str] = mapped_column(String(200), nullable=False)
+    progress: Mapped[list[dict[str, object]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    result: Mapped[str | None] = mapped_column(Text)
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    started_at: Mapped[datetime | None]
+    finished_at: Mapped[datetime | None]
+
+
 __all__ = [
+    "ACTION_SOURCES",
+    "ACTION_STATUSES",
+    "JOB_STATUSES",
+    "MAX_ACTION_TEXT",
     "MAX_CONTENT_CHARS",
+    "MAX_JOB_PROGRESS",
     "MEMORY_KINDS",
     "SEARCH_CONFIG",
     "TURN_ROLES",
+    "AdminCopilotAction",
     "AdminCopilotConversationTurn",
     "AdminCopilotMemory",
+    "CopilotAction",
     "CopilotConversationTurn",
+    "CopilotJob",
     "CopilotMemory",
 ]

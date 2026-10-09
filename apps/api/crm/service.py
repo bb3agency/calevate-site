@@ -2091,8 +2091,8 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
     over an already tenant-scoped view, and the dashboard polls (D-24).
 
     **The after-hours tile prefers the client's own hours.** FLOWS §3 specifies the
-    `after_hours` flag as derived from `agents.business_hours`; until the intake step
-    landed there was nothing in that column, so this counted a hardcoded 09:00-21:00
+    `after_hours` flag as derived from the business's hours (the business profile,
+    D-695); a client who has not given them gets a hardcoded 09:00-21:00
     IST window instead. That window is right only for a client who happens to keep
     those hours and wrong in both directions otherwise — it misses the late-night
     clinic's 22:30 enquiry entirely and files every Sunday walk-in at the
@@ -2214,13 +2214,13 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
     counters = await read_spend_counters(session, tenant_id=await session_tenant(session))
 
     # One cheap existence check decides which definition the tile is entitled to. It is
-    # asked of `agents` rather than inferred from the count above, because "no agent has
+    # asked of the business profile rather than inferred from the count above, because "no
     # hours" and "hours are recorded and nothing fell outside them" are different facts
     # that both produce zero.
     has_hours = bool(
         (
             await session.execute(
-                text("SELECT 1 FROM agents WHERE business_hours IS NOT NULL LIMIT 1")
+                text("SELECT 1 FROM business_profiles WHERE hours <> '{}'::jsonb LIMIT 1")
             )
         ).scalar()
     )

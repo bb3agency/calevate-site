@@ -50,15 +50,19 @@ from apps.api.billing.service import to_paise
 from apps.api.billing.trials import (
     DEFAULT_ERASURE_GRACE_DAYS,
     MAX_ERASURE_GRACE_DAYS,
+    MAX_FREE_MINUTES,
     MAX_TRIAL_DAYS,
     MIN_ERASURE_GRACE_DAYS,
+    MIN_FREE_MINUTES,
     MIN_TRIAL_DAYS,
     TRIAL_HUMAN_OUTCOMES,
     TrialState,
     end_trial,
+    minutes_of,
     read_trial,
     start_trial,
     trial_cost_to_us_inr,
+    trial_seconds_used,
 )
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
@@ -127,6 +131,9 @@ class TrialStartIn(Strict):
         ge=MIN_ERASURE_GRACE_DAYS,
         le=MAX_ERASURE_GRACE_DAYS,
     )
+    #: The free test-call minutes (D-697). The trial ends at its end date or when these are
+    #: used, whichever comes first, and at once when the client pays.
+    free_minutes: int = Field(ge=MIN_FREE_MINUTES, le=MAX_FREE_MINUTES)
 
     @field_validator("reason")
     @classmethod
@@ -201,6 +208,8 @@ class TrialOut(Strict):
     #: asked about a trial nobody remembers, and the `audit_log` row that records it durably
     #: is not the screen an operator is looking at.
     started_by: UUID | None
+    #: The free test-call minutes this trial carries, or null on one opened before D-697.
+    free_minutes: int | None
 
 
 class TrialStatusOut(TrialOut):
@@ -211,6 +220,8 @@ class TrialStatusOut(TrialOut):
     #: the visibility that makes the choice survivable. NEVER published to a client — the
     #: client panel has never shown `unit_cost_paid` and does not start here.
     cost_to_us_inr: Decimal
+    #: Test-call minutes used so far (D-697), rounded up to whole minutes.
+    minutes_used: int
 
 
 def _out(state: TrialState, *, at: datetime) -> TrialOut:
@@ -230,6 +241,7 @@ def _out(state: TrialState, *, at: datetime) -> TrialOut:
         erase_after=state.erase_after,
         erasure_filed_at=state.erasure_filed_at,
         started_by=state.started_by,
+        free_minutes=state.free_minutes,
     )
 
 
@@ -247,11 +259,12 @@ async def _assert_tenant_exists(tenant_id: UUID, session: object) -> None:
     summary="Put a client on a trial — N days billed to nobody",
     status_code=201,
     description=(
-        "For the length of the trial this client's outbound calling is not stopped by an "
-        "empty wallet and nothing is debited from it. Every minute is still METERED, and "
-        "every other gate — KYC, the agreements, the spend cap, calling hours, do-not-call, "
-        "consent, the DLT chain — still applies: a trial is a billing state, never a "
-        "compliance exemption. There is deliberately NO spend ceiling, so the header "
+        "For the length of the trial, or until its free minutes are used, a client that has "
+        "not paid may build agents and place outbound test calls from the shared trial "
+        "number, billed to nobody (D-697); inbound, campaigns, numbers, KYC and live calling "
+        "open on the first payment, which also ends the trial. Every minute is still "
+        "METERED, and do-not-call, calling hours, the pledge, the agreements and the AI "
+        "disclosure still apply. There is no spend ceiling beyond the minutes, so the header "
         "`X-Confirm-Action: start_trial:<tenant_id>:<days>` is required on every call and "
         "the read publishes what the trial is costing us."
     ),
@@ -276,6 +289,7 @@ async def open_trial(
             days=payload.days,
             actor_user_id=principal.user_id,
             erasure_grace_days=payload.erasure_grace_days,
+            free_minutes=payload.free_minutes,
             at=at,
         )
         # Same transaction as the row: a client carried for free with no audit entry is not
@@ -292,6 +306,7 @@ async def open_trial(
                 "days": str(payload.days),
                 "ends_at": state.ends_at.isoformat(),
                 "erasure_grace_days": str(payload.erasure_grace_days),
+                "free_minutes": str(payload.free_minutes),
                 "reason": payload.reason,
             },
         )
@@ -384,6 +399,11 @@ async def read_trial_status(
             if state is not None
             else Decimal("0")
         )
+        seconds = (
+            await trial_seconds_used(scoped, tenant_id=tenant_id, trial=state)
+            if state is not None
+            else 0
+        )
         # D-482 L-1: a direct-admin read of one client's commercial state joins the audit
         # trail, the rule `credit_routes.read_credits` follows.
         await record_admin_tenant_read(
@@ -392,7 +412,73 @@ async def read_trial_status(
     if state is None:
         return None
     base = _out(state, at=at)
-    return TrialStatusOut(**base.model_dump(), cost_to_us_inr=to_paise(cost))
+    return TrialStatusOut(
+        **base.model_dump(), cost_to_us_inr=to_paise(cost), minutes_used=minutes_of(seconds)
+    )
+
+
+class TrialSmokeCallIn(Strict):
+    """An operator's smoke test of trial calling: this client's agent rings a number the
+    operator types (their own phone), through exactly the client's path (D-697)."""
+
+    agent_id: UUID
+    number: str = Field(min_length=8, max_length=20)
+
+
+class TrialSmokeCallOut(Strict):
+    status: str
+    call_handle: str | None = None
+    blocked_reason: str | None = None
+    blocked_rule: str | None = None
+
+
+@router.post(
+    "/test-call",
+    response_model=TrialSmokeCallOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Place one free-trial test call for this client — the operator's smoke test",
+    description=(
+        "The same gate, line, lend and call as the client's Make a test call, run by an "
+        "operator for a client on a free trial. Rings a real phone: send an "
+        "`Idempotency-Key` header, one per attempt."
+    ),
+)
+async def smoke_trial_call(
+    tenant_id: UUID,
+    payload: TrialSmokeCallIn,
+    request: Request,
+    principal: TrialWrite,
+    idempotency_key: Annotated[str | None, Header()] = None,
+) -> TrialSmokeCallOut:
+    from apps.api.agents.trial_calls import place_trial_call
+
+    async with tenant_session(tenant_id) as scoped:
+        await _assert_tenant_exists(tenant_id, scoped)
+    if not idempotency_key:
+        raise ProblemError(
+            kind="validation",
+            status=400,
+            code="idempotency_key_required",
+            title="A test call needs an Idempotency-Key header",
+            detail="Each test call rings a real phone, so every attempt names itself.",
+            remediation="Send an `Idempotency-Key` header — one fresh value per attempt.",
+        )
+    async with tenant_session(tenant_id) as scoped:
+        result = await place_trial_call(
+            scoped,
+            principal=principal,
+            tenant_id=tenant_id,
+            agent_id=payload.agent_id,
+            number=payload.number,
+            idempotency_key=idempotency_key,
+            ip=client_request_ip(request),
+        )
+    return TrialSmokeCallOut(
+        status=result.status,
+        call_handle=result.call_handle,
+        blocked_reason=result.blocked_reason,
+        blocked_rule=result.blocked_rule,
+    )
 
 
 __all__ = ["router", "start_trial_confirmation"]

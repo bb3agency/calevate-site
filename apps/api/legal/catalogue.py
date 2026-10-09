@@ -356,6 +356,41 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "and the masked number; the kept list gains that name. MATERIAL: a reader "
                 "learns we receive more than revision 14 said.",
             ),
+            # D-696.
+            Revision(
+                "16",
+                False,
+                "D-696: section 4's upload route takes the owner's PAN card only, no longer "
+                "an Aadhaar copy (Aadhaar regulation 16C(1)), and says our reviewer matches "
+                "the PAN, name and date of birth at the Income Tax 'Verify Your PAN' "
+                "service; the kept list gains that the PAN check matched, who checked and "
+                "when, and says the date of birth is never stored. NOT MATERIAL: we collect "
+                "less than revision 15 described, so nobody needs to accept again.",
+            ),
+            # D-694 G-1, D-698.
+            Revision(
+                "17",
+                True,
+                "D-694/D-698: the in-app assistant runs first on the provider whose "
+                "developer service names no region, only while its no-training plan is "
+                "recorded, with the East US 2 provider as its fallback; and it now makes the "
+                "changes a person asks for — reversible ones at once with an Undo, anything "
+                "that calls, spends, publishes, deletes or changes do-not-call only on a "
+                "confirm. MATERIAL: a new place where what a client types is processed, and "
+                "'nothing it suggests takes effect on its own' stopped being true.",
+            ),
+            # D-700.
+            Revision(
+                "18",
+                False,
+                "D-700: section 7 says a client can have its agent act in the client's own "
+                "accounts during a call (CRM, spreadsheet, calendar, WhatsApp, Razorpay "
+                "payment links, its own API), that those companies are the client's "
+                "processors acting on its instruction, what reaches them, and that a "
+                "WhatsApp or payment link needs the caller's messaging consent. NOT "
+                "MATERIAL: nothing we do on our own account changed; each flow runs only "
+                "when a client connects its own account and switches it on.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -471,6 +506,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "client's telemarketer; numbers rented through Calevate are described, and "
                 "released on closure. MATERIAL: the client's outbound obligations change.",
             ),
+            # D-699.
+            Revision(
+                "13",
+                True,
+                "D-699: clause 11 says unused credit is forfeited when the account closes; "
+                "clause 6.3 adds auto-recharge (one approval, a monthly limit, notice before "
+                "each charge) and what a payment dispute pauses. MATERIAL: a client loses "
+                "money they might have expected back.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -510,6 +554,14 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "verification and the no-cold-calls pledge, and section 2.2 drops the "
                 "number-series and sender-confirmation rules. MATERIAL: what the client "
                 "must do before an outbound call changes.",
+            ),
+            # D-696.
+            Revision(
+                "5",
+                False,
+                "D-696: section 2.1's upload route takes the owner's PAN card only, no "
+                "longer an Aadhaar copy. NOT MATERIAL: the client is asked for less and no "
+                "obligation moves.",
             ),
         ),
         effective_date="2026-09-02",
@@ -808,6 +860,36 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "masked number and the reference. MATERIAL: we receive more than revision 14 "
                 "said.",
             ),
+            # D-694 G-1, D-698.
+            Revision(
+                "16",
+                True,
+                "D-694/D-698: the language-model row says the in-app assistant runs first on "
+                "the provider that names no region (while its no-training plan is recorded) "
+                "with the default provider as its fallback, and section 3.5 says the "
+                "assistant can make changes. MATERIAL: a new place where assistant traffic "
+                "is processed.",
+            ),
+            # D-699.
+            Revision(
+                "17",
+                True,
+                "D-699: the payments row says Razorpay also takes automatic top-ups on an "
+                "approval the client gives, refunds and chargebacks, and receives the "
+                "approving member's name, email and mobile for automatic top-ups. MATERIAL: "
+                "a sub-processor receives personal data for a new purpose.",
+            ),
+            # D-700.
+            Revision(
+                "18",
+                False,
+                "D-700: the integrations row names Zoho, HubSpot and Razorpay beside Google "
+                "and Meta as services a client connects to its own account, says they are "
+                "the client's processors acting on its instruction and what each receives, "
+                "and that only the owner connects them. NOT MATERIAL: no company processes "
+                "data for us that did not before; each acts only for a client that "
+                "connects it.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -842,6 +924,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "is what makes an unused balance in this policy a determinate amount: a "
                 "top-up is spent at the rates it was bought at. MATERIAL — it changes "
                 "what the refundable balance in a policy about money means.",
+            ),
+            # D-699.
+            Revision(
+                "5",
+                True,
+                "D-699: unused credit is forfeited when the account closes (and on an "
+                "Acceptable Use termination) instead of refunded; a top-up taken in error "
+                "is refundable up to its unspent part; section 6 says what a dispute pauses "
+                "and holds. MATERIAL: a client loses money they might have expected back.",
             ),
         ),
         effective_date="2026-09-02",

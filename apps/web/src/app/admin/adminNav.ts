@@ -3,8 +3,10 @@ import {
   AudioLines,
   BadgeCheck,
   BellRing,
+  BotMessageSquare,
   Building2,
   CalendarClock,
+  CreditCard,
   ClipboardCheck,
   Coins,
   Gauge,
@@ -14,6 +16,7 @@ import {
   PhoneOff,
   ShieldUser,
   SlidersHorizontal,
+  Stethoscope,
   UserPlus,
 } from "lucide-react";
 
@@ -106,6 +109,15 @@ export const ADMIN_NAV: NavGroup[] = [
         action: "open the fleet money board",
       },
       {
+        // D-699: Razorpay set-up, disputes, reconciliation and recent payments. Refunds stay
+        // on each client's credits page.
+        href: "/admin/payments",
+        label: "Payments",
+        icon: CreditCard,
+        permission: "org:read",
+        action: "see payments",
+      },
+      {
         href: "/admin/holds",
         label: "Held accounts",
         icon: Hourglass,
@@ -125,6 +137,13 @@ export const ADMIN_NAV: NavGroup[] = [
         icon: ClipboardCheck,
         permission: "org:read",
         action: "open the call quality checks",
+      },
+      {
+        href: "/admin/assistant",
+        label: "Assistant",
+        icon: BotMessageSquare,
+        permission: "copilot:admin",
+        action: "open the assistant's page",
       },
     ],
   },
@@ -239,6 +258,16 @@ export const ADMIN_NAV: NavGroup[] = [
         icon: BellRing,
         permission: "ops:manage",
         action: "read what the platform has raised alarms about",
+      },
+      {
+        // The auto-healer (D-701): what it repaired, what it is holding, what needs a
+        // person, and its kill switches. Next to Alerts because most alarms now open an
+        // incident here.
+        href: "/admin/ops/healer",
+        label: "Auto-healer",
+        icon: Stethoscope,
+        permission: "ops:manage",
+        action: "read and steer the auto-healer",
       },
       {
         // Same argument as the row above: OPERATIONS §2 gate 4 sends an

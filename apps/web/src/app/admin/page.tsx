@@ -35,6 +35,8 @@ import { holdRule } from "@/lib/api/holds";
 import { viewAsHref } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
+import { NoOwnerAccounts } from "./NoOwnerAccounts";
+
 /**
  * The client directory — who our clients are, and which of them is in trouble.
  *
@@ -283,6 +285,8 @@ export default function AdminClientsPage() {
       />
 
       <RestrictionNote reason={create.reason} />
+
+      <NoOwnerAccounts />
 
       {/* THE SEARCH AND THE FILTERS ARE THE SERVER'S: the roster is paged, so a filter over
           the loaded page would narrow 25 accounts and claim to have searched the platform. */}

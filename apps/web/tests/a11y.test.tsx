@@ -31,6 +31,8 @@ import KycReviewsPage from "@/app/admin/kyc-reviews/page";
 import NewClientPage from "@/app/admin/new/page";
 import GlobalDncPage from "@/app/admin/ops/dnc/page";
 import OpsAlertsPage from "@/app/admin/ops/alerts/page";
+import OpsHealerPage from "@/app/admin/ops/healer/page";
+import PaymentsPage from "@/app/admin/payments/page";
 import EngineLatencyPage from "@/app/admin/ops/engine-latency/page";
 import VoicesPage from "@/app/admin/ops/voices/page";
 import OperatorsPage from "@/app/admin/operators/page";
@@ -60,6 +62,8 @@ import CampaignsPage from "@/app/c/[slug]/campaigns/page";
 import DataRightsPage from "@/app/c/[slug]/data-rights/page";
 import CallerNoticePage from "@/app/c/[slug]/caller-notice/page";
 import CallbacksPage from "@/app/c/[slug]/callbacks/page";
+import AssistantPage from "@/app/c/[slug]/assistant/page";
+import AdminAssistantPage from "@/app/admin/assistant/page";
 import PhoneNumberPage from "@/app/c/[slug]/phone-number/page";
 import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
@@ -76,6 +80,9 @@ import MaintenancePage from "@/app/admin/ops/maintenance/page";
 import QaSamplingPage from "@/app/admin/qa-sampling/page";
 import QaSampleReviewPage from "@/app/admin/qa-sampling/[sampleId]/page";
 import AlertsPage from "@/app/c/[slug]/settings/alerts/page";
+import LineProtectionPage from "@/app/c/[slug]/settings/line-protection/page";
+import BusinessProfilePage from "@/app/c/[slug]/settings/business/page";
+import SetupPage from "@/app/c/[slug]/setup/page";
 import ClientLlmModelPage from "@/app/c/[slug]/settings/models/page";
 import TeamPage from "@/app/c/[slug]/settings/team/page";
 import BillingPage from "@/app/c/[slug]/billing/page";
@@ -83,10 +90,12 @@ import AgreementsPage from "@/app/c/[slug]/agreements/page";
 import VerificationPage from "@/app/c/[slug]/verification/page";
 import VerifyBusinessPage from "@/app/c/[slug]/verify-business/page";
 import InvitePage from "@/app/invite/page";
+import OAuthCallbackPage from "@/app/oauth/callback/[provider]/page";
 import LegalDocumentRoute from "@/app/legal/[slug]/page";
 import LegalIndexPage from "@/app/legal/page";
 import IndustriesPage from "@/app/industries/page";
 import PricingPage from "@/app/pricing/page";
+import StatusPage from "@/app/status/page";
 import ResourcesPage from "@/app/resources/page";
 import RoiPage from "@/app/roi/page";
 import SecurityPage from "@/app/security/page";
@@ -108,7 +117,9 @@ import {
 } from "./a11y";
 import { renderAdminRoute } from "./adminRoute";
 import { hubUsageIdle } from "./billingHub";
+import { workspaceRoutes } from "./copilotWorkspaceFixture";
 import { problem, renderClientPage, type Routes } from "./harness";
+import { adminBusinessProfileFixture, businessProfileFixture } from "./businessProfileFixture";
 import { RATE_CARD_ROUTES } from "./fixtures/rateCard";
 import {
   AUTODIALER_NOTICE_RECORDED,
@@ -1478,6 +1489,9 @@ const ADMIN_KYC = {
   owner_name: "A Reddy",
   owner_id_type: "pan",
   owner_id_masked: "XXXXX1234X",
+  owner_pan_checked: false,
+  owner_pan_checked_at: null,
+  owner_pan_checked_by: null,
   verified_name: null,
   verification_provider: null,
   verification_reference: null,
@@ -1529,6 +1543,7 @@ const CLOSED_ACCOUNT = {
   erased_at: null,
   restorable: true,
   days_remaining: 13,
+  forfeited_credit_inr: "0.00",
 };
 
 /** The business record the correction form reads back. */
@@ -1566,6 +1581,8 @@ const PENDING_INVITATIONS = [
 
 const TENANT_ROUTES: Routes = {
   "/v1/admin/me": ADMIN_ME,
+  // Nobody invited yet, so the "No owner invited yet" notice and its invite form are swept.
+  "/v1/admin/tenants/t1/owner-status": { owner_present: false, invite_pending: false },
   "/v1/kb/delivery": KB_ALL_DELIVERED,
   // The KYC screen reads this through `viewAsSession(tenant.slug)`, so the request only
   // goes out AFTER the tenant read lands. Absent from this table the screen rendered its
@@ -1773,7 +1790,99 @@ const QA_SAMPLE = {
   reviewed_at: null,
 };
 
+/** One held line with callers to ring back, the state with the most markup on it. */
+const LINE_INCIDENTS = {
+  open: 1,
+  items: [
+    {
+      id: "019f1000-0000-7000-8000-000000000001",
+      agent_id: "019f1000-0000-7000-8000-0000000000a1",
+      agent_name: "Reception",
+      kind: "line_protected",
+      protection: "paused",
+      state: "open",
+      opened_at: "2026-10-09T04:00:00Z",
+      resolved_at: null,
+      campaigns_paused: 1,
+      requeued: 0,
+      missed_calls: 0,
+      must_act: false,
+      can_restore: true,
+      headline: "“Reception” is not taking calls properly",
+      what_happened: "Most recent calls to “Reception” were cut off or went silent.",
+      what_we_did:
+        "We stopped it answering, so callers hear a short message asking them to try again later. 1 campaign using it is paused.",
+      your_part: "Nothing right now. We will tell you as soon as the line is back.",
+      call_backs: [{ call_id: "019f1000-0000-7000-8000-0000000000c1", at: "2026-10-09T04:05:00Z" }],
+    },
+  ],
+};
+
+const HEALER_PROPOSALS = {
+  pending: 1,
+  items: [
+    {
+      id: "019f1000-0000-7000-8000-0000000000p1",
+      agent_id: "019f1000-0000-7000-8000-0000000000a1",
+      agent_name: "Reception",
+      kind: "rollback_prompt",
+      status: "pending",
+      title: "Go back to the previous script",
+      body: "Calls started going worse soon after the script was last changed.",
+      action_label: "Restore previous script",
+      screen: null,
+      can_apply: true,
+      created_at: "2026-10-09T04:10:00Z",
+      decided_at: null,
+    },
+  ],
+};
+
 const CLIENT_SCREENS: Screen[] = [
+  {
+    // A held line with a caller to ring back, a saved backup phone and a pending script
+    // rollback: every part of the screen renders.
+    file: "c/[slug]/settings/line-protection/page.tsx",
+    realm: "client",
+    element: () => <LineProtectionPage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/healer/incidents?days=30&limit=20": LINE_INCIDENTS,
+      "/v1/healer/fallback-phone": {
+        phone_e164: "+919000000071",
+        updated_at: "2026-10-09T03:00:00Z",
+        forwarding_supported: true,
+      },
+      "/v1/healer/proposals?days=30&limit=20": HEALER_PROPOSALS,
+    },
+  },
+  {
+    // One component degraded and one posted problem, so both lists render.
+    file: "status/page.tsx",
+    realm: "client",
+    element: () => <StatusPage />,
+    routes: {
+      "/v1/public/status": {
+        components: [
+          { key: "calls", name: "Phone calls", state: "degraded" },
+          { key: "numbers", name: "Phone numbers", state: "operational" },
+          { key: "dashboard", name: "Dashboard", state: "operational" },
+          { key: "assistant", name: "Assistant", state: "operational" },
+        ],
+        incidents: [
+          {
+            id: "019f1000-0000-7000-8000-0000000000s1",
+            title: "Calls are not connecting for some customers",
+            component: "calls",
+            state: "ongoing",
+            started_at: "2026-10-09T04:00:00Z",
+            resolved_at: null,
+          },
+        ],
+        updated_at: "2026-10-09T04:20:00Z",
+      },
+    },
+  },
   {
     // The client shell: sidebar, nav and the mobile drawer that every screen renders
     // inside. `children` stands in for the page so the scan is about the CHROME.
@@ -1802,7 +1911,27 @@ const CLIENT_SCREENS: Screen[] = [
     realm: "client",
     element: () => <DashboardPage params={slug} />,
     routes: {
+      // Setup not finished, so the dashboard's setup checklist is swept.
+      "/v1/business-profile": businessProfileFixture({
+        setup: {
+          steps: [
+            { id: "hours", state: "done" },
+            { id: "branches", state: "skipped" },
+            { id: "services", state: "todo" },
+            { id: "faqs", state: "todo" },
+            { id: "staff", state: "todo" },
+            { id: "booking", state: "todo" },
+            { id: "contacts", state: "todo" },
+            { id: "languages", state: "todo" },
+          ],
+          started: true,
+          dismissed: false,
+          complete: false,
+        },
+        blockers: [{ code: "branch_missing", step: "branches", message: "Add your address." }],
+      }),
       "/v1/attention": { total: 1, counts: { lead_blocked: 1 }, items: [] },
+      "/v1/healer/incidents?days=30&limit=20": LINE_INCIDENTS,
       "/v1/me": ME,
       "/v1/dashboard": DASHBOARD,
       "/v1/usage": USAGE,
@@ -2028,6 +2157,7 @@ const CLIENT_SCREENS: Screen[] = [
       />
     ),
     routes: {
+      "/v1/business-profile": businessProfileFixture(),
       "/v1/organization/llm-defaults": clientLlmTiers(),
       "/v1/agents/voices": voiceCatalogue("client"),
       "/v1/agents/lanes": LANES,
@@ -2371,6 +2501,13 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <IntegrationsPage />,
     routes: {
       "/v1/me": ME,
+      "/v1/integrations/credentials": [],
+      "/v1/integrations/connections/status": {
+        google_calendar: false,
+        zoho_crm: false,
+        hubspot: false,
+        sheets_share_with: null,
+      },
       "/v1/integrations/endpoints": [
         {
           id: "e1",
@@ -2512,6 +2649,30 @@ const CLIENT_SCREENS: Screen[] = [
         },
       ],
     },
+  },
+  {
+    // THE ASSISTANT'S PAGE (D-694), on the conversation, with a waiting approval, a running
+    // task and two routines behind the count tiles and the running-task pod.
+    file: "c/[slug]/assistant/page.tsx",
+    realm: "client",
+    element: () => <AssistantPage />,
+    routes: { "/v1/me": ME, ...workspaceRoutes() },
+  },
+  {
+    // The routines tab: the list with its switches and menus, one routine off.
+    file: "c/[slug]/assistant/page.tsx",
+    search: "tab=routines",
+    realm: "client",
+    element: () => <AssistantPage />,
+    routes: { "/v1/me": ME, ...workspaceRoutes() },
+  },
+  {
+    // The activity log: a done row with Undo, a refusal and a waiting row.
+    file: "c/[slug]/assistant/page.tsx",
+    search: "tab=activity",
+    realm: "client",
+    element: () => <AssistantPage />,
+    routes: { "/v1/me": ME, ...workspaceRoutes() },
   },
   {
     file: "c/[slug]/callbacks/page.tsx",
@@ -2737,6 +2898,18 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
+    file: "c/[slug]/settings/business/page.tsx",
+    realm: "client",
+    element: () => <BusinessProfilePage />,
+    routes: { "/v1/me": ME, "/v1/business-profile": businessProfileFixture() },
+  },
+  {
+    file: "c/[slug]/setup/page.tsx",
+    realm: "client",
+    element: () => <SetupPage />,
+    routes: { "/v1/me": ME, "/v1/business-profile": businessProfileFixture() },
+  },
+  {
     // NOT opted in, and the channel NOT deliverable — the state with the most markup on
     // it: the notice text, the grant control, and the "we cannot send yet" refusal that
     // an opted-in account never renders.
@@ -2897,6 +3070,14 @@ const CLIENT_SCREENS: Screen[] = [
     routes: { "/v1/me": ME },
   },
   {
+    // Where Google, Zoho and HubSpot return a client after consent (D-700). Opened with no
+    // consent in progress it renders its refusal, the state with the most markup.
+    file: "oauth/callback/[provider]/page.tsx",
+    realm: "client",
+    element: () => <OAuthCallbackPage params={Promise.resolve({ provider: "google" })} />,
+    routes: { "/v1/me": ME },
+  },
+  {
     // The junction that turns "I have a session" into "this is my console". It renders a
     // skeleton while `/v1/me` answers and a refusal if it cannot, so both of its states
     // are scannable — and the skeleton is the one that matters here, because a junction
@@ -2905,7 +3086,7 @@ const CLIENT_SCREENS: Screen[] = [
     file: "c/page.tsx",
     realm: "client",
     element: () => <ClientConsoleJunction />,
-    routes: { "/v1/me": ME },
+    routes: { "/v1/me": ME, "/v1/business-profile": businessProfileFixture() },
   },
   {
     file: "signup/page.tsx",
@@ -3018,6 +3199,92 @@ const MAINTENANCE_WINDOW = {
 
 const ADMIN_SCREENS: Screen[] = [
   {
+    // Off, paging by email only, one escalated incident and a ledger row: every notice and
+    // list on the screen renders.
+    file: "admin/ops/healer/page.tsx",
+    realm: "admin",
+    element: () => <OpsHealerPage />,
+    routes: {
+      "/v1/admin/me": {
+        ...ADMIN_ME,
+        permissions: [...ADMIN_ME.permissions, "ops:manage"],
+      },
+      "/v1/ops/healer": {
+        enabled: false,
+        paused: ["outbox_replay"],
+        unknown_paused: [],
+        playbooks: [
+          {
+            key: "line_protection",
+            title: "Line protection",
+            triggers: ["agent_line_broken"],
+            action: "Hold the line and tell the client.",
+            verify: "The agent reads back cleanly.",
+            undo: "Give the line back.",
+            max_attempts: 2,
+            cooldown_s: 900,
+            blast_radius: "agent",
+            job: null,
+            automatic: true,
+            pausable: true,
+            paused: true,
+          },
+        ],
+        paging: {
+          whatsapp_available: false,
+          whatsapp_reason: "no_provider_configured",
+          whatsapp_enabled: false,
+          founder_number_set: false,
+          founder_number_from_console: false,
+          email_set: true,
+        },
+        open_incidents: 1,
+        escalated_incidents: 1,
+      },
+      "/v1/ops/healer/incidents?days=7&limit=50": {
+        items: [
+          {
+            id: "019f1000-0000-7000-8000-0000000000i1",
+            playbook: "line_protection",
+            trigger_code: "agent_line_broken",
+            scope: "agent",
+            tenant_id: "019f1000-0000-7000-8000-0000000000t1",
+            agent_id: "019f1000-0000-7000-8000-0000000000a1",
+            state: "escalated",
+            attempts: 2,
+            next_attempt_at: null,
+            component: null,
+            public: false,
+            public_title: null,
+            last_outcome: "held_for_person",
+            opened_at: "2026-10-09T04:00:00Z",
+            mitigated_at: "2026-10-09T04:01:00Z",
+            escalated_at: "2026-10-09T06:00:00Z",
+            resolved_at: null,
+          },
+        ],
+      },
+      "/v1/ops/healer/actions?limit=50": {
+        items: [
+          {
+            id: "019f1000-0000-7000-8000-0000000000l1",
+            at: "2026-10-09T04:01:00Z",
+            incident_id: "019f1000-0000-7000-8000-0000000000i1",
+            playbook: "line_protection",
+            step: "protect",
+            outcome: "ok",
+            attempt: 1,
+            tenant_id: "019f1000-0000-7000-8000-0000000000t1",
+            agent_id: "019f1000-0000-7000-8000-0000000000a1",
+            alarm_code: null,
+            detail: "line=paused campaigns_paused=1",
+            actor_type: "healer",
+          },
+        ],
+      },
+    },
+  },
+  {
     file: "admin/layout.tsx",
     realm: "admin",
     element: () => (
@@ -3040,6 +3307,22 @@ const ADMIN_SCREENS: Screen[] = [
       // and paged server-side, and the pager only renders when there is a page to go to —
       // so a fixture whose total equals its rows would leave those controls unscanned.
       "/v1/admin/tenants": { rows: [TENANT_SUMMARY], total: 90, limit: 25, offset: 0 },
+      // One account nobody was invited into, so its notice is swept.
+      "/v1/admin/onboarding/unfinished": [
+        {
+          tenant_id: "t9",
+          name: "Leftover Organics",
+          slug: "leftover-organics",
+          created_at: "2026-10-01T00:00:00Z",
+          vertical_template: "custom",
+          owner_present: false,
+          invite_pending: false,
+          steps_done: 0,
+          steps_total: 8,
+          blockers: ["business_hours_missing"],
+          profile_saved_at: null,
+        },
+      ],
     },
   },
   {
@@ -3179,10 +3462,59 @@ const ADMIN_SCREENS: Screen[] = [
     },
   },
   {
+    // D-699: the payments page with a mode mismatch and one open dispute, so the warn notice
+    // and the dispute actions are both swept.
+    file: "admin/payments/page.tsx",
+    realm: "admin",
+    element: () => <PaymentsPage />,
+    routes: {
+      "/v1/admin/me": { ...ADMIN_ME, permissions: ["org:read", "admin:tenants"] },
+      "/v1/admin/payments/status": {
+        provider: "razorpay",
+        mode: "live",
+        key_id_mode: "test",
+        key_id_set: true,
+        key_secret_set: true,
+        webhook_secret_set: true,
+        online_payments_available: false,
+        provider_orders_available: false,
+        unavailable_reason: "payment_mode_mismatch",
+        webhook_path: "/hooks/v1/razorpay",
+        subscribed_events: ["payment.captured"],
+        alarms: [],
+      },
+      "/v1/admin/payments/disputes?limit=200&include_closed=false": [
+        {
+          tenant_id: "t1",
+          tenant_name: "Sri Clinic",
+          dispute_id: "disp_1",
+          payment_id: "pay_1",
+          amount_inr: "390.00",
+          hold_inr: "390.00",
+          status: "open",
+          phase: "chargeback",
+          reason_code: "chargeback",
+          respond_by: "2026-10-20T00:00:00Z",
+          action_required: false,
+          created_at: "2026-10-09T00:00:00Z",
+        },
+      ],
+    },
+  },
+  {
     file: "admin/holds/page.tsx",
     realm: "admin",
     element: () => <HeldAccountsPage />,
     routes: { "/v1/admin/compliance/holds": [HELD_TENANT] },
+  },
+  {
+    file: "admin/assistant/page.tsx",
+    realm: "admin",
+    element: () => <AdminAssistantPage />,
+    routes: {
+      "/v1/admin/me": { ...ADMIN_ME, permissions: ["copilot:admin"] },
+      "/v1/admin/copilot/conversation?limit=50": { turns: [], has_more: false },
+    },
   },
   {
     // PLANNED MAINTENANCE. Swept in the state an operator opens it in most often — a
@@ -4030,6 +4362,7 @@ const ADMIN_SCREENS: Screen[] = [
     routes: {
       ...TENANT_ROUTES,
       "/v1/admin/tenants/t1/profile": TENANT_PROFILE,
+      "/v1/admin/tenants/t1/business-profile": adminBusinessProfileFixture(),
     },
   },
   {

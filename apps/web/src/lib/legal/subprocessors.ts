@@ -237,7 +237,9 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "published position on what it may do with what an API sends it, and an unread " +
       "position is not a permission. A third serves the call leg, and the assistant only " +
       "while we hold a recorded confirmation that our own account with it is on a plan " +
-      "under which it does not train on what is submitted. The speech-to-text company is " +
+      "under which it does not train on what is submitted. Since 9 October 2026 that " +
+      "third provider answers the in-app assistant FIRST, while that confirmation holds, " +
+      "and the default provider answers it when the third cannot. The speech-to-text company is " +
       "the assistant's standby if no other provider can answer; there it answers in prose " +
       "only, is given none of the assistant's look-up tools, cannot read a client's " +
       "leads, calls or campaigns, and cannot fill in a form or propose a change.",
@@ -260,12 +262,15 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
       "region, so this is a setting we make and check by hand rather than one a build can " +
       "prove (section 3.2). The second provider: United States, with no Indian region to " +
       "request. The third: global — its developer service names no region we can " +
-      "request, so we cannot pin where it processes and do not claim to.",
+      "request, so we cannot pin where it processes and do not claim to. Because the " +
+      "third now answers the in-app assistant first, what a client's user types into the " +
+      "assistant and what it looks up to answer is processed in that unpinned place " +
+      "while the condition above holds.",
     status:
-      "Core for the default provider, on the assistant leg. The second provider receives " +
-      "nothing while calls run on the hosted voice platform. The third serves the " +
-      "assistant only under the condition above, and the call leg only on our own call " +
-      "program.",
+      "Core for the third provider on the assistant leg while the condition above holds, " +
+      "and for the default provider when it does not or the third cannot answer. The " +
+      "second provider receives nothing while calls run on the hosted voice platform. " +
+      "The third serves the call leg only on our own call program.",
   },
   {
     key: "hosting",
@@ -348,8 +353,13 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
     key: "payments",
     category: "Payments — Razorpay",
     named: ["Razorpay"],
-    does: "Card, UPI and netbanking payments for self-serve top-ups.",
-    receives: "Payer contact details and payment metadata. Card numbers never reach us.",
+    does:
+      "Card, UPI and netbanking payments for self-serve top-ups, automatic top-ups on a " +
+      "UPI Autopay or card approval the client gives, refunds, and chargeback handling.",
+    receives:
+      "Payer contact details and payment metadata; for automatic top-ups, the approving " +
+      "member's name, email and mobile number. Card numbers and UPI details never reach us: " +
+      "we keep only the payment provider's customer and approval references.",
     location: "India.",
     status: "Configured, not enabled. No merchant account has been confirmed.",
   },
@@ -433,29 +443,39 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
   },
   {
     key: "client-integrations",
-    category: "Integrations you connect — Google, Meta",
-    named: ["Google", "Meta"],
+    category: "Integrations you connect — Google, Meta, Zoho, HubSpot, Razorpay",
+    named: ["Google", "Meta", "Zoho", "HubSpot", "Razorpay"],
     does:
-      "Three services you connect to your own account: Google Sheets (writes each new " +
-      "lead into a sheet you own), Google Calendar (reads free time on a calendar you own " +
-      "and books an appointment on it, when your agent has a calendar action), and Meta " +
-      "Lead Ads (retrieves the answers a person submitted on your Facebook or Instagram " +
-      "lead form, so the agent can call them back). None of them is a model request.",
+      "Services you connect to your own account, which act only on your instruction and " +
+      "under your own terms with each company — they are YOUR processors, not ours: Google " +
+      "Sheets (writes each new lead, or a caller's answers, into a sheet you own, and " +
+      "looks a caller up in it), Google Calendar (reads free time on a calendar you own " +
+      "and books an appointment on it), Zoho CRM and HubSpot (look a caller up by their " +
+      "number and create or update their record), Razorpay (creates a payment link on " +
+      "your own Razorpay account, paid to you, which your agent sends on your WhatsApp), " +
+      "and Meta Lead Ads (retrieves the answers a person submitted on your Facebook or " +
+      "Instagram lead form, so the agent can call them back). None of them is a model " +
+      "request. Your own API, if you connect one, is the same: called with the caller's " +
+      "number and the values you configured, from our servers.",
     receives:
       "Sheets: the lead's fields, including name and — depending on the option you choose " +
-      "— the phone number in raw or masked form. Calendar: the appointment's start and " +
-      "end time and the event title, which is whichever field you mapped to it, commonly " +
-      "the caller's name; the phone number only if you put it in that title yourself. " +
-      "Lead Ads: the lead form answers, including name and phone number. Never the " +
-      "recording or the transcript.",
+      "— the phone number in raw or masked form, or the answers your action collects. " +
+      "Calendar: the appointment's start and end time, its title, and the caller's " +
+      "number in its description. Zoho CRM and HubSpot: the caller's number and the " +
+      "fields your action fills. Razorpay: the amount, your description and the caller's " +
+      "number. Lead Ads: the lead form answers, including name and phone number. Never " +
+      "the recording or the transcript.",
     location: "Global.",
     status:
       "Client-enabled. Sheets access is granted by sharing your own document with our " +
       "service account and revoked by un-sharing it. Lead Ads works per lead source, only " +
       "where you have supplied the access token for your own Page. Calendar is " +
-      "configured, not enabled: this deployment holds no sign-in client for it yet, and " +
-      "every calendar route refuses cleanly until it does; after that it reaches only a " +
-      "calendar you connect yourself, and disconnecting it revokes the access.",
+      "available once Calevate's sign-in app with Google is approved; until then every " +
+      "calendar route refuses cleanly. Zoho CRM and HubSpot likewise reach only an account " +
+      "you connect yourself by signing in, and disconnecting revokes the access (HubSpot: " +
+      "uninstall the app in HubSpot as well). Razorpay uses the API keys you give us for " +
+      "your own account, sealed and never shown again. Only the account owner can connect " +
+      "any of them.",
   },
 ];
 
@@ -859,7 +879,13 @@ export const SUBPROCESSORS: LegalDocument = {
                 "client's own account — their leads, their recent calls, their " +
                 "campaigns, their agents, counts describing how the business is doing, " +
                 "and their own knowledge content — and it can propose a small set of " +
-                "changes for a person to confirm.",
+                "changes for a person to confirm. Since 9 October 2026 it can also make " +
+                "the changes a person asks for: one that can be taken back and reaches " +
+                "nobody is made at once with an Undo, and anything that calls someone, " +
+                "spends money, publishes, deletes or changes the do-not-call list still " +
+                "waits for a person to confirm it. What it sends to a provider to do " +
+                "that is the same kind of data described next — ids, names, statuses " +
+                "and redacted text — never a full phone number.",
             },
             {
               kind: "para",

@@ -3,7 +3,7 @@ engine-neutral declaration, parameter binding, the external request builders, an
 executor's dispatch/opt-in/egress behaviour.
 
 These run without Postgres by injecting a fake httpx transport and monkeypatching the two
-DB-backed helpers the executor calls (`resolve_secret`, `read_messaging_consent`). The
+DB-backed helpers the executor calls (`resolve_credential`, `read_messaging_consent`). The
 DB-backed suite (`tests/actions_rls_test.py`, `tests/actions_routes_test.py`) proves RLS,
 the credential envelope round trip and the route layer and needs a migrated database.
 """
@@ -17,6 +17,7 @@ from uuid import uuid4
 import httpx
 import pytest
 from apps.api.actions import execution, whatsapp
+from apps.api.actions.credentials import ResolvedCredential
 from apps.api.actions.schema import CustomApiConfig, WhatsAppConfig
 from apps.api.actions.service import LoadedTool, _to_spec
 from apps.api.compliance.consent import MessagingConsent
@@ -112,7 +113,7 @@ def test_build_meta_cloud_uses_phone_number_id_and_bearer() -> None:
         header_value=None,
         body_values=["Ravi"],
     )
-    assert req.url == "https://graph.facebook.com/v20.0/123456/messages"
+    assert req.url == "https://graph.facebook.com/v25.0/123456/messages"
     assert req.headers["Authorization"] == "Bearer TOK"
     assert req.json_body is not None
     assert req.json_body["to"] == "919000000000"
@@ -153,7 +154,7 @@ def _mock_client(handler: Any) -> httpx.AsyncClient:
 async def test_custom_api_execution_builds_request_and_returns_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(execution, "resolve_secret", _fake_secret("SEKRIT"))
+    monkeypatch.setattr(execution, "resolve_credential", _fake_secret("SEKRIT"))
     seen: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -213,7 +214,7 @@ async def test_egress_guard_blocks_a_private_custom_api_url(
 
 @pytest.mark.asyncio
 async def test_whatsapp_send_blocked_when_not_opted_in(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(execution, "resolve_secret", _fake_secret("KEY"))
+    monkeypatch.setattr(execution, "resolve_credential", _fake_secret("KEY"))
     monkeypatch.setattr(whatsapp, "check_dispatch", _fake_allowed_dispatch())
     monkeypatch.setattr(whatsapp, "read_messaging_consent", _fake_consent(messageable=False))
     tool = _loaded(
@@ -257,7 +258,7 @@ async def test_whatsapp_send_blocked_when_the_dispatch_gate_refuses(
     The consent stub says MESSAGEABLE, so the only thing that can stop this send is the
     gate. Without it the test would pass on the opt-in refusal and prove nothing.
     """
-    monkeypatch.setattr(execution, "resolve_secret", _fake_secret("KEY"))
+    monkeypatch.setattr(execution, "resolve_credential", _fake_secret("KEY"))
     monkeypatch.setattr(whatsapp, "check_dispatch", _fake_blocked_dispatch("dnc"))
     monkeypatch.setattr(whatsapp, "read_messaging_consent", _fake_consent(messageable=True))
     tool = _loaded(
@@ -292,7 +293,7 @@ async def test_whatsapp_send_blocked_when_the_dispatch_gate_refuses(
 
 @pytest.mark.asyncio
 async def test_whatsapp_send_delivers_when_opted_in(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(execution, "resolve_secret", _fake_secret("KEY"))
+    monkeypatch.setattr(execution, "resolve_credential", _fake_secret("KEY"))
     monkeypatch.setattr(whatsapp, "check_dispatch", _fake_allowed_dispatch())
     monkeypatch.setattr(whatsapp, "read_messaging_consent", _fake_consent(messageable=True))
     tool = _loaded(
@@ -328,7 +329,7 @@ async def test_whatsapp_send_is_addressed_to_the_number_the_gate_cleared(
         asked.append(kwargs["phone_e164"])
         return DispatchDecision(allowed=True)
 
-    monkeypatch.setattr(execution, "resolve_secret", _fake_secret("KEY"))
+    monkeypatch.setattr(execution, "resolve_credential", _fake_secret("KEY"))
     monkeypatch.setattr(whatsapp, "check_dispatch", _check)
     monkeypatch.setattr(whatsapp, "read_messaging_consent", _fake_consent(messageable=True))
     tool = _loaded(
@@ -367,7 +368,7 @@ async def test_a_missing_template_value_is_not_filled_by_the_next_one(
     not supply shifts every later value into its slot, so "Hi {{1}}, see you at {{2}}"
     would greet the customer by the appointment time. Nothing may be sent; the model is
     told which value it still needs, so it can ask the caller."""
-    monkeypatch.setattr(execution, "resolve_secret", _fake_secret("KEY"))
+    monkeypatch.setattr(execution, "resolve_credential", _fake_secret("KEY"))
     monkeypatch.setattr(whatsapp, "check_dispatch", _fake_allowed_dispatch())
     monkeypatch.setattr(whatsapp, "read_messaging_consent", _fake_consent(messageable=True))
     tool = _loaded(
@@ -418,7 +419,10 @@ def _calendar_ready(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "google_oauth_client_id", "client-id")
     monkeypatch.setattr(settings, "google_oauth_client_secret", "client-secret")
     monkeypatch.setattr(settings, "google_oauth_redirect_uri", "https://app.test/cb")
-    monkeypatch.setattr(execution, "resolve_secret", _fake_secret("refresh-token"))
+    monkeypatch.setattr(
+        execution, "resolve_credential", _fake_secret("refresh-token", kind="google_calendar")
+    )
+    execution.reset_access_cache()
 
     async def _public(host: str, port: int) -> tuple[str, ...]:
         return ("142.250.183.10",)
@@ -467,7 +471,7 @@ async def test_an_availability_check_with_no_end_time_is_not_answered_available(
         result = await execution.execute_action(
             _FakeSession(),
             tool=tool,
-            received={"start": "2026-10-01T10:00:00+05:30"},
+            received={"start": "2027-10-01T10:00:00+05:30"},
             source="in_call",
             client=client,
             audit=False,
@@ -480,7 +484,7 @@ async def test_an_availability_check_with_no_end_time_is_not_answered_available(
 @pytest.mark.asyncio
 async def test_a_time_with_no_offset_is_sent_as_ist(monkeypatch: pytest.MonkeyPatch) -> None:
     """RFC 3339 (which Google's `dateTime` is) requires an offset; a model that says
-    "2026-10-01T10:00:00" means ten in the morning where the caller is, and every caller
+    "2027-10-01T10:00:00" means ten in the morning where the caller is, and every caller
     of this India-only product is on IST."""
     _calendar_ready(monkeypatch)
     seen: list[httpx.Request] = []
@@ -489,7 +493,7 @@ async def test_a_time_with_no_offset_is_sent_as_ist(monkeypatch: pytest.MonkeyPa
         result = await execution.execute_action(
             _FakeSession(),
             tool=tool,
-            received={"start": "2026-10-01T10:00:00"},
+            received={"start": "2027-10-01T10:00:00"},
             source="in_call",
             client=client,
             audit=False,
@@ -497,8 +501,8 @@ async def test_a_time_with_no_offset_is_sent_as_ist(monkeypatch: pytest.MonkeyPa
     assert result.ok is True, result
     (book,) = [r for r in seen if r.url.path.endswith("/events")]
     body = json.loads(book.content)
-    assert body["start"] == {"dateTime": "2026-10-01T10:00:00+05:30"}
-    assert body["end"] == {"dateTime": "2026-10-01T10:30:00+05:30"}
+    assert body["start"] == {"dateTime": "2027-10-01T10:00:00+05:30", "timeZone": "Asia/Kolkata"}
+    assert body["end"] == {"dateTime": "2027-10-01T10:30:00+05:30", "timeZone": "Asia/Kolkata"}
 
 
 @pytest.mark.asyncio
@@ -530,9 +534,9 @@ class _FakeSession:
     so nothing is ever executed against it."""
 
 
-def _fake_secret(value: str) -> Any:
-    async def _resolve(session: Any, *, tenant_id: Any, credential_id: Any) -> str:
-        return value
+def _fake_secret(value: str, *, kind: str = "custom_api") -> Any:
+    async def _resolve(session: Any, *, tenant_id: Any, credential_id: Any) -> ResolvedCredential:
+        return ResolvedCredential(kind=kind, secret=value, non_secret={}, version=1)
 
     return _resolve
 

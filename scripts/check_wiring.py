@@ -99,6 +99,12 @@ DYNAMIC_ROUTER_MODULES: dict[str, str] = {
 # keyed per FIELD for the same reason: a model-level exemption would cover the next
 # column somebody adds).
 UNWIRED_BASELINE: dict[str, str] = {
+    "Agent.escalation_config": (
+        "D-533 stopped writing it (the handover roster moved to `agent_handoff_members`) and "
+        "D-695 removed its last reader, the admin intake's fallback. Kept under hard rule 8's "
+        "two-step; closes with the DROP migration that also drops `agents.business_hours`, "
+        "`agents.languages_extra` and `organizations.intake`"
+    ),
     # ONE reason, two entries, because this registry is keyed per column and a
     # model-level exemption would cover the next column somebody adds to either table.
     "User.clerk_user_id": (

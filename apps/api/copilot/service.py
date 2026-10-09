@@ -32,6 +32,7 @@ import time
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, Literal
+from uuid import UUID
 
 import httpx
 from calevate_shared.engine import (
@@ -40,8 +41,17 @@ from calevate_shared.engine import (
     google_openai_compat_base_url,
 )
 
+from apps.api.copilot import (
+    action_log,
+    admin_actions,
+    admin_screens,
+    admin_tools,
+    console_reads,
+    jobs,
+    navigation,
+    write_tools,
+)
 from apps.api.copilot import admin_prompt as admin_prompt_module
-from apps.api.copilot import admin_tools, navigation, write_tools
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot import tools as tools_module
 from apps.api.copilot.identity import (
@@ -55,6 +65,7 @@ from apps.api.copilot.schemas import (
     CopilotAskIn,
     CopilotField,
     CopilotFillItem,
+    CopilotJobEvent,
     CopilotNavigateEvent,
     CopilotProposalEvent,
     CopilotRealm,
@@ -65,12 +76,14 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from apps.api.db.session import tenant_session
 from apps.workers import chat
 from apps.workers.chat import TokenUsage
 from apps.workers.extraction import (
     AZURE_PROVIDER,
     GOOGLE_PROVIDER,
     SARVAM_CHAT_URL,
+    TENANT_PROVIDER_UNSUPPORTED_REASON,
     AssistCapability,
     TenantModelLeg,
     assist_capability,
@@ -295,6 +308,90 @@ _REPEAT_RESULT: Final = (
 #: gets to tell the person what it did and what it did not.
 MAX_ACTIONS_PER_RUN: Final = 3
 
+
+@dataclass(frozen=True, slots=True)
+class RunLimits:
+    """The three brakes on one run, and which kind of run it is (D-694).
+
+    `INTERACTIVE_LIMITS` is exactly the three constants above, so an answer in the panel is
+    bounded as it always was and `copilot/deadline_test.py` still measures the same
+    numbers. `JOB_LIMITS` is a background job's: more turns and more changes, on a wall
+    clock sized under the worker's `job_timeout` rather than under the edge's read timeout,
+    because nobody's socket is waiting on it.
+    """
+
+    max_turns: int
+    total_budget_s: float
+    max_actions: int
+    #: `interactive` answers in the panel; `job` runs in a worker with nobody watching, so
+    #: it cannot fill a form, open a screen or start another job, and a confirm-tier action
+    #: is staged in the Approvals inbox instead of being proposed.
+    mode: Literal["interactive", "job"]
+    #: The `copilot_jobs.id` a job run belongs to; None interactively.
+    job_id: UUID | None = None
+
+
+INTERACTIVE_LIMITS: Final = RunLimits(
+    max_turns=MAX_TURNS,
+    total_budget_s=TOTAL_BUDGET_S,
+    max_actions=MAX_ACTIONS_PER_RUN,
+    mode="interactive",
+)
+
+#: A background job's budget. 240 s is under `WorkerSettings.job_timeout` (300 s), so the
+#: job ends with a sentence of its own rather than being cancelled by arq mid-write; 16
+#: turns is enough to look up, act on a page of records and report, and 20 changes is the
+#: blast-radius bound one request may cause unattended — everything past it waits for the
+#: person to ask again.
+JOB_TOTAL_BUDGET_S: Final = 240.0
+
+
+def job_limits(job_id: UUID) -> RunLimits:
+    return RunLimits(
+        max_turns=16,
+        total_budget_s=JOB_TOTAL_BUDGET_S,
+        max_actions=20,
+        mode="job",
+        job_id=job_id,
+    )
+
+
+#: The tool that hands a request to a background job. Client realm only: jobs are an
+#: account's, and the admin realm has none yet.
+BACKGROUND_TOOL_NAME: Final = prompt_module.BACKGROUND_TOOL_NAME
+
+
+def background_tool() -> dict[str, Any]:
+    """The `run_in_background` definition — static, part of the client realm's prefix."""
+    return prompt_module.function_tool(
+        name=BACKGROUND_TOOL_NAME,
+        description=(
+            "Hand a request that is too big for one answer to a background job — for "
+            "example one that needs many lookups, or a change to many records ('mark every "
+            "lead from yesterday's campaign as contacted'). The job keeps working after this "
+            "answer ends, its progress shows in the assistant panel, and anything that needs "
+            "the person's confirmation (calling, launching, publishing, spending) waits for "
+            "their approval instead of happening. Use it only when the work really is bigger "
+            "than a few steps; otherwise just do it. Afterwards, tell the person you have "
+            "started it and that they can watch it in the panel."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "goal": {
+                    "type": "string",
+                    "description": (
+                        "What the job must do, written as an instruction to yourself, with "
+                        "every detail the person gave. Do not include phone numbers."
+                    ),
+                }
+            },
+            "required": ["goal"],
+            "additionalProperties": False,
+        },
+    )
+
+
 #: The longest a step frame's `args` or `detail` preview may be, in characters.
 #:
 #: A DISPLAY bound, not a safety one. The safety properties are elsewhere — the request was
@@ -304,6 +401,14 @@ MAX_ACTIONS_PER_RUN: Final = 3
 #: rendered all of it would push the answer off the screen. 200 characters is about two
 #: lines at the panel's width.
 MAX_STEP_CHARS: Final = 200
+
+#: What the done frame says when the assistant's usual model could not answer and a backup did
+#: (D-694, G-6). The client's words: what happened, nothing about vendors or settings.
+BACKUP_MODEL_DISCLOSURE: Final = (
+    "This answer came from the assistant's backup model, because its usual one was not "
+    "available just now."
+)
+
 
 #: Appended to `AssistCapability.disclosure` when the fallback leg answered.
 #:
@@ -438,6 +543,11 @@ class CopilotEvent:
     #: rendered them through one path would either navigate on an agent_create or ignore a
     #: navigation. At most one per answer (`navigation.MAX_NAVIGATIONS_PER_RUN`).
     navigate: CopilotNavigateEvent | None = None
+    #: The request was handed to a BACKGROUND JOB (D-694). Interactive runs only.
+    job: CopilotJobEvent | None = None
+    #: A confirm-tier action a JOB reached, now waiting in the Approvals inbox. Job runs
+    #: only — an interactive run proposes instead.
+    approval: write_tools.StagedApproval | None = None
     spend: CopilotSpend | None = None
 
 
@@ -580,7 +690,7 @@ def _chat_leg(provider: str, *, model: str | None) -> chat.ChatLeg | None:
       `google_openai_compat_base_url()`, the one verified emitter of the Developer API host
       (`scripts/check_model_residency.py` grants it the tree's single host literal); the wire
       model is the account's own Gemini id (`model`); the key is `gemini_api_key`. Bearer
-      auth, non-streamed — `run_copilot` calls `chat.complete`, never `chat.stream`, on it.
+      auth, STREAMED since D-694 (`chat.stream` carries the tool-call evidence).
     """
     settings = get_settings()
     if provider == AZURE_PROVIDER:
@@ -633,7 +743,7 @@ def _sum_usage(turns: Sequence[chat.ChatOutcome]) -> TokenUsage | None:
 def _no_answer_sentence(finish_reason: str | None) -> str:
     """What to say when a completed model turn contained no answer. Never an empty string.
 
-    ONE function for every leg — the streamed one, the non-streamed Gemini one and the
+    ONE function for every leg — the two streamed ones and the
     Sarvam fallback — because "the turn said nothing" is a property of the OUTCOME and not
     of the transport, and three sites deciding it separately is how two of them would end
     up silent again.
@@ -743,9 +853,12 @@ def realm_read_tools(realm: CopilotRealm) -> tuple[tools_module.ReadTool, ...]:
     what makes "the tenant currently being viewed" a real capability rather than a second
     implementation of six tools that already exist.
     """
+    # D-698: `console_reads.CONSOLE_READ_TOOLS` follows `READ_TOOLS` in both realms, so the
+    # earlier tools keep their place in the cacheable prefix.
+    client_reads = (*tools_module.READ_TOOLS, *console_reads.CONSOLE_READ_TOOLS)
     if realm == "admin":
-        return (*admin_tools.ADMIN_READ_TOOLS, *tools_module.READ_TOOLS)
-    return tools_module.READ_TOOLS
+        return (*admin_tools.ADMIN_READ_TOOLS, *client_reads)
+    return client_reads
 
 
 def _read_tool_registry(realm: CopilotRealm) -> Mapping[str, tools_module.ReadTool]:
@@ -803,6 +916,15 @@ def tool_array(realm: CopilotRealm) -> list[dict[str, Any]]:
         # prefix, so a new tool costs one re-warm at deploy where a reordering would cost
         # every request behind it.
         *([navigation.open_screen_tool()] if realm == "client" else []),
+        # D-694, APPENDED for the reason above. The client realm gains the background-job
+        # tool; the admin realm gains its own actions and its own `open_screen` (same name,
+        # the admin inventory's words). Each realm's array is still one fixed list.
+        *([background_tool()] if realm == "client" else []),
+        *(
+            [*admin_actions.admin_action_schemas(), admin_screens.admin_open_screen_tool()]
+            if realm == "admin"
+            else []
+        ),
     ]
 
 
@@ -961,23 +1083,25 @@ def _assistant_tool_message(
 
 
 #: One model turn, as the events `chat.stream` yields — text fragments, then ONE terminal
-#: `StreamEvent` carrying the `ChatOutcome`. The two legs differ ONLY in this: Azure STREAMS
-#: (fragments live), the Gemini leg is NON-STREAMED (`chat.complete`, one text event at the
-#: end, then the outcome), because Gemini's streamed tool-call deltas can carry a `None` index
-#: that would corrupt the accumulator (`workers/chat.stream` refuses it, `openai/openai-python
-#: #2806`). Both shapes satisfy the loop below, so the loop is written once.
+#: `StreamEvent` carrying the `ChatOutcome`. Both tool-capable legs stream since D-694: the
+#: Gemini leg used to be non-streamed (D-478) because its streamed tool-call deltas carry no
+#: `index`, and `chat.stream` now reads an index-less delta on that dialect as a whole call
+#: (see there for the evidence and the UNKNOWN that remains).
 _TurnRunner = Callable[
     [chat.ChatLeg, Sequence[chat.ChatMessage], Sequence[Mapping[str, object]]],
     AsyncIterator[chat.StreamEvent],
 ]
 
 
-def _azure_turn(
+def _streamed_turn(
     leg: chat.ChatLeg,
     messages: Sequence[chat.ChatMessage],
     tools: Sequence[Mapping[str, object]],
 ) -> AsyncIterator[chat.StreamEvent]:
-    """The streamed turn: `chat.stream` verbatim. `timeout_s` is a READ timeout here."""
+    """The streamed turn: `chat.stream` verbatim. `timeout_s` is a READ timeout here.
+
+    `max_tokens` is sent on both legs: see `MAX_ANSWER_TOKENS` for the probe that settled
+    it against Google's own endpoint."""
     return chat.stream(
         leg,
         messages,
@@ -987,36 +1111,6 @@ def _azure_turn(
         tool_choice="auto",
         max_tokens=MAX_ANSWER_TOKENS,
     )
-
-
-async def _google_turn(
-    leg: chat.ChatLeg,
-    messages: Sequence[chat.ChatMessage],
-    tools: Sequence[Mapping[str, object]],
-) -> AsyncIterator[chat.StreamEvent]:
-    """The NON-STREAMED turn, re-shaped as the loop's events: one blocking `chat.complete`
-    with tools (which returns a clean full `tool_calls` array — the reason the leg is not
-    streamed, D-478), emitted as one text event and then the terminal outcome. `timeout_s` is
-    a WHOLE-request timeout here, which is correct for a blocking call.
-
-    `max_tokens` IS SENT HERE, and this docstring used to say it could not be. See
-    `MAX_ANSWER_TOKENS` for the two-request probe that settled it against Google's own
-    endpoint: the compat surface validates the BODY before the credential, so an unknown key
-    comes back named ("Cannot find field") and `max_tokens` comes back as an auth failure —
-    it is a real field. Without it this was the only leg whose output was bounded by nothing
-    but `timeout_s`, which bounds a wall clock and not a token count."""
-    outcome = await chat.complete(
-        leg,
-        messages,
-        timeout_s=STREAM_IDLE_S,
-        temperature=0.2,
-        tools=tools,
-        tool_choice="auto",
-        max_tokens=MAX_ANSWER_TOKENS,
-    )
-    if outcome.content:
-        yield chat.StreamEvent(text=outcome.content)
-    yield chat.StreamEvent(outcome=outcome)
 
 
 def _with_tool_result(
@@ -1107,6 +1201,92 @@ def _step_end(
     )
 
 
+def _object_type_of(name: str) -> str:
+    """The registered object type of an action tool, for its refusal row."""
+    tool = write_tools.tool_named(name)
+    if tool is not None:
+        return tool.object_type
+    admin_tool = admin_actions.admin_tool_named(name)
+    return "unknown" if admin_tool is None else admin_tool.object_type
+
+
+async def _log_refusal(
+    realm: CopilotRealm,
+    principal: Principal | None,
+    tool_context: ToolContext | None,
+    tool: str,
+    tier: str,
+    reason: str,
+    limits: RunLimits,
+) -> None:
+    """Every refused action attempt lands in the activity log, without its arguments
+    (D-694: "never hide irreversibility; attempts are logged even when refused"). Never
+    raises — `action_log.record_refusal` swallows its own failure."""
+    if principal is None:
+        return
+    if realm == "admin":
+        await action_log.record_refusal(
+            realm="admin",
+            tenant_id=None if tool_context is None else tool_context.tenant_id,
+            actor_id=principal.user_id,
+            tool=tool,
+            tier=tier,
+            object_type=_object_type_of(tool),
+            reason=reason,
+        )
+        return
+    await action_log.record_refusal(
+        realm="client",
+        tenant_id=principal.tenant_id,
+        actor_id=principal.client_user_id,
+        tool=tool,
+        tier=tier,
+        object_type=_object_type_of(tool),
+        reason=reason,
+        source=limits.mode,
+        job_id=limits.job_id,
+    )
+
+
+async def _start_background_job(
+    raw_arguments: str, *, principal: Principal | None, screen_route: str
+) -> CopilotJobEvent:
+    """`run_in_background`: one job row and its outbox message, in one short session."""
+    if principal is None or principal.tenant_id is None or principal.client_user_id is None:
+        raise write_tools.WriteRefusedError(
+            "background jobs need a signed-in person in their own account"
+        )
+    if principal.impersonating:
+        raise write_tools.WriteRefusedError("background jobs cannot start from a view-as session")
+    try:
+        parsed = json.loads(raw_arguments or "")
+    except ValueError as exc:
+        raise write_tools.WriteRefusedError("the tool call was not valid JSON") from exc
+    goal = parsed.get("goal") if isinstance(parsed, dict) else None
+    if not isinstance(goal, str) or not goal.strip():
+        raise write_tools.WriteRefusedError("`goal` was missing, so say what the job must do")
+    try:
+        async with tenant_session(principal.tenant_id) as session:
+            job = await jobs.create_job(
+                session,
+                tenant_id=principal.tenant_id,
+                user_id=principal.client_user_id,
+                goal=goal.strip(),
+                screen_route=screen_route,
+            )
+    except jobs.TooManyJobsError as exc:
+        raise write_tools.WriteRefusedError(
+            f"this person already has {jobs.MAX_ACTIVE_JOBS_PER_USER} background jobs running, "
+            "which is the most at once — tell them to wait for one to finish"
+        ) from exc
+    return CopilotJobEvent(
+        job_id=str(job.id),
+        status="queued",
+        goal=job.goal,
+        detail="Started in the background. Progress shows here as it happens.",
+    )
+
+
 def _problem_result(problem: ProblemError) -> str:
     """A platform refusal, as the tool result the model reads. D-500.
 
@@ -1145,6 +1325,7 @@ async def _run_tool_loop(
     principal: Principal | None = None,
     seed: str = "",
     ip: str | None = None,
+    limits: RunLimits = INTERACTIVE_LIMITS,
     turns: list[chat.ChatOutcome],
 ) -> AsyncIterator[CopilotEvent]:
     """Up to `MAX_TURNS` turns on the answering leg. Raises `httpx.HTTPError` if the FIRST
@@ -1162,10 +1343,10 @@ async def _run_tool_loop(
     about LEGS, and leaves this function's own control flow untouched.
 
     ONE LOOP FOR BOTH LEGS (D-478). `turn` is the only thing that differs — Azure's streamed
-    turn or Gemini's non-streamed one — so the tool-calling, re-validation, refusal-feedback
-    and metering are byte-for-byte the same on both, which is what keeps the field-filling
-    identical. `model` is threaded into `CopilotSpend` so the ledger names the Gemini model
-    on the Gemini leg (`None` = Azure's live-switched setting).
+    turn or Gemini's, both streamed since D-694 — so the tool-calling, re-validation,
+    refusal-feedback and metering are byte-for-byte the same on both, which is what keeps
+    the field-filling identical. `model` is threaded into `CopilotSpend` so the ledger names
+    the Gemini model on the Gemini leg (`None` = Azure's live-switched setting).
 
     **THE LOOP NOW CONTINUES ON A READ TOOL, AND THAT IS THE BEHAVIOURAL CHANGE.** It used
     to continue on exactly one thing — a REFUSED fill — and end on everything else, because
@@ -1235,7 +1416,7 @@ async def _run_tool_loop(
     #: because that is the span a repeat is pointless over — see `_run_read_tools`.
     lookups_run: set[tuple[str, str]] = set()
 
-    for turn_index in range(MAX_TURNS):
+    for turn_index in range(limits.max_turns):
         outcome: chat.ChatOutcome | None = None
         async for event in turn(leg, messages, tools):
             if event.text is not None:
@@ -1280,22 +1461,37 @@ async def _run_tool_loop(
         fill_calls = [
             call for call in outcome.tool_calls if call.name == prompt_module.SET_FIELDS_TOOL_NAME
         ]
-        write_calls = [call for call in outcome.tool_calls if write_tools.is_write_tool(call.name)]
+        # THE ADMIN REALM'S OWN ACTIONS (D-694) are confirm-tier by construction
+        # (`admin_actions.AdminActionTool.__post_init__`), so they join the confirm path.
+        admin_calls = (
+            [call for call in outcome.tool_calls if admin_actions.is_admin_action(call.name)]
+            if realm == "admin"
+            else []
+        )
+        write_calls = [
+            call for call in outcome.tool_calls if write_tools.is_write_tool(call.name)
+        ] + admin_calls
         # THE TIER SPLIT, READ FROM THE REGISTRY. `tier_of` is the one reader; a call whose
         # name is in `write_calls` always has a tier, so the `== "confirm"` test is total
         # and the `immediate` list is its complement rather than a second lookup.
         confirm_calls = [
-            call for call in write_calls if write_tools.tier_of(call.name) == "confirm"
+            call
+            for call in write_calls
+            if call in admin_calls or write_tools.tier_of(call.name) == "confirm"
         ]
         immediate_calls = [call for call in write_calls if call not in confirm_calls]
         # A SCREEN TO OPEN (D-524), and it is a THIRD family rather than a write tool: it
         # touches no row, so it has no planner, no executor, no idempotency record and no
         # audit row (`navigation.py` argues why putting one on the hash chain would be
-        # wrong). GATED ON THE REALM, because the tool is only in the client array — an
-        # operator's model naming it falls through to `read_calls` and is told there is no
-        # such tool, which is the honest answer there.
-        nav_calls = (
-            [call for call in outcome.tool_calls if call.name == navigation.OPEN_SCREEN_TOOL_NAME]
+        # wrong). Both realms since D-694, each against its own screen inventory.
+        nav_calls = [
+            call for call in outcome.tool_calls if call.name == navigation.OPEN_SCREEN_TOOL_NAME
+        ]
+        # A REQUEST HANDED TO A BACKGROUND JOB (D-694). Client realm only — the tool is only
+        # in that array, so on the admin realm the name falls to the read path and is told
+        # there is no such tool.
+        background_calls = (
+            [call for call in outcome.tool_calls if call.name == BACKGROUND_TOOL_NAME]
             if realm == "client"
             else []
         )
@@ -1307,10 +1503,17 @@ async def _run_tool_loop(
             call
             for call in outcome.tool_calls
             if call.name != prompt_module.SET_FIELDS_TOOL_NAME
-            and not write_tools.is_write_tool(call.name)
+            and call not in write_calls
             and call not in nav_calls
+            and call not in background_calls
         ]
-        if not fill_calls and not write_calls and not nav_calls and not read_calls:
+        if (
+            not fill_calls
+            and not write_calls
+            and not nav_calls
+            and not read_calls
+            and not background_calls
+        ):
             # The model answered in prose. Done — this is the ordinary end of a question.
             #
             # UNLESS IT SAID NOTHING, which is the same branch and is NOT the ordinary end
@@ -1333,6 +1536,64 @@ async def _run_tool_loop(
                 spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
             )
             return
+
+        # A BACKGROUND JOB HAS NO SCREEN AND NOBODY WATCHING IT (D-694). It cannot fill a
+        # form, open a screen or start another job; each is refused back to the model with a
+        # sentence, the way every other refusal on this loop is.
+        if limits.mode == "job" and (fill_calls or nav_calls or background_calls):
+            call = (fill_calls or nav_calls or background_calls)[0]
+            reasons = (
+                "this is a background job with no screen in front of anybody, so it cannot "
+                "fill in a form, open a screen or start another job",
+            )
+            messages = _with_tool_result(
+                messages,
+                outcome,
+                call,
+                "NOTHING was done. " + reasons[0] + ". Use the action and lookup tools only.",
+            )
+            refusal_reasons = reasons
+            continue
+
+        # ONE BACKGROUND JOB, AND NOTHING ELSE IN THE SAME TURN. Starting a job is the act of
+        # this turn; a change or a move beside it would be two things to explain at once.
+        if background_calls:
+            call = background_calls[0]
+            started_at = time.monotonic()
+            yield CopilotEvent(step=_step_start(call))
+            try:
+                job_event = await _start_background_job(
+                    call.arguments, principal=principal, screen_route=payload.screen.route
+                )
+            except write_tools.WriteRefusedError as refused:
+                refusal_reasons = (refused.reason,)
+                yield CopilotEvent(
+                    step=_step_end(
+                        call, status="refused", detail=refused.reason, started_at=started_at
+                    )
+                )
+                messages = _with_tool_result(
+                    messages,
+                    outcome,
+                    call,
+                    "NO job was started. " + refused.reason + ". Do the work here instead, or "
+                    "tell the person why it cannot be done now.",
+                )
+                continue
+            yield CopilotEvent(
+                step=_step_end(call, status="done", detail=job_event.detail, started_at=started_at)
+            )
+            yield CopilotEvent(job=job_event)
+            messages = _with_tool_result(
+                messages,
+                outcome,
+                call,
+                f"STARTED. {job_event.detail} Tell the person in one or two sentences that "
+                "it is running in the background, that they can watch it in the assistant "
+                "panel, and that anything needing their confirmation will wait for them. Do "
+                "not do the work here as well.",
+            )
+            continue
 
         # ONE CALL PER TURN, EVEN IF THE MODEL SENT SEVERAL. `set_fields` takes an array
         # precisely so that a turn has one outcome and one Undo; a second call in the same
@@ -1438,8 +1699,43 @@ async def _run_tool_loop(
             call = confirm_calls[0]
             started_at = time.monotonic()
             yield CopilotEvent(step=_step_start(call))
+            is_admin_action = call in admin_calls
             try:
-                proposal = await write_tools.plan_write(call.name, call.arguments, actor=actor)
+                if limits.mode == "job" and not is_admin_action and principal is not None:
+                    # NOTHING IRREVERSIBLE RUNS UNATTENDED (D-694). A job cannot show a
+                    # Confirm card to anybody, so the action is planned and parked in the
+                    # Approvals inbox, and the job carries on with the rest of its work.
+                    assert limits.job_id is not None
+                    staged = await write_tools.stage_for_approval(
+                        call.name, call.arguments, principal=principal, job_id=limits.job_id
+                    )
+                    actions_run += 1
+                    yield CopilotEvent(
+                        step=_step_end(
+                            call, status="done", detail=staged.summary, started_at=started_at
+                        )
+                    )
+                    yield CopilotEvent(approval=staged)
+                    messages = _with_tool_result(
+                        messages,
+                        outcome,
+                        call,
+                        "WAITING FOR APPROVAL, and NOTHING has happened yet: "
+                        f"{staged.summary} The person will approve or decline it in their "
+                        "Approvals inbox. Carry on with the rest of the task, and say in your "
+                        "final summary what is waiting for their approval.",
+                    )
+                    continue
+                proposal = (
+                    await admin_actions.plan_admin_action(
+                        call.name,
+                        call.arguments,
+                        principal=principal,
+                        viewing_tenant_id=None if tool_context is None else tool_context.tenant_id,
+                    )
+                    if is_admin_action
+                    else await write_tools.plan_write(call.name, call.arguments, actor=actor)
+                )
             except write_tools.WriteRefusedError as refused:
                 refusal_reasons = (refused.reason,)
                 log.info(
@@ -1448,6 +1744,9 @@ async def _run_tool_loop(
                     # ids and shapes only, but it is not needed here and a log line is the
                     # cheapest place for a value to end up by accident (hard rule 6).
                     extra={"turn": turn_index, "tool": call.name},
+                )
+                await _log_refusal(
+                    realm, principal, tool_context, call.name, "confirm", refused.reason, limits
                 )
                 yield CopilotEvent(
                     step=_step_end(
@@ -1465,16 +1764,16 @@ async def _run_tool_loop(
                 continue
             except ProblemError as problem:
                 # A FACT ABOUT THE WORLD THE MODEL CANNOT ARGUE WITH — a 404 agent, a
-                # campaign this account cannot see. It used to end the stream through
-                # `routes.py`'s generic arm, which is the right shape for a button and the
-                # wrong one for a conversation: the person asked a question and got "the
-                # assistant stopped part-way". Handing it back as a tool result lets the
-                # model say what the platform said, which is also the founder's rule for a
-                # refused gate — report it, do not retry around it.
+                # campaign this account cannot see. Handed back as a tool result so the model
+                # says what the platform said — the founder's rule for a refused gate:
+                # report it, do not retry around it.
                 refusal_reasons = (problem.title,)
                 log.info(
                     "copilot_write_problem",
                     extra={"turn": turn_index, "tool": call.name, "code": problem.code},
+                )
+                await _log_refusal(
+                    realm, principal, tool_context, call.name, "confirm", problem.title, limits
                 )
                 yield CopilotEvent(
                     step=_step_end(
@@ -1501,11 +1800,11 @@ async def _run_tool_loop(
         # are, then say where the result is, rather than navigating them.
         if immediate_calls:
             call = immediate_calls[0]
-            if actions_run >= MAX_ACTIONS_PER_RUN:
+            if actions_run >= limits.max_actions:
                 # A REFUSAL FED BACK, NOT A SILENT STOP. The model still has turns and still
                 # owes the person an account of what it did and did not do.
                 refusal_reasons = (
-                    f"you have already made {MAX_ACTIONS_PER_RUN} changes answering this "
+                    f"you have already made {limits.max_actions} changes answering this "
                     "one question, which is the limit",
                 )
                 log.warning("copilot_action_cap", extra={"turn": turn_index, "tool": call.name})
@@ -1531,11 +1830,20 @@ async def _run_tool_loop(
             yield CopilotEvent(step=_step_start(call))
             try:
                 action = await write_tools.run_immediate(
-                    call.name, call.arguments, principal=principal, seed=seed, ip=ip
+                    call.name,
+                    call.arguments,
+                    principal=principal,
+                    seed=seed,
+                    ip=ip,
+                    source=limits.mode,
+                    job_id=limits.job_id,
                 )
             except write_tools.WriteRefusedError as refused:
                 refusal_reasons = (refused.reason,)
                 log.info("copilot_action_refused", extra={"turn": turn_index, "tool": call.name})
+                await _log_refusal(
+                    realm, principal, tool_context, call.name, "immediate", refused.reason, limits
+                )
                 yield CopilotEvent(
                     step=_step_end(
                         call, status="refused", detail=refused.reason, started_at=started_at
@@ -1563,6 +1871,9 @@ async def _run_tool_loop(
                     step=_step_end(
                         call, status="failed", detail=problem.detail, started_at=started_at
                     )
+                )
+                await _log_refusal(
+                    realm, principal, tool_context, call.name, "immediate", problem.title, limits
                 )
                 messages = _with_tool_result(messages, outcome, call, _problem_result(problem))
                 continue
@@ -1617,7 +1928,12 @@ async def _run_tool_loop(
                 )
                 continue
             try:
-                destination = navigation.resolve_destination(
+                resolver = (
+                    admin_screens.resolve_admin_destination
+                    if realm == "admin"
+                    else navigation.resolve_destination
+                )
+                destination = resolver(
                     call.arguments,
                     # THE VERIFIED ROLE, from the same `ToolContext` every read tool is
                     # judged against — never from the body, which is a caller-composed
@@ -1725,6 +2041,8 @@ async def _answer_stream(
     principal: Principal | None = None,
     seed: str = "",
     ip: str | None = None,
+    limits: RunLimits = INTERACTIVE_LIMITS,
+    allow_azure: bool = True,
 ) -> AsyncIterator[CopilotEvent]:
     """Answer one copilot question. THE RUN of SUBJECT → GATE → RUN → METER.
 
@@ -1785,8 +2103,20 @@ async def _answer_stream(
     # `copilot/deadline_test.py` checks against nginx's `proxy_read_timeout`, and a budget
     # that each leg re-entered from zero was not that number (see the fallback arm below).
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + TOTAL_BUDGET_S
-    capability = assist_capability(tenant_leg=tenant_leg, quota_exhausted=quota_exhausted)
+    # THE INTERACTIVE LIMITS ARE READ FROM THE MODULE CONSTANTS AT CALL TIME, so the three
+    # numbers `deadline_test.py` measures stay the single source and a test that narrows
+    # one narrows the run.
+    if limits.mode == "interactive":
+        limits = RunLimits(
+            max_turns=MAX_TURNS,
+            total_budget_s=TOTAL_BUDGET_S,
+            max_actions=MAX_ACTIONS_PER_RUN,
+            mode="interactive",
+        )
+    deadline = loop.time() + limits.total_budget_s
+    capability = assist_capability(
+        tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, allow_azure=allow_azure
+    )
     if not capability.available:
         raise assist_unavailable(capability)
 
@@ -1798,12 +2128,12 @@ async def _answer_stream(
     # one AFTER it cannot, because part of the answer is already on the screen.
     if capability.provider in (AZURE_PROVIDER, GOOGLE_PROVIDER):
         if capability.provider == GOOGLE_PROVIDER:
-            # `tenant_leg` is not None here: Google only reaches rung 1, which requires the
-            # account's own leg. Its model is the wire model AND the ledger name.
+            # `tenant_leg` is not None here: Google only reaches rung 1, which requires a leg —
+            # the tier's since D-694. Its model is the wire model AND the ledger name.
             model = tenant_leg.model if tenant_leg is not None else None
-            leg, turn = _chat_leg(GOOGLE_PROVIDER, model=model), _google_turn
+            leg, turn = _chat_leg(GOOGLE_PROVIDER, model=model), _streamed_turn
         else:
-            model, leg, turn = None, _chat_leg(AZURE_PROVIDER, model=None), _azure_turn
+            model, leg, turn = None, _chat_leg(AZURE_PROVIDER, model=None), _streamed_turn
         if leg is None:  # pragma: no cover - unreachable via the selector
             raise assist_unavailable(capability)
         streamed_anything = False
@@ -1825,6 +2155,7 @@ async def _answer_stream(
                     seed=seed,
                     ip=ip,
                     turns=turns,
+                    limits=limits,
                 ):
                     streamed_anything = streamed_anything or event.text is not None
                     yield event
@@ -1860,7 +2191,10 @@ async def _answer_stream(
                 log.warning("copilot_budget_spent", extra={"realm": realm})
                 raise
         capability = assist_capability(
-            tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, provider_unavailable=True
+            tenant_leg=tenant_leg,
+            quota_exhausted=quota_exhausted,
+            provider_unavailable=True,
+            allow_azure=allow_azure,
         )
         if not capability.available:
             raise assist_unavailable(capability)
@@ -1884,6 +2218,8 @@ async def run_copilot(
     principal: Principal | None = None,
     seed: str = "",
     ip: str | None = None,
+    limits: RunLimits = INTERACTIVE_LIMITS,
+    allow_azure: bool = True,
 ) -> AsyncIterator[CopilotEvent]:
     """`_answer_stream`, with the two identity controls around it (`copilot/identity.py`).
 
@@ -1925,6 +2261,8 @@ async def run_copilot(
         principal=principal,
         seed=seed,
         ip=ip,
+        limits=limits,
+        allow_azure=allow_azure,
     )
     try:
         async for event in inner:
@@ -1992,16 +2330,25 @@ def disclosure_for(capability: AssistCapability) -> str | None:
     disclosure = capability.disclosure
     if disclosure is None:
         return None
+    if capability.fallback_reason == TENANT_PROVIDER_UNSUPPORTED_REASON:
+        # SINCE D-694 THE "ACCOUNT'S MODEL" IS THE ASSISTANT'S OWN TIER MODEL, so the
+        # selector's sentence about "the AI model on your account" would be false here: the
+        # account's model runs its phone agents and was never asked. What happened is that
+        # the assistant's usual model was unavailable and a backup answered.
+        disclosure = BACKUP_MODEL_DISCLOSURE
     if capability.provider in (AZURE_PROVIDER, GOOGLE_PROVIDER):
         return disclosure
     return disclosure + FALLBACK_NO_TOOLS_NOTE
 
 
 __all__ = [
+    "BACKGROUND_TOOL_NAME",
     "EXHAUSTED_MESSAGE",
     "FALLBACK_NO_TOOLS_NOTE",
     "FALLBACK_RESERVE_S",
     "FILTERED_MESSAGE",
+    "INTERACTIVE_LIMITS",
+    "JOB_TOTAL_BUDGET_S",
     "MAX_ANSWER_TOKENS",
     "MAX_TURNS",
     "NO_ANSWER_MESSAGE",
@@ -2012,8 +2359,10 @@ __all__ = [
     "CopilotEvent",
     "CopilotSpend",
     "FillRefusedError",
+    "RunLimits",
     "ToolContext",
     "disclosure_for",
+    "job_limits",
     "run_copilot",
     "tool_array",
     "validate_fill",

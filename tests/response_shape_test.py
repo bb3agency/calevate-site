@@ -1119,6 +1119,12 @@ _UNMODELLED_SUCCESS: dict[str, str] = {
         "`tests/admin_copilot_billing_test.py` and the redaction guard the route shares "
         "with its client twin."
     ),
+    "GET /v1/copilot/jobs/{job_id}/events": (
+        "an SSE stream (D-694), exempt for `POST /v1/copilot/ask`'s reason. Each `job` frame "
+        "is exactly `copilot/schemas.CopilotJobOut`, the declared response model of "
+        "`GET /v1/copilot/jobs/{job_id}` beside it, so the payload shape IS declared — on "
+        "the polling twin — and `apps/api/copilot/jobs_test.py` reads it at runtime."
+    ),
     "GET /v1/calls/{call_id}/speaking": (
         "an SSE stream (D-656), exempt for `POST /v1/copilot/ask`'s reason: the declared "
         "`itemSchema` is the SSE frame envelope, not the payload. The payload is "

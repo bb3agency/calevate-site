@@ -31,6 +31,7 @@ import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
 import { asText } from "@/lib/copilot/types";
 
 import { AddCreditDrawer } from "./AddCredit";
+import { AutoRechargePanel } from "./AutoRechargePanel";
 import {
   VOICE_TIERS,
   formatWhole,
@@ -386,6 +387,9 @@ export function BillingScreen({ slug }: { slug: string }) {
           }
         />
         <UnfinishedPayments session={session} />
+        {!billingRefused && (
+          <AutoRechargePanel session={session} />
+        )}
         {lots && <LotsPanel lots={lots} />}
       </div>
     );

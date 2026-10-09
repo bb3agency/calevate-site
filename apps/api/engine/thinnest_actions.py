@@ -75,12 +75,21 @@ class ActionParam:
 
 @dataclass(frozen=True, slots=True)
 class ActionDefinition:
-    """One action as we want it to exist at the vendor. Every string is platform-written."""
+    """One action as we want it to exist at the vendor. The platform's own actions carry
+    platform text only; a client's (D-700) carries their description, which
+    `reliability/engine_actions.client_definitions` ends with platform text."""
 
     name: str
     description: str
     url: str
     parameters: tuple[ActionParam, ...]
+    #: What the agent says while the action runs, on calls (`speakBefore`, at most 200
+    #: characters, snap:api-reference/actions/create-action.md `CreateHttpActionRequest`).
+    #: Sent only when set, so the platform's own actions keep the wire they always had.
+    speak_before: str | None = None
+    #: A client's action (D-700): its `speakBefore` is always sent, null included, so
+    #: clearing the line in Calevate clears it at the vendor rather than leaving it held.
+    client: bool = False
 
     def body_template(self) -> str:
         """A JSON object of every parameter, each placeholder QUOTED, as the vendor requires
@@ -103,6 +112,7 @@ class ActionDefinition:
                 for p in self.parameters
             ],
             "bodyTemplate": self.body_template(),
+            **({"speakBefore": self.speak_before} if self.speak_before or self.client else {}),
         }
 
 
@@ -117,6 +127,7 @@ class VendorAction:
     body_template: str | None
     header_names: frozenset[str]
     enabled: bool
+    speak_before: str | None = None
 
     def matches(self, wanted: ActionDefinition) -> bool:
         """Does the vendor hold exactly what we would send, our header included?"""
@@ -126,6 +137,7 @@ class VendorAction:
             and self.url == wanted.url
             and self.parameters == wanted.parameters
             and _same_json(self.body_template, wanted.body_template())
+            and (self.speak_before or None) == (wanted.speak_before or None)
             and SECRET_HEADER.lower() in {h.lower() for h in self.header_names}
         )
 
@@ -214,6 +226,7 @@ def _action(row: dict[str, Any]) -> VendorAction:
         else frozenset(),
         # Absent is read as off: the converge then switches it on, which is harmless.
         enabled=row.get("enabled") is True,
+        speak_before=_str(row.get("speakBefore")),
     )
 
 

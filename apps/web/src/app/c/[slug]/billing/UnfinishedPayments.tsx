@@ -93,6 +93,13 @@ const OUTCOMES: Record<string, { icon: ReactNode; title: string; body: string }>
       "added automatically — you do not need to keep this page open, and you should not " +
       "pay again yet.",
   },
+  authorized: {
+    icon: <Clock className="h-4 w-4" aria-hidden />,
+    title: "Verifying",
+    body:
+      "Your bank has approved this payment and Razorpay, our payment gateway, is " +
+      "completing it. Your credit is added automatically within minutes — do not pay again.",
+  },
   unfinished: {
     icon: <HelpCircle className="h-4 w-4" aria-hidden />,
     title: "Never finished",

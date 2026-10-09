@@ -439,7 +439,7 @@ describe("§5.7 defect 9 — a dropped connection and a dead session are differe
     // The panel this replaces was a dead end: its only control was a link to the page
     // this now goes to directly, on a console URL that refuses them again on the way back.
     const view = gate("signed-out");
-    expect(replace).toHaveBeenCalledWith("/auth/admin/sign-in");
+    expect(replace).toHaveBeenCalledWith("/auth/admin/sign-in?next=%2Fadmin");
     expect(view.container.textContent).not.toContain("could not reach");
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });

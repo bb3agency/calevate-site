@@ -13,6 +13,7 @@ import {
   renderClientPage,
   stillLoading,
 } from "./harness";
+import { businessProfileFixture } from "./businessProfileFixture";
 
 /**
  * The dashboard — the screen a client looks at to decide whether the product is
@@ -234,6 +235,8 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/calls?limit=6": [],
     "/v1/attention": { counts: {}, items: [], total: 0 },
     "/v1/knowledge-gaps?status=open&limit=20": { items: [], open_count: 0, total: 0 },
+    "/v1/business-profile": businessProfileFixture(),
+    "/v1/healer/incidents?days=30&limit=20": { open: 0, items: [] },
     ...over,
   };
 }

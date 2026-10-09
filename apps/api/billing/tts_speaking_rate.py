@@ -231,7 +231,7 @@ def summarize(samples: list[CallSample], *, minimum_calls: int | None = None) ->
             measured=False,
             reason=(
                 f"{calls} call{'' if calls == 1 else 's'} with a transcript; a figure is "
-                f"published from {threshold} or more. TRD §10.1's assumed band stays in force."
+                f"published from {threshold} or more. The assumed band stays in force."
             ),
             p50=None,
             p95=None,

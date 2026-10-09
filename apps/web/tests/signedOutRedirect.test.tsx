@@ -66,7 +66,7 @@ function gate(realm = "admin", signInPath = "/auth/admin/sign-in") {
 describe("the signed-out gate", () => {
   it("redirects to the realm's sign-in page", () => {
     gate();
-    expect(replace).toHaveBeenCalledWith("/auth/admin/sign-in");
+    expect(replace).toHaveBeenCalledWith("/auth/admin/sign-in?next=%2Fadmin");
   });
 
   it("uses replace, so Back does not bounce off the page that refused them", () => {
@@ -175,7 +175,7 @@ describe("whether the door says anything", () => {
       expect(markSignedOut("admin")).toBe(false);
       expect(takeSignedOut("admin")).toBe(false);
       expect(() => gate()).not.toThrow();
-      expect(replace).toHaveBeenCalledWith("/auth/admin/sign-in");
+      expect(replace).toHaveBeenCalledWith("/auth/admin/sign-in?next=%2Fadmin");
     } finally {
       if (original) Object.defineProperty(window, "sessionStorage", original);
     }

@@ -24,7 +24,7 @@ in `prompts.insert_prompt_version`: the one statement that can create a divergen
 between the two pointers also materializes `live_prompt_id` in the same UPDATE. So
 `live_prompt_id IS NULL` only ever means "the two pointers agree", never "the draft is
 ahead" — which is also true of every row that predates the pointer (migration
-a4e7b2c95d18 backfilled them) and of every row `admin/intake.py` writes.
+a4e7b2c95d18 backfilled them).
 
 WHAT "LIVE" IS ALLOWED TO MEAN (migration c1f6a94d2b07)
 -------------------------------------------------------
@@ -77,7 +77,17 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Final, NotRequired, TypedDict, TypeGuard, cast
+from typing import (
+    Any,
+    Final,
+    Literal,
+    NotRequired,
+    Protocol,
+    TypedDict,
+    TypeGuard,
+    cast,
+    runtime_checkable,
+)
 from uuid import UUID
 
 from calevate_shared.call_script import substitute_variables
@@ -89,6 +99,7 @@ from calevate_shared.engine import (
     AgentConfig,
     CallContext,
     DisclosurePosture,
+    EngineAgentRef,
     HandoffSpec,
     LlmModelTrapName,
     LlmProvider,
@@ -144,6 +155,12 @@ from apps.api.billing.engine_minutes import (
 from apps.api.compliance.caller_memory import recall
 from apps.api.compliance.carrier_application import assert_carrier_application_accepted
 from apps.api.compliance.platform_dnc import PLATFORM_DNC_BLOCK_CODE, platform_dnc_refusal
+from apps.api.compliance.trial_access import (
+    refuse_on_trial,
+    refuse_trial_numbers,
+    restricting_trial,
+    trial_line_horizon,
+)
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -174,7 +191,10 @@ from apps.api.engine.carrier_pacing import (
     start_dial_backoff,
 )
 from apps.api.engine.hosted_platform import hosted_agent_limits
-from apps.api.engine.thinnest_workspace import workspace_not_provisioned
+from apps.api.engine.thinnest_workspace import (
+    trial_agent_in_developer_workspace,
+    workspace_not_provisioned,
+)
 from apps.api.engine.vendor_http import (
     NUMBER_DAILY_LIMIT_CODE,
     RECIPIENT_OPTED_OUT_CODE,
@@ -183,8 +203,13 @@ from apps.api.engine.vendor_http import (
 )
 from apps.api.legal.service import assert_agreements_accepted
 from apps.api.ops.maintenance import read_open_window
-from apps.api.reliability.engine_actions import ensure_agent_actions, retire_agent_actions
+from apps.api.reliability.engine_actions import (
+    ACTION_ENGINES,
+    ensure_agent_actions,
+    retire_agent_actions,
+)
 from apps.api.reliability.engine_webhooks import ensure_agent_webhook
+from apps.api.tenancy.business_profile import assert_ready_to_go_live
 from apps.api.tenancy.engine_workspace import engine_has_workspaces, resolve_workspace
 from apps.api.tenancy.lifecycle import assert_account_open
 
@@ -476,14 +501,15 @@ async def _load_agent(
                 "a.ai_disclosure_line, a.ai_disclosure_enabled, "
                 "a.recording_notice_line, a.recording_notice_enabled, "
                 "a.caller_memory_notice_line, a.caller_memory_enabled, "
-                # The handover posture and the hours it is judged against (D-533), on the
-                # same statement for the four disclosure columns' reason.
-                "a.handoff_enabled, a.handoff_trigger, a.business_hours, "
+                # The hours and the languages are the BUSINESS's, from its one profile
+                # (D-695): every agent of a client answers in its languages and is judged
+                # against its hours.
+                "a.handoff_enabled, a.handoff_trigger, bp.hours, "
                 # The ACCOUNT's model default, joined rather than fetched separately: the
                 # fallback is decided from these two columns together, and two statements
                 # would let a concurrent change to the account default land between them —
                 # a published config whose two halves came from different moments.
-                "o.default_llm_model, a.languages_extra, a.engine_voice_id, a.engine_model_id "
+                "o.default_llm_model, bp.languages, a.engine_voice_id, a.engine_model_id "
                 "FROM agents a LEFT JOIN prompt_versions pv "
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -492,6 +518,7 @@ async def _load_agent(
                 # statement's job is to find the agent, and RLS has already decided which
                 # organization row is legible (the policy matches on `id`).
                 "LEFT JOIN organizations o ON o.id = a.tenant_id "
+                "LEFT JOIN business_profiles bp ON bp.tenant_id = a.tenant_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
                 + (" FOR UPDATE OF a" if for_update else "")
             ),
@@ -1770,6 +1797,10 @@ INBOUND_SILENCE_CREDITS: Final = "credits"
 #: exactly when `engine_agent_routes.drift_state` is that value, and one fact with two
 #: spellings is where drift starts.
 INBOUND_SILENCE_TRUTHFUL_ANSWER: Final = TRUTHFUL_ANSWER_MISSING
+#: The auto-healer took this agent's line off because its real calls were failing and a
+#: repair did not fix them (D-701). Only the healer lifts it (`lift_healer_silence`), after
+#: its own checks pass or a person restores the line; neither a top-up nor a republish may.
+INBOUND_SILENCE_HEALER: Final = "healer"
 
 #: STRONGEST FIRST. An agent can be both broke and non-compliant, and the engine can hold
 #: only one state, so the order is a decision rather than an accident: a compliance
@@ -1777,7 +1808,13 @@ INBOUND_SILENCE_TRUTHFUL_ANSWER: Final = TRUTHFUL_ANSWER_MISSING
 #: a credit silence wrongly costs the client one metered call; coming out of a compliance
 #: silence wrongly puts a caller in front of an agent that has been PROVEN unable to tell
 #: them it is a machine, which is hard rule 5's floor and not a cost at all.
-INBOUND_SILENCE_PRECEDENCE: Final = (INBOUND_SILENCE_TRUTHFUL_ANSWER, INBOUND_SILENCE_CREDITS)
+#: The healer's silence sits between them: a broken agent must not answer whatever the
+#: wallet says, and it never outranks the compliance silence, which unbinds the numbers.
+INBOUND_SILENCE_PRECEDENCE: Final = (
+    INBOUND_SILENCE_TRUTHFUL_ANSWER,
+    INBOUND_SILENCE_HEALER,
+    INBOUND_SILENCE_CREDITS,
+)
 
 #: The whole vocabulary, derived from the precedence order rather than retyped beside it —
 #: `tests/inbound_compliance_silence_test.py` asserts this set equals the CHECK's, so a
@@ -1874,6 +1911,11 @@ async def reconcile_inbound_answering(
             # `reconcile_inbound_truthful_answer` is the only thing that lifts this one.
             withheld += 1
             continue
+        if reason == INBOUND_SILENCE_HEALER:
+            # The line is already off for a stronger reason; the wallet neither restores it
+            # nor needs to silence it again (`lift_healer_silence` hands it back).
+            withheld += 1
+            continue
         # `reason` is now `credits` or NULL, so the stamp and the predicate compare
         # directly — the shape this loop always had, with the third state taken out above.
         if (reason is not None) == exhausted:
@@ -1936,6 +1978,158 @@ async def reconcile_inbound_answering(
         failed=failed,
         withheld=withheld,
     )
+
+
+#: What a forwarding agent says before handing the caller to the client's own phone. No
+#: reason, for `CREDIT_STOP_MESSAGE`'s reasons.
+HEALER_FORWARD_LINE: Final = "Please hold while I put you through to the team."
+
+HealerHold = Literal["paused", "forwarded", "unsupported", "not_answering", "gone", "held"]
+
+
+@runtime_checkable
+class ForwardsLine(Protocol):
+    """An adapter that can hand every caller of an agent to another phone (ThinnestAI's
+    hand-over, `engine/thinnest.ThinnestEngine.forward_line`)."""
+
+    async def forward_line(
+        self,
+        ref: EngineAgentRef,
+        *,
+        phone_e164: str,
+        line: str,
+        opening_line: str,
+        system_prompt: str,
+    ) -> None: ...
+
+
+def healer_forward_greeting(posture: DisclosurePosture, *, call_is_recorded: bool) -> str:
+    """The agent's own opening line (both disclosures, D-163), then the hand-over line."""
+    opening = compose_opening_line(posture, call_is_recorded=call_is_recorded).strip()
+    return f"{opening} {HEALER_FORWARD_LINE}".strip()
+
+
+def healer_forward_prompt(*, call_is_recorded: bool) -> str:
+    """Hand the caller to a person at once. The truthful-answer floor is appended exactly
+    as `credit_stop_prompt` appends it (hard rule 5)."""
+    return "\n\n".join(
+        (
+            "You are answering a call that this business wants a person to take. After the "
+            "greeting, hand the caller to a person straight away using your hand-over tool. "
+            "That is the only thing you do on this call.",
+            "Do NOT answer questions, take a booking, a message, an order or any of the "
+            "caller's details, and give no reason for the hand-over.",
+            truthful_answer_directive(call_is_recorded=call_is_recorded),
+        )
+    )
+
+
+async def apply_healer_silence(
+    session: AsyncSession,
+    engine: VoiceEngine,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    forward_to: str | None,
+) -> HealerHold:
+    """Take a broken agent's line off (D-701): hand callers to `forward_to` where the engine
+    can, otherwise answer with the neutral can't-take-your-call sentence. Stamped only after
+    the vendor accepted the write, for `_stamp_inbound_silence`'s reason. Vendor errors
+    propagate to the healer, which records and retries them."""
+    row = (await session.execute(text(_ONE_ANSWERING_AGENT_SQL), {"aid": agent_id})).first()
+    if row is None:
+        return "gone"
+    if not agent_answers_inbound(cast(AgentDirection, str(row[10]))):
+        return "not_answering"
+    if row[9] == INBOUND_SILENCE_TRUTHFUL_ANSWER:
+        # Its numbers are already unbound; nothing reaches it to hold.
+        return "held"
+    ref, recorded = str(row[1]), engine.capabilities.records_audio
+    posture = _posture_of_row(row)
+    if forward_to and isinstance(engine, ForwardsLine):
+        await engine.forward_line(
+            ref,
+            phone_e164=forward_to,
+            line=HEALER_FORWARD_LINE,
+            opening_line=healer_forward_greeting(posture, call_is_recorded=recorded),
+            system_prompt=healer_forward_prompt(call_is_recorded=recorded),
+        )
+        held: HealerHold = "forwarded"
+    elif engine.capabilities.has("script_override"):
+        await engine.override_call_script(
+            ref,
+            opening_line=credit_stop_greeting(posture, call_is_recorded=recorded),
+            system_prompt=credit_stop_prompt(call_is_recorded=recorded),
+        )
+        held = "paused"
+    else:
+        return "unsupported"
+    await _stamp_inbound_silence(session, agent_id=agent_id, reason=INBOUND_SILENCE_HEALER)
+    log.warning(
+        "healer_line_held",
+        extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id), "mode": held},
+    )
+    return held
+
+
+async def lift_healer_silence(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> bool:
+    """Give the line back. False when the healer was not holding it (a stronger silence
+    took over, or it was already lifted).
+
+    The restore is a verified publish, `reconcile_inbound_answering`'s asymmetry. An account
+    whose wallet emptied meanwhile keeps a credit silence: the stamp is handed over rather
+    than cleared, so the publish's own settle re-applies the credit stop."""
+    from apps.api.compliance.service import credits_exhausted
+
+    next_reason = (
+        INBOUND_SILENCE_CREDITS if await credits_exhausted(session, tenant_id=tenant_id) else None
+    )
+    moved = (
+        await session.execute(
+            text(
+                "UPDATE agents SET inbound_silenced_at = CASE WHEN CAST(:next AS text) IS NULL "
+                "THEN NULL ELSE inbound_silenced_at END, inbound_silence_reason = "
+                "CAST(:next AS text), updated_at = now() WHERE id = :aid "
+                "AND inbound_silence_reason = :healer AND deleted_at IS NULL RETURNING id"
+            ),
+            {"aid": agent_id, "next": next_reason, "healer": INBOUND_SILENCE_HEALER},
+        )
+    ).first()
+    if moved is None:
+        return False
+    await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+    return True
+
+
+async def _reapply_healer_silence(
+    session: AsyncSession, engine: VoiceEngine, *, tenant_id: UUID, agent_id: UUID
+) -> None:
+    """`_settle_inbound_silence`'s healer arm. A vendor refusal clears the stamp so the
+    healer's next tick sees an unheld line and holds it again, rather than the column
+    claiming a hold the engine no longer has."""
+    from apps.api.healer.protection import forward_target
+
+    try:
+        await apply_healer_silence(
+            session,
+            engine,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            forward_to=await forward_target(session, agent_id=agent_id),
+        )
+    except Exception as exc:
+        await _stamp_inbound_silence(session, agent_id=agent_id, reason=None)
+        alert(
+            "CORE_LOGIC",
+            "healer_line_hold_failed",
+            detail=(
+                "an agent the healer had taken off its line was republished and the voice "
+                "platform refused the hold, so it is answering again. Refusal: "
+                f"{type(exc).__name__}."
+            ),
+            tenant_id=str(tenant_id),
+            agent_id=str(agent_id),
+        )
 
 
 async def reconcile_inbound_truthful_answer(
@@ -2194,6 +2388,11 @@ async def _settle_inbound_silence(
         if routing.failed:
             await _stamp_inbound_silence(session, agent_id=agent_id, reason=None)
         return
+    if reason == INBOUND_SILENCE_HEALER:
+        # A publish while the healer holds the line (a client's voice change, a prompt
+        # rollback it proposed) has just put the ordinary script back; put the hold back.
+        await _reapply_healer_silence(session, engine, tenant_id=tenant_id, agent_id=agent_id)
+        return
     if not await credits_exhausted(session, tenant_id=tenant_id):
         # THE RESTORE, and it lands here rather than in the reconciler because THIS is the
         # publish that put the agent's own words back. Unconditional: clearing a stamp that
@@ -2241,12 +2440,15 @@ async def _in_client_workspace(
     tenant_id: UUID,
     agent: AgentRow,
     config: AgentConfig,
+    trial: bool = False,
 ) -> AgentConfig:
     """`config` with the client's own workspace, where a NEW vendor agent is made, and the
     voice as that workspace names it (D-693). Unchanged on an engine without customer
     workspaces. A tenant whose workspace is not active is refused: nothing of a client's is
-    ever created in our developer workspace."""
-    if not engine_has_workspaces(engine.name):
+    created in our developer workspace, except a FREE-TRIAL account's agent (D-697), which
+    has no workspace until the account pays and calls from the shared trial number there.
+    Its first publish after payment recreates it in the client's own workspace."""
+    if not engine_has_workspaces(engine.name) or trial:
         return config
     workspace = await resolve_workspace(session, tenant_id)
     if workspace is None:
@@ -2303,6 +2505,38 @@ async def _after_workspace_move(
         payload={"tenant_id": str(tenant_id), "agent_id": str(agent_id), "old_ref": old_ref},
     )
     log.warning("engine_agent_moved_to_client_workspace", extra={"agent_id": str(agent_id)})
+
+
+async def retire_developer_workspace_agents(session: AsyncSession, *, tenant_id: UUID) -> int:
+    """Owe the deletion of every agent this closing account still has in OUR developer
+    workspace (D-697): a free-trial account's agents, and any made before D-693. The
+    account's own workspace is offboarded whole (`queue_workspace_offboarding`); these are
+    not in it, so without this they would stay at the vendor. Through the same outbox job a
+    move uses, which waits while a call is connected. In the caller's transaction."""
+    if not engine_has_workspaces():
+        return 0
+    from apps.api.reliability.service import enqueue_outbox
+
+    routes = (
+        await session.execute(
+            text(
+                "SELECT engine_agent_ref, agent_id FROM engine_agent_routes "
+                "WHERE tenant_id = :tid AND engine = :engine AND active ORDER BY engine_agent_ref"
+            ),
+            {"tid": tenant_id, "engine": get_engine().name},
+        )
+    ).all()
+    owed = 0
+    for ref, agent_id in routes:
+        if scope_of(str(ref)) is not None:
+            continue
+        await enqueue_outbox(
+            session,
+            job=RETIRE_MOVED_AGENT_JOB,
+            payload={"tenant_id": str(tenant_id), "agent_id": str(agent_id), "old_ref": str(ref)},
+        )
+        owed += 1
+    return owed
 
 
 async def _resync_agent_numbers(session: AsyncSession, *, agent_id: UUID) -> None:
@@ -2510,6 +2744,11 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     # answer; the campaign gates return `agreements_not_accepted` as a to-do row under the
     # same rule name from the same implementation.
     await assert_agreements_accepted(session, tenant_id=tenant_id)
+    # A FREE-TRIAL ACCOUNT'S AGENT PLACES TEST CALLS AND ANSWERS NOTHING (D-697): it has no
+    # number until it pays, so an answer-only agent is refused with the step that unlocks it.
+    trial_account = await restricting_trial(session, tenant_id=tenant_id) is not None
+    if trial_account and agent["direction"] == "inbound":
+        await refuse_on_trial(session, tenant_id=tenant_id, locked="inbound")
 
     # AN ARCHIVED AGENT IS NEVER RESURRECTED BY A REPUBLISH (D-440), and the guard is here
     # rather than only in `agents/lifecycle.py` because this function ends in
@@ -2527,6 +2766,12 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     # rather than a bare conflict.
     if agent["status"] == "archived":
         raise archived_refusal("published")
+    # GOING LIVE NEEDS THE BUSINESS'S FACTS (D-695): hours for after-hours handling, an
+    # address, a service and someone to hand a caller to. Asked only on the transition to
+    # live, so a profile edit can never knock a working agent off the phone on its next
+    # re-publish.
+    if agent["status"] != "live":
+        await assert_ready_to_go_live(session, tenant_id=tenant_id)
     # WHO TAKES A CALL THIS AGENT HANDS OVER, right now (D-533). Resolved BEFORE the
     # config is built rather than patched on afterwards like the action tools, because
     # `None` is a real answer here — outside every roster member's hours the agent is
@@ -2571,7 +2816,7 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     )
 
     config = await _in_client_workspace(
-        session, engine, tenant_id=tenant_id, agent=agent, config=config
+        session, engine, tenant_id=tenant_id, agent=agent, config=config, trial=trial_account
     )
     existing_ref = agent["engine_agent_ref"]
     # AN AGENT MADE IN OUR DEVELOPER WORKSPACE BEFORE D-693 is recreated in its client's own
@@ -2584,6 +2829,9 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     if isinstance(existing_ref, str) and existing_ref:
         await engine.update_agent(existing_ref, config)
         ref = existing_ref
+    elif trial_account:
+        with trial_agent_in_developer_workspace():
+            ref = await engine.create_agent(config)
     else:
         ref = await engine.create_agent(config)
 
@@ -3466,6 +3714,15 @@ async def _assert_dialling_tenant_owns_the_session(
         )
 
 
+@dataclass(frozen=True, slots=True)
+class TrialDial:
+    """A free-trial test call (D-697): rung from the shared trial number and cut off at
+    `max_call_seconds`. Built only by `agents/trial_calls.place_trial_call`."""
+
+    from_e164: str
+    max_call_seconds: int
+
+
 async def dispatch_call(
     session: AsyncSession,
     *,
@@ -3476,6 +3733,7 @@ async def dispatch_call(
     lead_name: str | None = None,
     context_note: str | None = None,
     on_reserved: Callable[[AsyncSession, UUID], Awaitable[None]] | None = None,
+    trial: TrialDial | None = None,
 ) -> str:
     """Place ONE outbound call. The caller has already passed the compliance gate.
 
@@ -3536,6 +3794,10 @@ async def dispatch_call(
     Raises `DialUnconfirmedError` when the engine call failed in a way that cannot rule out a
     ringing phone; the original `ProblemError` when the vendor refused before dialling
     (`DIAL_NOT_PLACED_CODES`), so those callers keep their retry ladder.
+
+    A `trial` dial (D-697) rings from the shared trial number, holds the one trial line from
+    the intent row until the call ends (`_hold_trial_line`), lends that number to the agent
+    before dialling, carries the per-call time limit, and takes part in no experiment.
     """
     await _assert_dialling_tenant_owns_the_session(session, tenant_id=tenant_id)
 
@@ -3553,12 +3815,20 @@ async def dispatch_call(
     # ever see this tenant's numbers; and BEFORE the intent row, so the ambiguity refusal
     # costs one indexed read and leaves no `queued` call behind for a dial that was never
     # going to be placed.
-    from_e164 = await resolve_caller_id(session, agent_id=agent_id)
+    from_e164 = (
+        trial.from_e164
+        if trial is not None
+        else await resolve_caller_id(session, agent_id=agent_id)
+    )
 
     # The stable unit: the lead when there is one, the destination otherwise. See
     # `agents/assignment.py` for why it is not the call id.
-    arm = await assignment.assign(
-        session, agent_id=agent_id, unit_key=str(lead_id) if lead_id else phone_e164
+    arm = (
+        None
+        if trial is not None
+        else await assignment.assign(
+            session, agent_id=agent_id, unit_key=str(lead_id) if lead_id else phone_e164
+        )
     )
     # An arm that has never been published has no engine agent to dial. Falling back to
     # the agent's own ref rather than failing: the client's call is the thing that
@@ -3585,6 +3855,8 @@ async def dispatch_call(
     call_id = uuid7()
     intent_engine_call_id = unconfirmed_engine_call_id(call_id)
     async with tenant_session(tenant_id) as intent:
+        if trial is not None:
+            await _hold_trial_line(intent)
         if carrier is not None:
             await _hold_carrier_line(intent, carrier=carrier)
         elif engine_capped:
@@ -3592,8 +3864,8 @@ async def dispatch_call(
         await intent.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
-                "carrier, status, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, "
-                "'outbound', :to_e, :carrier, 'queued', now(), now())"
+                "carrier, trial_call, status, created_at, updated_at) VALUES (:id, :tid, :aid, "
+                ":ecid, 'outbound', :to_e, :carrier, :trial, 'queued', now(), now())"
             ),
             {
                 "id": call_id,
@@ -3602,6 +3874,7 @@ async def dispatch_call(
                 "ecid": intent_engine_call_id,
                 "to_e": phone_e164,
                 "carrier": carrier,
+                "trial": trial is not None,
             },
         )
         # The arm rides the row it describes, in the row's own transaction. There is no
@@ -3613,14 +3886,28 @@ async def dispatch_call(
         if on_reserved is not None:
             await on_reserved(intent, call_id)
 
+    if trial is not None:
+        await _lend_trial_line(tenant_id, call_id=call_id, agent_ref=dial_ref)
+    from apps.api.actions.pre_dial import CallerPrefill, pre_dial_lookup
+
     engine = get_engine()
+    # The client's caller lookup, BEFORE the dial on an engine that takes a name and call
+    # variables (D-700): the person is greeted by name with no wait on the line.
+    prefill = (
+        await pre_dial_lookup(
+            session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone_e164
+        )
+        if engine.name in ACTION_ENGINES and trial is None
+        else CallerPrefill()
+    )
     try:
         handle = await engine.start_outbound_call(
             dial_ref,
             phone_e164,
             CallContext(
                 lead_id=str(lead_id) if lead_id else None,
-                lead_name=lead_name,
+                lead_name=lead_name or prefill.name,
+                fields=prefill.variables,
                 context_note=context_note,
                 # WHAT THIS AGENT ALREADY KNOWS ABOUT THE PERSON BEING DIALLED (D-513).
                 # Resolved HERE because this function is the platform's single outbound
@@ -3647,6 +3934,7 @@ async def dispatch_call(
                 # Our intent row's id, for an engine whose carrier calls back into our
                 # routes with it in the path (`calevate_shared.carrier.answer_path`).
                 call_id=str(call_id),
+                max_call_seconds=trial.max_call_seconds if trial is not None else None,
             ),
         )
     except Exception as exc:
@@ -3791,6 +4079,56 @@ async def _hold_engine_line(session: AsyncSession) -> None:
         raise lines_busy()
 
 
+#: Serialises every free-trial test call's "is the shared number free?" count with its
+#: intent row (D-697). Its own key: a trial dial must not queue behind every client's dials.
+TRIAL_LINE_LOCK_KEY: Final = 0x5452_4941_4C4C_494E
+TRIAL_LINE_BUSY_RULE: Final = "trial_line_busy"
+TRIAL_LINE_UNAVAILABLE_RULE: Final = "trial_line_unavailable"
+
+
+async def _hold_trial_line(session: AsyncSession) -> None:
+    """Refuse a test call while another one is live anywhere on the platform (D-697).
+
+    Every test call rings from ONE shared number, lent to one agent at a time
+    (`update-phone-number.md:144-145`), and what re-pointing it does to a call in progress
+    is not documented. So the line is held for the WHOLE call: the lock serialises the
+    count with this intent row, and from commit the row's own status is the hold, exactly
+    as `_hold_carrier_line` works. A call whose end is never reported ages out at
+    `trial_line_horizon()` (the call limit plus a margin), so a lost delivery cannot lock
+    trials out for good.
+    """
+    await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": TRIAL_LINE_LOCK_KEY})
+    in_use = int(
+        (
+            await session.execute(
+                text("SELECT trial_lines_in_use(make_interval(secs => :horizon))"),
+                {"horizon": trial_line_horizon().total_seconds()},
+            )
+        ).scalar_one()
+    )
+    if in_use > 0:
+        log.info("trial_call_refused_line_busy", extra={"trial_lines_in_use": in_use})
+        raise ProblemError.conflict(
+            TRIAL_LINE_BUSY_RULE,
+            "Another test call is in progress.",
+            remediation="Try again in a minute.",
+        )
+
+
+async def _lend_trial_line(tenant_id: UUID, *, call_id: UUID, agent_ref: str) -> None:
+    """Lend the shared trial number to the agent about to dial, or close the dial unplaced."""
+    from apps.api.campaigns.engine_numbers import lend_trial_line
+
+    if await lend_trial_line(agent_ref):
+        return
+    await _close_unplaced_dial(tenant_id, call_id=call_id, code=TRIAL_LINE_UNAVAILABLE_RULE)
+    raise ProblemError.business_rule(
+        TRIAL_LINE_UNAVAILABLE_RULE,
+        "Test calls are not available right now.",
+        remediation="Try again in a few minutes.",
+    )
+
+
 async def _confirm_dial(tenant_id: UUID, *, call_id: UUID, handle: str) -> None:
     """Stamp the vendor's handle onto the intent row, in its own transaction.
 
@@ -3926,6 +4264,9 @@ async def provision_number(
     the ordinary onboarding order.
     """
     await assert_visible(session, "agent", agent_id)
+    # A free-trial account records no number until it pays (D-697). Here, the one function
+    # every record path ends in, so neither an admin route nor a purchase can skip it.
+    await refuse_trial_numbers(session, tenant_id=tenant_id)
     if agent_id is not None:
         # Binding a number to a DELETED agent would undo the one thing deleting does at the
         # vendor: `lifecycle.archive_agent` RELEASES the agent's numbers, because inbound is
@@ -4344,7 +4685,9 @@ __all__ = [
     "CARRIER_SPELLINGS",
     "CREDIT_STOP_MESSAGE",
     "DIAL_NOT_PLACED_CODES",
+    "HEALER_FORWARD_LINE",
     "INBOUND_SILENCE_CREDITS",
+    "INBOUND_SILENCE_HEALER",
     "INBOUND_SILENCE_PRECEDENCE",
     "INBOUND_SILENCE_REASONS",
     "INBOUND_SILENCE_TRUTHFUL_ANSWER",
@@ -4356,9 +4699,12 @@ __all__ = [
     "UNCONFIRMED_ENGINE_CALL_PREFIX",
     "ArmToPublish",
     "DialUnconfirmedError",
+    "ForwardsLine",
+    "HealerHold",
     "InboundCutover",
     "InboundRouting",
     "agent_outbound_number_blocker",
+    "apply_healer_silence",
     "attach_number_to_agent",
     "carrier_lines_in_use",
     "carrier_of_provider",
@@ -4367,6 +4713,9 @@ __all__ = [
     "dial_was_not_placed",
     "dispatch_call",
     "effective_call_cap",
+    "healer_forward_greeting",
+    "healer_forward_prompt",
+    "lift_healer_silence",
     "outbound_carrier",
     "outbound_number_provider",
     "provision_number",

@@ -11,15 +11,22 @@ page's `documentKind`, so `kyc.numbering_submission_bundle` hands the next calle
 it can send unchanged. It is kept so it can be submitted and resubmitted, and is deleted
 when the account is erased (`workers/retention.execute_tenant_erasure`).
 
-THE OWNER'S ID — manual path only, an Aadhaar or a PAN card, kept only until a reviewer
+THE OWNER'S ID — manual path only, the owner's PAN card, kept only until a reviewer
 decides. The founder's rule (8 Oct 2026): the file is deleted once an admin approves or
 rejects (`request_owner_id_deletion`, then `delete_requested_documents`), and one never
 decided is deleted after `OWNER_ID_MAX_HOLD` (`workers/kyc_owner_id_purge`, which also
 retries every requested deletion that has not yet succeeded). What survives is the result
-and the MASKED identifier the client typed (`mask_pan`, `mask_aadhaar`). An Aadhaar upload
-must be the masked copy UIDAI issues; we cannot reliably tell a masked image from an
-unmasked one, so that rests on the client copy and the reviewer's instruction to reject an
-unmasked one.
+and the MASKED PAN the client typed (`mask_pan`).
+
+NO AADHAAR COPY ON THIS PATH (D-696). Aadhaar (Authentication and Offline Verification)
+Regulations 2021, reg. 16C(1), bars accepting an Aadhaar "in physical or electronic form
+(without authentication), as a proof of identity" without first verifying UIDAI's signature
+on its Secure QR code or offline e-KYC XML (docs/evidence/aadhaar-offline-and-pan-
+verification-2026-10-09.md). We do not verify that signature, so a reviewer looking at an
+Aadhaar image is exactly what the regulation forbids, masked copy or not. Aadhaar stays
+available through DigiLocker, where the licensed provider carries the UIDAI obligations.
+`kind = 'aadhaar'` survives only on rows uploaded before D-696; migration c5e9a2d71b48
+requested their deletion and its CHECK keeps any held one on its way out.
 
 ENCRYPTED BEFORE IT LEAVES THE PROCESS. Every file is sealed with `core/envelope.
 seal_bytes` under a fresh DEK, wrapped by the platform KEK, with the tenant and document id
@@ -52,12 +59,15 @@ from apps.api.db.result import rowcount_of
 log = get_logger(__name__)
 
 DocumentSlot = Literal["business", "owner_id"]
-OwnerIdType = Literal["aadhaar", "pan"]
 
 #: The numbering application's `documentKind` values (send-business-details.md:513-522).
 BUSINESS_DOCUMENT_KINDS: Final = ("gst", "incorporation", "udyam")
-#: The owner IDs the founder accepts (8 Oct 2026). `kind` -> the ID type it proves.
-OWNER_ID_KINDS: Final[dict[str, OwnerIdType]] = {"aadhaar": "aadhaar", "pan_card": "pan"}
+#: The owner IDs the manual path accepts: the PAN card only (D-696). `kind` -> the ID type
+#: it proves, which is what the client types at submit.
+OWNER_ID_KINDS: Final[dict[str, str]] = {"pan_card": "pan"}
+#: The owner-ID kind the manual path took before D-696. Refused with its own sentence, so a
+#: client holding an Aadhaar copy is told what to send instead.
+RETIRED_AADHAAR_KIND: Final = "aadhaar"
 
 KYC_MAX_DOCUMENT_BYTES: Final = 5 * 1024 * 1024
 KYC_MAX_FILENAME_CHARS: Final = 99
@@ -104,21 +114,16 @@ def mask_pan(pan: str) -> str:
     return f"XXXXX{cleaned[5:9]}X"
 
 
-def mask_aadhaar(last_four: str) -> str:
-    """The last four digits only -> `XXXX-XXXX-1234`. We never ask for the full number."""
-    cleaned = last_four.strip()
-    if not re.fullmatch(r"[0-9]{4}", cleaned):
-        raise _refuse(
-            "kyc_aadhaar_last_four_invalid",
-            "Enter only the last four digits of the Aadhaar",
-            "We never take a full Aadhaar number — only its last four digits.",
-            "Type the four digits at the end of the Aadhaar number.",
-        )
-    return f"XXXX-XXXX-{cleaned}"
-
-
-def masked_owner_id(*, id_type: OwnerIdType, value: str) -> str:
-    return mask_pan(value) if id_type == "pan" else mask_aadhaar(value)
+def aadhaar_copy_not_accepted() -> ProblemError:
+    """The refusal for an Aadhaar copy on the manual path (D-696), one wording for the
+    upload and the submit."""
+    return _refuse(
+        "kyc_aadhaar_copy_not_accepted",
+        "Please upload your PAN card instead",
+        "We can no longer accept a copy of an Aadhaar card when we check your documents "
+        "ourselves. The owner's PAN card is the ID we check.",
+        "Upload a clear photo or scan of the owner's PAN card and type its PAN.",
+    )
 
 
 # --- uploads ----------------------------------------------------------------------------
@@ -199,11 +204,12 @@ def assert_kind_fits_slot(*, slot: str, kind: str) -> DocumentSlot:
         return "business"
     if slot == "owner_id" and kind in OWNER_ID_KINDS:
         return "owner_id"
+    if slot == "owner_id" and kind == RETIRED_AADHAAR_KIND:
+        raise aadhaar_copy_not_accepted()
     raise _refuse(
         "kyc_document_kind_unknown",
         "That document type is not one we accept here",
-        "Business certificate: GST, incorporation or Udyam. Owner ID: Aadhaar (masked) or "
-        "PAN card.",
+        "Business certificate: GST, incorporation or Udyam. Owner ID: PAN card.",
         "Choose one of the listed document types.",
     )
 
@@ -425,20 +431,19 @@ __all__ = [
     "OWNER_ID_KINDS",
     "OWNER_ID_MAX_HOLD",
     "PAN_PATTERN",
+    "RETIRED_AADHAAR_KIND",
     "AcceptedFile",
     "DocumentSlot",
     "KycDocumentRow",
-    "OwnerIdType",
     "PendingDeletion",
+    "aadhaar_copy_not_accepted",
     "accept_upload",
     "assert_kind_fits_slot",
     "current_documents",
     "delete_requested_documents",
     "document_context",
     "mark_purged",
-    "mask_aadhaar",
     "mask_pan",
-    "masked_owner_id",
     "new_document_id",
     "open_document",
     "record_document",

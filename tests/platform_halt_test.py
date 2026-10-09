@@ -44,6 +44,7 @@ import uuid
 import pytest
 from apps.api.db.session import untenanted_session
 from apps.api.main import app
+from apps.api.ops import halt as ops_halt
 from apps.api.ops import routes as ops_routes
 from apps.api.ops.routes import platform_confirmation
 from httpx import ASGITransport, AsyncClient
@@ -343,7 +344,7 @@ async def test_the_halt_queues_the_recall_and_the_release_does_not(
         queued.append(job)
         return "job-id"
 
-    monkeypatch.setattr(ops_routes, "enqueue", _record)
+    monkeypatch.setattr(ops_halt, "enqueue", _record)
     token = await _make_admin()
     auth = {"Authorization": f"Bearer {token}"}
 
@@ -387,8 +388,8 @@ async def test_a_queue_that_cannot_be_reached_does_not_refuse_the_halt(
     async def _explode(job: str, *args: object, **kwargs: object) -> str:
         raise RuntimeError("redis is gone")
 
-    monkeypatch.setattr(ops_routes, "enqueue", _explode)
-    monkeypatch.setattr(ops_routes, "alert", lambda stage, code, **kw: fired.append(code))
+    monkeypatch.setattr(ops_halt, "enqueue", _explode)
+    monkeypatch.setattr(ops_halt, "alert", lambda stage, code, **kw: fired.append(code))
     token = await _make_admin()
 
     try:

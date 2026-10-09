@@ -2174,7 +2174,7 @@ describe("our own telemarketer registration", () => {
 
     // D-692: the server's is_live wins over a reassuring status, and not live is no
     // longer a launch blocker.
-    await screen.findByText("NOT REQUIRED (D-692)");
+    await screen.findByText("Not required for outbound");
     expect(screen.queryByText("LIVE — on record")).toBeNull();
   });
 

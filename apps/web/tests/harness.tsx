@@ -80,12 +80,18 @@ export class ProblemResponse {
   constructor(
     readonly status: number,
     readonly body: Record<string, unknown>,
+    readonly headers: Record<string, string> = {},
   ) {}
 }
 
 /** An RFC-9457 refusal, as `apiRequest` will see it. */
-export function problem(status: number, body: Record<string, unknown> = {}): ProblemResponse {
-  return new ProblemResponse(status, body);
+export function problem(
+  status: number,
+  body: Record<string, unknown> = {},
+  /** Extra response headers, e.g. `Retry-After` on a 429. */
+  headers: Record<string, string> = {},
+): ProblemResponse {
+  return new ProblemResponse(status, body, headers);
 }
 
 /**
@@ -317,7 +323,7 @@ export function stubApi(routes: Routes): ApiCall[] {
       if (answer instanceof ProblemResponse) {
         return new Response(JSON.stringify(answer.body), {
           status: answer.status,
-          headers: { "content-type": "application/problem+json" },
+          headers: { "content-type": "application/problem+json", ...answer.headers },
         });
       }
       return jsonResponse(answer);

@@ -51,6 +51,9 @@ export function hubUsageIdle(): Routes {
     [HUB_SPEND_ROUTE]: stillLoading(),
     [HUB_STATEMENTS_ROUTE]: stillLoading(),
     [HUB_SPEND_SERIES_ROUTE]: stillLoading(),
+    // The auto-recharge card on the Overview (D-699); its own suite answers these.
+    "/v1/billing/auto-recharge": stillLoading(),
+    "/v1/billing/auto-recharge/charges?limit=20": stillLoading(),
   };
 }
 

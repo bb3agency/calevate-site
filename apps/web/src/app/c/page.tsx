@@ -28,12 +28,16 @@
  */
 
 import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { Providers } from "@/app/providers";
 import { AuthPageFrame } from "@/components/authPage";
 import { AuthProblemNotice } from "@/components/authn/fields";
 import { Card, Skeleton } from "@/components/ui";
 import { useUnscopedMe } from "@/lib/api/hooks";
+import { apiRequest } from "@/lib/api/client";
+import { BUSINESS_PROFILE_PATH, type BusinessProfile } from "@/lib/api/businessProfile";
+import { clientRealmSession } from "@/lib/authn/realmSessions";
 import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 import { ClientSessionGate, ClientSessionProvider } from "@/lib/authn/clientSession";
 
@@ -57,12 +61,32 @@ function Resolve() {
   // needed "who am I, without a slug" the read moved rather than being copied.
   const me = useUnscopedMe();
   const slug = me.data?.organization?.slug ?? null;
+  // AN OWNER WHO HAS NEVER OPENED THE BUSINESS SETUP STARTS THERE (D-695): their first
+  // sign-in. Anyone else, or an owner who has started or hidden it, goes to the dashboard.
+  // A failed read of the profile keeps nobody out: it falls through to the dashboard, whose
+  // setup checklist reads the same answer again.
+  // Only decided once `/v1/me` has answered: `slug` is null until then, so nothing below
+  // runs on a guess.
+  const owner =
+    me.data !== undefined &&
+    me.data.permissions.includes("org:manage") &&
+    me.data.impersonating === false;
+  const profile = useQuery({
+    queryKey: ["junction-business-profile", slug],
+    queryFn: () =>
+      apiRequest<BusinessProfile>(clientRealmSession(slug as string), BUSINESS_PROFILE_PATH),
+    enabled: Boolean(slug) && owner,
+    retry: false,
+  });
+  const decided = !owner || profile.isSuccess || profile.isError;
+  const firstVisit =
+    profile.data !== undefined && !profile.data.setup.started && !profile.data.setup.dismissed;
 
   useEffect(() => {
-    if (!slug || typeof window === "undefined") return;
+    if (!slug || !decided || typeof window === "undefined") return;
     // `replace`: see the module docstring — this junction must not sit in the history.
-    window.location.replace(`/c/${slug}`);
-  }, [slug]);
+    window.location.replace(firstVisit ? `/c/${slug}/setup` : `/c/${slug}`);
+  }, [slug, decided, firstVisit]);
 
   if (me.error != null) {
     return (

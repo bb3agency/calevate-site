@@ -23,7 +23,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -60,6 +60,9 @@ PLAN_TIERS = ("managed", "prepaid", "self_serve", "trial")
 #: and an admin module is not something the money layer may import. `admin.service`
 #: re-exports it, so the name every caller already uses still resolves.
 DEFAULT_PLAN_TIER = "prepaid"
+#: How an account first paid (D-697): a gateway top-up, a bank transfer an operator credited
+#: to the wallet, or "it existed before the rule" (the backfill). A goodwill grant is not one.
+FIRST_PAID_VIA = ("wallet_topup", "manual_topup", "before_d697")
 MEMBER_ROLES = ("owner", "staff")
 #: RE-EXPORTED, NOT RESTATED. `core/rbac.ROLE_PERMISSIONS` is keyed by these two names and
 #: `authn/bootstrap` validates against them; a second literal here is how a role table and
@@ -73,6 +76,14 @@ class Organization(PKMixin, TimestampMixin, Base):
         CheckConstraint("slug ~ '^[a-z0-9-]{3,40}$'", name="slug_shape"),
         CheckConstraint(f"status IN {ORG_STATUSES!r}".replace("(", "(", 1), name="status_enum"),
         CheckConstraint(f"plan_tier IN {PLAN_TIERS!r}", name="plan_tier_enum"),
+        # How an account first paid (D-697, migration a2f7c4e9d61b), and the two together.
+        CheckConstraint(
+            f"first_paid_via IS NULL OR first_paid_via IN {FIRST_PAID_VIA!r}",
+            name="first_paid_via_enum",
+        ),
+        CheckConstraint(
+            "(first_paid_at IS NULL) = (first_paid_via IS NULL)", name="first_paid_together"
+        ),
         # The account's language-model choice, admitted only from the catalogue.
         # DERIVED from `LLM_MODEL_NAMES`, never retyped (D-104): the frozenset is the
         # source, `sorted` makes the rendered SQL byte-stable across interpreter runs, and
@@ -115,14 +126,11 @@ class Organization(PKMixin, TimestampMixin, Base):
     # it is spelled from the constant so the column and the wizard cannot disagree.
     plan_tier: Mapped[str] = mapped_column(String, nullable=False, server_default=DEFAULT_PLAN_TIER)
     billing_email: Mapped[str | None] = mapped_column(Text)
-    # The wizard's intake answer sheet (FLOWS §1 step 3), raw and resumable: the fields
-    # an operator typed, not the [T0 FACTS] block compiled out of them. Lives here
-    # because these are the BUSINESS's own facts — hours, branches, prices, staff — and
-    # `organizations` is the row that is the business (DATA-MODEL §2); the per-agent
-    # halves stay on `agents` (§3). Envelope shape and the reasons for the column rather
-    # than a `client_intake` table: migration c1f3a7d92b46. Validated at the API
-    # boundary by `admin.intake.IntakeFacts` (§10), envelope pinned by a CHECK.
-    # Contains staff names and escalation numbers: never log it (hard rule 6).
+    # The admin wizard's old intake answer sheet (migration c1f3a7d92b46). NOTHING WRITES
+    # OR READS IT since D-695: migration f4c8b2e6a1d9 copied it into `business_profiles`,
+    # which is the one home of the business's facts. Kept for one release (hard rule 8's
+    # two-step) and as the downgrade's restore target. Staff names and escalation numbers:
+    # never log it (hard rule 6).
     intake: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # WHICH LANGUAGE MODEL THIS ACCOUNT'S AGENTS RUN when the agent itself names none —
     # the middle rung of `agent -> organization -> platform`
@@ -208,6 +216,14 @@ class Organization(PKMixin, TimestampMixin, Base):
     closed_by: Mapped[UUID | None] = mapped_column(
         ForeignKey("admin_users.id", ondelete="SET NULL")
     )
+    #: WHEN THIS ACCOUNT FIRST PAID, and how (D-697, migration a2f7c4e9d61b). NULL until
+    #: then. Written once, by `billing/first_payment.record_first_payment` only, in the
+    #: transaction that credits the payment. It ends a free trial, unlocks KYC, numbers and
+    #: live calling, and is what owes the account its own voice workspace
+    #: (`first_payment.PAID_TENANT_SQL`). `before_d697` marks an account that existed
+    #: before the rule and keeps what it had.
+    first_paid_at: Mapped[datetime | None]
+    first_paid_via: Mapped[str | None] = mapped_column(Text)
 
 
 class ReservedSlug(Base):
@@ -290,6 +306,131 @@ class Invitation(PKMixin, TimestampMixin, Base):
     #: wait when they need not, or worse, the reverse.
     last_sent_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     send_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
+    #: The invitee's name and mobile as the operator typed them on the new-client form
+    #: (D-695). Used once, when the invitation is accepted, to fill the new `users` row;
+    #: a name the invitee types at acceptance wins. PII: never logged (hard rule 6).
+    invitee_name: Mapped[str | None] = mapped_column(Text)
+    invitee_phone: Mapped[str | None] = mapped_column(Text)
+
+
+#: The setup wizard's steps, in the order the wizard asks them (D-695). One topic each.
+PROFILE_STEPS = (
+    "hours",
+    "branches",
+    "services",
+    "faqs",
+    "staff",
+    "booking",
+    "contacts",
+    "languages",
+)
+
+
+class BusinessProfile(PKMixin, TimestampMixin, Base):
+    """THE business's own facts, one row per client (D-695, migration f4c8b2e6a1d9).
+
+    The single source of what every agent of this client says about the business: the
+    [T0 FACTS] block of every agent is compiled from it (`agents/t0.py`), the after-hours
+    flag and the handover rota are judged against its hours, and each agent's extra
+    languages are its languages. The client fills it in a skippable setup wizard and edits
+    it later under Settings; an operator edits it through view-as.
+
+    `hours` maps a weekday to `{"opens", "closes"}` or to null. Null is CLOSED; an absent
+    day is NOT ANSWERED YET. The agent says different things about the two.
+
+    Escalation contacts are not here: they are `business_contacts`, rows an agent's
+    handover list points at. Phone numbers never enter the prompt.
+    """
+
+    __tablename__ = "business_profiles"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", name="uq_business_profiles_tenant"),
+        CheckConstraint("jsonb_typeof(hours) = 'object'", name="ck_business_profiles_hours"),
+        CheckConstraint(
+            "jsonb_typeof(branches) = 'array' AND jsonb_typeof(services) = 'array' "
+            "AND jsonb_typeof(faqs) = 'array' AND jsonb_typeof(staff) = 'array'",
+            name="ck_business_profiles_lists",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(setup_steps) = 'object'", name="ck_business_profiles_setup_steps"
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    hours: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    branches: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    #: Prices are digit STRINGS inside each item (hard rule 7): what the agent reads out is
+    #: exactly what the client typed.
+    services: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    faqs: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    staff: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    booking_rules: Mapped[str | None] = mapped_column(Text)
+    #: Every language the business serves, primaries included. An agent speaks these
+    #: besides its own primary language.
+    languages: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
+    )
+    #: Setup wizard progress: `{step: "done" | "skipped"}`. A step that is absent has not
+    #: been reached. Server-side so it follows the client across devices.
+    setup_steps: Mapped[dict[str, str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    setup_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    setup_dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: What the D-695 data migration could not merge when a client's agents disagreed —
+    #: the value kept and the values set aside, per field. Written by that migration only,
+    #: shown to operators, never to the client.
+    merge_notes: Mapped[list[Any] | None] = mapped_column(JSONB)
+    updated_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+
+
+class BusinessContact(PKMixin, TimestampMixin, Base):
+    """One person who can take a call the agents hand over (D-695).
+
+    The client's roster, kept once for the whole business. Each agent's handover list
+    (`agent_handoff_members`) is an ordered SELECTION from these rows, so an agent can put
+    callers through to a subset. Deleting a contact removes it from every agent's list.
+    """
+
+    __tablename__ = "business_contacts"
+    __table_args__ = (
+        CheckConstraint("position >= 0", name="ck_business_contacts_position"),
+        CheckConstraint("length(btrim(label)) > 0", name="ck_business_contacts_label_nonempty"),
+        # Doubled with the Pydantic pattern because this number is dialled.
+        CheckConstraint(
+            r"phone_e164 ~ '^\+[1-9][0-9]{7,18}$'", name="ck_business_contacts_phone_e164"
+        ),
+        # DEFERRED so one save can swap two contacts' numbers.
+        UniqueConstraint(
+            "tenant_id",
+            "phone_e164",
+            name="uq_business_contacts_phone",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    #: PII (hard rule 6): a member of the client's staff, often on a personal mobile.
+    phone_e164: Mapped[str] = mapped_column(Text, nullable=False)
+    #: When they can be reached, in the client's words. Never parsed into a schedule.
+    note: Mapped[str | None] = mapped_column(Text)
 
 
 class AdminUser(PKMixin, TimestampMixin, Base):

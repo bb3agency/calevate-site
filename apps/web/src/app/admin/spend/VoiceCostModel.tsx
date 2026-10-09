@@ -192,7 +192,7 @@ function SpeakingRate({ rate }: { rate: TtsSpeakingRate }) {
           Replaces the assumed {trimRate(rate.assumed_low.chars_per_minute)}–
           {trimRate(rate.assumed_high.chars_per_minute)} chars/min (
           {formatRupeeRate(rate.assumed_low.tts_inr_per_minute)}–
-          {formatRupeeRate(rate.assumed_high.tts_inr_per_minute)}/min) in TRD §10.1.
+          {formatRupeeRate(rate.assumed_high.tts_inr_per_minute)}/min) used in the cost model.
         </p>
         <FleetFloorLine rate={rate} />
       </div>
@@ -212,7 +212,7 @@ function SpeakingRate({ rate }: { rate: TtsSpeakingRate }) {
       {/* Whether a voice has a confirmed price is not a measurement and does not wait on one. */}
       <SpeakingRateByVendor rate={rate} />
       <p>
-        Until then the cost floor rests on TRD §10.1&apos;s assumed{" "}
+        Until then the cost floor rests on the assumed{" "}
         {trimRate(rate.assumed_low.chars_per_minute)}–
         {trimRate(rate.assumed_high.chars_per_minute)} chars/min (
         {formatRupeeRate(rate.assumed_low.tts_inr_per_minute)}–

@@ -232,9 +232,11 @@ def compose_whisper(
     )
 
 
+#: The hours are the business's, from its one profile (D-695).
 _AGENT_SQL: Final = (
-    "SELECT handoff_enabled, business_hours, language_primary FROM agents "
-    "WHERE id = :aid AND deleted_at IS NULL"
+    "SELECT a.handoff_enabled, "
+    "(SELECT bp.hours FROM business_profiles bp WHERE bp.tenant_id = a.tenant_id), "
+    "a.language_primary FROM agents a WHERE a.id = :aid AND a.deleted_at IS NULL"
 )
 
 #: `ON CONFLICT DO NOTHING` on the execution rather than SELECT-then-INSERT, and the

@@ -45,7 +45,6 @@ from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.reliability.service import enqueue_outbox
-from apps.api.tenancy.engine_workspace import queue_workspace_provisioning
 from apps.api.tenancy.lifecycle import assert_account_open
 from apps.api.tenancy.models import DEFAULT_PLAN_TIER as _DEFAULT_PLAN_TIER
 
@@ -416,10 +415,9 @@ async def _write_tenant_root(
                 ),
                 {"id": uuid7(), "tid": tenant_id, "uid": owner_user_id},
             )
-        # ITS OWN VOICE WORKSPACE IS OWED FROM BIRTH (D-693), in the birth transaction and
-        # through the outbox, so no tenant exists without its provisioning queued. A no-op
-        # on an engine without customer workspaces.
-        await queue_workspace_provisioning(session, tenant_id=tenant_id)
+        # NO VOICE WORKSPACE IS QUEUED AT BIRTH (D-695): a workspace slot is scarce and paid
+        # for, and an account nobody pays for must not hold one. What owes a workspace is
+        # decided elsewhere; the operator's "Create workspace now" queues one by hand.
         if on_created is not None:
             await on_created(session, tenant_id)
     return agent_id
@@ -432,7 +430,14 @@ def _json(value: Any) -> str:
 
 
 async def create_invitation(
-    session: AsyncSession, *, tenant_id: UUID, email: str, role: str, created_by: UUID | None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    email: str,
+    role: str,
+    created_by: UUID | None,
+    invitee_name: str | None = None,
+    invitee_phone: str | None = None,
 ) -> tuple[UUID, str]:
     """Single-use, 72h, HASHED at rest (FLOWS §2). Returns `(id, RAW token)`; the token
     is returned exactly once — it is never stored and never logged, so a leaked database
@@ -508,7 +513,8 @@ async def create_invitation(
     await session.execute(
         text(
             "INSERT INTO invitations (id, tenant_id, email, role, token_hash, expires_at, "
-            "created_by, created_at, updated_at) VALUES (:id, :tid, :email, :role, :hash, "
+            "created_by, invitee_name, invitee_phone, created_at, updated_at) "
+            "VALUES (:id, :tid, :email, :role, :hash, "
             # ONE CLOCK PER DEADLINE (D-322). This was `datetime.now(UTC) + INVITE_TTL`,
             # the API process's clock, while BOTH readers of the column compare it with
             # the database's: `expires_at > now()` in the pending-invitation probe above
@@ -518,7 +524,7 @@ async def create_invitation(
             # Python expression is evaluated when the statement is built, so an invitation
             # created after other work in the same request silently outlived its stated
             # 72 hours by however long that work took.
-            "now() + make_interval(secs => :ttl_s), :by, now(), now())"
+            "now() + make_interval(secs => :ttl_s), :by, :iname, :iphone, now(), now())"
         ),
         {
             "id": invitation_id,
@@ -528,6 +534,8 @@ async def create_invitation(
             "hash": sha256(raw.encode()).hexdigest(),
             "ttl_s": INVITE_TTL.total_seconds(),
             "by": created_by,
+            "iname": invitee_name,
+            "iphone": invitee_phone,
         },
     )
     return invitation_id, raw

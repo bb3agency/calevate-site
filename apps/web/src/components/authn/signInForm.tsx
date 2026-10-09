@@ -14,64 +14,61 @@
  * `POST /login` returns `authenticated` or `otp_required`, and this form reads that field
  * and nothing else. It does not know that `MFA_REQUIRED_REALMS` contains the admin realm
  * and not the client one, and it must not: a client that decided for itself which realms
- * need a second factor is a client that can be wrong about it, and the direction it would
- * be wrong in is skipping one. The server owns the verdict, the form renders it.
+ * need a second factor could be wrong about it in the direction of skipping one.
  *
- * ## The four §5.7 defects this form is shaped by
+ * ## The §5.7 defects this form is shaped by
  *
- * **2 — the user-enumeration oracle.** Theirs distinguishes a known admin with a wrong
- * password (401 `INVALID_CREDENTIALS`), a deactivated admin (401 `UNAUTHORISED`) and an
- * unknown address (a 200 with a generic message), and renders three different sentences.
- * Ours cannot: the server answers all three with one status, one body and — via
- * `verify_password_blocking` against a dummy hash — one wall-clock cost, and this form
- * renders one fixed sentence chosen by problem code with no reference to the address that
- * was typed. `tests/authnScreens.test.tsx` drives two different upstream bodies
- * through it and asserts the DOM is character-identical.
+ * **2 — the user-enumeration oracle.** The server answers an unknown address, a wrong
+ * password and a deactivated account identically, and this form renders one fixed sentence
+ * chosen by problem code with no reference to the address that was typed.
+ * `tests/authnScreens.test.tsx` drives two different upstream bodies through it and asserts
+ * the DOM is character-identical.
  *
- * **3 — the dev OTP bypass.** There is no `devOtp` field on any response here, nothing
- * reads `process.env` on this path, and no code is ever auto-filled. A credential in a
- * response body is not made safe by an environment variable, and the guard test
- * `tests/authnSourceGuards.test.ts` reads this directory's source to keep it that way.
+ * **3 — the dev OTP bypass.** No response carries a code, nothing reads `process.env` on
+ * this path, and no code is ever auto-filled by us (the platform's own one-time-code
+ * autofill is the person's, not ours). `tests/authnSourceGuards.test.ts` keeps it so.
  *
- * **4 — the duplicated countdown.** One `useCountdown`, keyed on an absolute deadline,
- * cleaned up by its own effect. Pressing resend replaces the deadline rather than starting
- * a second interval, so the cooldown cannot tick at double speed and nothing survives
- * unmount.
+ * **4 — the duplicated countdown.** One `useCountdown`, keyed on an absolute deadline.
+ * Resend replaces the deadline rather than starting a second interval.
  *
- * **5 — the password held across the OTP step.** Theirs keeps it in form state for the
- * whole OTP window so that "resend" can re-post it. **Ours clears it the instant step one
- * succeeds**, and can, because the backend already issues the short-lived challenge §5.7
- * asks for: `POST /login` sets a session cookie on the `otp_required` branch too, that
- * session can reach exactly one route, and `POST /login/otp/resend` therefore takes NO
- * BODY. The challenge is the cookie. Nothing about the password needs to survive.
+ * **5 — the password held across the OTP step.** Cleared the instant step one succeeds:
+ * `POST /login` sets a session cookie on the `otp_required` branch too, that session can
+ * reach exactly one route, and `POST /login/otp/resend` therefore takes no body.
+ *
+ * ## The code step
+ *
+ * The code submits itself when the last digit lands, through `submitOnce`, which a ref
+ * guards so a paste, an autofill and a quick Enter cannot send the same code twice. A
+ * refused code clears the boxes and shakes them, and focus stays in the field for the next
+ * try. The resend countdown starts at the server's cooldown and, if the server refuses a
+ * resend anyway, restarts from its `Retry-After`.
  */
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
-import { ArrowLeft, KeyRound, LogIn, Mail } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 import { AuthField, AuthProblemNotice } from "@/components/authn/fields";
-import { Card, NoticeBox, PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
+import { OtpInput } from "@/components/interior/otp-input";
+import { NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
 import {
   SIGN_OUT_INCOMPLETE_PARAM,
   SIGN_OUT_INCOMPLETE_VALUE,
 } from "@/components/authn/sidebarSignOut";
+import { ApiProblem } from "@/lib/api/client";
+import { OTP_LENGTH, OTP_RESEND_COOLDOWN_MS } from "@/lib/authn/otp";
 import { MAX_PASSWORD_CHARS } from "@/lib/authn/password";
+import { AUTHN_CODES, codeOf } from "@/lib/authn/problems";
 import type { AuthnSession, RealmAuthn } from "@/lib/authn/realm";
 import { useCountdown } from "@/lib/authn/useCountdown";
 
-/**
- * How long before a fresh code can be asked for.
- *
- * Sixty seconds, the reference's number and the ordinary one for an emailed code. It is a
- * COURTESY bound, not a security control — the security control is server-side
- * (`OTP_BUDGET`: five failures in ten minutes, and a new code retires the previous one so
- * resending cannot accumulate parallel codes). Saying that here matters because a
- * client-side cooldown that looked like the real limit would invite somebody to relax it.
- */
-const RESEND_COOLDOWN_MS = 60_000;
+/** The full-width primary action an auth card ends with. */
+const SUBMIT = `${PRIMARY_BUTTON} w-full justify-center py-2.5`;
+/** A quiet text action: the resend and the step back. */
+const TEXT_ACTION =
+  "inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-brand-strong underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 dark:text-brand-bright touch:min-h-11";
 
 export interface SignInFormProps {
   /** The realm this form signs into. A literal at every call site. */
@@ -80,18 +77,17 @@ export interface SignInFormProps {
   onSignedIn: (session: AuthnSession | null) => void;
   /** This realm's password-reset page. */
   forgotPath: string;
+  /** The screen's heading and lead for the password step. */
+  heading: ReactNode;
   /** Extra copy under the form — the invitation hint, the bootstrap hint. */
-  footer?: React.ReactNode;
+  footer?: ReactNode;
 }
 
 /**
  * Did the sidebar's sign-out reach the server, or only this browser?
  *
  * Read from `window.location.search` on mount rather than through `useSearchParams`,
- * which in the App Router forces every page rendering this form into a Suspense boundary
- * or fails the build -- a large blast radius for one optional notice. The value is read
- * ONCE: a person who then signs in and out again gets the state their latest click
- * produced, not a parameter left in the bar.
+ * which in the App Router forces every page rendering this form into a Suspense boundary.
  */
 function useIncompleteSignOut(): boolean {
   const [incomplete, setIncomplete] = useState(false);
@@ -104,36 +100,26 @@ function useIncompleteSignOut(): boolean {
 
 type Step = "credentials" | "code";
 
-export function SignInForm({ authn, onSignedIn, forgotPath, footer }: SignInFormProps) {
+export function SignInForm({ authn, onSignedIn, forgotPath, heading, footer }: SignInFormProps) {
   const [step, setStep] = useState<Step>("credentials");
   const signOutIncomplete = useIncompleteSignOut();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
+  const [shakes, setShakes] = useState(0);
+  const [resent, setResent] = useState(false);
   const [resendReadyAt, setResendReadyAt] = useState<number | null>(null);
   const cooldown = useCountdown(resendReadyAt);
   const codeField = useRef<HTMLInputElement>(null);
   const emailField = useRef<HTMLInputElement>(null);
+  const codeInFlight = useRef(false);
   /**
-   * Has a step change happened yet? First paint is not one.
-   *
-   * The focus move below has to fire when the step CHANGES and not when the page loads.
-   * Stealing focus on arrival would scroll a small screen past the heading and interrupt a
-   * screen reader mid-page, and it is not what a person opening a sign-in page asked for.
+   * A step change unmounts the control that had focus, so focus is put somewhere — but
+   * only when the step CHANGES, never on first paint, where stealing focus would scroll a
+   * small screen past the heading and interrupt a screen reader mid-page.
    */
   const stepChanged = useRef(false);
 
-  /**
-   * A step change unmounts the control that had focus, so this puts it somewhere.
-   *
-   * BOTH DIRECTIONS, and the second one was missing. Going forward, the Sign in button
-   * disappears and focus lands on the code field. Going BACK — "Use a different email
-   * address" — the whole code form unmounts including the button that was just pressed,
-   * and without this focus falls to `<body>`: a keyboard or screen-reader user is dropped
-   * at the top of a page that changed under them, which is the precise failure the forward
-   * half of this effect exists to prevent. `tests/a11y.ts` names focus order as a barrier
-   * axe cannot see, which is why it is pinned by a test rather than a sweep.
-   */
   useEffect(() => {
     if (!stepChanged.current) {
       stepChanged.current = true;
@@ -146,57 +132,80 @@ export function SignInForm({ authn, onSignedIn, forgotPath, footer }: SignInForm
   const signIn = useMutation({
     mutationFn: () => authn.signIn({ email: email.trim(), password }),
     onSuccess: (status) => {
+      // §5.7 defect 5: the password's last use has happened.
+      setPassword("");
       if (status === "authenticated") {
-        setPassword("");
         onSignedIn(null);
         return;
       }
-      // §5.7 defect 5: the password's last use has happened. Cleared here, not on
-      // unmount, not on success of the second step.
-      setPassword("");
       setCode("");
-      setResendReadyAt(Date.now() + RESEND_COOLDOWN_MS);
+      setResent(false);
+      setResendReadyAt(Date.now() + OTP_RESEND_COOLDOWN_MS);
       setStep("code");
     },
   });
 
   const submitCode = useMutation({
-    mutationFn: () => authn.submitSecondFactor(code.trim()),
+    mutationFn: (value: string) => authn.submitSecondFactor(value),
     onSuccess: (session) => {
       setCode("");
       onSignedIn(session);
     },
+    onError: () => {
+      // The refused code is gone from the boxes so the next try starts clean; focus never
+      // left the field (it is read-only, not disabled, while the check runs).
+      setCode("");
+      setShakes((n) => n + 1);
+      codeInFlight.current = false;
+    },
   });
+
+  const submitOnce = useCallback(
+    (value: string) => {
+      if (codeInFlight.current || value.length !== OTP_LENGTH) return;
+      codeInFlight.current = true;
+      setResent(false);
+      submitCode.mutate(value);
+    },
+    [submitCode],
+  );
 
   const resend = useMutation({
     // No arguments. The live session is the challenge — see the file docstring.
     mutationFn: () => authn.resendSecondFactor(),
     onSuccess: () => {
       setCode("");
-      setResendReadyAt(Date.now() + RESEND_COOLDOWN_MS);
-      // The previous refusal is about a code that no longer exists — a new code retires
-      // it server-side (`OTP_BUDGET`), and the field it was typed into has just been
-      // cleared. Left on screen it is a red sentence attached to nothing, and on a step
-      // whose only other feedback is a countdown it reads as the RESEND having failed:
-      // the person presses again, into a cooldown that refuses them. `AuthProblemNotice`
-      // below renders `submitCode.error ?? resend.error`, so this is the only place that
-      // sentence can be retired.
+      setResent(true);
+      setResendReadyAt(Date.now() + OTP_RESEND_COOLDOWN_MS);
+      // The previous refusal is about a code that no longer exists; left on screen it
+      // reads as the resend having failed.
       submitCode.reset();
+      codeField.current?.focus();
+    },
+    onError: (error) => {
+      // The server's own clock wins: a refusal inside its cooldown says how long is left.
+      if (
+        codeOf(error) === AUTHN_CODES.resendTooSoon &&
+        error instanceof ApiProblem &&
+        error.retryAfterSeconds !== undefined
+      ) {
+        setResendReadyAt(Date.now() + error.retryAfterSeconds * 1000);
+      }
     },
   });
 
   const startOver = useCallback(() => {
-    // Ends the half-authenticated session rather than merely hiding it. A `live` session
-    // that has not answered its code is still a session, and leaving one behind because
-    // somebody pressed "use a different address" is a credential nobody is watching.
+    // Ends the half-authenticated session rather than merely hiding it.
     void authn.signOut().catch(() => {
-      // A failed sign-out must not trap the person on this step; the local reset below is
-      // what the screen needs, and the server-side session expires on its own bound.
+      // A failed sign-out must not trap the person on this step; the server-side session
+      // expires on its own bound.
     });
     setStep("credentials");
     setPassword("");
     setCode("");
+    setResent(false);
     setResendReadyAt(null);
+    codeInFlight.current = false;
     signIn.reset();
     submitCode.reset();
     resend.reset();
@@ -204,143 +213,153 @@ export function SignInForm({ authn, onSignedIn, forgotPath, footer }: SignInForm
 
   const onCredentials = (event: FormEvent) => {
     event.preventDefault();
-    // The single-flight submit guard. `disabled` on the button is not enough on its own:
-    // Enter in a text field submits the form, and a second Enter before React re-renders
-    // would dispatch a second sign-in.
+    // Single flight: Enter in a text field submits the form, and a second Enter before
+    // React re-renders would otherwise dispatch a second sign-in.
     if (signIn.isPending) return;
     signIn.mutate();
   };
 
   const onCode = (event: FormEvent) => {
     event.preventDefault();
-    if (submitCode.isPending) return;
-    submitCode.mutate();
+    submitOnce(code);
   };
 
   if (step === "code") {
+    const checking = submitCode.isPending;
+    const refused = submitCode.isError && code === "";
     return (
-      <Card>
-        <form className="space-y-4" onSubmit={onCode} noValidate>
-          <div className="space-y-1">
-            <h2 className="flex items-center gap-2 text-base font-semibold text-ink">
-              <Mail aria-hidden className="h-4 w-4" />
-              Enter the code we emailed
-            </h2>
-            {/* The address is NOT printed back. It is on screen nowhere in this step,
-                which keeps a shoulder-surfed screenshot from carrying an operator's
-                address alongside the fact that it is an operator's address. */}
-            <p className="text-sm text-ink-muted">
-              Your password was accepted. We have sent a six-digit code to the address on
-              file for this account. It is good for ten minutes.
-            </p>
-          </div>
-
-          <AuthField
-            label="Six-digit code"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            // Focus moves here because the STEP changed and the control that had it has
-            // unmounted; without this, focus falls to `<body>` and a keyboard or
-            // screen-reader user is dropped at the top of a page that just changed under
-            // them. `tests/a11y.ts` names focus order as a barrier axe cannot see.
-            inputRef={codeField}
-            maxLength={16}
-            value={code}
-            onChange={(event) => setCode(event.target.value)}
-          />
-
-          <AuthProblemNotice error={submitCode.error ?? resend.error} />
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="submit"
-              className={PRIMARY_BUTTON}
-              disabled={submitCode.isPending || code.trim().length === 0}
-            >
-              <KeyRound aria-hidden className="h-4 w-4" />
-              {submitCode.isPending ? "Checking…" : "Finish signing in"}
-            </button>
-            <button
-              type="button"
-              className={SECONDARY_BUTTON}
-              disabled={resend.isPending || cooldown > 0}
-              onClick={() => {
-                if (resend.isPending || cooldown > 0) return;
-                resend.mutate();
-              }}
-            >
-              {cooldown > 0 ? `Send a new code in ${cooldown}s` : "Send a new code"}
-            </button>
-          </div>
-
-          <p className="text-xs text-ink-faint">
-            A new code replaces the previous one, so use the most recent email.
+      <form className="space-y-5" onSubmit={onCode} noValidate>
+        <div className="space-y-1.5">
+          <h1 className="text-balance text-2xl font-semibold tracking-tight text-ink">
+            Check your email
+          </h1>
+          {/* The address is NOT printed back, so a shoulder-surfed screenshot of this step
+              does not pair an address with the fact that it signs in here. */}
+          <p className="text-sm text-ink-muted">
+            We sent a {OTP_LENGTH}-digit code to the email address on this account. It
+            works for 10 minutes.
           </p>
+        </div>
 
-          <button type="button" className={SECONDARY_BUTTON} onClick={startOver}>
+        <OtpInput
+          label="Six-digit code"
+          length={OTP_LENGTH}
+          value={code}
+          onChange={(next) => {
+            setCode(next);
+            setResent(false);
+          }}
+          onComplete={submitOnce}
+          status={refused ? "error" : "idle"}
+          shakeKey={shakes}
+          readOnly={checking}
+          inputRef={codeField}
+        />
+
+        <AuthProblemNotice error={submitCode.error ?? resend.error} />
+
+        {/* Announced politely: the person asked for this and is not interrupted by it. */}
+        <p role="status" className="min-h-5 text-sm text-ink-muted">
+          {checking ? "Checking the code…" : resent ? "A new code is on its way. It replaces the last one." : ""}
+        </p>
+
+        <button
+          type="submit"
+          className={SUBMIT}
+          disabled={checking || code.length !== OTP_LENGTH}
+        >
+          Finish signing in
+        </button>
+
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <button
+            type="button"
+            className={TEXT_ACTION}
+            disabled={resend.isPending || cooldown > 0}
+            onClick={() => {
+              if (resend.isPending || cooldown > 0) return;
+              resend.mutate();
+            }}
+          >
+            {cooldown > 0 ? (
+              <>
+                Send a new code in <span className="tabular-nums">{cooldown}s</span>
+              </>
+            ) : resend.isPending ? (
+              "Sending…"
+            ) : (
+              "Send a new code"
+            )}
+          </button>
+          <button type="button" className={TEXT_ACTION} onClick={startOver}>
             <ArrowLeft aria-hidden className="h-4 w-4" />
             Use a different email address
           </button>
-        </form>
-      </Card>
+        </div>
+      </form>
     );
   }
 
   return (
-    <Card>
-      <form className="space-y-4" onSubmit={onCredentials} noValidate>
-        <AuthField
-          label="Email address"
-          type="email"
-          autoComplete="username"
-          // Focus returns here when the code step is abandoned — see the effect above.
-          inputRef={emailField}
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-        />
+    <form className="space-y-5" onSubmit={onCredentials} noValidate>
+      {heading}
+      <AuthField
+        label="Email address"
+        type="email"
+        name="email"
+        autoComplete="username"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
+        enterKeyHint="next"
+        inputRef={emailField}
+        value={email}
+        onChange={(event) => setEmail(event.target.value)}
+      />
+      <div>
         <AuthField
           label="Password"
           type="password"
+          name="password"
           autoComplete="current-password"
-          // The maximum only. NOT the 12-character minimum, deliberately: an account
-          // whose password predates that floor still exists and still signs in
-          // (`tests/authn_password_test.py` has the case), and a client that refused to
-          // SUBMIT it would lock out the one person who cannot fix it from this screen.
-          // The floor belongs on the forms that SET a password, and it is on all three.
+          enterKeyHint="go"
+          // The maximum only. NOT the minimum: an account whose password predates the
+          // current floor still signs in, and refusing to SUBMIT it would lock out the
+          // one person who cannot fix it from this screen.
           maxLength={MAX_PASSWORD_CHARS}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
         />
-
-        {signOutIncomplete && (
-          <NoticeBox tone="warn" title="Signed out on this device only">
-            <p className="mt-1">
-              Calevate could not be reached to end the session everywhere else, so it may
-              still be open on another device until it times out. Sign in and use
-              &ldquo;Sign out everywhere&rdquo; on your account page to end it now.
-            </p>
-          </NoticeBox>
-        )}
-
-        <AuthProblemNotice error={signIn.error} />
-
-        <button
-          type="submit"
-          className={PRIMARY_BUTTON}
-          disabled={signIn.isPending || email.trim() === "" || password === ""}
-        >
-          <LogIn aria-hidden className="h-4 w-4" />
-          {signIn.isPending ? "Signing in…" : "Sign in"}
-        </button>
-
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <Link href={forgotPath} className="text-brand-strong underline underline-offset-2 dark:text-brand-bright">
-            I have forgotten my password
+        {/* Under the field rather than beside its label, so the tab order runs email,
+            password, Sign in without a detour. */}
+        <div className="mt-1.5 flex justify-end">
+          <Link href={forgotPath} className={TEXT_ACTION}>
+            Forgot your password?
           </Link>
         </div>
+      </div>
 
-        {footer}
-      </form>
-    </Card>
+      {signOutIncomplete && (
+        <NoticeBox tone="warn" title="Signed out on this device only">
+          <p className="mt-1">
+            Calevate could not be reached to end the session everywhere else, so it may
+            still be open on another device until it times out. Sign in and use
+            &ldquo;Sign out everywhere&rdquo; on your account page to end it now.
+          </p>
+        </NoticeBox>
+      )}
+
+      <AuthProblemNotice error={signIn.error} />
+
+      <button
+        type="submit"
+        className={SUBMIT}
+        disabled={signIn.isPending || email.trim() === "" || password === ""}
+      >
+        {signIn.isPending ? "Signing in…" : "Sign in"}
+      </button>
+
+      {footer}
+    </form>
   );
 }

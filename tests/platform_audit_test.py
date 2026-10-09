@@ -188,12 +188,21 @@ async def test_reserved_slugs_are_refused_by_the_api_not_only_the_form() -> None
         explicit = await http.post(
             "/v1/admin/tenants",
             headers={"Authorization": f"Bearer {token}"},
-            json={"name": "Totally Fine Clinic", "slug": "admin", "vertical_template": "clinic"},
+            json={
+                "name": "Totally Fine Clinic",
+                "slug": "admin",
+                "vertical_template": "clinic",
+                "owner": {"email": "owner@example.com"},
+            },
         )
         derived = await http.post(
             "/v1/admin/tenants",
             headers={"Authorization": f"Bearer {token}"},
-            json={"name": "Billing", "vertical_template": "clinic"},
+            json={
+                "name": "Billing",
+                "vertical_template": "clinic",
+                "owner": {"email": "owner@example.com"},
+            },
         )
     assert explicit.status_code == 409, explicit.text
     assert explicit.json()["type"].endswith("/slug_reserved")
@@ -207,12 +216,22 @@ async def test_creating_the_same_slug_twice_is_a_clean_conflict() -> None:
         first = await http.post(
             "/v1/admin/tenants",
             headers={"Authorization": f"Bearer {token}"},
-            json={"name": "Retry Clinic", "slug": slug, "vertical_template": "clinic"},
+            json={
+                "name": "Retry Clinic",
+                "slug": slug,
+                "vertical_template": "clinic",
+                "owner": {"email": "owner@example.com"},
+            },
         )
         second = await http.post(
             "/v1/admin/tenants",
             headers={"Authorization": f"Bearer {token}"},
-            json={"name": "Retry Clinic", "slug": slug, "vertical_template": "clinic"},
+            json={
+                "name": "Retry Clinic",
+                "slug": slug,
+                "vertical_template": "clinic",
+                "owner": {"email": "owner@example.com"},
+            },
         )
     assert first.status_code == 201, first.text
     assert second.status_code == 409
@@ -454,6 +473,13 @@ _OUTBOUND_MODULES = {
     # incident with no operator in the loop. `dispatch_due_callbacks` calls `check_dispatch`
     # per call-back, at the moment of dialling, which is what the loop below verifies.
     "apps/workers/callbacks.py",
+    # A FREE-TRIAL TEST CALL (D-697): one call to a number the client typed, from the shared
+    # trial number. `place_trial_call` asks `check_dispatch(trial_call=True)` and obeys it
+    # before `dispatch_call(trial=...)`, so the halt stops it like every other dial.
+    "apps/api/agents/trial_calls.py",
+    # The lead call's body, shared by the console button and the assistant (D-694):
+    # `place_lead_call` asks `check_dispatch` and obeys it before `dispatch_call`.
+    "apps/api/crm/lead_dial.py",
 }
 
 

@@ -234,7 +234,8 @@ describe("the verification gate under failure", () => {
  * The refusals this screen states as facts about the product, pinned as words.
  *
  * Each one is load-bearing outside this file. "Only a masked owner ID" and "never take a
- * full Aadhaar number" are the storage promises D-692 makes and the schema CHECKs. "Verification is ours to do" is why
+ * full Aadhaar number" are the storage promises D-692 makes and the schema CHECKs; "do not
+ * accept a copy of an Aadhaar card" is D-696's manual path, which takes a PAN card only. "Verification is ours to do" is why
  * `readiness.ROW_COPY` tells a client to SEND us something rather than to type it here
  * (`tests/readiness_copy_actionability_test.py`). And "calls coming IN are unaffected" is
  * the one piece of good news on a page somebody opened because their calls stopped —
@@ -266,7 +267,7 @@ describe("verification — the refusals stated on the screen", () => {
       "Only a masked owner ID.",
     );
     expect(container.textContent).toContain(
-      "We never take a full Aadhaar number.",
+      "We do not accept a copy of an Aadhaar card, and we never take a full Aadhaar number.",
     );
     expect(container.textContent).toContain(
       "The document itself is never sent to us or stored.",

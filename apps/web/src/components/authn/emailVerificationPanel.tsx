@@ -14,17 +14,19 @@
  * `expires_at` the contract is missing.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { useMutation } from "@tanstack/react-query";
 import { MailCheck, ShieldCheck } from "lucide-react";
 
-import { AuthField, AuthProblemNotice } from "@/components/authn/fields";
+import { AuthProblemNotice } from "@/components/authn/fields";
+import { OtpInput } from "@/components/interior/otp-input";
 import { NoticeBox, PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
 import type { RealmAuthn } from "@/lib/authn/realm";
+import { OTP_LENGTH, OTP_RESEND_COOLDOWN_MS } from "@/lib/authn/otp";
 import { useCountdown } from "@/lib/authn/useCountdown";
 
-const RESEND_COOLDOWN_MS = 60_000;
+
 
 export function EmailVerificationPanel({
   authn,
@@ -37,6 +39,8 @@ export function EmailVerificationPanel({
   onVerified: () => void;
 }) {
   const [code, setCode] = useState("");
+  const [shakes, setShakes] = useState(0);
+  const inFlight = useRef(false);
   const [resendReadyAt, setResendReadyAt] = useState<number | null>(null);
   const cooldown = useCountdown(resendReadyAt);
 
@@ -44,18 +48,31 @@ export function EmailVerificationPanel({
     mutationFn: () => authn.requestEmailCode(),
     onSuccess: () => {
       setCode("");
-      setResendReadyAt(Date.now() + RESEND_COOLDOWN_MS);
+      setResendReadyAt(Date.now() + OTP_RESEND_COOLDOWN_MS);
     },
   });
 
   const verify = useMutation({
-    mutationFn: () => authn.verifyEmailCode(code.trim()),
+    mutationFn: (value: string) => authn.verifyEmailCode(value),
     onSuccess: () => {
       setCode("");
       setResendReadyAt(null);
       onVerified();
     },
+    onError: () => {
+      setCode("");
+      setShakes((n) => n + 1);
+      inFlight.current = false;
+    },
   });
+
+  // One submission per code: the last digit submits it, and a paste, an autofill and an
+  // Enter landing together must not send it twice.
+  const submitOnce = (value: string) => {
+    if (inFlight.current || value.length !== OTP_LENGTH) return;
+    inFlight.current = true;
+    verify.mutate(value);
+  };
 
   if (verified) {
     return (
@@ -97,23 +114,24 @@ export function EmailVerificationPanel({
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
-            if (verify.isPending) return;
-            verify.mutate();
+            submitOnce(code);
           }}
         >
-          <AuthField
+          <OtpInput
             label="Six-digit code"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={16}
+            length={OTP_LENGTH}
             value={code}
-            onChange={(event) => setCode(event.target.value)}
+            onChange={setCode}
+            onComplete={submitOnce}
+            status={verify.isError && code === "" ? "error" : "idle"}
+            shakeKey={shakes}
+            readOnly={verify.isPending}
           />
           <AuthProblemNotice error={verify.error} />
           <button
             type="submit"
             className={PRIMARY_BUTTON}
-            disabled={verify.isPending || code.trim() === ""}
+            disabled={verify.isPending || code.length !== OTP_LENGTH}
           >
             {verify.isPending ? "Checking…" : "Verify my address"}
           </button>

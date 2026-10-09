@@ -59,10 +59,9 @@ export function WhatWeKeep() {
       </li>
       <li>
         <span className={LEAD_IN}>Only a masked owner ID.</span> If you upload the
-        owner&apos;s Aadhaar (the masked copy) or PAN card, the file is deleted as soon as our
-        review is done, or after 30 days if it is not reviewed. We keep its type and a masked
-        number — the last four digits of an Aadhaar, or a PAN as XXXXX1234X. We never take a
-        full Aadhaar number.
+        owner&apos;s PAN card, the file is deleted as soon as our review is done, or after 30
+        days if it is not reviewed. We keep the PAN masked, as XXXXX1234X. We do not accept
+        a copy of an Aadhaar card, and we never take a full Aadhaar number.
       </li>
       <li>
         <span className={LEAD_IN}>Nothing from DigiLocker but the result.</span> If you
@@ -114,8 +113,8 @@ function WhatWeNeed() {
         </li>
         <li>
           <span className={LEAD_IN}>The owner&apos;s identity</span> — either the
-          owner&apos;s Aadhaar (masked copy) or PAN card for our review, or a DigiLocker
-          verification.
+          owner&apos;s PAN card for our review, or a DigiLocker verification with Aadhaar or
+          PAN.
         </li>
         <li>
           <span className={LEAD_IN}>The no-cold-calls pledge</span> — accepted by somebody at

@@ -197,6 +197,34 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         "agent_rename",
         "agent_publish",
         "campaign_launch",
+        # D-698's console actions APPEND.
+        "lead_assign",
+        "lead_rename",
+        "leads_bulk_update",
+        "dnc_remove",
+        "call_place",
+        "callback_book",
+        "callback_reschedule",
+        "callback_cancel",
+        "campaign_create",
+        "campaign_clone",
+        "campaign_add_leads",
+        "campaign_schedule",
+        "campaign_unschedule",
+        "campaign_resume",
+        "agent_edit",
+        "agent_edit_live",
+        "agent_capture_fields_set",
+        "agent_changes_apply",
+        "agent_deactivate",
+        "agent_delete",
+        "business_hours_set",
+        "knowledge_link_add",
+        "knowledge_remove",
+        "number_buy",
+        "number_release",
+        "agent_test_call",
+        "business_profile_set",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]
@@ -230,13 +258,12 @@ async def test_every_tool_proposes_a_readable_change_and_writes_nothing() -> Non
     campaign_id = await _make_campaign(tenant_id)
     actor = _actor(tenant_id, user_id)
 
-    lead_proposal = await write_tools.plan_write(
-        "lead_set_status", json.dumps({"lead_id": str(lead_id), "status": "hot"}), actor=actor
-    )
-    assert lead_proposal.tool == "lead_set_status"
-    assert lead_proposal.object_id == str(lead_id)
-    assert (lead_proposal.current, lead_proposal.proposed) == ("New", "Hot")
-    assert "Hot" in lead_proposal.summary
+    # AN IMMEDIATE TOOL IS NEVER PROPOSED (D-694): `lead_set_status` runs with an Undo, so
+    # `plan_write` refuses to mint a token for it.
+    with pytest.raises(write_tools.WriteRefusedError):
+        await write_tools.plan_write(
+            "lead_set_status", json.dumps({"lead_id": str(lead_id), "status": "hot"}), actor=actor
+        )
 
     dnc_proposal = await write_tools.plan_write(
         "dnc_add", json.dumps({"lead_id": str(lead_id), "reason": "customer_request"}), actor=actor
@@ -288,8 +315,8 @@ async def test_a_lead_from_another_tenant_is_not_found_rather_than_described() -
 
     with pytest.raises(ProblemError) as refused:
         await write_tools.plan_write(
-            "lead_set_status",
-            json.dumps({"lead_id": str(foreign_lead), "status": "hot"}),
+            "dnc_add",
+            json.dumps({"lead_id": str(foreign_lead), "reason": "manual"}),
             actor=_actor(tenant_a, _user_of(token_a)),
         )
     assert refused.value.status == 404
@@ -302,16 +329,16 @@ async def test_a_malformed_tool_call_is_a_refusal_the_model_can_fix() -> None:
     actor = _actor(tenant_id, _user_of(token))
 
     with pytest.raises(write_tools.WriteRefusedError) as bad_json:
-        await write_tools.plan_write("lead_set_status", "{not json", actor=actor)
+        await write_tools.plan_write("dnc_add", "{not json", actor=actor)
     assert "JSON" in bad_json.value.reason
 
     with pytest.raises(write_tools.WriteRefusedError) as bad_status:
         await write_tools.plan_write(
-            "lead_set_status",
-            json.dumps({"lead_id": str(uuid.uuid4()), "status": "sizzling"}),
+            "dnc_add",
+            json.dumps({"lead_id": str(uuid.uuid4()), "reason": "sizzling"}),
             actor=actor,
         )
-    assert "`status`" in bad_status.value.reason
+    assert "`reason`" in bad_status.value.reason
 
     with pytest.raises(write_tools.WriteRefusedError) as no_actor:
         await write_tools.plan_write("campaign_pause", json.dumps({}), actor=None)
@@ -332,10 +359,16 @@ async def test_a_role_without_the_permission_is_offered_nothing_to_confirm() -> 
     lead_id = await _lead_of(tenant_id)
     campaign_id = await _make_campaign(tenant_id)
 
-    allowed = await write_tools.plan_write(
-        "lead_set_status", json.dumps({"lead_id": str(lead_id), "status": "hot"}), actor=staff
+    # `leads:write` is a staff permission, and `lead_set_status` is immediate since D-694, so
+    # it RUNS for staff rather than being proposed — the control for the refusals below.
+    allowed = await write_tools.run_immediate(
+        "lead_set_status",
+        json.dumps({"lead_id": str(lead_id), "status": "hot"}),
+        principal=_principal(tenant_id, user_id, role="staff"),
+        seed="staff-control",
+        ip=None,
     )
-    assert allowed.tool == "lead_set_status"
+    assert allowed.applied is True
 
     for name, args in (
         ("dnc_add", {"lead_id": str(lead_id)}),
@@ -414,21 +447,21 @@ async def test_confirm_executes_exactly_once_and_the_replay_is_refused() -> None
     user_id = _user_of(token)
     lead_id = await _lead_of(tenant_id)
     proposal = await write_tools.plan_write(
-        "lead_set_status",
-        json.dumps({"lead_id": str(lead_id), "status": "hot"}),
+        "dnc_add",
+        json.dumps({"lead_id": str(lead_id), "reason": "manual"}),
         actor=_actor(tenant_id, user_id),
     )
 
     first = await _confirm(tenant_id, user_id, proposal.token)
     assert first.applied is True
-    assert await _lead_status(tenant_id, lead_id) == "hot"
+    assert await _dnc_count(tenant_id) == 1
 
     with pytest.raises(ProblemError) as replay:
         await _confirm(tenant_id, user_id, proposal.token)
     assert replay.value.code == "copilot_proposal_already_used"
 
     # ONE act, one row — the replay added neither a change nor a ledger entry.
-    assert [row[0] for row in await _audit(tenant_id)] == ["lead.status_set"]
+    assert [row[0] for row in await _audit(tenant_id)] == ["dnc.added"]
 
 
 async def test_a_failed_execution_gives_the_token_back_instead_of_lying_about_it(
@@ -451,12 +484,12 @@ async def test_a_failed_execution_gives_the_token_back_instead_of_lying_about_it
     user_id = _user_of(token)
     lead_id = await _lead_of(tenant_id)
     proposal = await write_tools.plan_write(
-        "lead_set_status",
-        json.dumps({"lead_id": str(lead_id), "status": "hot"}),
+        "dnc_add",
+        json.dumps({"lead_id": str(lead_id), "reason": "manual"}),
         actor=_actor(tenant_id, user_id),
     )
-    before = await _lead_status(tenant_id, lead_id)
-    assert before != "hot"
+    before = await _dnc_count(tenant_id)
+    assert before == 0
 
     async def _explode(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("the chain lock went away")
@@ -465,15 +498,15 @@ async def test_a_failed_execution_gives_the_token_back_instead_of_lying_about_it
     with pytest.raises(RuntimeError):
         await _confirm(tenant_id, user_id, proposal.token)
     # NOTHING HAPPENED, on either side of the transaction.
-    assert await _lead_status(tenant_id, lead_id) == before
+    assert await _dnc_count(tenant_id) == before
     assert await _audit(tenant_id) == []
 
     monkeypatch.undo()
     # THE SAME TOKEN, and it reaches the executor rather than the replay refusal.
     retried = await _confirm(tenant_id, user_id, proposal.token)
     assert retried.applied is True
-    assert await _lead_status(tenant_id, lead_id) == "hot"
-    assert [row[0] for row in await _audit(tenant_id)] == ["lead.status_set"]
+    assert await _dnc_count(tenant_id) == 1
+    assert [row[0] for row in await _audit(tenant_id)] == ["dnc.added"]
     # AND THE ID IS SPENT NOW: the un-burn is a retry, not a licence.
     with pytest.raises(ProblemError) as replay:
         await _confirm(tenant_id, user_id, proposal.token)
@@ -488,13 +521,13 @@ async def test_a_second_proposal_for_an_unchanged_lead_reports_that_it_changed_n
     user_id = _user_of(token)
     lead_id = await _lead_of(tenant_id)
     actor = _actor(tenant_id, user_id)
-    args = json.dumps({"lead_id": str(lead_id), "status": "hot"})
+    args = json.dumps({"lead_id": str(lead_id), "reason": "manual"})
 
-    first = await write_tools.plan_write("lead_set_status", args, actor=actor)
+    first = await write_tools.plan_write("dnc_add", args, actor=actor)
     await _confirm(tenant_id, user_id, first.token)
     # A SECOND PROPOSAL, not a replay of the first: the burn would refuse that, and the
     # question here is what the EXECUTOR says when there is nothing left to do.
-    again = await write_tools.plan_write("lead_set_status", args, actor=actor)
+    again = await write_tools.plan_write("dnc_add", args, actor=actor)
     second = await _confirm(tenant_id, user_id, again.token)
     assert second.applied is False
     assert "already" in second.detail
@@ -508,8 +541,8 @@ async def test_a_tampered_or_foreign_signature_is_refused() -> None:
     user_id = _user_of(token)
     lead_id = await _lead_of(tenant_id)
     proposal = await write_tools.plan_write(
-        "lead_set_status",
-        json.dumps({"lead_id": str(lead_id), "status": "hot"}),
+        "dnc_add",
+        json.dumps({"lead_id": str(lead_id), "reason": "manual"}),
         actor=_actor(tenant_id, user_id),
     )
 
@@ -547,8 +580,8 @@ async def test_an_expired_proposal_is_refused(monkeypatch: pytest.MonkeyPatch) -
     lead_id = await _lead_of(tenant_id)
     monkeypatch.setattr(write_tools, "PROPOSAL_TTL", timedelta(minutes=-30))
     proposal = await write_tools.plan_write(
-        "lead_set_status",
-        json.dumps({"lead_id": str(lead_id), "status": "hot"}),
+        "dnc_add",
+        json.dumps({"lead_id": str(lead_id), "reason": "manual"}),
         actor=_actor(tenant_id, user_id),
     )
     monkeypatch.undo()
@@ -556,7 +589,7 @@ async def test_an_expired_proposal_is_refused(monkeypatch: pytest.MonkeyPatch) -
     with pytest.raises(ProblemError) as expired:
         await _confirm(tenant_id, user_id, proposal.token)
     assert expired.value.code == "copilot_proposal_invalid"
-    assert await _lead_status(tenant_id, lead_id) == "new"
+    assert await _dnc_count(tenant_id) == 0
 
 
 async def test_a_proposal_minted_for_tenant_a_cannot_be_confirmed_against_tenant_b() -> None:
@@ -570,15 +603,15 @@ async def test_a_proposal_minted_for_tenant_a_cannot_be_confirmed_against_tenant
     tenant_b, _slug_b, token_b = await _make_tenant()
     lead_a = await _lead_of(tenant_a)
     proposal = await write_tools.plan_write(
-        "lead_set_status",
-        json.dumps({"lead_id": str(lead_a), "status": "hot"}),
+        "dnc_add",
+        json.dumps({"lead_id": str(lead_a), "reason": "manual"}),
         actor=_actor(tenant_a, _user_of(token_a)),
     )
 
     with pytest.raises(ProblemError) as crossed:
         await _confirm(tenant_b, _user_of(token_b), proposal.token)
     assert crossed.value.status == 403
-    assert await _lead_status(tenant_a, lead_a) == "new"
+    assert await _dnc_count(tenant_a) == 0
     assert await _audit(tenant_b) == []
 
 
@@ -588,15 +621,15 @@ async def test_a_colleagues_proposal_cannot_be_confirmed_by_someone_else() -> No
     tenant_id, _slug, token = await _make_tenant()
     lead_id = await _lead_of(tenant_id)
     proposal = await write_tools.plan_write(
-        "lead_set_status",
-        json.dumps({"lead_id": str(lead_id), "status": "hot"}),
+        "dnc_add",
+        json.dumps({"lead_id": str(lead_id), "reason": "manual"}),
         actor=_actor(tenant_id, _user_of(token)),
     )
 
     with pytest.raises(ProblemError) as wrong_person:
         await _confirm(tenant_id, uuid.uuid4(), proposal.token)
     assert wrong_person.value.status == 403
-    assert await _lead_status(tenant_id, lead_id) == "new"
+    assert await _dnc_count(tenant_id) == 0
 
 
 async def test_the_confirm_body_cannot_widen_what_was_proposed() -> None:
@@ -606,8 +639,8 @@ async def test_the_confirm_body_cannot_widen_what_was_proposed() -> None:
     user_id = _user_of(token)
     lead_id = await _lead_of(tenant_id)
     proposal = await write_tools.plan_write(
-        "lead_set_status",
-        json.dumps({"lead_id": str(lead_id), "status": "contacted"}),
+        "dnc_add",
+        json.dumps({"lead_id": str(lead_id), "reason": "manual"}),
         actor=_actor(tenant_id, user_id),
     )
     claims = jwt.decode(proposal.token, options={"verify_signature": False})
@@ -616,7 +649,7 @@ async def test_the_confirm_body_cannot_widen_what_was_proposed() -> None:
 
     with pytest.raises(ProblemError):
         await _confirm(tenant_id, user_id, rewritten)
-    assert await _lead_status(tenant_id, lead_id) == "new"
+    assert await _dnc_count(tenant_id) == 0
 
 
 # --- 5. the gate underneath is untouched ------------------------------------------------
@@ -720,8 +753,8 @@ async def test_the_confirm_route_carries_out_the_change_and_answers_what_it_did(
     tenant_id, slug, token = await _make_tenant()
     lead_id = await _lead_of(tenant_id)
     proposal = await write_tools.plan_write(
-        "lead_set_status",
-        json.dumps({"lead_id": str(lead_id), "status": "interested"}),
+        "dnc_add",
+        json.dumps({"lead_id": str(lead_id), "reason": "manual"}),
         actor=_actor(tenant_id, _user_of(token)),
     )
 
@@ -731,13 +764,16 @@ async def test_the_confirm_route_carries_out_the_change_and_answers_what_it_did(
         )
     assert response.status_code == 200, response.text
     assert response.json() == {
-        "tool": "lead_set_status",
+        "tool": "dnc_add",
         "object_type": "lead",
         "object_id": str(lead_id),
         "applied": True,
-        "detail": "The lead is now marked Interested.",
+        "detail": (
+            "That number is on your do-not-call list, and calls already queued to it are "
+            "being pulled back."
+        ),
     }
-    assert await _lead_status(tenant_id, lead_id) == "interested"
+    assert await _dnc_count(tenant_id) == 1
 
 
 async def test_confirm_re_checks_the_tools_permission_against_the_session_in_front_of_it() -> None:
@@ -760,19 +796,6 @@ async def test_confirm_re_checks_the_tools_permission_against_the_session_in_fro
     tenant_id, slug, token = await _make_tenant(role="staff")
     async with tenant_session(tenant_id) as session:
         await session.execute(text("UPDATE organizations SET staff_may_curate_knowledge = true"))
-
-    proposal = await write_tools.plan_write(
-        "lead_set_status",
-        json.dumps({"lead_id": str(await _lead_of(tenant_id)), "status": "hot"}),
-        actor=_actor(tenant_id, _user_of(token), role="staff"),
-    )
-    # `leads:write` is a plain role fact and staff hold it, so this one goes through — the
-    # control that proves the refusal below is about the permission and not about the route.
-    async with _client() as http:
-        allowed = await http.post(
-            CONFIRM, headers=_headers(token, slug), json={"token": proposal.token}
-        )
-    assert allowed.status_code == 200, allowed.text
 
     async with tenant_session(tenant_id) as session:
         agent_id = (await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar()
@@ -839,6 +862,8 @@ def test_the_proposal_event_model_is_the_shape_the_browser_is_told_about() -> No
         "cost",
         "reversal",
         "expires_at",
+        # D-694: the step-up string an admin action's confirm sends; None on this realm.
+        "confirm_action",
     }
 
 

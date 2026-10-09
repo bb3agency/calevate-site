@@ -1486,6 +1486,7 @@ def assist_capability(
     tenant_leg: TenantModelLeg | None = None,
     quota_exhausted: bool = False,
     provider_unavailable: bool = False,
+    allow_azure: bool = True,
 ) -> AssistCapability:
     """THE selector (D-127 G-6). Every user-triggered AI surface asks this and nothing
     re-reads settings for itself.
@@ -1518,6 +1519,11 @@ def assist_capability(
        have served the leg: with nothing left to answer, the operative fact is that this
        platform holds no assistant leg, and blaming the account's model would be a platform
        fact reported as a fact about their account (see the branch that decides it).
+
+    `allow_azure=False` removes rungs 1 and 2's Azure arm and nothing else (D-694): the
+    assistant passes its `copilot_azure_fallback` setting, because there Azure is a
+    fallback an operator switches on rather than the default. Every other caller keeps the
+    default and its behaviour.
 
     `tenant_leg`, `quota_exhausted` and `provider_unavailable` are ARGUMENTS rather than
     reads, and for one reason: none is knowable from configuration. The first is a row this
@@ -1581,7 +1587,7 @@ def assist_capability(
             return AssistCapability(
                 available=True, provider=GOOGLE_PROVIDER, account_chose_model=chose
             )
-        if azure_credentials() is not None:
+        if allow_azure and azure_credentials() is not None:
             # RUNGS 1 AND 2 ARE ONE WIRE AND TWO PROMISES, and that is not a shortcut. The
             # Azure leg is both the account's own provider (when the account runs Azure) and
             # the platform's substitute (when the account's provider may not serve this leg),
@@ -1661,7 +1667,7 @@ _ASSIST_REMEDIATION: Final[dict[tuple[str, str], str]] = {
     ),
     ("operator", PROVIDER_UNAVAILABLE_REASON): (
         "The assistant model did not answer and this deployment has no second model "
-        "configured. Install a Sarvam API key (DEV-SETUP §4) to give it a fallback leg."
+        "configured. Install a Sarvam API key to give it a fallback leg."
     ),
     ("client", NO_CREDENTIAL_REASON): (
         "The in-app assistant has not been switched on for your account yet. Your phone "
@@ -1671,7 +1677,7 @@ _ASSIST_REMEDIATION: Final[dict[tuple[str, str], str]] = {
     ("operator", NO_CREDENTIAL_REASON): (
         "No AI provider is configured on this deployment. Install an Azure OpenAI "
         "resource (AZURE_OPENAI_RESOURCE + AZURE_OPENAI_API_KEY + "
-        "AZURE_OPENAI_DEPLOYMENT) or a Sarvam API key (DEV-SETUP §4)."
+        "AZURE_OPENAI_DEPLOYMENT) or a Sarvam API key."
     ),
     ("client", TENANT_PROVIDER_UNSUPPORTED_REASON): (
         "The AI model you chose for your account runs your phone agents, but it cannot be "
@@ -1689,7 +1695,7 @@ _ASSIST_REMEDIATION: Final[dict[tuple[str, str], str]] = {
         "(agents/llm_models.dashboard_leg_reason says which ground), and this "
         "deployment has nothing to substitute. Install an Azure OpenAI resource "
         "(AZURE_OPENAI_RESOURCE + AZURE_OPENAI_API_KEY + AZURE_OPENAI_DEPLOYMENT) or a "
-        "Sarvam API key (DEV-SETUP §4)."
+        "Sarvam API key."
     ),
 }
 

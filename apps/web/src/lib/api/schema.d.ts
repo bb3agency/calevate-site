@@ -193,12 +193,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Complete Google Calendar OAuth — stores the refresh token as a credential
-         * @description Exchange the authorization code and save the refresh token as a `google_calendar`
-         *     credential. The `state` is checked BEFORE the code is exchanged, so a code from a consent
-         *     this person did not start is never redeemed at all.
-         */
+        /** Complete Google Calendar OAuth — stores the refresh token as a credential */
         post: operations["calendar_callback_v1_actions_calendar_callback_post"];
         delete?: never;
         options?: never;
@@ -213,11 +208,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Begin Google Calendar OAuth — returns the consent URL
-         * @description Start the OAuth flow. `state` is signed and bound to this account and this person
-         *     (`calendar.mint_oauth_state`); the callback refuses a code that arrives without it.
-         */
+        /** Begin Google Calendar OAuth — returns the consent URL */
         get: operations["calendar_connect_v1_actions_calendar_connect_get"];
         put?: never;
         post?: never;
@@ -267,6 +258,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/copilot/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What the admin assistant did for you — newest first */
+        get: operations["list_admin_copilot_actions_v1_admin_copilot_actions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/copilot/actions/{action_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo something the admin assistant did
+         * @description The admin twin of `POST /v1/copilot/actions/{id}/undo`. Every admin action is
+         *     confirm-tier today, so this answers `409 copilot_action_not_undoable` for each of them —
+         *     and `404` for an id that is not this operator's — and is where a reversible admin action
+         *     lands without a second mechanism.
+         */
+        post: operations["undo_admin_copilot_action_v1_admin_copilot_actions__action_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/copilot/ask": {
         parameters: {
             query?: never;
@@ -290,9 +321,10 @@ export interface paths {
          *
          *     Streams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents —
          *     `text`, `fill`, `step`, `proposal`, `action`, `done`, `error`. A `proposal` is NOT a
-         *     change and, in this realm today, neither a `proposal` nor an `action` will be offered: the
-         *     write tools need an account-scoped identity that an admin session does not carry, and
-         *     inside a view-as session they are refused outright because impersonation is read-only.
+         *     change. The admin realm proposes its OWN platform actions (D-694; today: halting all
+         *     outbound calling), confirmed on `POST /v1/admin/copilot/confirm` with the same step-up the
+         *     console button asks for, and may answer with `navigate` to open an admin screen. The
+         *     client account tools still need an account-scoped identity an admin session does not carry.
          *
          *     **BILLING: this never touches a client's AI allowance.** Operator spend is metered to the
          *     platform's own ledger under the cost name `admin_copilot`. It is still bounded by the
@@ -302,6 +334,26 @@ export interface paths {
          *     Requires `copilot:admin` — held by operators and superadmins.
          */
         post: operations["ask_admin_copilot_v1_admin_copilot_ask_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/copilot/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Do the platform change the admin assistant proposed — step-up confirmed
+         * @description Post back the `token` from an admin `event: proposal` frame, unchanged. When the proposal carries `confirm_action`, send it as `X-Confirm-Action` and have a fresh second factor — the same step-up the console's own button asks for. A token works once, for the operator it was minted for, for five minutes. Every change writes an audit row naming the operator.
+         */
+        post: operations["confirm_admin_copilot_proposal_v1_admin_copilot_confirm_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -831,8 +883,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Onboardings started and not finished — where a wizard resumes (FLOWS §1)
-         * @description Every account still in onboarding whose intake has never been submitted, most recently worked on first, with the agent to resume at and what is still missing. Read-only: resuming is a draft save or a submit on the account's own route.
+         * Onboardings not finished: no owner yet, or a business profile not ready
+         * @description Every account still in onboarding whose owner has not accepted an invitation, or whose business profile still lacks what an agent needs to go live, most recently worked on first. Read-only.
          */
         get: operations["list_unfinished_onboardings_v1_admin_onboarding_unfinished_get"];
         put?: never;
@@ -956,6 +1008,111 @@ export interface paths {
          *     Every LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched — this sets what the others follow.
          */
         put: operations["admin_set_llm_default_v1_admin_organizations__org_id__llm_defaults_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/payments/disputes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every client's disputed payments, open ones first */
+        get: operations["read_disputes_v1_admin_payments_disputes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/payments/disputes/{dispute_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept a dispute: the customer is refunded and the dispute is lost (irreversible) */
+        post: operations["accept_v1_admin_payments_disputes__dispute_id__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/payments/disputes/{dispute_id}/contest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Contest a dispute with evidence documents and a summary
+         * @description Uploads each file to the payment provider as dispute evidence (PDF, JPEG or PNG, 5 MB each), then submits the contest. At least one document is required.
+         */
+        post: operations["contest_v1_admin_payments_disputes__dispute_id__contest_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/payments/recent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Razorpay's payments of the last three days, read live, with the client each is for */
+        get: operations["recent_payments_v1_admin_payments_recent_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/payments/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run the Razorpay reconciliation now (it also runs daily) */
+        post: operations["run_reconciliation_v1_admin_payments_reconcile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/payments/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Razorpay mode, which credentials are set, the webhook to register, and alarms */
+        get: operations["payment_status_v1_admin_payments_status_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -1103,7 +1260,7 @@ export interface paths {
         get: operations["list_tenants_v1_admin_tenants_get"];
         put?: never;
         /**
-         * New-client wizard step 1 — org, retention defaults, agent draft, schema
+         * New client: the account and its owner's invitation, in one transaction
          * @description The audit row is the birth transaction's LAST WRITE, not a second transaction.
          *
          *     `on_created` is the hook `admin/service.py` already exposes for exactly this and
@@ -1140,7 +1297,7 @@ export interface paths {
         head?: never;
         /**
          * Correct a client's business record — everything about it except the slug
-         * @description Edits the details that are the client's own: the business name, the billing address their notices are sent to, and the vertical template. Every changed field is audited under its own action with the value it replaced. Saving unchanged values returns `changed: []` and writes nothing. The billing address is NOT a login identity — the credential is the member's own address and this grants nobody access — but it IS where the account's notices go, so changing it needs the header `X-Confirm-Action: change_notice_address:<tenant_id>`, the PREVIOUS address is told that it changed and given a way to object, and the response says how many already-queued notices will now be delivered to the new address. Refused for a client whose data has been erased. The slug cannot change (it is in every URL the client holds, and a database trigger refuses it); the business ADDRESS lives in the intake answer sheet; plan tier, credits, lifecycle state, closure, KYC and DLT registration each have their own screen, and this route deliberately cannot reach any of them.
+         * @description Edits the details that are the client's own: the business name, the billing address their notices are sent to, and the vertical template. Every changed field is audited under its own action with the value it replaced. Saving unchanged values returns `changed: []` and writes nothing. The billing address is NOT a login identity — the credential is the member's own address and this grants nobody access — but it IS where the account's notices go, so changing it needs the header `X-Confirm-Action: change_notice_address:<tenant_id>`, the PREVIOUS address is told that it changed and given a way to object, and the response says how many already-queued notices will now be delivered to the new address. Refused for a client whose data has been erased. The slug cannot change (it is in every URL the client holds, and a database trigger refuses it); the business ADDRESS lives in the business profile; plan tier, credits, lifecycle state, closure, KYC and DLT registration each have their own screen, and this route deliberately cannot reach any of them.
          */
         patch: operations["edit_tenant_v1_admin_tenants__tenant_id__patch"];
         trace?: never;
@@ -1278,54 +1435,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Reopen the intake step — what is durably stored, and only that
-         * @description No `AdminSession`: this reads one tenant's own rows, so it enters that tenant's
-         *     scope directly rather than opening the cross-tenant directory it does not need.
-         *
-         *     Audited (D-482 L-1): the intake sheet is free-text onboarding prose that can carry
-         *     incidental staff PII, which is exactly the class of read the DPDP trail must hold.
-         */
-        get: operations["read_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_get"];
-        put?: never;
-        /**
-         * Wizard step 3 — the client's business facts (FLOWS §1 step 3)
-         * @description Compiles the answers into the agent's [T0 FACTS] block, stores the block as `prompt_versions.compiled_t0_context` (D-39), seeds the knowledge base with the same facts awaiting approval, and re-publishes a live agent. Idempotent: unchanged answers mint no new prompt version.
-         */
-        post: operations["record_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake/draft": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Wizard step 3 — save the answers as they stand (FLOWS §1, 'resume anytime')
-         * @description Stores a PARTIAL intake sheet and does nothing else: no compiled block, no prompt version, no knowledge-base seed, no publish. Answers a half-filled form with 200 and the list of what still blocks a submit; answers a malformed one with 422, the same way the submit does. Saving a draft never makes an agent ready — the submit is still gated on the full set.
-         */
-        post: operations["save_intake_draft_v1_admin_tenants__tenant_id__agents__agent_id__intake_draft_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": {
         parameters: {
             query?: never;
@@ -1430,6 +1539,27 @@ export interface paths {
         patch: operations["set_agent_voice_v1_admin_tenants__tenant_id__agents__agent_id__voice_patch"];
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/business-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A client's business profile, for the operator console
+         * @description Read-only. An operator edits the profile through view-as, where the same writes
+         *     and the same audit apply. Audited as an admin read: it holds staff names and mobiles.
+         */
+        get: operations["admin_get_business_profile_v1_admin_tenants__tenant_id__business_profile_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": {
         parameters: {
             query?: never;
@@ -1489,7 +1619,7 @@ export interface paths {
         put?: never;
         /**
          * Close this client now and schedule the erasure of their records
-         * @description Stops the account immediately — nobody at the client can sign in, no outbound call or campaign runs, no agent can be published, no invitation can be issued or redeemed — and sets the date their call records, transcripts and leads are permanently erased. The client is emailed, and messaged on WhatsApp where they have opted in. NOTHING IS DELETED BY THIS CALL: until the date passes the closure can be undone with DELETE on this same path. Needs the header `X-Confirm-Action: close_and_schedule_erasure:<tenant_id>`. Closing an already-closed account returns its FIRST closure unchanged rather than restarting the clock. The client's telephone numbers are detached from their agents at the carrier where the carrier supports it, and Calevate's own call program holds no conversation for a closed account; the numbers are NOT released, which is arranged with the telephony provider on the client's instruction. Undoing the closure re-attaches the numbers of its live answering agents.
+         * @description Stops the account immediately — nobody at the client can sign in, no outbound call or campaign runs, no agent can be published, no invitation can be issued or redeemed — and sets the date their call records, transcripts and leads are permanently erased. The client is emailed, and messaged on WhatsApp where they have opted in. NOTHING IS DELETED BY THIS CALL: until the date passes the closure can be undone with DELETE on this same path. Needs the header `X-Confirm-Action: close_and_schedule_erasure:<tenant_id>`. Closing an already-closed account returns its FIRST closure unchanged rather than restarting the clock. The client's telephone numbers are detached from their agents at the carrier where the carrier supports it, and Calevate's own call program holds no conversation for a closed account; the numbers are NOT released, which is arranged with the telephony provider on the client's instruction. Undoing the closure re-attaches the numbers of its live answering agents. Unused prepaid credit is forfeited, not refunded (D-699); the GET returns the amount as `forfeited_credit_inr` so it is shown before this is confirmed.
          */
         post: operations["close_v1_admin_tenants__tenant_id__closure_post"];
         /**
@@ -2067,7 +2197,7 @@ export interface paths {
         put?: never;
         /**
          * Approve or reject a client's identity verification
-         * @description Approving records the business as verified against its certificate and registry number; rejecting needs a reason the client is shown. Either way the owner's ID file is deleted and only its type and masked number are kept.
+         * @description Approving records the business as verified against its certificate and registry number; on the manual path it also needs `pan_checked: true`, the reviewer's statement that the PAN details matched at Income Tax, which is stored with who and when. Rejecting needs a reason the client is shown. Either way the owner's ID file is deleted and only its type and masked number are kept.
          */
         post: operations["review_kyc_v1_admin_tenants__tenant_id__kyc_review_post"];
         delete?: never;
@@ -2203,6 +2333,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/owner-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Has anybody joined this account, and is an invitation still out? */
+        get: operations["get_owner_status_v1_admin_tenants__tenant_id__owner_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/plan-tier": {
         parameters: {
             query?: never;
@@ -2274,7 +2421,7 @@ export interface paths {
         put?: never;
         /**
          * Refund a captured payment — provider refund + a compensating ledger entry
-         * @description Issues a refund at the provider and records it as a compensating credit_ledger entry (append-only, negative delta). Idempotent on a derived key so a double click issues one refund. Omit amount_inr for a full refund of the payment's top-up, or send a smaller amount for a partial refund.
+         * @description Issues a refund at the provider and records it as a compensating credit_ledger entry (append-only, negative delta). Idempotent on a derived key so a double click issues one refund. Omit amount_inr for the whole payment, or send a smaller amount for a partial refund; either is refused past the payment's unspent credit. Needs `X-Confirm-Action: refund_payment:<tenant_id>:<payment_id>` and a fresh second factor.
          */
         post: operations["issue_tenant_refund_v1_admin_tenants__tenant_id__refunds_post"];
         delete?: never;
@@ -2351,7 +2498,7 @@ export interface paths {
         put?: never;
         /**
          * Put a client on a trial — N days billed to nobody
-         * @description For the length of the trial this client's outbound calling is not stopped by an empty wallet and nothing is debited from it. Every minute is still METERED, and every other gate — KYC, the agreements, the spend cap, calling hours, do-not-call, consent, the DLT chain — still applies: a trial is a billing state, never a compliance exemption. There is deliberately NO spend ceiling, so the header `X-Confirm-Action: start_trial:<tenant_id>:<days>` is required on every call and the read publishes what the trial is costing us.
+         * @description For the length of the trial, or until its free minutes are used, a client that has not paid may build agents and place outbound test calls from the shared trial number, billed to nobody (D-697); inbound, campaigns, numbers, KYC and live calling open on the first payment, which also ends the trial. Every minute is still METERED, and do-not-call, calling hours, the pledge, the agreements and the AI disclosure still apply. There is no spend ceiling beyond the minutes, so the header `X-Confirm-Action: start_trial:<tenant_id>:<days>` is required on every call and the read publishes what the trial is costing us.
          */
         post: operations["open_trial_v1_admin_tenants__tenant_id__trial_post"];
         delete?: never;
@@ -2374,6 +2521,26 @@ export interface paths {
          * @description Closes the trial and starts a fresh counting period: from this instant the client's own usage figures count from zero, exactly as they do on the 1st of a month. NOTHING IS DELETED — every ledger keeps every row (hard rule 4); what moves is the window their screens count over. `converted` keeps this client's data for good. `stopped` schedules a tenant erasure for the end of the grace period agreed when the trial was opened.
          */
         post: operations["close_trial_v1_admin_tenants__tenant_id__trial_end_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/trial/test-call": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Place one free-trial test call for this client — the operator's smoke test
+         * @description The same gate, line, lend and call as the client's Make a test call, run by an operator for a client on a free trial. Rings a real phone: send an `Idempotency-Key` header, one per attempt.
+         */
+        post: operations["smoke_trial_call_v1_admin_tenants__tenant_id__trial_test_call_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2616,7 +2783,7 @@ export interface paths {
         /** The Actions tab: master switch + configured tools */
         get: operations["list_agent_actions_v1_agents__agent_id__actions_get"];
         put?: never;
-        /** Add an in-call action to an agent */
+        /** Add an in-call action to an agent (off when set up in view-as) */
         post: operations["create_action_v1_agents__agent_id__actions_post"];
         delete?: never;
         options?: never;
@@ -2632,7 +2799,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** The master 'Enable API actions' switch — applies to live calls at next publish */
+        /** The master 'Enable actions' switch — live calls follow at once */
         put: operations["set_master_switch_v1_agents__agent_id__actions_enabled_put"];
         post?: never;
         delete?: never;
@@ -2667,8 +2834,25 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Enable or disable one action */
+        /** Switch one action on or off — live calls follow at once */
         put: operations["set_action_enabled_v1_agents__agent_id__actions__tool_id__enabled_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/actions/{tool_id}/log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The most recent runs of one action: when, from where, and the outcome */
+        get: operations["action_log_v1_agents__agent_id__actions__tool_id__log_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -2686,10 +2870,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Run an action with sample values before it goes live (no audit as in-call)
-         * @description The 'Test API' tab. Executes the real external call with the operator's sample
-         *     values so a misconfiguration is caught before a caller ever triggers it. Audited as a
-         *     test invocation (`source="test"`) so a live WhatsApp send in testing is still on file.
+         * Run an action once for real with sample values (audited as a test)
+         * @description The Test button. Executes the real external call with the client's sample values so a
+         *     misconfiguration is caught before a caller triggers it, audited as `source="test"`. A
+         *     WhatsApp or payment-link test goes only to one of the business's own contact numbers.
          */
         post: operations["test_action_v1_agents__agent_id__actions__tool_id__test_post"];
         delete?: never;
@@ -2938,7 +3122,7 @@ export interface paths {
          *     that rang is copied onto the attempt row rather than looked up through this table.
          *
          *     Two things are refused rather than normalised, because both are a client saying
-         *     something they did not mean: the same number twice (one person cannot be two rungs of
+         *     something they did not mean: the same contact twice (one person cannot be two rungs of
          *     a hunt list, and whichever is second is unreachable), and enabling the feature with
          *     nobody on the list (an agent that promises a caller a person and has none).
          */
@@ -3822,6 +4006,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/billing/auto-recharge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Auto-recharge settings, the approved payment method and this month's charges */
+        get: operations["read_settings_v1_billing_auto_recharge_get"];
+        /** Save auto-recharge: threshold, recharge amount, monthly limit, on or off */
+        put: operations["save_settings_v1_billing_auto_recharge_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/auto-recharge/charges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The automatic recharges started on this account, newest first */
+        get: operations["read_charges_v1_billing_auto_recharge_charges_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/auto-recharge/mandate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start approving UPI Autopay or a card for automatic recharges
+         * @description Creates the payment provider's customer and an approval order with a per-payment limit; the browser then opens the payment window with `recurring` set. The ₹1 approval payment is added to the balance.
+         */
+        post: operations["start_mandate_v1_billing_auto_recharge_mandate_post"];
+        /** Withdraw the automatic-payment approval and turn auto-recharge off */
+        delete: operations["withdraw_v1_billing_auto_recharge_mandate_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/auto-recharge/mandate/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify the approval returned by the payment window */
+        post: operations["confirm_v1_billing_auto_recharge_mandate_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/billing/caps": {
         parameters: {
             query?: never;
@@ -4101,6 +4358,41 @@ export interface paths {
         get: operations["read_topup_attempts_v1_billing_wallet_topups_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/business-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The business profile every agent reads, with setup progress */
+        get: operations["get_business_profile_v1_business_profile_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Replace the sections sent; every agent of the business is updated */
+        patch: operations["patch_business_profile_v1_business_profile_patch"];
+        trace?: never;
+    };
+    "/v1/business-profile/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move the setup wizard: start it, skip a step, dismiss or reopen the checklist */
+        post: operations["post_setup_v1_business_profile_setup_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4858,7 +5150,7 @@ export interface paths {
         put?: never;
         /**
          * Upload the business certificate or the owner's ID
-         * @description `slot` is `business` (kind `gst`, `incorporation` or `udyam`) or `owner_id` (kind `aadhaar` — the masked copy only — or `pan_card`). PDF, JPEG or PNG, at most 5 MB, a filename of at most 99 characters. Files are encrypted before storage. The owner's ID is deleted once a reviewer decides, or after 30 days if nobody does.
+         * @description `slot` is `business` (kind `gst`, `incorporation` or `udyam`) or `owner_id` (kind `pan_card`; an Aadhaar copy is refused, D-696). PDF, JPEG or PNG, at most 5 MB, a filename of at most 99 characters. Files are encrypted before storage. The owner's ID is deleted once a reviewer decides, or after 30 days if nobody does.
          */
         post: operations["upload_document_v1_compliance_kyc_documents_post"];
         delete?: never;
@@ -4878,7 +5170,7 @@ export interface paths {
         put?: never;
         /**
          * Send the uploaded documents for review
-         * @description The manual path: needs the business details, the business certificate and the owner's ID on file. For a PAN send the full PAN (only a masked form is kept); for an Aadhaar send ONLY its last four digits.
+         * @description The manual path: needs the business details, the business certificate and the owner's PAN card on file. Send the full PAN; only a masked form is kept. `owner_id_type: aadhaar` is refused (D-696): Aadhaar is accepted only through DigiLocker.
          */
         post: operations["submit_for_review_v1_compliance_kyc_submit_post"];
         delete?: never;
@@ -5034,6 +5326,139 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/copilot/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the assistant did for you — newest first, with Undo where it still applies
+         * @description One page of THIS person's activity log. Refused attempts are rows too, without their
+         *     arguments. Scoped on the person as well as the account (`action_log.list_actions`).
+         */
+        get: operations["list_copilot_actions_v1_copilot_actions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/actions/{action_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo something the assistant did — if nothing has changed it since
+         * @description Run the action's declared inverse (D-694).
+         *
+         *     `copilot:use` at the door and the TOOL's own permission inside, exactly as
+         *     `POST /v1/copilot/confirm` — an Undo is a change, and nobody may make one through the
+         *     assistant that the console's own button would refuse them. `409` when the record has
+         *     changed since (the inverse's compare-and-swap), when the window has passed, or when it
+         *     was already undone; `404` for an id that is not one of YOUR actions in this account.
+         *
+         *     NO `Idempotency-Key`: the row lock and the `done → undone` CAS are the guard, and a
+         *     second click is answered `copilot_action_already_undone`.
+         */
+        post: operations["undo_copilot_action_v1_copilot_actions__action_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The Approvals inbox — what your background jobs are waiting for you to approve
+         * @description Pending approvals, newest first. Approvals older than a day expire on this read.
+         */
+        get: operations["list_copilot_approvals_v1_copilot_approvals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/approvals/{action_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve one waiting action — it runs now, after a fresh check
+         * @description The click that lets a background job's irreversible step happen (D-694).
+         *
+         *     The planner runs again against the world as it is NOW and the executor runs on its
+         *     fresh arguments, through the same service function the console's button calls; the
+         *     change, its audit row and the decision commit together. `applied: false` with a
+         *     sentence is a real answer: the step no longer applies and nothing was done.
+         */
+        post: operations["approve_copilot_action_v1_copilot_approvals__action_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/approvals/{action_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What approving a waiting action would change, read fresh
+         * @description Re-runs the planner on the waiting action against the world as it is now — what
+         *     changes, from what, the cost and whether it can be taken back. Changes nothing.
+         */
+        get: operations["preview_copilot_approval_v1_copilot_approvals__action_id__preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/approvals/{action_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decline one waiting action — nothing runs */
+        post: operations["reject_copilot_action_v1_copilot_approvals__action_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/copilot/ask": {
         parameters: {
             query?: never;
@@ -5067,11 +5492,16 @@ export interface paths {
          *       untouched; the token stops working at `expires_at`.
          *     * `event: action` · `data: {"tool": "...", "title": "...", "detail": "...",
          *       "object_type": "...", "object_id": "...", "applied": true, "reversal": "...",
-         *       "where": "..."}` — a **Tier 1** action that **has already happened**: reversible, reaching
-         *       no caller, spending nothing. Render it as a RECEIPT and never as an offer — there is no
-         *       token and no button. `reversal` says whether and how it can be taken back and `where`
-         *       says where the result now lives; both are the server's own words. `applied: false` means
-         *       the world was already in that state.
+         *       "where": "...", "action_id": "..."|null, "undoable_until": "..."|null}` — an
+         *       **immediate** action that **has already happened**: reversible, reaching no caller,
+         *       spending nothing (D-694). Render it as a RECEIPT, never as an offer. While
+         *       `undoable_until` is in the future, offer an Undo that posts to
+         *       `POST /v1/copilot/actions/{action_id}/undo`. `applied: false` means the world was
+         *       already in that state, and then there is nothing to undo.
+         *     * `event: job` · `data: {"job_id": "...", "status": "queued", "goal": "...",
+         *       "detail": "..."}` — the request was handed to a BACKGROUND JOB. Follow it on
+         *       `GET /v1/copilot/jobs/{job_id}` or `GET /v1/copilot/jobs/{job_id}/events`; anything
+         *       irreversible it reaches waits on `GET /v1/copilot/approvals`.
          *     * `event: navigate` · `data: {"tool": "open_screen", "screen": "...", "route": "...",
          *       "where": "...", "detail": "...", "reversal": "..."}` — OPEN THIS SCREEN. At most one per
          *       response. A **Tier 1** frame: reversible (the back button), reaching no caller, spending
@@ -5106,8 +5536,8 @@ export interface paths {
          *     no thread. What IS kept is one redacted, capped memory row per answered question
          *     (`copilot_memories`), which the assistant recalls on later questions from the same person;
          *     it expires on the account's own `copilot_memory` retention policy and is destroyed by
-         *     offboarding. Metered against the account's AI allowance and refused before a token is spent
-         *     when that allowance is used up (`ai_quota_exceeded` opens the wallet dialog).
+         *     offboarding. Free to the account, up to a daily fair-use cap per account (D-694):
+         *     past it the request is refused with `copilot_daily_limit_reached`.
          *     Requires `copilot:use` — held by owners and staff.
          */
         post: operations["ask_copilot_v1_copilot_ask_post"];
@@ -5209,6 +5639,162 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/copilot/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Your recent background jobs */
+        get: operations["list_copilot_jobs_v1_copilot_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One background job — its state, its progress and its result */
+        get: operations["read_copilot_job_v1_copilot_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/jobs/{job_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop a background job that has not finished
+         * @description Stops it before its next step. What it has already done stays done (and stays
+         *     undoable from the activity log); what it staged for approval stays in the inbox.
+         */
+        post: operations["cancel_copilot_job_v1_copilot_jobs__job_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/jobs/{job_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Follow a background job as it runs — streamed
+         * @description Streams `event: job` frames, each the whole job as `GET /v1/copilot/jobs/{job_id}` returns it, whenever it changes, and ends with `event: done` once the job has finished (or after five minutes; reconnect to keep following it).
+         */
+        get: operations["stream_copilot_job_v1_copilot_jobs__job_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/routines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Your routines — what the assistant does for you on a schedule */
+        get: operations["list_copilot_routines_v1_copilot_routines_get"];
+        put?: never;
+        /**
+         * Add a routine
+         * @description A routine runs as YOU, through your own permissions, as a background task. Anything
+         *     that would call someone, spend money or cannot be undone waits in your Approvals inbox.
+         */
+        post: operations["create_copilot_routine_v1_copilot_routines_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/routines/{routine_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a routine and its run history
+         * @description Tasks it already queued keep running, and what they did stays in your activity log.
+         */
+        delete: operations["delete_copilot_routine_v1_copilot_routines__routine_id__delete"];
+        options?: never;
+        head?: never;
+        /** Change a routine, or switch it on or off */
+        patch: operations["update_copilot_routine_v1_copilot_routines__routine_id__patch"];
+        trace?: never;
+    };
+    "/v1/copilot/routines/{routine_id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run a routine once, now
+         * @description Queues one background task now; the schedule is unchanged. `409` when you already
+         *     have the most tasks running that one person may.
+         */
+        post: operations["run_copilot_routine_v1_copilot_routines__routine_id__run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/routines/{routine_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** When a routine ran, and what became of each run */
+        get: operations["list_copilot_routine_runs_v1_copilot_routines__routine_id__runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/dashboard": {
         parameters: {
             query?: never;
@@ -5297,6 +5883,127 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/healer/fallback-phone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The phone your callers are passed to if your agent cannot take calls */
+        get: operations["get_fallback_phone_v1_healer_fallback_phone_get"];
+        /** Set the phone your callers are passed to if your agent cannot take calls */
+        put: operations["put_fallback_phone_v1_healer_fallback_phone_put"];
+        post?: never;
+        /** Stop passing callers to a phone; a held line plays a short message instead */
+        delete: operations["delete_fallback_phone_v1_healer_fallback_phone_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/healer/incidents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Problems with your lines, what we did, and whether you need to act */
+        get: operations["list_client_incidents_v1_healer_incidents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/healer/incidents/{incident_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn your line back on now */
+        post: operations["restore_client_line_v1_healer_incidents__incident_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/healer/proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Changes we suggest for a struggling agent; nothing changes until you approve */
+        get: operations["list_proposals_v1_healer_proposals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/healer/proposals/{proposal_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a suggested change */
+        post: operations["apply_proposal_v1_healer_proposals__proposal_id__apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/healer/proposals/{proposal_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dismiss a suggested change */
+        post: operations["dismiss_proposal_v1_healer_proposals__proposal_id__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/connections/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which accounts can be connected on this deployment */
+        get: operations["connections_status_v1_integrations_connections_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/integrations/credentials": {
         parameters: {
             query?: never;
@@ -5307,7 +6014,7 @@ export interface paths {
         /** Saved integration credentials — fingerprints only, never the secret */
         get: operations["list_credentials_v1_integrations_credentials_get"];
         put?: never;
-        /** Save a reusable integration credential (envelope-encrypted) */
+        /** Save a reusable integration credential (envelope-encrypted, shown once) */
         post: operations["create_credential_v1_integrations_credentials_post"];
         delete?: never;
         options?: never;
@@ -5325,7 +6032,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete a saved credential (tools using it become visibly broken) */
+        /** Disconnect an account: its actions leave the live agents and say they cannot help */
         delete: operations["delete_credential_v1_integrations_credentials__credential_id__delete"];
         options?: never;
         head?: never;
@@ -5343,6 +6050,28 @@ export interface paths {
         put?: never;
         /** Rotate a credential in place — every tool using it picks up the new value */
         post: operations["rotate_credential_v1_integrations_credentials__credential_id__rotate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/credentials/{credential_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a connection works without sending anything to anyone
+         * @description A read-only proof per kind: Razorpay lists one payment, an OAuth connection mints an
+         *     access token. A WhatsApp key cannot be proved without sending, so it says to use the
+         *     action's "send a test WhatsApp to my number" instead.
+         */
+        post: operations["test_credential_v1_integrations_credentials__credential_id__test_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5476,6 +6205,40 @@ export interface paths {
          * @description The events an endpoint may subscribe to, and whether this account can deliver to a Google Sheet. `sheets_delivery_available: false` means `POST /v1/integrations/endpoints/sheets` will be refused with `sheets_delivery_unavailable`, so a form for it should not be offered — but the refusal remains the authority, and this field is only how you learn about it without attempting the create.
          */
         get: operations["endpoint_options_v1_integrations_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/oauth/{kind}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finish connecting Google Calendar, Zoho CRM or HubSpot */
+        post: operations["oauth_callback_v1_integrations_oauth__kind__callback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/oauth/{kind}/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Begin connecting Google Calendar, Zoho CRM or HubSpot — returns the consent URL */
+        get: operations["oauth_connect_v1_integrations_oauth__kind__connect_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6921,6 +7684,125 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/healer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The healer's playbooks, kill switches and paging channels */
+        get: operations["healer_overview_v1_ops_healer_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/healer/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The healer's ledger, newest first */
+        get: operations["list_actions_v1_ops_healer_actions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/healer/incidents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every healer incident, unresolved first */
+        get: operations["list_incidents_v1_ops_healer_incidents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/healer/incidents/{incident_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve an incident, giving back any line it holds */
+        post: operations["resolve_incident_v1_ops_healer_incidents__incident_id__resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/healer/incidents/{incident_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run an incident's next step on the healer's next tick */
+        post: operations["retry_incident_v1_ops_healer_incidents__incident_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/healer/incidents/{incident_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Show an incident on the public status page, or take it off */
+        put: operations["put_incident_status_v1_ops_healer_incidents__incident_id__status_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/healer/status-posts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post a problem on the public status page by hand */
+        post: operations["post_status_v1_ops_healer_status_posts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/kb-orphans": {
         parameters: {
             query?: never;
@@ -7358,6 +8240,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/trial-number": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The shared free-trial number, and the platform-held numbers that may be it */
+        get: operations["read_trial_number_v1_ops_trial_number_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/tts-prices/plan-fees": {
         parameters: {
             query?: never;
@@ -7710,6 +8609,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/public/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether calls, numbers, the dashboard and the assistant are working
+         * @description Unauthenticated and identical for everyone. Each component's state and the incidents posted in the last ninety days. No account, agent or customer is named.
+         */
+        get: operations["read_status_v1_public_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/quality/reports": {
         parameters: {
             query?: never;
@@ -7747,6 +8666,40 @@ export interface paths {
         get: operations["list_team_members_v1_team_members_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/trial": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This account's free trial: days and minutes left, and today's test calls */
+        get: operations["read_trial_panel_v1_trial_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/trial/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Place one free-trial test call to an Indian number — gated, idempotent */
+        post: operations["create_trial_call_v1_trial_calls_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7820,6 +8773,50 @@ export interface components {
             statement_version: string;
             /** Version */
             version: string;
+        };
+        /** ActionOut */
+        ActionOut: {
+            /**
+             * Actor Type
+             * @enum {string}
+             */
+            actor_type: "healer" | "admin" | "user";
+            /** Agent Id */
+            agent_id: string | null;
+            /** Alarm Code */
+            alarm_code: string | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Attempt */
+            attempt: number;
+            /** Detail */
+            detail: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Incident Id */
+            incident_id: string | null;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "ok" | "failed" | "skipped" | "refused";
+            /** Playbook */
+            playbook: string;
+            /** Step */
+            step: string;
+            /** Tenant Id */
+            tenant_id: string | null;
+        };
+        /** ActionsOut */
+        ActionsOut: {
+            /** Items */
+            items: components["schemas"]["ActionOut"][];
         };
         /**
          * ActionsSettingsOut
@@ -8043,6 +9040,42 @@ export interface components {
             /** Numbers */
             numbers: components["schemas"]["AdminAvailableNumberOut"][];
         };
+        /** AdminBusinessProfileOut */
+        AdminBusinessProfileOut: {
+            /** Agents Updated */
+            agents_updated?: number | null;
+            /** Blockers */
+            blockers: components["schemas"]["ProfileBlockerOut"][];
+            /** Booking Rules */
+            booking_rules: string | null;
+            /** Branches */
+            branches: components["schemas"]["Branch"][];
+            /** Business Name */
+            business_name: string;
+            /** Contacts */
+            contacts: components["schemas"]["BusinessContactOut"][];
+            /** Faqs */
+            faqs: components["schemas"]["Faq"][];
+            /** Hours */
+            hours: components["schemas"]["DayHours"][];
+            /** Languages */
+            languages: ("te-IN" | "hi-IN" | "en-IN")[];
+            /** Legal Name */
+            legal_name: string | null;
+            /** Merge Notes */
+            merge_notes: {
+                [key: string]: unknown;
+            }[];
+            /** Services */
+            services: components["schemas"]["ServiceItem"][];
+            setup: components["schemas"]["ProfileSetupOut"];
+            /** Staff */
+            staff: components["schemas"]["StaffMember"][];
+            /** Updated At */
+            updated_at: string | null;
+            /** Vertical Template */
+            vertical_template: string | null;
+        };
         /** AdminCityOut */
         AdminCityOut: {
             /** Available */
@@ -8167,6 +9200,12 @@ export interface components {
             owner_id_type: string | null;
             /** Owner Name */
             owner_name: string | null;
+            /** Owner Pan Checked */
+            owner_pan_checked: boolean;
+            /** Owner Pan Checked At */
+            owner_pan_checked_at: string | null;
+            /** Owner Pan Checked By */
+            owner_pan_checked_by: string | null;
             /** Pledge Accepted At */
             pledge_accepted_at: string | null;
             /** Pledge Accepted Version */
@@ -8859,7 +9898,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "lead_blocked" | "delivery_failed" | "campaign_stalled" | "kb_rejected" | "inbound_stopped";
+            kind: "lead_blocked" | "delivery_failed" | "campaign_stalled" | "kb_rejected" | "inbound_stopped" | "action_broken";
             /**
              * Occurred At
              * Format: date-time
@@ -8892,6 +9931,46 @@ export interface components {
             items: components["schemas"]["AttentionItemOut"][];
             /** Total */
             total: number;
+        };
+        /** AutoRechargeIn */
+        AutoRechargeIn: {
+            /** Amount Inr */
+            amount_inr: number | string;
+            /** Enabled */
+            enabled: boolean;
+            /** Monthly Cap Inr */
+            monthly_cap_inr: number | string;
+            /** Threshold Inr */
+            threshold_inr: number | string;
+        };
+        /** AutoRechargeOut */
+        AutoRechargeOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Consecutive Failures */
+            consecutive_failures: number;
+            /** Disabled Reason */
+            disabled_reason: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Mandate Max Inr */
+            mandate_max_inr: string | null;
+            /** Mandate Method */
+            mandate_method: ("upi" | "card") | null;
+            /** Mandate Status */
+            mandate_status: string;
+            /** Max Debit Inr */
+            max_debit_inr: string;
+            /** Month Charged Inr */
+            month_charged_inr: string;
+            /** Monthly Cap Inr */
+            monthly_cap_inr: string;
+            /** Pending Charge Inr */
+            pending_charge_inr: string | null;
+            /** Suggested Threshold Inr */
+            suggested_threshold_inr: string | null;
+            /** Threshold Inr */
+            threshold_inr: string;
         };
         /** AutodialerNoticeIn */
         AutodialerNoticeIn: {
@@ -8992,6 +10071,20 @@ export interface components {
             reason: string;
             /** Rule */
             rule: string;
+        };
+        /** Body_contest_v1_admin_payments_disputes__dispute_id__contest_post */
+        Body_contest_v1_admin_payments_disputes__dispute_id__contest_post: {
+            /** Amount Inr */
+            amount_inr?: string | null;
+            /**
+             * Evidence Kind
+             * @enum {string}
+             */
+            evidence_kind: "billing_proof" | "proof_of_service" | "explanation_letter" | "access_activity_log" | "refund_cancellation_policy" | "term_and_conditions" | "customer_communication";
+            /** Files */
+            files: string[];
+            /** Summary */
+            summary: string;
         };
         /** Body_create_clone_v1_ops_voices_clones_post */
         Body_create_clone_v1_ops_voices_clones_post: {
@@ -9120,6 +10213,35 @@ export interface components {
             label: string;
         };
         /**
+         * BusinessContactIn
+         * @description One escalation contact as the client writes it. `id` keeps an existing contact
+         *     (and its place in every agent's handover list); omit it to add a new one.
+         */
+        BusinessContactIn: {
+            /** Id */
+            id?: string | null;
+            /** Label */
+            label: string;
+            /** Note */
+            note?: string | null;
+            /** Phone E164 */
+            phone_e164: string;
+        };
+        /** BusinessContactOut */
+        BusinessContactOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /** Note */
+            note: string | null;
+            /** Phone E164 */
+            phone_e164: string;
+        };
+        /**
          * BusinessDetailsIn
          * @description The legal facts a numbering application in the client's own name needs.
          */
@@ -9178,6 +10300,38 @@ export interface components {
             status: string | null;
             /** Submitted At */
             submitted_at: string | null;
+        };
+        /** BusinessProfileOut */
+        BusinessProfileOut: {
+            /** Agents Updated */
+            agents_updated?: number | null;
+            /** Blockers */
+            blockers: components["schemas"]["ProfileBlockerOut"][];
+            /** Booking Rules */
+            booking_rules: string | null;
+            /** Branches */
+            branches: components["schemas"]["Branch"][];
+            /** Business Name */
+            business_name: string;
+            /** Contacts */
+            contacts: components["schemas"]["BusinessContactOut"][];
+            /** Faqs */
+            faqs: components["schemas"]["Faq"][];
+            /** Hours */
+            hours: components["schemas"]["DayHours"][];
+            /** Languages */
+            languages: ("te-IN" | "hi-IN" | "en-IN")[];
+            /** Legal Name */
+            legal_name: string | null;
+            /** Services */
+            services: components["schemas"]["ServiceItem"][];
+            setup: components["schemas"]["ProfileSetupOut"];
+            /** Staff */
+            staff: components["schemas"]["StaffMember"][];
+            /** Updated At */
+            updated_at: string | null;
+            /** Vertical Template */
+            vertical_template: string | null;
         };
         /**
          * BuyNumberIn
@@ -9247,6 +10401,22 @@ export interface components {
             metered: boolean;
             /** Summary */
             summary: string;
+        };
+        /**
+         * CallBackOut
+         * @description A caller who reached the line while it was not working properly.
+         */
+        CallBackOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Call Id
+             * Format: uuid
+             */
+            call_id: string;
         };
         /** CallCapOut */
         CallCapOut: {
@@ -9963,6 +11133,25 @@ export interface components {
             /** Oldest Checked At */
             oldest_checked_at: string | null;
         };
+        /** ChargeOut */
+        ChargeOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Failure Code */
+            failure_code: string | null;
+            /** Settled At */
+            settled_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "captured" | "failed";
+        };
         /** CheckIn */
         CheckIn: {
             /** Phone */
@@ -10076,6 +11265,67 @@ export interface components {
              */
             tenant_id: string;
         };
+        /** ClientIncidentOut */
+        ClientIncidentOut: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Agent Name */
+            agent_name: string | null;
+            /** Call Backs */
+            call_backs: components["schemas"]["CallBackOut"][];
+            /** Campaigns Paused */
+            campaigns_paused: number;
+            /** Can Restore */
+            can_restore: boolean;
+            /** Headline */
+            headline: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "agent_unwell" | "line_protected" | "platform_outage";
+            /** Missed Calls */
+            missed_calls: number;
+            /** Must Act */
+            must_act: boolean;
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            /**
+             * Protection
+             * @enum {string}
+             */
+            protection: "none" | "paused" | "forwarded";
+            /** Requeued */
+            requeued: number;
+            /** Resolved At */
+            resolved_at: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "open" | "resolved";
+            /** What Happened */
+            what_happened: string;
+            /** What We Did */
+            what_we_did: string;
+            /** Your Part */
+            your_part: string;
+        };
+        /** ClientIncidentsOut */
+        ClientIncidentsOut: {
+            /** Items */
+            items: components["schemas"]["ClientIncidentOut"][];
+            /** Open */
+            open: number;
+        };
         /**
          * ClientLlmDefaultIn
          * @description The tier for every agent that chooses none, or `null` to follow the Calevate default.
@@ -10179,6 +11429,8 @@ export interface components {
             erase_after: string | null;
             /** Erased At */
             erased_at: string | null;
+            /** Forfeited Credit Inr */
+            forfeited_credit_inr: string;
             /** Reason */
             reason: string | null;
             /** Restorable */
@@ -10475,6 +11727,25 @@ export interface components {
             /** Recorded */
             recorded: boolean;
         };
+        /** ConnectOut */
+        ConnectOut: {
+            /** Authorize Url */
+            authorize_url: string;
+        };
+        /**
+         * ConnectionsStatusOut
+         * @description Which connections this deployment can offer, for the Connections screen.
+         */
+        ConnectionsStatusOut: {
+            /** Google Calendar */
+            google_calendar: boolean;
+            /** Hubspot */
+            hubspot: boolean;
+            /** Sheets Share With */
+            sheets_share_with: string | null;
+            /** Zoho Crm */
+            zoho_crm: boolean;
+        };
         /**
          * ConsentProvenanceIn
          * @description Where this list's consent came from, and when (SEC-COMP §3).
@@ -10506,6 +11777,124 @@ export interface components {
             name?: string | null;
             /** Phone */
             phone: string;
+        };
+        /**
+         * CopilotActionOut
+         * @description One row of the assistant's activity log, or of the Approvals inbox (D-694).
+         *
+         *     `args` are the arguments AFTER redaction — for reading, never for running. `can_undo`
+         *     is the server's own verdict (a `done` row inside its undo window); the browser shows
+         *     an Undo button exactly when it is true.
+         */
+        CopilotActionOut: {
+            /** Args */
+            args: {
+                [key: string]: unknown;
+            } | null;
+            /** Can Undo */
+            can_undo: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Decided At */
+            decided_at: string | null;
+            /** Decided By */
+            decided_by?: string | null;
+            /** Id */
+            id: string;
+            /** Job Id */
+            job_id: string | null;
+            /** Object Id */
+            object_id: string | null;
+            /** Object Type */
+            object_type: string;
+            /**
+             * Realm
+             * @enum {string}
+             */
+            realm: "client" | "admin";
+            /** Refusal Reason */
+            refusal_reason: string | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "interactive" | "job";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "done" | "undone" | "refused" | "pending_approval" | "rejected" | "expired";
+            /** Summary */
+            summary: string | null;
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "immediate" | "confirm";
+            /** Tool */
+            tool: string;
+            /** Undoable Until */
+            undoable_until: string | null;
+            /** Undone At */
+            undone_at: string | null;
+            /** Undone By */
+            undone_by?: string | null;
+        };
+        /**
+         * CopilotActionPageOut
+         * @description One page of the activity log, newest first. Pass the oldest `created_at` you hold
+         *     as `before` to read further back.
+         */
+        CopilotActionPageOut: {
+            /**
+             * Actions
+             * @default []
+             */
+            actions: components["schemas"]["CopilotActionOut"][];
+            /**
+             * Has More
+             * @default false
+             */
+            has_more: boolean;
+        };
+        /**
+         * CopilotApprovalPreviewOut
+         * @description What approving one waiting action would do NOW — the planner's own reading.
+         *
+         *     `still_applies` is False when the step would be refused (it was decided, it expired, the
+         *     person's role does not allow it, or the world changed), and `refusal` then says why.
+         */
+        CopilotApprovalPreviewOut: {
+            /** Action Id */
+            action_id: string;
+            /** Cost */
+            cost?: string | null;
+            /** Current */
+            current?: string | null;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Object Type */
+            object_type: string;
+            /** Proposed */
+            proposed?: string | null;
+            /** Refusal */
+            refusal: string | null;
+            /** Reversal */
+            reversal?: string | null;
+            /** Still Applies */
+            still_applies: boolean;
+            /** Summary */
+            summary: string;
+            /** Title */
+            title: string;
+            /** Tool */
+            tool: string;
         };
         /**
          * CopilotAskIn
@@ -10663,6 +12052,70 @@ export interface components {
             writable: boolean;
         };
         /**
+         * CopilotJobOut
+         * @description One background job (D-694): its state, its progress so far and, once finished, the
+         *     assistant's account of what it did.
+         */
+        CopilotJobOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Error Code */
+            error_code?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Goal */
+            goal: string;
+            /** Id */
+            id: string;
+            /**
+             * Progress
+             * @default []
+             */
+            progress: components["schemas"]["CopilotJobProgressOut"][];
+            /** Result */
+            result?: string | null;
+            /** Screen Route */
+            screen_route: string;
+            /** Started At */
+            started_at?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "done" | "failed" | "cancelled";
+        };
+        /**
+         * CopilotJobPageOut
+         * @description This person's recent background jobs, newest first.
+         */
+        CopilotJobPageOut: {
+            /**
+             * Jobs
+             * @default []
+             */
+            jobs: components["schemas"]["CopilotJobOut"][];
+        };
+        /**
+         * CopilotJobProgressOut
+         * @description One entry of a background job's progress.
+         */
+        CopilotJobProgressOut: {
+            /** Action Id */
+            action_id?: string | null;
+            /** At */
+            at: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "step" | "action" | "approval" | "text" | "note";
+            /** Text */
+            text: string;
+        };
+        /**
          * CopilotOption
          * @description One choice on a `select`. `value` is what may be written; `label` is what the
          *     person sees, and is what the model needs in order to map "Telugu" onto `te-IN`.
@@ -10672,6 +12125,126 @@ export interface components {
             label: string;
             /** Value */
             value: string;
+        };
+        /**
+         * CopilotRoutineIn
+         * @description `POST /v1/copilot/routines`.
+         */
+        CopilotRoutineIn: {
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Instruction */
+            instruction: string;
+            /** Name */
+            name: string;
+            schedule: components["schemas"]["CopilotRoutineSchedule"];
+        };
+        /** CopilotRoutineOut */
+        CopilotRoutineOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Id */
+            id: string;
+            /** Instruction */
+            instruction: string;
+            /** Last Run At */
+            last_run_at: string | null;
+            /** Name */
+            name: string;
+            /** Next Run At */
+            next_run_at: string | null;
+            schedule: components["schemas"]["CopilotRoutineSchedule"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** CopilotRoutinePageOut */
+        CopilotRoutinePageOut: {
+            /**
+             * Routines
+             * @default []
+             */
+            routines: components["schemas"]["CopilotRoutineOut"][];
+        };
+        /**
+         * CopilotRoutinePatch
+         * @description `PATCH /v1/copilot/routines/{id}` — only what is sent changes.
+         */
+        CopilotRoutinePatch: {
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Instruction */
+            instruction?: string | null;
+            /** Name */
+            name?: string | null;
+            schedule?: components["schemas"]["CopilotRoutineSchedule"] | null;
+        };
+        /**
+         * CopilotRoutineRunOut
+         * @description One run of a routine: the task it queued, or why it was skipped.
+         */
+        CopilotRoutineRunOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            /** Job Id */
+            job_id: string | null;
+            /** Job Status */
+            job_status: string | null;
+            /** Reason */
+            reason: string | null;
+            /** Routine Id */
+            routine_id: string;
+            /**
+             * Slot At
+             * Format: date-time
+             */
+            slot_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "skipped";
+            /**
+             * Trigger
+             * @enum {string}
+             */
+            trigger: "schedule" | "manual";
+        };
+        /** CopilotRoutineRunPageOut */
+        CopilotRoutineRunPageOut: {
+            /**
+             * Runs
+             * @default []
+             */
+            runs: components["schemas"]["CopilotRoutineRunOut"][];
+        };
+        /**
+         * CopilotRoutineSchedule
+         * @description When a routine runs: on these days, at this time, in India's time.
+         */
+        CopilotRoutineSchedule: {
+            /** Days */
+            days: ("mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun")[];
+            /**
+             * Time
+             * @description 24-hour HH:MM, IST.
+             */
+            time: string;
         };
         /**
          * CopilotScreen
@@ -10736,6 +12309,18 @@ export interface components {
              */
             role: "user" | "assistant";
         };
+        /**
+         * CopilotUndoOut
+         * @description What an Undo did. `detail` is the sentence to show.
+         */
+        CopilotUndoOut: {
+            /** Action Id */
+            action_id: string;
+            /** Detail */
+            detail: string;
+            /** Tool */
+            tool: string;
+        };
         /** CreateCampaignIn */
         CreateCampaignIn: {
             /**
@@ -10778,7 +12363,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "aisensy" | "meta_cloud" | "interakt" | "custom_api" | "google_calendar";
+            kind: "aisensy" | "meta_cloud" | "interakt" | "custom_api" | "google_calendar" | "razorpay";
             /** Label */
             label: string;
             /** Non Secret */
@@ -10861,6 +12446,7 @@ export interface components {
             language: "te-IN" | "hi-IN" | "en-IN";
             /** Name */
             name: string;
+            owner: components["schemas"]["OwnerIn"];
             /** Slug */
             slug?: string | null;
             /**
@@ -10887,6 +12473,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Invitation Id
+             * Format: uuid
+             */
+            invitation_id: string;
             /** Slug */
             slug: string;
             /** Status */
@@ -10926,6 +12517,13 @@ export interface components {
             updated_at: string;
             /** Version */
             version: number;
+        };
+        /** CredentialTestOut */
+        CredentialTestOut: {
+            /** Message */
+            message: string;
+            /** Ok */
+            ok: boolean;
         };
         /**
          * CreditLotOut
@@ -11290,9 +12888,8 @@ export interface components {
         };
         /**
          * DayHours
-         * @description One day of the week. `closed` is explicit rather than implied by an absent day:
-         *     "we do not open on Sunday" and "nobody filled Sunday in" are different answers, and
-         *     the agent says different things about them.
+         * @description One day of the week. `closed` is explicit: "closed on Sunday" and "Sunday not
+         *     answered yet" are different answers, and a day that is not closed needs both times.
          */
         DayHours: {
             /**
@@ -11576,6 +13173,46 @@ export interface components {
             /** Truthful Answer Rule */
             truthful_answer_rule: string;
         };
+        /** DisputeActionOut */
+        DisputeActionOut: {
+            /** Dispute Id */
+            dispute_id: string;
+            /** Status */
+            status: string;
+        };
+        /** DisputeOut */
+        DisputeOut: {
+            /** Action Required */
+            action_required: boolean;
+            /** Amount Inr */
+            amount_inr: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Dispute Id */
+            dispute_id: string;
+            /** Hold Inr */
+            hold_inr: string;
+            /** Payment Id */
+            payment_id: string;
+            /** Phase */
+            phase: string | null;
+            /** Reason Code */
+            reason_code: string | null;
+            /** Respond By */
+            respond_by: string | null;
+            /** Status */
+            status: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Tenant Name */
+            tenant_name: string | null;
+        };
         /**
          * DltRegistrationIn
          * @description What the registrar says about THIS CLIENT's Principal Entity (SEC-COMP §3).
@@ -11703,10 +13340,10 @@ export interface components {
          *     `service.EDITABLE_TENANT_FIELDS` records what walking `Organization` found, and why
          *     there is no `phone` and no `language` field here to widen towards.
          *
-         *     The BUSINESS ADDRESS is deliberately not here. It lives in the intake answer sheet
-         *     (`organizations.intake`, `admin/intake.Branch.address`) because a business can have
+         *     The BUSINESS ADDRESS is deliberately not here. It lives in the business profile
+         *     (`business_profiles.branches`, D-695) because a business can have
          *     several branches and the agent quotes them on the call, and it is already editable from
-         *     the console at `POST /v1/admin/tenants/{id}/agents/{id}/intake`. A second address on
+         *     view-as at `PATCH /v1/business-profile`. A second address on
          *     the organisation row would be a second answer to "where are you", and the one the agent
          *     reads would not be the one the operator just typed.
          */
@@ -12278,15 +13915,6 @@ export interface components {
             /** Transcript Turns Erased */
             transcript_turns_erased: number;
         };
-        /** EscalationContact */
-        EscalationContact: {
-            /** Hours */
-            hours?: string | null;
-            /** Name */
-            name: string;
-            /** Phone E164 */
-            phone_e164: string;
-        };
         /** ExperimentOut */
         ExperimentOut: {
             /**
@@ -12437,6 +14065,20 @@ export interface components {
             fields: components["schemas"]["ExtractionField"][];
             /** Version */
             version: number;
+        };
+        /** FallbackPhoneIn */
+        FallbackPhoneIn: {
+            /** Phone E164 */
+            phone_e164: string;
+        };
+        /** FallbackPhoneOut */
+        FallbackPhoneOut: {
+            /** Forwarding Supported */
+            forwarding_supported: boolean;
+            /** Phone E164 */
+            phone_e164: string | null;
+            /** Updated At */
+            updated_at: string | null;
         };
         /** Faq */
         Faq: {
@@ -12985,7 +14627,9 @@ export interface components {
         };
         /**
          * HandoffMemberIn
-         * @description One person on the list, as the client writes them.
+         * @description One rung of the list: a business contact, chosen from the client's one roster
+         *     (`business_contacts`, D-695). Names and numbers are edited there, once, for every
+         *     agent; this says only whether and when THIS agent may put a caller through to them.
          */
         HandoffMemberIn: {
             /**
@@ -12993,21 +14637,24 @@ export interface components {
              * @default true
              */
             active: boolean;
+            /**
+             * Contact Id
+             * Format: uuid
+             */
+            contact_id: string;
             /** Hours */
             hours?: {
                 [key: string]: components["schemas"]["HandoffDayWindow"] | null;
             } | null;
-            /** Label */
-            label: string;
             /** Note */
             note?: string | null;
-            /** Phone E164 */
-            phone_e164: string;
         };
         /** HandoffMemberOut */
         HandoffMemberOut: {
             /** Active */
             active: boolean;
+            /** Contact Id */
+            contact_id: string | null;
             /** Hours */
             hours: {
                 [key: string]: components["schemas"]["HandoffDayWindow"] | null;
@@ -13057,6 +14704,22 @@ export interface components {
             trigger: string | null;
             /** Unavailable Reason */
             unavailable_reason: string | null;
+        };
+        /** HealerOverviewOut */
+        HealerOverviewOut: {
+            /** Enabled */
+            enabled: boolean;
+            /** Escalated Incidents */
+            escalated_incidents: number;
+            /** Open Incidents */
+            open_incidents: number;
+            paging: components["schemas"]["PagingOut"];
+            /** Paused */
+            paused: string[];
+            /** Playbooks */
+            playbooks: components["schemas"]["PlaybookOut"][];
+            /** Unknown Paused */
+            unknown_paused: string[];
         };
         /**
          * HealthSignalOut
@@ -13270,6 +14933,60 @@ export interface components {
             /** Tenants Unreached */
             tenants_unreached: number;
         };
+        /** IncidentOut */
+        IncidentOut: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Attempts */
+            attempts: number;
+            /** Component */
+            component: ("calls" | "dashboard" | "numbers" | "assistant") | null;
+            /** Escalated At */
+            escalated_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Outcome */
+            last_outcome: string | null;
+            /** Mitigated At */
+            mitigated_at: string | null;
+            /** Next Attempt At */
+            next_attempt_at: string | null;
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            /** Playbook */
+            playbook: string;
+            /** Public */
+            public: boolean;
+            /** Public Title */
+            public_title: string | null;
+            /** Resolved At */
+            resolved_at: string | null;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "agent" | "tenant" | "platform";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "open" | "mitigated" | "escalated" | "resolved";
+            /** Tenant Id */
+            tenant_id: string | null;
+            /** Trigger Code */
+            trigger_code: string;
+        };
+        /** IncidentsOut */
+        IncidentsOut: {
+            /** Items */
+            items: components["schemas"]["IncidentOut"][];
+        };
         /**
          * IngestAckOut
          * @description What the SENDER is told about one delivery: ids and verdicts, never the lead.
@@ -13348,134 +15065,6 @@ export interface components {
         IngestActivityOut: {
             /** Items */
             items: components["schemas"]["IngestActivityItemOut"][];
-        };
-        /**
-         * IntakeDraftOut
-         * @description What a draft save did: it stored the sheet, and here is what is still missing.
-         *
-         *     No `prompt_version` and no `kb_source_id` — not "null", ABSENT — because a draft
-         *     mints neither, and a nullable field would invite a screen to render "prompt version:
-         *     —" beside a save that was never supposed to touch the prompt.
-         */
-        IntakeDraftOut: {
-            /**
-             * Agent Id
-             * Format: uuid
-             */
-            agent_id: string;
-            /** Blockers */
-            blockers: string[];
-        };
-        /**
-         * IntakeFacts
-         * @description Exactly FLOWS §1 step 3's list, in its order. Every field is optional-by-default
-         *     because the step is resumable and an operator fills it over days — the gate that
-         *     decides an agent is ready to publish is step 7's test call, not this form.
-         */
-        IntakeFacts: {
-            /** Booking Rules */
-            booking_rules?: string | null;
-            /** Branches */
-            branches?: components["schemas"]["Branch"][];
-            /** Business Hours */
-            business_hours?: components["schemas"]["DayHours"][];
-            /** Escalation Contacts */
-            escalation_contacts?: components["schemas"]["EscalationContact"][];
-            /** Faqs */
-            faqs?: components["schemas"]["Faq"][];
-            /** Languages */
-            languages?: string[];
-            /** Services */
-            services?: components["schemas"]["ServiceItem"][];
-            /** Staff */
-            staff?: components["schemas"]["StaffMember"][];
-        };
-        /**
-         * IntakeOut
-         * @description What the step did, not what it was told.
-         *
-         *     `regenerated=false` means the answers matched what the agent already carries and no
-         *     prompt version was minted — the honest result of an operator reopening the step and
-         *     saving it unchanged, and the one FLOWS §1's "every step idempotent" asks for.
-         */
-        IntakeOut: {
-            /**
-             * Agent Id
-             * Format: uuid
-             */
-            agent_id: string;
-            /** Kb Source Id */
-            kb_source_id: string | null;
-            /** Prompt Version */
-            prompt_version: number | null;
-            /** Regenerated */
-            regenerated: boolean;
-            /** Staged Behind Script */
-            staged_behind_script: boolean;
-        };
-        /**
-         * IntakeProse
-         * @description The five answers with no typed column anywhere else — the half of the form that
-         *     used to survive only as a compiled sentence.
-         *
-         *     Deliberately NOT the other three: hours, escalation contacts and languages round
-         *     trip from `agents` (DATA-MODEL §3), and a second copy of an escalation contact in
-         *     a second shape is how the two start disagreeing. It also keeps phone numbers out
-         *     of this model, which is what the read path returns to a browser.
-         */
-        IntakeProse: {
-            /** Booking Rules */
-            booking_rules?: string | null;
-            /** Branches */
-            branches?: components["schemas"]["Branch"][];
-            /** Faqs */
-            faqs?: components["schemas"]["Faq"][];
-            /** Services */
-            services?: components["schemas"]["ServiceItem"][];
-            /** Staff */
-            staff?: components["schemas"]["StaffMember"][];
-        };
-        /**
-         * IntakeStateOut
-         * @description What reopening the step prefills, now that the answers have a durable home
-         *     (`organizations.intake`, migration c1f3a7d92b46).
-         *
-         *     `prose_answers` carries the fields the operator typed — branches, services, FAQs,
-         *     staff, booking rules — rather than the sentence compiled out of them; it is `None`
-         *     for an org whose last submit predates the column, where the compiled block is still
-         *     the only record of the prose. Escalation contacts stay in their own key and out of
-         *     `prose_answers`: they are phone numbers, and keeping them in one place keeps the
-         *     two copies from disagreeing.
-         */
-        IntakeStateOut: {
-            /** Business Hours */
-            business_hours: {
-                [key: string]: {
-                    [key: string]: string;
-                } | null;
-            };
-            /** Compiled T0 Context */
-            compiled_t0_context: string | null;
-            /** Escalation Contacts */
-            escalation_contacts: {
-                [key: string]: string | null;
-            }[];
-            /**
-             * Language Primary
-             * @enum {string}
-             */
-            language_primary: "te-IN" | "hi-IN" | "en-IN";
-            /** Languages */
-            languages: string[];
-            /** Owner Present */
-            owner_present: boolean;
-            prose_answers: components["schemas"]["IntakeProse"] | null;
-            /** Saved At */
-            saved_at: string | null;
-            /** Sheet Agent Id */
-            sheet_agent_id: string | null;
-            /** Submitted At */
-            submitted_at: string | null;
         };
         /**
          * InvitationCreatedOut
@@ -13581,6 +15170,10 @@ export interface components {
              * Format: email
              */
             email: string;
+            /** Name */
+            name?: string | null;
+            /** Phone E164 */
+            phone_e164?: string | null;
             /**
              * Role
              * @default owner
@@ -13599,6 +15192,17 @@ export interface components {
              * Format: uuid
              */
             id: string;
+        };
+        /** InvocationOut */
+        InvocationOut: {
+            /** At */
+            at: string;
+            /** Duration Ms */
+            duration_ms: number | null;
+            /** Source */
+            source: string;
+            /** Status */
+            status: string;
         };
         /** InvoiceLineItemOut */
         InvoiceLineItemOut: {
@@ -14011,6 +15615,11 @@ export interface components {
             decision: "approve" | "reject";
             /** Document Ref */
             document_ref?: string | null;
+            /**
+             * Pan Checked
+             * @default false
+             */
+            pan_checked: boolean;
             /** Reason */
             reason?: string | null;
         };
@@ -15070,9 +16679,46 @@ export interface components {
             state: "scheduled" | "draining" | "active" | "completed" | "cancelled";
             stragglers: components["schemas"]["InFlightOut"] | null;
         };
+        /** MandateCheckoutOut */
+        MandateCheckoutOut: {
+            /** Amount Paise */
+            amount_paise: number;
+            /** Customer Id */
+            customer_id: string;
+            /** Key Id */
+            key_id: string;
+            /** Notes */
+            notes: {
+                [key: string]: string;
+            };
+            /** Order Id */
+            order_id: string;
+        };
+        /** MandateConfirmIn */
+        MandateConfirmIn: {
+            /** Razorpay Order Id */
+            razorpay_order_id: string;
+            /** Razorpay Payment Id */
+            razorpay_payment_id: string;
+            /** Razorpay Signature */
+            razorpay_signature: string;
+        };
+        /** MandateIn */
+        MandateIn: {
+            /** Max Debit Inr */
+            max_debit_inr: number | string;
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "upi" | "card";
+        };
         /**
          * ManualSubmitIn
-         * @description The owner ID the uploaded file shows. For Aadhaar, ONLY the last four digits.
+         * @description The PAN the uploaded PAN card shows.
+         *
+         *     `owner_id_type` still accepts `aadhaar` so a screen from before D-696 gets the sentence
+         *     telling the client to upload their PAN card, rather than a bare schema error.
          */
         ManualSubmitIn: {
             /** Owner Id Number */
@@ -15427,6 +17073,16 @@ export interface components {
             /** Suppressed Count */
             suppressed_count: number | null;
         };
+        /** NewStatusPostIn */
+        NewStatusPostIn: {
+            /**
+             * Component
+             * @enum {string}
+             */
+            component: "calls" | "dashboard" | "numbers" | "assistant";
+            /** Title */
+            title: string;
+        };
         /**
          * NumberAgentIn
          * @description Which agent answers this number — or `null`, which detaches it.
@@ -15590,6 +17246,17 @@ export interface components {
             inr_per_month?: string | null;
             /** Source */
             source?: string | null;
+        };
+        /** OAuthCallbackIn */
+        OAuthCallbackIn: {
+            /** Accounts Server */
+            accounts_server?: string | null;
+            /** Code */
+            code: string;
+            /** Label */
+            label?: string | null;
+            /** State */
+            state: string;
         };
         /**
          * OfferedNumberOut
@@ -15869,7 +17536,7 @@ export interface components {
             /** Kyc Status */
             kyc_status: string | null;
             /** Step */
-            step: ("workspace" | "verify_business" | "business_details" | "price" | "ready") | null;
+            step: ("add_credit" | "workspace" | "verify_business" | "business_details" | "price" | "ready") | null;
         };
         /** OwnVoiceKeyOut */
         OwnVoiceKeyOut: {
@@ -15885,6 +17552,46 @@ export interface components {
             using: string;
             /** Voice Provider */
             voice_provider: string | null;
+        };
+        /**
+         * OwnerIn
+         * @description The person who will own the account: their invite goes out with the account.
+         */
+        OwnerIn: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Name */
+            name?: string | null;
+            /** Phone E164 */
+            phone_e164?: string | null;
+        };
+        /**
+         * OwnerStatusOut
+         * @description Whether anybody can sign in to this account yet.
+         */
+        OwnerStatusOut: {
+            /** Invite Pending */
+            invite_pending: boolean;
+            /** Owner Present */
+            owner_present: boolean;
+        };
+        /** PagingOut */
+        PagingOut: {
+            /** Email Set */
+            email_set: boolean;
+            /** Founder Number From Console */
+            founder_number_from_console: boolean;
+            /** Founder Number Set */
+            founder_number_set: boolean;
+            /** Whatsapp Available */
+            whatsapp_available: boolean;
+            /** Whatsapp Enabled */
+            whatsapp_enabled: boolean;
+            /** Whatsapp Reason */
+            whatsapp_reason: string | null;
         };
         /** ParamIn */
         ParamIn: {
@@ -15946,6 +17653,24 @@ export interface components {
             /** Revoked */
             revoked: number;
         };
+        /** PaymentAlarmOut */
+        PaymentAlarmOut: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string | null;
+            /**
+             * Last Seen At
+             * Format: date-time
+             */
+            last_seen_at: string;
+            /** Occurrences */
+            occurrences: number;
+            /** Open */
+            open: boolean;
+            /** Severity */
+            severity: string;
+        };
         /**
          * PaymentOut
          * @description One bank transfer, as the wallet holds it — the reconciliation view.
@@ -15967,6 +17692,33 @@ export interface components {
             first_at: string;
             /** Payment Ref */
             payment_ref: string;
+        };
+        /** PaymentStatusOut */
+        PaymentStatusOut: {
+            /** Alarms */
+            alarms: components["schemas"]["PaymentAlarmOut"][];
+            /** Key Id Mode */
+            key_id_mode: ("test" | "live") | null;
+            /** Key Id Set */
+            key_id_set: boolean;
+            /** Key Secret Set */
+            key_secret_set: boolean;
+            /** Mode */
+            mode: ("test" | "live") | null;
+            /** Online Payments Available */
+            online_payments_available: boolean;
+            /** Provider */
+            provider: string | null;
+            /** Provider Orders Available */
+            provider_orders_available: boolean;
+            /** Subscribed Events */
+            subscribed_events: string[];
+            /** Unavailable Reason */
+            unavailable_reason: string | null;
+            /** Webhook Path */
+            webhook_path: string;
+            /** Webhook Secret Set */
+            webhook_secret_set: boolean;
         };
         /**
          * PeRegistrationOut
@@ -16261,6 +18013,38 @@ export interface components {
             outbox_dead_letters: components["schemas"]["DeadLetterQueueOut"];
             tm_registration: components["schemas"]["TmRegistrationOut"];
         };
+        /** PlaybookOut */
+        PlaybookOut: {
+            /** Action */
+            action: string;
+            /** Automatic */
+            automatic: boolean;
+            /**
+             * Blast Radius
+             * @enum {string}
+             */
+            blast_radius: "agent" | "tenant" | "platform";
+            /** Cooldown S */
+            cooldown_s: number;
+            /** Job */
+            job: string | null;
+            /** Key */
+            key: string;
+            /** Max Attempts */
+            max_attempts: number;
+            /** Pausable */
+            pausable: boolean;
+            /** Paused */
+            paused: boolean;
+            /** Title */
+            title: string;
+            /** Triggers */
+            triggers: string[];
+            /** Undo */
+            undo: string;
+            /** Verify */
+            verify: string;
+        };
         /**
          * PreferenceScrubIn
          * @description One scrub, as an access provider's DLT platform reported it.
@@ -16322,6 +18106,78 @@ export interface components {
             /** Compiled */
             compiled: string;
         };
+        /**
+         * ProfileBlockerOut
+         * @description Something an agent needs before it can go live, and the setup step that fixes it.
+         */
+        ProfileBlockerOut: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /**
+             * Step
+             * @enum {string}
+             */
+            step: "hours" | "branches" | "services" | "faqs" | "staff" | "booking" | "contacts" | "languages";
+        };
+        /**
+         * ProfilePatch
+         * @description The sections to replace. A section left out is untouched; a section sent is
+         *     replaced whole (a deep merge would bring back a service the client deleted).
+         */
+        ProfilePatch: {
+            /** Booking Rules */
+            booking_rules?: string | null;
+            /** Branches */
+            branches?: components["schemas"]["Branch"][] | null;
+            /** Contacts */
+            contacts?: components["schemas"]["BusinessContactIn"][] | null;
+            /** Faqs */
+            faqs?: components["schemas"]["Faq"][] | null;
+            /** Hours */
+            hours?: components["schemas"]["DayHours"][] | null;
+            /** Languages */
+            languages?: ("te-IN" | "hi-IN" | "en-IN")[] | null;
+            /** Services */
+            services?: components["schemas"]["ServiceItem"][] | null;
+            /** Staff */
+            staff?: components["schemas"]["StaffMember"][] | null;
+        };
+        /** ProfileSetupIn */
+        ProfileSetupIn: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "start" | "skip" | "dismiss" | "reopen";
+            /** Step */
+            step?: ("hours" | "branches" | "services" | "faqs" | "staff" | "booking" | "contacts" | "languages") | null;
+        };
+        /** ProfileSetupOut */
+        ProfileSetupOut: {
+            /** Complete */
+            complete: boolean;
+            /** Dismissed */
+            dismissed: boolean;
+            /** Started */
+            started: boolean;
+            /** Steps */
+            steps: components["schemas"]["ProfileSetupStepOut"][];
+        };
+        /** ProfileSetupStepOut */
+        ProfileSetupStepOut: {
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "hours" | "branches" | "services" | "faqs" | "staff" | "booking" | "contacts" | "languages";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "done" | "skipped" | "todo";
+        };
         /** ProgressOut */
         ProgressOut: {
             calling_hours?: components["schemas"]["CallingHoursIn"] | null;
@@ -16371,6 +18227,55 @@ export interface components {
         PromptWrittenOut: {
             /** Version */
             version: number;
+        };
+        /** ProposalOut */
+        ProposalOut: {
+            /** Action Label */
+            action_label: string;
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string | null;
+            /** Body */
+            body: string;
+            /** Can Apply */
+            can_apply: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Decided At */
+            decided_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "rollback_prompt" | "review_knowledge" | "review_languages";
+            /** Screen */
+            screen: ("knowledge" | "agents") | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "applied" | "dismissed" | "expired";
+            /** Title */
+            title: string;
+        };
+        /** ProposalsOut */
+        ProposalsOut: {
+            /** Items */
+            items: components["schemas"]["ProposalOut"][];
+            /** Pending */
+            pending: number;
         };
         /** ProvisionNumberIn */
         ProvisionNumberIn: {
@@ -16818,6 +18723,42 @@ export interface components {
             supplier_address: string | null;
             /** Supplier Legal Name */
             supplier_legal_name: string | null;
+        };
+        /** RecentPaymentOut */
+        RecentPaymentOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Created At */
+            created_at: number;
+            /** International */
+            international: boolean;
+            /** Method */
+            method: string | null;
+            /** Payment Id */
+            payment_id: string;
+            /** Status */
+            status: string;
+            /** Tenant Id */
+            tenant_id: string | null;
+        };
+        /** ReconcileOut */
+        ReconcileOut: {
+            /** Credited Late */
+            credited_late: string[];
+            /** Payments Seen */
+            payments_seen: number;
+            /** Refunds Recorded Late */
+            refunds_recorded_late: string[];
+            /** Refunds Seen */
+            refunds_seen: number;
+            /** Settled Inr */
+            settled_inr: string;
+            /** Settlements */
+            settlements: number;
+            /** Unexplained */
+            unexplained: string[];
+            /** Window Days */
+            window_days: number;
         };
         /**
          * RecordAlertOptInIn
@@ -17729,9 +19670,9 @@ export interface components {
         };
         /**
          * ServiceItem
-         * @description `price_inr` is a STRING (hard rule 7): a price read aloud to a caller must be
-         *     the digits the client typed, and a JSON float cannot promise that. It is also
-         *     optional — "consultation: ask at reception" is a real answer.
+         * @description `price_inr` is a digit STRING (hard rule 7): the price read aloud must be exactly
+         *     what the client typed, which a float cannot promise. Optional, because "ask at
+         *     reception" is a real answer.
          */
         ServiceItem: {
             /** Name */
@@ -18163,9 +20104,8 @@ export interface components {
         };
         /**
          * StaffMember
-         * @description `pronunciation` is not decoration — PROMPT-GUIDE §3 requires proper nouns to be
-         *     spelled phonetically in [T0 FACTS], because a mispronounced doctor's name is the
-         *     first thing a caller notices.
+         * @description `pronunciation` is how the agent should SAY the name (PROMPT-GUIDE §3): a
+         *     mispronounced doctor's name is the first thing a caller notices.
          */
         StaffMember: {
             /** Name */
@@ -18271,6 +20211,61 @@ export interface components {
             total_inr: string;
             /** Wallet Spent Inr */
             wallet_spent_inr: string;
+        };
+        /** StatusComponentOut */
+        StatusComponentOut: {
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "calls" | "dashboard" | "numbers" | "assistant";
+            /** Name */
+            name: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "operational" | "degraded" | "outage";
+        };
+        /** StatusIncidentOut */
+        StatusIncidentOut: {
+            /** Component */
+            component: ("calls" | "dashboard" | "numbers" | "assistant") | null;
+            /** Id */
+            id: string;
+            /** Resolved At */
+            resolved_at: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ongoing" | "resolved";
+            /** Title */
+            title: string;
+        };
+        /** StatusPageOut */
+        StatusPageOut: {
+            /** Components */
+            components: components["schemas"]["StatusComponentOut"][];
+            /** Incidents */
+            incidents: components["schemas"]["StatusIncidentOut"][];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** StatusPostIn */
+        StatusPostIn: {
+            /** Component */
+            component?: ("calls" | "dashboard" | "numbers" | "assistant") | null;
+            /** Title */
+            title: string | null;
         };
         /** StudioEnableIn */
         StudioEnableIn: {
@@ -19140,7 +21135,7 @@ export interface components {
             /** Purchase Blockers */
             purchase_blockers: string[];
             /** Purchase Step */
-            purchase_step: ("workspace" | "verify_business" | "business_details" | "price" | "ready") | null;
+            purchase_step: ("add_credit" | "workspace" | "verify_business" | "business_details" | "price" | "ready") | null;
             /** Status */
             status: string | null;
             /** Workspace Id */
@@ -19148,9 +21143,11 @@ export interface components {
         };
         /**
          * TestActionIn
-         * @description Sample values for the AI/lead-var params, to run the action before saving it live.
+         * @description Sample values for the agent-filled params, to run the action before a caller does.
          */
         TestActionIn: {
+            /** Test Phone */
+            test_phone?: string | null;
             /** Values */
             values?: {
                 [key: string]: unknown;
@@ -19304,7 +21301,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "custom_api" | "whatsapp" | "calendar";
+            kind: "custom_api" | "whatsapp" | "calendar" | "sheets" | "payment_link" | "crm" | "caller_lookup";
             /** Name */
             name: string;
             /** Params */
@@ -19503,6 +21500,30 @@ export interface components {
             /** Text */
             text: string;
         };
+        /** TrialCallIn */
+        TrialCallIn: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Number */
+            number: string;
+        };
+        /** TrialCallOut */
+        TrialCallOut: {
+            /** Blocked Reason */
+            blocked_reason?: string | null;
+            /** Blocked Rule */
+            blocked_rule?: string | null;
+            /** Call Handle */
+            call_handle?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "blocked";
+        };
         /**
          * TrialEndIn
          * @description Why it is ending, and which of the two endings it is.
@@ -19512,6 +21533,24 @@ export interface components {
             outcome: string;
             /** Reason */
             reason: string;
+        };
+        /** TrialNumberCandidateOut */
+        TrialNumberCandidateOut: {
+            /** Answered */
+            answered: boolean;
+            /** E164 */
+            e164: string;
+            /** Rented */
+            rented: boolean;
+        };
+        /** TrialNumberOut */
+        TrialNumberOut: {
+            /** Candidates */
+            candidates: components["schemas"]["TrialNumberCandidateOut"][];
+            /** Current */
+            current: string | null;
+            /** Current Held */
+            current_held: boolean | null;
         };
         /**
          * TrialOut
@@ -19538,6 +21577,8 @@ export interface components {
             erase_after: string | null;
             /** Erasure Filed At */
             erasure_filed_at: string | null;
+            /** Free Minutes */
+            free_minutes: number | null;
             /**
              * Started At
              * Format: date-time
@@ -19559,6 +21600,82 @@ export interface components {
             trial_id: string;
         };
         /**
+         * TrialPanelOut
+         * @description The trial as its own client reads it. `on_trial` false means none of the rest
+         *     applies: the account has paid, or was never given a trial.
+         */
+        TrialPanelOut: {
+            /** Blocked Reason */
+            blocked_reason?: string | null;
+            /**
+             * Calls Today
+             * @default 0
+             */
+            calls_today: number;
+            /**
+             * Can Call
+             * @default false
+             */
+            can_call: boolean;
+            /**
+             * Daily Cap
+             * @default 0
+             */
+            daily_cap: number;
+            /** Days Remaining */
+            days_remaining?: number | null;
+            /** Ends At */
+            ends_at?: string | null;
+            /** Free Minutes */
+            free_minutes?: number | null;
+            /**
+             * Max Call Seconds
+             * @default 0
+             */
+            max_call_seconds: number;
+            /** Minutes Left */
+            minutes_left?: number | null;
+            /**
+             * Minutes Used
+             * @default 0
+             */
+            minutes_used: number;
+            /** On Trial */
+            on_trial: boolean;
+            /**
+             * Pledge Accepted
+             * @default false
+             */
+            pledge_accepted: boolean;
+            /** Status */
+            status?: string | null;
+        };
+        /**
+         * TrialSmokeCallIn
+         * @description An operator's smoke test of trial calling: this client's agent rings a number the
+         *     operator types (their own phone), through exactly the client's path (D-697).
+         */
+        TrialSmokeCallIn: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Number */
+            number: string;
+        };
+        /** TrialSmokeCallOut */
+        TrialSmokeCallOut: {
+            /** Blocked Reason */
+            blocked_reason?: string | null;
+            /** Blocked Rule */
+            blocked_rule?: string | null;
+            /** Call Handle */
+            call_handle?: string | null;
+            /** Status */
+            status: string;
+        };
+        /**
          * TrialStartIn
          * @description How long, and why.
          */
@@ -19570,6 +21687,8 @@ export interface components {
              * @default 30
              */
             erasure_grace_days: number;
+            /** Free Minutes */
+            free_minutes: number;
             /** Reason */
             reason: string;
         };
@@ -19599,6 +21718,10 @@ export interface components {
             erase_after: string | null;
             /** Erasure Filed At */
             erasure_filed_at: string | null;
+            /** Free Minutes */
+            free_minutes: number | null;
+            /** Minutes Used */
+            minutes_used: number;
             /**
              * Started At
              * Format: date-time
@@ -19895,14 +22018,9 @@ export interface components {
         };
         /**
          * UnfinishedOnboardingOut
-         * @description One account the wizard can be resumed on — the account, never anyone at it.
+         * @description One account whose onboarding is not finished — the account, never anyone at it.
          */
         UnfinishedOnboardingOut: {
-            /**
-             * Agent Id
-             * Format: uuid
-             */
-            agent_id: string;
             /** Blockers */
             blockers: string[];
             /**
@@ -19910,12 +22028,20 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
-            /** Draft Saved At */
-            draft_saved_at: string | null;
+            /** Invite Pending */
+            invite_pending: boolean;
             /** Name */
             name: string;
+            /** Owner Present */
+            owner_present: boolean;
+            /** Profile Saved At */
+            profile_saved_at: string | null;
             /** Slug */
             slug: string;
+            /** Steps Done */
+            steps_done: number;
+            /** Steps Total */
+            steps_total: number;
             /**
              * Tenant Id
              * Format: uuid
@@ -20568,6 +22694,10 @@ export interface components {
              * Format: date-time
              */
             ends_at: string;
+            /** Free Minutes */
+            free_minutes?: number | null;
+            /** Minutes Left */
+            minutes_left?: number | null;
             /**
              * Started At
              * Format: date-time
@@ -20575,6 +22705,11 @@ export interface components {
             started_at: string;
             /** Status */
             status: string;
+            /**
+             * Test Calls Only
+             * @default false
+             */
+            test_calls_only: boolean;
         };
         /** WebhookAck */
         WebhookAck: {
@@ -20592,7 +22727,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "credited" | "refunded" | "duplicate" | "failed" | "ignored";
+            status: "credited" | "refunded" | "duplicate" | "failed" | "ignored" | "authorized" | "refund_failed" | "mandate" | "dispute";
         };
         /** WorkspaceFailureOut */
         WorkspaceFailureOut: {
@@ -21128,6 +23263,69 @@ export interface operations {
             };
         };
     };
+    list_admin_copilot_actions_v1_admin_copilot_actions_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                before?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotActionPageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    undo_admin_copilot_action_v1_admin_copilot_actions__action_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotUndoOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     ask_admin_copilot_v1_admin_copilot_ask_post: {
         parameters: {
             query?: never;
@@ -21148,6 +23346,41 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    confirm_admin_copilot_proposal_v1_admin_copilot_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopilotConfirmIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotConfirmOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -22274,6 +24507,197 @@ export interface operations {
             };
         };
     };
+    read_disputes_v1_admin_payments_disputes_get: {
+        parameters: {
+            query?: {
+                include_closed?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisputeOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    accept_v1_admin_payments_disputes__dispute_id__accept_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                dispute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisputeActionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    contest_v1_admin_payments_disputes__dispute_id__contest_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                dispute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_contest_v1_admin_payments_disputes__dispute_id__contest_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisputeActionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    recent_payments_v1_admin_payments_recent_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecentPaymentOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    run_reconciliation_v1_admin_payments_reconcile_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconcileOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    payment_status_v1_admin_payments_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentStatusOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_qa_samples_v1_admin_qa_samples_get: {
         parameters: {
             query?: {
@@ -22786,110 +25210,6 @@ export interface operations {
             };
         };
     };
-    read_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tenant_id: string;
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IntakeStateOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    record_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tenant_id: string;
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["IntakeFacts"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IntakeOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    save_intake_draft_v1_admin_tenants__tenant_id__agents__agent_id__intake_draft_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tenant_id: string;
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["IntakeFacts"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IntakeDraftOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     prompt_history_v1_admin_tenants__tenant_id__agents__agent_id__prompt_get: {
         parameters: {
             query?: {
@@ -23083,6 +25403,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SetVoiceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_get_business_profile_v1_admin_tenants__tenant_id__business_profile_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminBusinessProfileOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -24574,6 +26925,37 @@ export interface operations {
             };
         };
     };
+    get_owner_status_v1_admin_tenants__tenant_id__owner_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnerStatusOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     set_tenant_plan_tier_v1_admin_tenants__tenant_id__plan_tier_post: {
         parameters: {
             query?: never;
@@ -24674,7 +27056,9 @@ export interface operations {
     issue_tenant_refund_v1_admin_tenants__tenant_id__refunds_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
             };
@@ -24865,6 +27249,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrialOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    smoke_trial_call_v1_admin_tenants__tenant_id__trial_test_call_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "idempotency-key"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrialSmokeCallIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrialSmokeCallOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -25415,6 +27836,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ToolOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    action_log_v1_agents__agent_id__actions__tool_id__log_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                agent_id: string;
+                tool_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvocationOut"][];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -27139,6 +29594,194 @@ export interface operations {
             };
         };
     };
+    read_settings_v1_billing_auto_recharge_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoRechargeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    save_settings_v1_billing_auto_recharge_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoRechargeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoRechargeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_charges_v1_billing_auto_recharge_charges_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChargeOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    start_mandate_v1_billing_auto_recharge_mandate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MandateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MandateCheckoutOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    withdraw_v1_billing_auto_recharge_mandate_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoRechargeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    confirm_v1_billing_auto_recharge_mandate_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MandateConfirmIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoRechargeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_caps_v1_billing_caps_get: {
         parameters: {
             query?: never;
@@ -27592,6 +30235,101 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TopUpAttemptOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_business_profile_v1_business_profile_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessProfileOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    patch_business_profile_v1_business_profile_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfilePatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessProfileOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    post_setup_v1_business_profile_setup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileSetupIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessProfileOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -29210,6 +31948,193 @@ export interface operations {
             };
         };
     };
+    list_copilot_actions_v1_copilot_actions_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                before?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotActionPageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    undo_copilot_action_v1_copilot_actions__action_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotUndoOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_copilot_approvals_v1_copilot_approvals_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotActionPageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    approve_copilot_action_v1_copilot_approvals__action_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotConfirmOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    preview_copilot_approval_v1_copilot_approvals__action_id__preview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotApprovalPreviewOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    reject_copilot_action_v1_copilot_approvals__action_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                action_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotActionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     ask_copilot_v1_copilot_ask_post: {
         parameters: {
             query?: never;
@@ -29324,6 +32249,322 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CopilotConversationClearedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_copilot_jobs_v1_copilot_jobs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotJobPageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_copilot_job_v1_copilot_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotJobOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    cancel_copilot_job_v1_copilot_jobs__job_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotJobOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    stream_copilot_job_v1_copilot_jobs__job_id__events_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_copilot_routines_v1_copilot_routines_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotRoutinePageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_copilot_routine_v1_copilot_routines_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopilotRoutineIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotRoutineOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    delete_copilot_routine_v1_copilot_routines__routine_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                routine_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    update_copilot_routine_v1_copilot_routines__routine_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                routine_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopilotRoutinePatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotRoutineOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    run_copilot_routine_v1_copilot_routines__routine_id__run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                routine_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotRoutineRunOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_copilot_routine_runs_v1_copilot_routines__routine_id__runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                routine_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotRoutineRunPageOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -29492,6 +32733,287 @@ export interface operations {
             };
         };
     };
+    get_fallback_phone_v1_healer_fallback_phone_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FallbackPhoneOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_fallback_phone_v1_healer_fallback_phone_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FallbackPhoneIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FallbackPhoneOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    delete_fallback_phone_v1_healer_fallback_phone_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FallbackPhoneOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_client_incidents_v1_healer_incidents_get: {
+        parameters: {
+            query?: {
+                /** @description How many days of history to include. */
+                days?: number;
+                /** @description How many to return. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientIncidentsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_client_line_v1_healer_incidents__incident_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                incident_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientIncidentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_proposals_v1_healer_proposals_get: {
+        parameters: {
+            query?: {
+                /** @description How many days of decided ones to include. */
+                days?: number;
+                /** @description How many to return. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProposalsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    apply_proposal_v1_healer_proposals__proposal_id__apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProposalOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    dismiss_proposal_v1_healer_proposals__proposal_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProposalOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    connections_status_v1_integrations_connections_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionsStatusOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_credentials_v1_integrations_credentials_get: {
         parameters: {
             query?: never;
@@ -29605,6 +33127,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CredentialOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    test_credential_v1_integrations_credentials__credential_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialTestOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -29822,6 +33375,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EndpointOptionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    oauth_callback_v1_integrations_oauth__kind__callback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: "google_calendar" | "zoho_crm" | "hubspot";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OAuthCallbackIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    oauth_connect_v1_integrations_oauth__kind__connect_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: "google_calendar" | "zoho_crm" | "hubspot";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -32444,6 +36063,239 @@ export interface operations {
             };
         };
     };
+    healer_overview_v1_ops_healer_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealerOverviewOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_actions_v1_ops_healer_actions_get: {
+        parameters: {
+            query?: {
+                /** @description Only this incident's steps. */
+                incident_id?: string | null;
+                /** @description How many to return. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_incidents_v1_ops_healer_incidents_get: {
+        parameters: {
+            query?: {
+                /** @description How many days of resolved ones to include. */
+                days?: number;
+                /** @description How many to return. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    resolve_incident_v1_ops_healer_incidents__incident_id__resolve_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                incident_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    retry_incident_v1_ops_healer_incidents__incident_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                incident_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_incident_status_v1_ops_healer_incidents__incident_id__status_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                incident_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StatusPostIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    post_status_v1_ops_healer_status_posts_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewStatusPostIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncidentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_kb_orphans_v1_ops_kb_orphans_get: {
         parameters: {
             query?: never;
@@ -33120,6 +36972,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SpendCapRecomputeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_trial_number_v1_ops_trial_number_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrialNumberOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -33848,6 +37729,35 @@ export interface operations {
             };
         };
     };
+    read_status_v1_public_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusPageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_quality_reports_v1_quality_reports_get: {
         parameters: {
             query?: {
@@ -33897,6 +37807,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemberContactOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_trial_panel_v1_trial_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrialPanelOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_trial_call_v1_trial_calls_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrialCallIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrialCallOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

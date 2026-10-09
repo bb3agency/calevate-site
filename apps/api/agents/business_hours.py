@@ -1,25 +1,20 @@
-"""FLOWS §3's after-hours flag: the READER for `agents.business_hours`.
+"""FLOWS §3's after-hours flag: the reader for a business's opening hours.
 
 FLOWS.md:100 says it in one sentence — *"agent runs 24/7 by default; `after_hours` flag
 set from business_hours → dashboard 'after-hours captured' metric; escalation rules can
-differ after hours"*. `admin.intake.record_intake` has written the column since the
-intake step landed; until this module, nothing had ever read it, and the dashboard tile
-that the sentence names counted a HARDCODED 09:00-21:00 IST window instead (see
-`crm.service.dashboard`) — the right answer only for a client who happens to keep those
-hours, and wrong in both directions for the late-night clinic and the Sunday-closed
-salon that D-38 sells this tile to.
+differ after hours"*. The hours are the client's business profile
+(`business_profiles.hours`, D-695), shared by every agent of the client.
 
 **Whose timezone is the window in? IST — `Asia/Kolkata`, by name, never by a fixed
 offset.**
 
 The stored value is a human answer to a human question ("what time do you open?") typed
-into the intake form by an operator sitting with an Indian SMB. It is wall-clock local
-time, and it carries no zone of its own: `{"mon": {"opens": "09:30", "closes": "18:00"}}`
-is 09:30 in the shop, not 09:30 UTC. Three facts make IST the correct and only
-defensible reading:
+by an Indian SMB. It is wall-clock local time, and it carries no zone of its own:
+`{"mon": {"opens": "09:30", "closes": "18:00"}}` is 09:30 in the shop, not 09:30 UTC.
+Three facts make IST the correct and only defensible reading:
 
 1. Every tenant is an Indian SMB (BRD §1, Telugu-first), and India is one zone.
-2. Neither `organizations` nor `agents` has a timezone column (DATA-MODEL §2/§3), so
+2. No table holds a timezone (DATA-MODEL §2/§3), so
    there is no per-tenant zone to prefer even if we wanted one. A tenant outside IST is
    a schema change plus a migration, not a default to guess at here.
 3. The repo already made this choice everywhere else time meets a human: `crm.performance`
@@ -59,7 +54,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime, time
 from typing import Any
-from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
@@ -68,9 +62,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # The zone the stored windows are written in. By NAME (see the module docstring).
 BUSINESS_HOURS_TZ = ZoneInfo("Asia/Kolkata")
 
-# `admin.intake.DAYS`' order, indexed the way `datetime.weekday()` counts: Monday = 0.
-# Duplicated rather than imported: this module is the READ side and must not depend on
-# the admin console's write side to answer a question during a call pipeline run.
+# `tenancy.business_profile.DAYS`' order, indexed the way `datetime.weekday()` counts:
+# Monday = 0. Duplicated rather than imported: this module is on the call pipeline's read
+# path and stays free of the profile module's imports.
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 
@@ -150,60 +144,30 @@ def is_after_hours(business_hours: Mapping[str, Any] | None, at: datetime) -> bo
 
 
 async def count_after_hours_calls(session: AsyncSession, *, since: datetime) -> int:
-    """The "after-hours captured" tile (FLOWS §3, BRD §2, SURFACES §3), per agent hours.
+    """The "after-hours captured" tile (FLOWS §3, BRD §2, SURFACES §3), per business hours.
 
-    Evaluated in Python rather than SQL deliberately. The midnight-spanning rule above
-    needs the PREVIOUS day's window, which in SQL is a self-join against a JSONB object
-    keyed by weekday name — a query nobody can read and only one place would use, and
-    the arithmetic would then exist twice with two chances to disagree.
+    Evaluated in Python rather than SQL deliberately: the midnight-spanning rule above needs
+    the PREVIOUS day's window, which in SQL is a self-join against a JSONB object keyed by
+    weekday name, and the arithmetic would then exist twice.
 
-    **TWO QUERIES, NOT A JOIN, and that is the whole change here.** This used to join
-    `agents` to `calls` and select `a.business_hours` beside every call row, so the
-    tenant's JSONB opening hours came back once PER CALL — the same few hundred bytes
-    repeated across the window, on an endpoint the dashboard polls (D-24). The hours are
-    a property of the AGENT, and there are a handful of agents; reading them once and
-    the calls separately transports the same information with the blob sent once.
+    The hours are the client's one business profile (D-695), read once; the calls query
+    returns one timestamp per call in the window, bounded by platform capacity
+    (`PLATFORM_LINES_TOTAL`), not by the tenant's history.
 
-    What that does NOT do is make the row set constant, and it is worth being exact about
-    what bounds it: the second query still returns one row per call in the window. That is
-    bounded by PLATFORM CAPACITY rather than by the tenant's history — `PLATFORM_LINES_TOTAL`
-    is 10 concurrent lines, so the whole platform cannot produce more than roughly 34k
-    calls in seven days — and each row is now a uuid and a timestamp. It is a real ceiling
-    with a number attached, which is what the previous shape did not have.
-
-    Runs inside the caller's tenant-scoped session, so RLS decides which agents and which
-    calls are visible — this function never widens that (hard rule 1). The `agent_id =
-    ANY(...)` predicate is therefore a narrowing on top of RLS, never a substitute: it is
-    what keeps calls taken by an agent with no recorded hours out of the transport, since
-    those contribute zero by definition.
-
-    It counts only `True`: an agent with no hours recorded contributes zero, not
-    everything.
+    Runs inside the caller's tenant-scoped session, so RLS decides which profile and which
+    calls are visible (hard rule 1). It counts only `True`: with no hours recorded every
+    call is UNKNOWN, and the count is zero.
     """
-    hours: dict[UUID, Any] = {
-        row[0]: row[1]
-        for row in (
-            await session.execute(
-                text("SELECT id, business_hours FROM agents WHERE business_hours IS NOT NULL")
-            )
-        ).all()
-    }
-    if not hours:
-        # No agent has hours, so every call is UNKNOWN rather than after-hours, and the
-        # calls query would be `= ANY('{}')` — a round trip that can only return nothing.
+    raw = (await session.execute(text("SELECT hours FROM business_profiles LIMIT 1"))).scalar()
+    hours: Mapping[str, Any] | None = raw if isinstance(raw, dict) and raw else None
+    if hours is None:
         return 0
     rows = (
         await session.execute(
-            text(
-                "SELECT agent_id, started_at FROM calls "
-                "WHERE started_at >= :since AND agent_id = ANY(:agents)"
-            ),
-            {"since": since, "agents": list(hours)},
+            text("SELECT started_at FROM calls WHERE started_at >= :since"), {"since": since}
         )
     ).all()
-    return sum(
-        1 for agent_id, started_at in rows if is_after_hours(hours[agent_id], started_at) is True
-    )
+    return sum(1 for (started_at,) in rows if is_after_hours(hours, started_at) is True)
 
 
 __all__ = ["BUSINESS_HOURS_TZ", "DAYS", "count_after_hours_calls", "is_after_hours"]

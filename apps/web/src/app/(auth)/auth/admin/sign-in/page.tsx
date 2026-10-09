@@ -7,70 +7,58 @@
  * six-digit code emailed to the address on file. Which step comes next is the server's
  * answer and never this page's guess — see `components/authn/signInForm.tsx`.
  *
- * `AdminGuestOnly` wraps it with the GUEST audience, not the console's, which is §5.4's
- * split: sharing one `blocked` flag with the protected console would mean a failed restore
- * on `/auth/admin` leaves this page permanently convinced restore is impossible — the one
- * page whose job is to fix that.
+ * `AdminGuestOnly` wraps it with the GUEST audience, not the console's: sharing one
+ * `blocked` flag with the protected console would mean a failed restore on `/auth/admin`
+ * leaves this page permanently convinced restore is impossible — the one page whose job
+ * is to fix that.
  *
- * ## THIS IS THE ONLY OPERATOR DOOR — the migration this note used to describe is over
- *
- * It said "`/admin/sign-in` still mounts Clerk and still works … `apps/api/core/auth.py`
- * does not yet accept the first-party session cookie". Both halves are now false and the
- * second is the one that matters: `core/auth.py` reads the realm's `__Host-` cookie
- * through `authn/cookies.read_token` and there is no identity vendor left to fall back to
- * (D-177). There is no `/admin/sign-in` route in this app either — this path is where an
- * operator signs in, and the console it lands them in authenticates with the session
- * minted here.
+ * Same frame and form as the client door, no product panel, and its own realm instance,
+ * session wrapper and destination (`adminSignedInDestination`: `?next=` inside `/admin`,
+ * otherwise `/admin`). This is the only operator door; `core/auth.py` reads the realm's
+ * `__Host-` cookie minted here.
  */
 
 import { Providers } from "@/app/providers";
-import { AuthPageFrame } from "@/components/authPage";
+import { AuthCard, AuthHeading, AuthPageFrame } from "@/components/authPage";
 import { SignInForm } from "@/components/authn/signInForm";
 import { SignedOutToast } from "@/components/authn/signedOutToast";
 import {
-  ADMIN_CONSOLE_PATH,
   ADMIN_FORGOT_PATH,
   adminAuthn,
+  adminSignedInDestination,
 } from "@/lib/authn/adminAuthn";
 import { AdminGuestOnly } from "@/lib/authn/adminSession";
-import { adminConsoleUrl } from "@/lib/consoleOrigin";
 
 export default function AdminSignInPage() {
   return (
     <Providers>
       <AuthPageFrame realmLabel="Operator console">
-        <div className="space-y-4">
-          <SignedOutToast realm="admin" realmLabel="operator console" />
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Sign in to the operator console
-          </h1>
+        <SignedOutToast realm="admin" realmLabel="operator console" />
+        <AuthCard>
           <AdminGuestOnly>
             <SignInForm
               authn={adminAuthn}
               forgotPath={ADMIN_FORGOT_PATH}
+              heading={
+                <AuthHeading
+                  title="Sign in to the operator console"
+                  lead="After your password we email a six-digit code to finish signing in."
+                />
+              }
               onSignedIn={() => {
                 // Hard navigation, per §5.5: a soft one can stall on the way out of a
-                // route group, and a stalled redirect immediately after a sign-in reads
-                // as a sign-in that failed.
-                //
-                // THE CONSOLE, not `ADMIN_SESSION_PATH`. This used to land every operator
-                // on `/auth/admin` -- a page that says "you are signed in" and whose two
-                // biggest buttons are Sign out and Sign out everywhere -- so the reward
-                // for signing in was a dead end with a link on it. `/auth/admin` is still
-                // reachable and still owns the things a console shell should not carry
-                // (ending a session on a device you no longer hold, verifying the address
-                // the code goes to); it is just not where signing in takes you.
-                window.location.assign(adminConsoleUrl(ADMIN_CONSOLE_PATH));
+                // route group, and a stalled redirect right after a sign-in reads as a
+                // sign-in that failed.
+                window.location.assign(adminSignedInDestination());
               }}
               footer={
-                <p className="text-xs text-ink-faint">
-                  Operator accounts are created by invitation only. There is no
-                  sign-up here, and there is no route that makes one.
+                <p className="text-sm text-ink-muted">
+                  Operator accounts are created by invitation only.
                 </p>
               }
             />
           </AdminGuestOnly>
-        </div>
+        </AuthCard>
       </AuthPageFrame>
     </Providers>
   );

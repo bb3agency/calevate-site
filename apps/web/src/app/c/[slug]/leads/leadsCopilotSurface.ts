@@ -1,6 +1,7 @@
 "use client";
 
 import { useCopilotSurface } from "@/lib/copilot/registry";
+import { selectionFact } from "@/lib/copilot/selection";
 import { asText } from "@/lib/copilot/types";
 import { type LeadColumn, type LeadStatus } from "@/lib/api/leads";
 
@@ -91,7 +92,7 @@ export function useLeadsCopilotSurface({
           { value: "", label: "Every stage" },
           ...STATUSES.map((stage) => ({ value: stage, label: stage })),
         ],
-        help: "A server-side filter over the whole account, not a slice of this page.",
+        help: "Filters the whole account, not just this page.",
       },
       {
         id: "leads-view",
@@ -148,13 +149,8 @@ export function useLeadsCopilotSurface({
         label: "Is the list narrowed to one owner?",
         value: assignedTo === undefined ? "no" : "yes, to one team member",
       },
-      {
-        key: "selection",
-        label: "Rows ticked for a bulk action",
-        value: selection.wholeQuery
-          ? "every lead the filters match"
-          : String(selection.ids.length),
-      },
+      // The ticked rows' IDS, so "summarise these" and "mark these contacted" act on them.
+      selectionFact("Leads ticked (lead ids)", selection.ids, selection.wholeQuery),
       {
         key: "editable",
         label: "May this session change a lead?",

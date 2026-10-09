@@ -17,6 +17,10 @@ properties pinned here:
    nothing of the fetched record is persisted.
 5. **Hard rule 1.** Cross-tenant zero rows on both new tables, and the two untenanted read
    arms reach only what they were written for.
+6. **D-696.** The document review takes the owner's PAN card only: an Aadhaar copy is
+   refused at upload and at submit, the schema holds no waiting Aadhaar review and no held
+   Aadhaar copy, DigiLocker still takes an Aadhaar, and approving a document review needs
+   the reviewer's Income Tax PAN match, stored with who and when.
 
 Run: uv run pytest -q tests/kyc_two_paths_test.py
 """
@@ -24,6 +28,7 @@ Run: uv run pytest -q tests/kyc_two_paths_test.py
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from typing import Any
 from uuid import UUID
@@ -43,7 +48,6 @@ from apps.api.compliance.kyc import (
 from apps.api.compliance.kyc_documents import (
     accept_upload,
     current_documents,
-    mask_aadhaar,
     mask_pan,
     open_document,
 )
@@ -538,13 +542,9 @@ def test_uploads_are_checked_by_bytes_size_and_name() -> None:
 
 def test_ids_are_masked_and_never_kept_whole() -> None:
     assert mask_pan("abcde1234f") == "XXXXX1234X"
-    assert mask_aadhaar("1234") == "XXXX-XXXX-1234"
     for bad in ("ABCD1234F", "1234567890"):
         with pytest.raises(ProblemError):
             mask_pan(bad)
-    for bad in ("123456789012", "12a4"):
-        with pytest.raises(ProblemError):
-            mask_aadhaar(bad)
     with pytest.raises(ValueError):
         VerificationOutcome(provider_ref="r", verified=True, masked_id="123456789012")
     with pytest.raises(ValueError):
@@ -646,7 +646,7 @@ async def _manual_submission(
     org: dict[str, Any], s3: FakeS3, *, id_type: str = "pan", number: str = "ABCDE1234F"
 ) -> dict[str, str]:
     headers = await _headers(org)
-    owner_kind = "pan_card" if id_type == "pan" else "aadhaar"
+    owner_kind = "pan_card" if id_type == "pan" else id_type
     async with _client() as http:
         details = await http.put(
             f"{KYC}/details",
@@ -706,7 +706,7 @@ async def test_the_manual_path_submits_reviews_and_deletes_the_owner_id(s3: Fake
         approved = await http.post(
             f"/v1/admin/tenants/{tenant_id}/kyc/review",
             headers=admin,
-            json={"decision": "approve"},
+            json={"decision": "approve", "pan_checked": True},
         )
     assert approved.status_code == 200, approved.text
     body = approved.json()
@@ -732,20 +732,25 @@ async def test_the_manual_path_submits_reviews_and_deletes_the_owner_id(s3: Fake
 async def test_a_rejection_needs_a_reason_and_also_deletes_the_owner_id(s3: FakeS3) -> None:
     org = await _tenant()
     tenant_id = UUID(str(org["id"]))
-    await _manual_submission(org, s3, id_type="aadhaar", number="4321")
+    await _manual_submission(org, s3, number="PQRST4321Z")
     admin = await _admin_headers()
     path = f"/v1/admin/tenants/{tenant_id}/kyc/review"
     async with _client() as http:
         no_reason = await http.post(path, headers=admin, json={"decision": "reject"})
         assert no_reason.status_code == 422
         rejected = await http.post(
-            path, headers=admin, json={"decision": "reject", "reason": "Upload the masked copy"}
+            path,
+            headers=admin,
+            json={"decision": "reject", "reason": "The name does not match the owner"},
         )
         assert rejected.status_code == 200, rejected.text
-        again = await http.post(path, headers=admin, json={"decision": "approve"})
+        again = await http.post(
+            path, headers=admin, json={"decision": "approve", "pan_checked": True}
+        )
     assert again.status_code == 422, "a decided record is not waiting for review"
-    assert rejected.json()["owner_id_masked"] == "XXXX-XXXX-4321"
-    assert rejected.json()["rejection_reason"] == "Upload the masked copy"
+    assert rejected.json()["owner_id_masked"] == "XXXXX4321X"
+    assert rejected.json()["rejection_reason"] == "The name does not match the owner"
+    assert rejected.json()["owner_pan_checked"] is False, "only an approval records the check"
     assert not [
         k for k in s3.objects if k.startswith(f"kyc-documents/{tenant_id}/") and k.endswith(".png")
     ]
@@ -815,21 +820,21 @@ async def test_the_manual_submit_refuses_what_it_cannot_review(s3: FakeS3) -> No
         await http.post(
             f"{KYC}/documents",
             headers=headers,
-            data={"slot": "owner_id", "kind": "aadhaar"},
-            files={"file": ("a.png", PNG_BYTES, "image/png")},
+            data={"slot": "owner_id", "kind": "pan_card"},
+            files={"file": ("p.png", PNG_BYTES, "image/png")},
         )
-        mismatch = await http.post(
+        bad_pan = await http.post(
+            f"{KYC}/submit",
+            headers=headers,
+            json={"owner_id_type": "pan", "owner_id_number": "1234"},
+        )
+        assert bad_pan.json()["type"].endswith("kyc_pan_format_invalid")
+        sent = await http.post(
             f"{KYC}/submit",
             headers=headers,
             json={"owner_id_type": "pan", "owner_id_number": "ABCDE1234F"},
         )
-        assert mismatch.json()["type"].endswith("kyc_owner_id_type_mismatch")
-        full_aadhaar = await http.post(
-            f"{KYC}/submit",
-            headers=headers,
-            json={"owner_id_type": "aadhaar", "owner_id_number": "1234"},
-        )
-        assert full_aadhaar.status_code == 200, full_aadhaar.text
+        assert sent.status_code == 200, sent.text
         locked = await http.put(
             f"{KYC}/details",
             headers=headers,
@@ -844,9 +849,221 @@ async def test_the_manual_submit_refuses_what_it_cannot_review(s3: FakeS3) -> No
         twice = await http.post(
             f"{KYC}/submit",
             headers=headers,
-            json={"owner_id_type": "aadhaar", "owner_id_number": "1234"},
+            json={"owner_id_type": "pan", "owner_id_number": "ABCDE1234F"},
         )
         assert twice.json()["type"].endswith("kyc_already_submitted")
+
+
+# ============================================================ D-696: the PAN card only
+
+
+async def test_the_manual_path_refuses_an_aadhaar_copy_at_upload_and_at_submit(
+    s3: FakeS3,
+) -> None:
+    """Aadhaar regulations 2021, reg. 16C(1): no Aadhaar may be accepted as proof of
+    identity without verifying UIDAI's signature, which a document review does not do."""
+    org = await _tenant()
+    tenant_id = UUID(str(org["id"]))
+    headers = await _headers(org)
+    async with _client() as http:
+        upload = await http.post(
+            f"{KYC}/documents",
+            headers=headers,
+            data={"slot": "owner_id", "kind": "aadhaar"},
+            files={"file": ("a.png", PNG_BYTES, "image/png")},
+        )
+        submit = await http.post(
+            f"{KYC}/submit",
+            headers=headers,
+            json={"owner_id_type": "aadhaar", "owner_id_number": "1234"},
+        )
+    for refused in (upload, submit):
+        assert refused.status_code == 422, refused.text
+        problem = refused.json()
+        assert problem["type"].endswith("kyc_aadhaar_copy_not_accepted")
+        assert problem["title"] == "Please upload your PAN card instead"
+        assert "PAN card" in problem["detail"]
+    assert not [key for key in s3.objects if f"/{tenant_id}/" in key], "nothing was stored"
+    async with tenant_session(tenant_id) as session:
+        assert await current_documents(session, tenant_id=tenant_id) == {}
+
+
+async def test_approving_a_document_review_needs_the_pan_check_and_records_who_and_when(
+    s3: FakeS3, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    org = await _tenant()
+    tenant_id = UUID(str(org["id"]))
+    await _manual_submission(org, s3)
+    admin_id = await _admin_id()
+    admin = {"Authorization": f"Bearer dev:admin:{admin_id}"}
+    path = f"/v1/admin/tenants/{tenant_id}/kyc/review"
+    async with _client() as http:
+        unchecked = await http.post(path, headers=admin, json={"decision": "approve"})
+        assert unchecked.status_code == 422, unchecked.text
+        assert unchecked.json()["type"].endswith("kyc_pan_check_required")
+        approved = await http.post(
+            path, headers=admin, json={"decision": "approve", "pan_checked": True}
+        )
+    assert approved.status_code == 200, approved.text
+    body = approved.json()
+    assert body["is_verified"] is True
+    assert body["owner_pan_checked"] is True
+    assert body["owner_pan_checked_by"] == "Ops"
+    assert body["owner_pan_checked_at"] is not None
+    assert body["owner_id_masked"] == "XXXXX1234X", "the PAN stays masked"
+    async with tenant_session(tenant_id) as session:
+        record = await read_kyc(session, tenant_id=tenant_id)
+        audited = (
+            await session.execute(
+                text(
+                    "SELECT actor_id FROM audit_log WHERE tenant_id = :tid "
+                    "AND action = 'kyc.reviewed'"
+                ),
+                {"tid": tenant_id},
+            )
+        ).all()
+    assert record.owner_pan_checked_by_admin_id == admin_id
+    assert record.owner_pan_checked_at is not None
+    assert [row[0] for row in audited] == [admin_id], "one decision, audited, by its reviewer"
+    summary = [r for r in caplog.records if r.getMessage() == "audit"][-1]
+    assert summary.pan_matched_at_income_tax is True  # type: ignore[attr-defined]
+
+
+async def test_a_new_submission_clears_an_earlier_pan_check(s3: FakeS3) -> None:
+    org = await _tenant()
+    tenant_id = UUID(str(org["id"]))
+    headers = await _manual_submission(org, s3)
+    admin_id = await _admin_id()
+    async with tenant_session(tenant_id) as session:
+        # A record returned to the client after a PAN check was recorded on it.
+        await session.execute(
+            text(
+                "UPDATE kyc_records SET owner_pan_checked = true, "
+                "  owner_pan_checked_at = now(), owner_pan_checked_by_admin_id = :admin, "
+                "  status = 'rejected', rejection_reason = 'Send a clearer scan' "
+                "WHERE tenant_id = :tid"
+            ),
+            {"tid": tenant_id, "admin": admin_id},
+        )
+    async with _client() as http:
+        await http.post(
+            f"{KYC}/documents",
+            headers=headers,
+            data={"slot": "owner_id", "kind": "pan_card"},
+            files={"file": ("p.png", PNG_BYTES, "image/png")},
+        )
+        again = await http.post(
+            f"{KYC}/submit",
+            headers=headers,
+            json={"owner_id_type": "pan", "owner_id_number": "ABCDE1234F"},
+        )
+        detail = await http.get(
+            f"/v1/admin/tenants/{tenant_id}/kyc",
+            headers={"Authorization": f"Bearer dev:admin:{admin_id}"},
+        )
+    assert again.status_code == 200, again.text
+    assert detail.json()["owner_pan_checked"] is False
+    assert detail.json()["owner_pan_checked_by"] is None
+
+
+async def test_a_review_with_no_document_path_needs_no_pan_check(s3: FakeS3) -> None:
+    """A record an operator put in review by hand names no path and holds no PAN card to
+    check; only the document review asks for the Income Tax match."""
+    org = await _tenant()
+    tenant_id = UUID(str(org["id"]))
+    await _manual_submission(org, s3)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE kyc_records SET kyc_path = NULL WHERE tenant_id = :tid"),
+            {"tid": tenant_id},
+        )
+    async with _client() as http:
+        approved = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/kyc/review",
+            headers=await _admin_headers(),
+            json={"decision": "approve"},
+        )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["is_verified"] is True
+    assert approved.json()["owner_pan_checked"] is False
+
+
+async def test_the_schema_holds_no_waiting_aadhaar_review_and_no_held_aadhaar_copy(
+    s3: FakeS3,
+) -> None:
+    """Migration c5e9a2d71b48's CHECKs: the backstop under the route refusals."""
+    org = await _tenant()
+    tenant_id = UUID(str(org["id"]))
+    await _manual_submission(org, s3)
+    params = {"tid": tenant_id}
+    for statement in (
+        # A manual Aadhaar submission waiting for a reviewer.
+        "UPDATE kyc_records SET owner_id_type = 'aadhaar', "
+        "  owner_id_masked = 'XXXX-XXXX-1234' WHERE tenant_id = :tid",
+        # A held Aadhaar copy.
+        "UPDATE kyc_documents SET kind = 'aadhaar' WHERE tenant_id = :tid AND slot = 'owner_id'",
+        # A PAN check with nobody and no time behind it.
+        "UPDATE kyc_records SET owner_pan_checked = true WHERE tenant_id = :tid",
+    ):
+        with pytest.raises(DBAPIError):
+            async with tenant_session(tenant_id) as session:
+                await session.execute(text(statement), params)
+    # What stays storable: a DECIDED manual Aadhaar review, and an Aadhaar copy whose
+    # deletion was requested — the rows from before D-696.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE kyc_records SET status = 'rejected', rejection_reason = 'Old', "
+                "  owner_id_type = 'aadhaar', owner_id_masked = 'XXXX-XXXX-1234' "
+                "WHERE tenant_id = :tid"
+            ),
+            params,
+        )
+        await session.execute(
+            text(
+                "UPDATE kyc_documents SET kind = 'aadhaar', delete_requested_at = now() "
+                "WHERE tenant_id = :tid AND slot = 'owner_id'"
+            ),
+            params,
+        )
+
+
+@pytest.mark.usefixtures("_fake_provider")
+async def test_digilocker_still_takes_an_aadhaar() -> None:
+    """D-696 narrows the manual path only: through DigiLocker the licensed provider carries
+    the UIDAI obligations, and an Aadhaar is still a record the client may share."""
+    org = await _tenant()
+    tenant_id = UUID(str(org["id"]))
+    await put_business_on_file_for_tests(tenant_id)
+    headers = await _headers(org)
+    async with _client() as http:
+        started = await http.post(
+            f"{KYC}/verification",
+            headers=headers,
+            json={"entity_type": "sole_proprietorship", "id_document": "aadhaar"},
+        )
+        assert started.status_code == 200, started.text
+        ref = started.json()["provider_ref"]
+        stage_outcome(
+            VerificationOutcome(
+                provider_ref=ref,
+                verified=True,
+                verified_name="Ravi Kumar",
+                masked_id="XXXX-XXXX-1234",
+            )
+        )
+        done = await http.post(
+            f"{KYC}/verification/complete", headers=headers, json={"provider_ref": ref}
+        )
+    assert done.status_code == 200, done.text
+    record = done.json()["record"]
+    assert record["is_verified"] is True
+    assert (record["kyc_path"], record["owner_id_type"], record["owner_id_masked"]) == (
+        "digilocker",
+        "aadhaar",
+        "XXXX-XXXX-1234",
+    )
 
 
 async def test_an_owner_id_nobody_decided_on_is_deleted_after_thirty_days(s3: FakeS3) -> None:
@@ -903,7 +1120,7 @@ async def test_a_decided_owner_id_whose_delete_failed_is_retried_and_then_purged
         approved = await http.post(
             f"/v1/admin/tenants/{tenant_id}/kyc/review",
             headers=await _admin_headers(),
-            json={"decision": "approve"},
+            json={"decision": "approve", "pan_checked": True},
         )
     assert approved.status_code == 200, approved.text
     owner_after = next(d for d in approved.json()["documents"] if d["slot"] == "owner_id")

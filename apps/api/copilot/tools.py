@@ -888,7 +888,7 @@ async def _nothing_published(session: AsyncSession) -> str:
     if not sources:
         return (
             "This account has not added anything to its knowledge base yet, so its agents "
-            "know only what was captured in the intake sheet. Nothing is missing or "
+            "know only what is in its business profile. Nothing is missing or "
             "broken — there is simply nothing published to search. Knowledge is added on "
             "the Knowledge screen."
         )
@@ -925,7 +925,7 @@ async def _search_knowledge(
     THE ONE THING THIS TOOL ADDS OVER THE OTHERS: it is the only read tool whose corpus is
     the client's own PUBLISHED KNOWLEDGE rather than their operational rows. The facts are
     on file (`prompt_versions.compiled_t0_context`, compiled from APPROVED sources and the
-    intake sheet by `agents/t0.py`) and were addressable from nowhere except the agent's own
+    business profile by `agents/t0.py`) and were addressable from nowhere except the agent's own
     prompt, so the copilot could not answer the question a client asks most often about
     their own account — "what does my agent tell people about X?".
 

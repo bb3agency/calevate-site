@@ -53,7 +53,7 @@ export function LanguageAndTrade() {
           <Reveal>
             <p className={`max-w-xl text-pretty text-ink-muted ${HOME.body}`}>
               Your callers do not switch to English for your convenience. A new agent is a
-              Telugu agent until somebody changes it — that is the default in the database,
+              Telugu agent until somebody changes it — that is the default setting,
               not a suggestion in a guide — and the opening line, the script and the answers
               all move with the language it speaks.
             </p>

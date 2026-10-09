@@ -356,6 +356,13 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "whatsapp_provider": AppliesRule(LIVE),
     "whatsapp_template_hot_lead": AppliesRule(LIVE),
     "whatsapp_template_locale": AppliesRule(LIVE),
+    # The healer reads all six through `get_settings()` on every tick or send (D-701).
+    "whatsapp_template_healer_page": AppliesRule(LIVE),
+    "whatsapp_template_line_notice": AppliesRule(LIVE),
+    "whatsapp_template_line_restored": AppliesRule(LIVE),
+    "healer_enabled": AppliesRule(LIVE),
+    "healer_paused_playbooks": AppliesRule(LIVE),
+    "healer_founder_whatsapp": AppliesRule(LIVE),
     # D-91's Cloud API credentials. `LIVE` was CHECKED, not inherited from the family
     # above, because the classification's whole job is to refuse an assumption: every
     # read goes through `get_settings()` at the point of use — `whatsapp_delivery_status`
@@ -403,6 +410,9 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # without a restart — and one who has to withdraw it closes it just as fast.
     "number_resale_authorization": AppliesRule(LIVE),
     "razorpay_key_id": AppliesRule(LIVE),  # billing/payments, per capability read
+    "razorpay_mode": AppliesRule(LIVE),  # billing/payments.payment_capability()
+    "auto_recharge_max_failures": AppliesRule(LIVE),  # billing/auto_recharge, per failure
+    "razorpay_reconciliation_days": AppliesRule(LIVE),  # workers, per daily run
     "gst_supplier_legal_name": AppliesRule(LIVE),  # billing/gst.supplier_identity()
     "gst_supplier_address": AppliesRule(LIVE),
     "gst_supplier_gstin": AppliesRule(LIVE),
@@ -473,6 +483,13 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "llm_tier_standard_model": AppliesRule(LIVE),
     "llm_tier_plus_model": AppliesRule(LIVE),
     "llm_tier_pro_model": AppliesRule(LIVE),
+    # THE ASSISTANT'S MODELS AND ITS FAIR-USE CAP (D-694). LIVE: read per question by
+    # `copilot/model_tiers.py` and `copilot/fair_use.py`; nothing is published anywhere.
+    "copilot_fast_model": AppliesRule(LIVE),
+    "copilot_planning_model": AppliesRule(LIVE),
+    "copilot_azure_fallback": AppliesRule(LIVE),
+    "copilot_daily_message_cap": AppliesRule(LIVE),
+    "copilot_daily_ktok_cap": AppliesRule(LIVE),
     # The EMBEDDING deployment (D-502). LIVE, and genuinely so: unlike the three chat
     # deployment fields above, this value is never published into an agent's engine record —
     # it is read per request by `retrieval/embedding.embedding_leg` and per tick by the
@@ -540,6 +557,10 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "thinnest_customer_plan": AppliesRule(LIVE),
     # Compared on every workspace header and every own-workspace check (D-693).
     "thinnest_developer_workspace_id": AppliesRule(LIVE),
+    # The free-trial test-call settings (D-697), read on every trial call.
+    "trial_caller_number": AppliesRule(LIVE),
+    "trial_daily_call_cap": AppliesRule(LIVE),
+    "trial_call_max_seconds": AppliesRule(LIVE),
     # Where ThinnestAI's in-call actions call us. Written into each action at publish
     # (`reliability/engine_actions.py`); the drift check repairs a live agent's actions on
     # its next pass, and a republish does it at once.
@@ -752,6 +773,15 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "google_oauth_client_id": AppliesRule(LIVE),
     "google_oauth_client_secret": AppliesRule(LIVE),
     "google_oauth_redirect_uri": AppliesRule(LIVE),
+    # The CRM OAuth apps (D-700). Read inline by `actions/oauth.py` on every connect and
+    # every token refresh; nothing caches a client.
+    "zoho_oauth_client_id": AppliesRule(LIVE),
+    "zoho_oauth_client_secret": AppliesRule(LIVE),
+    "zoho_oauth_redirect_uri": AppliesRule(LIVE),
+    "zoho_accounts_url": AppliesRule(LIVE),
+    "hubspot_oauth_client_id": AppliesRule(LIVE),
+    "hubspot_oauth_client_secret": AppliesRule(LIVE),
+    "hubspot_oauth_redirect_uri": AppliesRule(LIVE),
 }
 
 #: The classification a field with no entry gets. Fail-safe by construction.

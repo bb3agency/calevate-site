@@ -297,12 +297,74 @@ async def resolve_secret(
     return unseal(env, context=credential_context(tenant_id, credential_id))
 
 
+@dataclass(frozen=True, slots=True)
+class ResolvedCredential:
+    """A credential opened for ONE execution: the plaintext, the non-secret settings that
+    travel with it (a Razorpay key id, a Zoho `api_domain`) and the version, which keys any
+    cache of tokens minted from it so a rotation is never answered from a stale token."""
+
+    kind: str
+    secret: str
+    non_secret: dict[str, object]
+    version: int
+
+
+class CredentialUnusableError(Exception):
+    """The row exists but no configured key opens it (a lost or rotated-away KEK)."""
+
+
+async def resolve_credential(
+    session: AsyncSession, *, tenant_id: UUID, credential_id: UUID
+) -> ResolvedCredential | None:
+    """The credential for the EXECUTION layer only. None when the row is absent (deleted,
+    or another tenant's); `CredentialUnusableError` when it cannot be opened."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT ciphertext, nonce, dek_wrapped, dek_nonce, kek_version, kind, "
+                "non_secret, version FROM integration_credentials WHERE id = :id"
+            ),
+            {"id": credential_id},
+        )
+    ).first()
+    if row is None:
+        return None
+    env = Envelope(
+        ciphertext=bytes(row[0]),
+        nonce=bytes(row[1]),
+        dek_wrapped=bytes(row[2]),
+        dek_nonce=bytes(row[3]),
+        kek_id=int(row[4]),
+    )
+    try:
+        secret = unseal(env, context=credential_context(tenant_id, credential_id))
+    except ProblemError as exc:
+        raise CredentialUnusableError from exc
+    return ResolvedCredential(
+        kind=str(row[5]), secret=secret, non_secret=dict(row[6] or {}), version=int(row[7])
+    )
+
+
+async def credential_kind(session: AsyncSession, *, credential_id: UUID) -> str | None:
+    """The kind of a credential this tenant holds, or None. Read by tool validation so an
+    action cannot point at a credential of the wrong vendor."""
+    return (
+        await session.execute(
+            text("SELECT kind FROM integration_credentials WHERE id = :id"), {"id": credential_id}
+        )
+    ).scalar_one_or_none()
+
+
 __all__ = [
     "CredentialRecord",
+    "CredentialUnusableError",
+    "ResolvedCredential",
     "create_credential",
     "credential_context",
+    "credential_kind",
     "delete_credential",
     "list_credentials",
+    "resolve_credential",
     "resolve_secret",
     "rotate_credential",
 ]

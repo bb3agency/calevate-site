@@ -78,6 +78,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.authn import otp, tokens
 from apps.api.authn.credentials import authenticate_subject, set_password
 from apps.api.authn.hashing import verify_password
+from apps.api.authn.locks import lock_subject_credentials
 from apps.api.authn.models import AUTHN_REALMS
 from apps.api.authn.policy import normalize
 from apps.api.authn.sessions import (
@@ -188,6 +189,42 @@ def _invalid_credentials() -> ProblemError:
         title="Sign-in failed",
         detail="That email address and password do not match an account.",
         remediation="Check the address and password, or reset your password.",
+    )
+
+
+def _code_refused(outcome: otp.CodeOutcome, *, code: str) -> ProblemError:
+    """The refusal for a code that did not verify: expired, or simply not the code.
+
+    `code` keeps each route's established name (`invalid_second_factor` for sign-in
+    and step-up, `invalid_code` for the account's own OTP); expiry is one name everywhere
+    because the remedy is the same everywhere — ask for a new code.
+    """
+    if outcome == "expired":
+        return ProblemError(
+            kind="auth",
+            code="code_expired",
+            title="That code has expired",
+            detail="Codes work for ten minutes after they are sent.",
+            remediation="Ask for a new code and enter the one in the latest email.",
+        )
+    return ProblemError(
+        kind="auth",
+        code=code,
+        title="That code did not work",
+        detail="The code was not accepted.",
+        remediation="Check the most recent email, or ask for a new code.",
+    )
+
+
+def _resend_too_soon(wait_s: int) -> ProblemError:
+    return ProblemError(
+        kind="transient",
+        code="resend_too_soon",
+        title="A code was sent moments ago",
+        detail="A new code can be sent once a minute.",
+        status=429,
+        remediation=f"Use the code in the latest email, or ask again in {wait_s} seconds.",
+        headers={"Retry-After": str(wait_s)},
     )
 
 
@@ -324,7 +361,7 @@ async def complete_second_factor(
 
     at = now or datetime.now(UTC)
     async with credential_session() as session:
-        ok = await otp.verify_challenge(
+        outcome = await otp.check_challenge(
             session,
             purpose=LOGIN_CHALLENGE,
             realm=realm,
@@ -332,16 +369,10 @@ async def complete_second_factor(
             code=code,
             now=at,
         )
-    if not ok:
+    if outcome != "accepted":
         await _audit(action="auth.mfa_failed", realm=realm, subject_id=subject_id, ip=ip)
         await _equalise(attempt)
-        raise ProblemError(
-            kind="auth",
-            code="invalid_second_factor",
-            title="That code did not work",
-            detail="The code was not accepted.",
-            remediation="Check the most recent email, or ask for a new code.",
-        )
+        raise _code_refused(outcome, code="invalid_second_factor")
     await clear(OTP_BUDGET, realm=realm, subject_id=subject_id)
 
     # The subject is re-checked HERE and not only at password time: a person deactivated
@@ -372,8 +403,10 @@ async def resend_second_factor(*, verified: VerifiedSession, now: datetime | Non
     WHAT BOUNDS MAIL-BOMBING, said out loud because this is the one endpoint that sends an
     email on demand: reaching it at all requires a session, which requires the correct
     password, so an abuser who can call it can simply sign in — there is no capability here
-    they do not already have. Above that, `core/ratelimit`'s `auth` profile caps the CALLER
-    at 20 requests/minute across all of `/v1/auth/**`. It is deliberately NOT charged to
+    they do not already have. Above that, one code per `otp.OTP_RESEND_COOLDOWN` per
+    subject (429 `resend_too_soon` with `Retry-After`, which the sign-in screen's countdown
+    mirrors), and `core/ratelimit`'s `auth` profile caps the CALLER at 20 requests/minute
+    across all of `/v1/auth/**`. It is deliberately NOT charged to
     `OTP_BUDGET`: that budget is the victim's five guesses, and letting resends consume it
     would let a resend loop lock the legitimate user out of answering their own challenge.
     """
@@ -383,6 +416,15 @@ async def resend_second_factor(*, verified: VerifiedSession, now: datetime | Non
         raise _invalid_credentials()
     at = now or datetime.now(UTC)
     async with credential_session() as session:
+        # Under the subject's credential lock, so two resends racing inside the cooldown
+        # cannot both read "no recent code" and both mail one. `issue_challenge` takes the
+        # same transaction-scoped lock again, which Postgres grants re-entrantly.
+        await lock_subject_credentials(session, realm=realm, subject_id=subject_id)
+        wait_s = await otp.resend_wait_s(
+            session, purpose=LOGIN_CHALLENGE, realm=realm, subject_id=subject_id, now=at
+        )
+        if wait_s > 0:
+            raise _resend_too_soon(wait_s)
         challenge = await otp.issue_challenge(
             session, purpose=LOGIN_CHALLENGE, realm=realm, subject_id=subject_id, now=at
         )
@@ -490,19 +532,13 @@ async def complete_step_up(
     attempt = await reserve(OTP_BUDGET, realm=realm, subject_id=subject_id)
     at = now or datetime.now(UTC)
     async with credential_session() as session:
-        ok = await otp.verify_challenge(
+        outcome = await otp.check_challenge(
             session, purpose=STEP_UP, realm=realm, subject_id=subject_id, code=code, now=at
         )
-    if not ok:
+    if outcome != "accepted":
         await _audit(action="auth.step_up_failed", realm=realm, subject_id=subject_id, ip=ip)
         await _equalise(attempt)
-        raise ProblemError(
-            kind="auth",
-            code="invalid_second_factor",
-            title="That code did not work",
-            detail="The code was not accepted.",
-            remediation="Check the most recent email, or ask for a new code.",
-        )
+        raise _code_refused(outcome, code="invalid_second_factor")
     await clear(OTP_BUDGET, realm=realm, subject_id=subject_id)
 
     # Re-read the operator, exactly as `complete_second_factor` does: somebody removed from
@@ -949,18 +985,12 @@ async def confirm_otp(
     attempt = await reserve(OTP_BUDGET, realm=realm, subject_id=subject_id)
     at = now or datetime.now(UTC)
     async with credential_session() as session:
-        ok = await otp.verify_challenge(
+        outcome = await otp.check_challenge(
             session, purpose=purpose, realm=realm, subject_id=subject_id, code=code, now=at
         )
-    if not ok:
+    if outcome != "accepted":
         await _equalise(attempt)
-        raise ProblemError(
-            kind="auth",
-            code="invalid_code",
-            title="That code did not work",
-            detail="The code was not accepted.",
-            remediation="Check the most recent email, or request a new code.",
-        )
+        raise _code_refused(outcome, code="invalid_code")
     await clear(OTP_BUDGET, realm=realm, subject_id=subject_id)
     if purpose == "email_verify":
         await mark_email_verified(realm, subject_id, at=at)

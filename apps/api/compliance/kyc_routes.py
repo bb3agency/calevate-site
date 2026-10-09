@@ -77,13 +77,14 @@ from apps.api.compliance.kyc import (
 )
 from apps.api.compliance.kyc_documents import (
     KYC_MAX_DOCUMENT_BYTES,
-    OWNER_ID_KINDS,
+    RETIRED_AADHAAR_KIND,
     KycDocumentRow,
+    aadhaar_copy_not_accepted,
     accept_upload,
     assert_kind_fits_slot,
     current_documents,
     delete_requested_documents,
-    masked_owner_id,
+    mask_pan,
     new_document_id,
     record_document,
     seal_document,
@@ -97,6 +98,7 @@ from apps.api.compliance.kyc_verification import (
     resolve_request,
 )
 from apps.api.compliance.models import KYC_ENTITY_TYPES
+from apps.api.compliance.trial_access import refuse_on_trial
 from apps.api.core.alerting import alert
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.console_links import console_base
@@ -120,7 +122,19 @@ KycReader = Annotated[Principal, Depends(requires("org:read"))]
 # takes the mutating permission — and being in `MUTATING_PERMISSIONS` is also what
 # keeps it out of a read-only "view as client" session, which is correct: an operator
 # must not begin an identity verification on a client's behalf.
-KycWriter = Annotated[Principal, Depends(requires("org:manage"))]
+_KycManager = Annotated[Principal, Depends(requires("org:manage"))]
+
+
+async def _kyc_writer(principal: _KycManager, session: Session) -> Principal:
+    """`org:manage`, and not on a free trial: verification opens once the account pays
+    (D-697). One dependency for every write, so no write route can skip it; the read stays
+    open so the page can say why."""
+    if principal.tenant_id is not None:
+        await refuse_on_trial(session, tenant_id=principal.tenant_id, locked="kyc")
+    return principal
+
+
+KycWriter = Annotated[Principal, Depends(_kyc_writer)]
 
 
 class KycRecordOut(BaseModel):
@@ -611,7 +625,7 @@ async def save_details(
     summary="Upload the business certificate or the owner's ID",
     description=(
         "`slot` is `business` (kind `gst`, `incorporation` or `udyam`) or `owner_id` (kind "
-        "`aadhaar` — the masked copy only — or `pan_card`). PDF, JPEG or PNG, at most 5 MB, "
+        "`pan_card`; an Aadhaar copy is refused, D-696). PDF, JPEG or PNG, at most 5 MB, "
         "a filename of at most 99 characters. Files are encrypted before storage. The "
         "owner's ID is deleted once a reviewer decides, or after 30 days if nobody does."
     ),
@@ -700,12 +714,15 @@ async def upload_document(
 
 
 class ManualSubmitIn(BaseModel):
-    """The owner ID the uploaded file shows. For Aadhaar, ONLY the last four digits."""
+    """The PAN the uploaded PAN card shows.
+
+    `owner_id_type` still accepts `aadhaar` so a screen from before D-696 gets the sentence
+    telling the client to upload their PAN card, rather than a bare schema error."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     owner_id_type: Literal["aadhaar", "pan"]
-    # A PAN (validated, then masked) or the Aadhaar's last four digits. Never stored whole.
+    # The full PAN: validated, then only its masked form is kept.
     owner_id_number: str = Field(min_length=4, max_length=10)
 
 
@@ -716,8 +733,9 @@ class ManualSubmitIn(BaseModel):
     summary="Send the uploaded documents for review",
     description=(
         "The manual path: needs the business details, the business certificate and the "
-        "owner's ID on file. For a PAN send the full PAN (only a masked form is kept); for "
-        "an Aadhaar send ONLY its last four digits."
+        "owner's PAN card on file. Send the full PAN; only a masked form is kept. "
+        "`owner_id_type: aadhaar` is refused (D-696): Aadhaar is accepted only through "
+        "DigiLocker."
     ),
 )
 async def submit_for_review(
@@ -740,23 +758,21 @@ async def submit_for_review(
             "Your documents are already with our review team.",
             remediation="We will tell you when the review is done.",
         )
+    if body.owner_id_type == RETIRED_AADHAAR_KIND:
+        raise aadhaar_copy_not_accepted()
     documents = await _assert_business_on_file(
         session, tenant_id=principal.tenant_id, record=record
     )
+    # A held owner-ID file is a PAN card: migration c5e9a2d71b48's CHECK keeps any Aadhaar
+    # copy from before D-696 out of the held set.
     owner = documents.get("owner_id")
     if owner is None or not owner.held:
         raise ProblemError.business_rule(
             "kyc_owner_id_missing",
-            "Upload the owner's Aadhaar (masked copy) or PAN card first.",
-            remediation="Add the owner's ID, then send for review.",
+            "Upload the owner's PAN card first.",
+            remediation="Add the PAN card, then send for review.",
         )
-    if OWNER_ID_KINDS[owner.kind] != body.owner_id_type:
-        raise ProblemError.business_rule(
-            "kyc_owner_id_type_mismatch",
-            "The ID type you entered does not match the document you uploaded.",
-            remediation="Choose the same ID type as the uploaded document.",
-        )
-    masked = masked_owner_id(id_type=body.owner_id_type, value=body.owner_id_number)
+    masked = mask_pan(body.owner_id_number)
     await submit_for_manual_review(
         session,
         tenant_id=principal.tenant_id,

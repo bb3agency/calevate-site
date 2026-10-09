@@ -61,23 +61,22 @@ export function ProposalCard({
   session,
   proposal,
   confirmable,
+  realm = "client",
   onDismiss,
 }: {
   session: Session;
   proposal: CopilotProposal;
   /**
-   * WHETHER THIS REALM HAS A CONFIRM ROUTE (D-499). False on the admin realm, where the
-   * only confirm endpoint in the console is `POST /v1/copilot/confirm` — a `copilot:use`
-   * route checked against the CLIENT realm, so an operator's click could only ever produce
-   * a refusal, on the wrong realm's endpoint.
-   *
-   * The card still renders everything a proposal HOLDS; what is withdrawn is the decision.
-   * `CopilotPanel` owns the value, and `POST /v1/admin/copilot/confirm` is what removes it.
+   * WHETHER THIS CARD MAY BE CONFIRMED. Both realms pass true since D-694 — each has its
+   * own confirm door (`realm` picks it). False keeps the card read-only: it still shows
+   * everything the proposal holds, and only the decision is withheld.
    */
   confirmable: boolean;
+  /** Which confirm door this card posts to (D-694): the admin realm has its own. */
+  realm?: "client" | "admin";
   onDismiss: () => void;
 }) {
-  const confirm = useConfirmProposal(session);
+  const confirm = useConfirmProposal(session, realm, proposal.confirm_action ?? null);
   const card = useRef<HTMLDivElement>(null);
   const [expired, setExpired] = useState(() => hasExpired(proposal.expires_at));
 

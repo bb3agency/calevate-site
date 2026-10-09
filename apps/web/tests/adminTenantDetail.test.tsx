@@ -15,6 +15,7 @@ import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
 import TenantAgentsPage from "@/app/admin/tenants/[tenantId]/agents/page";
 import type { KbSource, Margin, TenantSummary } from "@/lib/api/admin";
 import type { Routes } from "./harness";
+import { OWNER_JOINED } from "./businessProfileFixture";
 
 import { browserOffline, problem, stubApi } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
@@ -152,6 +153,7 @@ function source(over: Partial<KbSource> = {}): KbSource {
 /** Everything green, so each test can break exactly one thing. */
 function healthy(): Routes {
   return {
+    [`${TENANT_PATH}/owner-status`]: OWNER_JOINED,
     [TENANT_PATH]: tenant(),
     [ME_PATH]: OPERATOR,
     [QUEUE_PATH]: [],

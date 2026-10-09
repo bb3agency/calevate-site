@@ -82,6 +82,27 @@ TENANT_ONLY_ROUTES: Final[frozenset[tuple[str, str]]] = frozenset(
 #: the developer workspace.
 _CURRENT: ContextVar[str | None] = ContextVar("thinnest_workspace", default=None)
 
+#: The one tenant-only write a FREE-TRIAL account may make in the developer workspace:
+#: creating its agent (D-697). A trial account has no workspace of its own until it pays, and
+#: its agents only place test calls from the shared trial number, which lives there too. Set
+#: only by `agents.service.publish_agent` for a trial account, around the create.
+_TRIAL_AGENT_ROUTES: Final[frozenset[tuple[str, str]]] = frozenset({("POST", "/agents")})
+_TRIAL_AGENT: ContextVar[bool] = ContextVar("thinnest_trial_agent", default=False)
+
+
+@contextmanager
+def trial_agent_in_developer_workspace() -> Iterator[None]:
+    """Let the enclosed agent create land in the developer workspace (a trial account)."""
+    token = _TRIAL_AGENT.set(True)
+    try:
+        yield
+    finally:
+        _TRIAL_AGENT.reset(token)
+
+
+def trial_agent_allowed() -> bool:
+    return _TRIAL_AGENT.get()
+
 
 #: Our developer workspace's id as read from `GET /workspace` by this process
 #: (`remember_developer_workspace`); `Settings.thinnest_developer_workspace_id` covers a
@@ -112,13 +133,12 @@ def workspace_not_provisioned() -> ProblemError:
     return ProblemError(
         kind="business_rule",
         code="engine_workspace_not_provisioned",
-        title="This account's voice workspace is not ready yet",
-        detail=(
-            "Nothing was sent to the voice platform, because this account does not have its "
-            "own voice workspace yet. It is set up automatically; if this persists, the "
-            "account is waiting for an operator."
+        title="This account is not ready for calls yet",
+        detail=("Nothing was changed. This account is not set up for calls yet."),
+        remediation=(
+            "If you have just set it up, try again in a few minutes. Otherwise your Calevate "
+            "contact can finish the setup."
         ),
-        remediation="Try again in a few minutes. If it keeps failing, contact us.",
         status=409,
     )
 
@@ -165,7 +185,8 @@ def workspace_headers(method: str, route: str, workspace: str | None) -> dict[st
             raise WorkspaceScopeError(f"{method} {route} acts on our own account only")
         return {}
     customer = is_customer_workspace(workspace) and not is_developer_workspace(workspace)
-    if key in TENANT_ONLY_ROUTES and not customer:
+    trial_create = workspace is None and key in _TRIAL_AGENT_ROUTES and _TRIAL_AGENT.get()
+    if key in TENANT_ONLY_ROUTES and not customer and not trial_create:
         raise workspace_not_provisioned()
     if workspace is None:
         return {}
@@ -183,6 +204,8 @@ __all__ = [
     "in_workspace",
     "is_developer_workspace",
     "remember_developer_workspace",
+    "trial_agent_allowed",
+    "trial_agent_in_developer_workspace",
     "workspace_headers",
     "workspace_not_provisioned",
     "workspace_of",

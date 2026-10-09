@@ -252,7 +252,7 @@ def test_the_basis_says_what_it_is_in_one_line() -> None:
     ways. The bar-of-zero case is the module constant, struck before anything was counted —
     printing "0 of 0 calls" against it would read as a failed measurement."""
     assert ASSUMED_SPEAKING_RATE.label == (
-        "assumed 540 chars/call-min (TRD 10.1, unmeasured - pilot gate 12)"
+        "assumed 540 chars/call-min (unmeasured - pilot gate 12)"
     )
     short = assumed_speaking_rate(calls=7, minimum_calls=20)
     assert short.label.endswith("; 7 of 20 calls measured")

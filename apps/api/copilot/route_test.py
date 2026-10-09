@@ -40,6 +40,7 @@ from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 
 from apps.api.billing import ai_quota, rates
+from apps.api.copilot import fair_use as copilot_fair_use
 from apps.api.copilot import service
 from apps.api.copilot.sanitize import has_invisible
 from apps.api.core.settings import get_settings
@@ -95,6 +96,9 @@ def azure_only(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "azure_openai_deployment", "dep", raising=False)
     monkeypatch.setattr(settings, "sarvam_api_key", None, raising=False)
     monkeypatch.setattr(settings, "platform_llm_model", AZURE_OPENAI_DEFAULT_MODEL, raising=False)
+    # D-694: the assistant runs on console Gemini tiers and Azure is an opt-in fallback.
+    # These tests assert Azure's own ledger rows, so they switch the fallback on.
+    monkeypatch.setattr(settings, "copilot_azure_fallback", True, raising=False)
 
 
 def _fake_provider(
@@ -216,7 +220,9 @@ async def test_a_fill_reaches_the_browser_and_is_metered_at_the_published_price(
     assert [name for name, _ in events] == ["text", "fill", "done"]
     assert events[0][1] == {"delta": "Nine in the morning."}
     assert events[1][1] == {"items": [{"field_id": "open", "value": "09:00"}]}
-    assert events[2][1] == {"disclosure": None, "metered": True}
+    # Azure answers here as the opt-in BACKUP (D-694): the usual Gemini tier model is not
+    # offerable in this deployment, so the person is told a backup answered (G-6).
+    assert events[2][1] == {"disclosure": service.BACKUP_MODEL_DISCLOSURE, "metered": True}
 
     model = get_settings().azure_openai_model
     price = rates.llm_inr_per_ktok(model)
@@ -403,46 +409,13 @@ async def test_the_assistant_still_costs_a_mutating_permission(
 
 
 async def _at_the_ceiling(tenant_id: UUID, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Past the included allowance with NO usage rows. The tier constant goes to zero
-    rather than the tenant being charged into the ceiling: writing hundreds of rupees of
-    usage would move `platform_ai_spend`, the one counter this file shares with every other
-    suite.
-
-    **AND THE CLOCK IS PINNED, BECAUSE THIS TEST FAILED FOR ONE HOUR A MONTH AND NOBODY
-    WOULD HAVE BELIEVED WHY.** `require_ai_assist` asks `month_is_ending` before it raises
-    `ai_quota_exceeded`, and inside the last `LAST_SALEABLE_MINUTES` of an IST month it
-    correctly raises `ai_extra_month_ending` instead — a different code, a different
-    sentence, and a red suite for anyone who ran it after 23:00 IST on the last day
-    (observed 31 Aug 2026, 17:38 UTC). That is right behaviour and the wrong dependency for
-    a test about a ceiling: the assertion here is which refusal a tenant at its ceiling
-    gets, not what time it is.
-
-    Pinned FALSE, and pinned in the fixture rather than per test, so every ceiling test in
-    this file asserts the same state whatever hour it runs in. The month-ending refusal has
-    its own coverage in `tests/ai_quota_test.py`, which pins the boundary from both sides
-    with an explicit `now=` — this is the same `patch.setattr(ai_quota, "month_is_ending",
-    ...)` that file already uses, pointed the other way.
-    """
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE organizations SET plan_tier = 'self_serve' WHERE id = :i"),
-            {"i": tenant_id},
-        )
-    monkeypatch.setitem(ai_quota.AI_QUOTA_INR, "self_serve", Decimal("0.00"))
-    # AND THE CLOCK IS PINNED AWAY FROM THE MONTH BOUNDARY, which is not decoration.
-    # `read_ai_quota` answers a tenant past its allowance with the MORE SPECIFIC refusal
-    # when one applies, and in the last `LAST_SALEABLE_MINUTES` of an IST month that is
-    # `ai_extra_month_ending` ("the allowance comes back within the hour") rather than
-    # `ai_quota_exceeded`. Both are correct product behaviour and the specific one is the
-    # better sentence — but a test about the CEILING must not be answered by the calendar.
-    # Without this the file goes red for one hour every month, which reads to the next
-    # person like a regression in whatever they happened to be holding. Found twice
-    # independently on 31 Aug 2026 — once 51 minutes before the IST roll and once 50
-    # minutes after — which is the whole argument for pinning it rather than re-running.
-    # The lambda mirrors the real signature (`month_is_ending(month, *, now=None)`) so a
-    # signature drift surfaces here instead of being swallowed by a permissive `*args`;
-    # `tests/ai_quota_test.py` still covers the boundary itself with an explicit `now=`.
-    monkeypatch.setattr(ai_quota, "month_is_ending", lambda month, **kwargs: False)
+    """Past the assistant's DAILY FAIR-USE CAP (D-694), with no usage rows: the cap is set
+    to zero rather than the account being charged into it, because writing usage would
+    move `platform_ai_spend`, the one counter this file shares with every other suite.
+    The operator alarm is captured so it is not raised for a test."""
+    del tenant_id
+    monkeypatch.setattr(get_settings(), "copilot_daily_message_cap", 0, raising=False)
+    monkeypatch.setattr(copilot_fair_use, "alert", lambda *args, **kwargs: None)
 
 
 async def test_a_tenant_at_its_ceiling_is_refused_before_the_provider_is_reached(
@@ -464,7 +437,7 @@ async def test_a_tenant_at_its_ceiling_is_refused_before_the_provider_is_reached
     assert reached == []
     assert [name for name, _ in events] == ["error"]
     problem = events[0][1]
-    assert problem["type"].endswith("/ai_quota_exceeded")
+    assert problem["type"].endswith("/copilot_daily_limit_reached")
     # The screen switches on `code`; the body is the same problem+json shape the error
     # handler would have written on a non-streamed route (BACKEND-PATTERNS §3).
     assert problem["remediation"]
@@ -575,7 +548,7 @@ async def test_an_answer_the_provider_did_not_count_is_unmetered_and_never_zero(
     async with _client() as http:
         events = await _events(http, token, slug)
 
-    assert events[-1] == ("done", {"disclosure": None, "metered": False})
+    assert events[-1] == ("done", {"disclosure": service.BACKUP_MODEL_DISCLOSURE, "metered": False})
     assert await _usage_rows(tenant_id) == []
     assert alerts == ["ai_assist_unmeterable"]
 

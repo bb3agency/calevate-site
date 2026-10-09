@@ -243,7 +243,7 @@ def _payload_too_large(max_bytes: int) -> ProblemError:
     return ProblemError(
         kind="validation",
         code="payload_too_large",
-        title="Payload too large",
+        title="Too large to send",
         detail=f"Request body exceeds {max_bytes} bytes.",
         status=413,
         remediation="Send a smaller body, or split the request.",

@@ -10,6 +10,7 @@ import {
 } from "@/lib/api/admin";
 import { apiRequest, type Session } from "@/lib/api/client";
 import type { Routes } from "./harness";
+import { OWNER_JOINED } from "./businessProfileFixture";
 
 import { problem, stubApi } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
@@ -61,6 +62,7 @@ function routes(): Routes {
         "admin:tenants",
       ],
     },
+    [`${TENANT_PATH}/owner-status`]: OWNER_JOINED,
     [TENANT_PATH]: {
       id: TENANT,
       name: "Sri Traders",

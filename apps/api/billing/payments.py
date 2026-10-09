@@ -5,129 +5,52 @@ a UTR off a bank statement (`billing/credit_routes.py`, which stays exactly as i
 for NEFT/UPI). This module is the machine version of that same act: a payment the
 provider tells us about becomes one `credit_ledger` entry.
 
-WHAT IS REAL HERE AND WHAT IS NOT — read this before wiring it to a live account
---------------------------------------------------------------------------------
-There are still no Razorpay credentials in this repository and **no call has ever been
-made against their API from here**. What changed in D-98 is the EVIDENCE, not the
-account: `github.com/razorpay/razorpay-python` is Razorpay's own published client, and
-reading it settles several things that were previously guesses. So this module now uses
-the three-rung ladder `apps/api/engine/cartesia.py` established, cited at the line:
+THE WIRE CONTRACT, AND WHERE EACH FACT COMES FROM (D-699)
+---------------------------------------------------------
+Every fact below was read from Razorpay's own documentation on 9 Oct 2026, at
+`https://razorpay.com/docs/build/llm-docs/<path>.md` (VERIFIED-VENDOR-DOCS). Until D-699
+they were REPORTED from search summaries, because `razorpay.com` was egress-blocked from
+the machine that wrote them; the docs host is reachable now and every one held.
 
-* **READ AT SOURCE** — taken from `razorpay/razorpay-python` on `master`, fetched
-  2026-08-14. Vendor-published code, so it is strong evidence about the things it
-  actually touches: the API host, the version path segment, the orders path, the
-  authentication scheme, the webhook digest.
-* **REPORTED, NOT READ** — a search engine's summary of a `razorpay.com/docs` page.
-  Weaker: **`razorpay.com` is refused by this environment's egress proxy (WebFetch →
-  EGRESS_BLOCKED), so nobody here has seen those pages.** Same standing the Bolna
-  adapter gives `GET /v2/agent/{agent_id}`.
-* **UNVERIFIED** — our reading with nothing behind it. Every one of these fails LOUDLY
-  and credits nothing.
+- Webhook signature: header `X-Razorpay-Signature`, the HMAC-SHA256 hex digest of the RAW
+  request body keyed with the WEBHOOK secret; "Do not parse or cast the webhook request
+  body" (`webhooks/validate-test.md`). Duplicates are expected; the header
+  `x-razorpay-event-id` is unique per event (same page). A non-2xx or no answer within 5
+  seconds is a failure, retried with exponential backoff for 24 hours, after which the
+  webhook is disabled (`webhooks/best-practices.md`).
+- Payload: `{"event", "payload": {"payment": {"entity": {...}}}}`; `order.paid` also carries
+  `payload.order.entity` (`webhooks/payments.md`, `webhooks/orders.md`). `amount` is an
+  integer in the currency subunit (paise). `notes` is an object when set and an EMPTY ARRAY
+  `[]` when not, in every sample.
+- Payment states `created`, `authorized`, `captured`, `refunded`, `failed`
+  (`api/payments/entity.md`). Auto-capture of every payment authorised within 3 days is the
+  account default, and a payment left uncaptured past the window is refunded by Razorpay
+  (`payments/payments/capture-settings.md`). We rely on auto-capture and never capture via
+  the API; `payment.authorized` only moves the client's screen to "verifying".
+- Checkout callback signature: `hmac_sha256(order_id + "|" + razorpay_payment_id,
+  key_secret)`, compared on the server against the order id WE hold
+  (`payments/payment-gateway/web-integration/standard/integration-steps.md` §1.5).
+- Orders: `POST /v1/orders` with `amount`, `currency`, `receipt` (max 40 characters) and
+  `notes` (max 15 pairs of 256 characters); the response carries `id` (same page, §1.1).
+- Refunds: `POST /v1/payments/:id/refund`, `amount` in paise (omitted = full), `speed`
+  `normal` (5-7 working days) by default; header `X-Refund-Idempotency`, at least 10
+  characters of letters, digits, `-` and `_`; a request still in progress answers 409
+  (`api/refunds/create-normal.md`, `api/refunds/normal-refunds-idempotent.md`). Refund
+  states `pending`, `processed`, `failed` (`api/refunds/entity.md`); events `refund.created`,
+  `refund.processed`, `refund.failed`, `refund.speed_changed` (`webhooks/refunds.md`).
+- Auth: HTTP Basic `key_id:key_secret` against `https://api.razorpay.com/v1`
+  (`api/authentication.md`, `api/orders/create.md`).
 
-The two long-standing marks, restated at their new standing:
+The tenant a payment belongs to is read from `notes.calevate_tenant_id`, which we put on
+the order when we create it and on the Checkout options, and is then checked against OUR
+record of the order (`billing/payment_objects.py`): a captured amount that differs from
+what we asked the order for is refused, whatever the notes say.
 
-- `verify_signature` — the SCHEME is **READ AT SOURCE**: `razorpay/utility/
-  utility.py::verify_signature` is `hmac.new(key=secret, msg=body,
-  digestmod=hashlib.sha256).hexdigest()` compared with `hmac.compare_digest`, and
-  `verify_webhook_signature(body, signature, secret)` delegates straight to it. That is
-  exactly what is implemented below. The **HEADER NAME `X-Razorpay-Signature` is now
-  VERIFIED** — REPORTED, corroborated by four independent secondaries (razorpay.com is
-  egress-blocked here, so this is the three-independent-secondaries standard `gst.py`
-  uses, not a first-party read): Razorpay signs each webhook with an
-  `X-Razorpay-Signature` header carrying the HMAC-SHA256 hex of the RAW body keyed with
-  the **webhook secret** — a value distinct from `key_secret`, set in the dashboard, and
-  different between live and test mode (WebSearch 2026-08-24: hookdeck.com/webhooks/
-  platforms/guide-to-razorpay-webhooks-features-and-best-practices; svix.com/blog/
-  reviewing-razorpay-webhook-docs; and search summaries of razorpay.com/docs/webhooks/
-  validate-test). Wrong header ⇒ every event refused (fail-closed), unchanged.
-- `extract_captured_payment` — the payload shape: `event`, and
-  `payload.payment.entity.{id,order_id,amount,currency,status,notes}` with `amount` an
-  integer count of PAISE. **REPORTED, corroborated** — the same standing as above and by
-  the same evidence class (razorpay.com/docs/webhooks/payloads/payments is egress-blocked;
-  multiple independent secondaries state the `event` + `payload.payment.entity.*` shape and
-  that amount is integer paise, WebSearch 2026-08-24). Not first-party, so the extractor
-  still fails LOUDLY on a shape it cannot read: a wrong field name yields nothing we can
-  act on and the receiver answers 422 without touching the ledger.
-
-CALLBACK vs WEBHOOK — TWO SIGNATURES, TWO SECRETS, DO NOT CONFLATE
-------------------------------------------------------------------
-The browser Checkout returns `razorpay_order_id`, `razorpay_payment_id` and
-`razorpay_signature` to a callback. That signature is a DIFFERENT scheme from the webhook:
-it is `HMAC-SHA256(razorpay_order_id + "|" + razorpay_payment_id)` keyed with the
-**`key_secret`** (NOT the webhook secret), hex, timing-safe compared (VERIFIED — REPORTED,
-corroborated by search summaries of razorpay.com/docs/developer-tools/integrations/
-standard-checkout and razorpay.com/docs/payments/payment-gateway/web-integration/standard/
-integration-steps, WebSearch 2026-08-24; Razorpay's own guidance: verify on the SERVER with
-the key_secret, and use the order_id your server holds, not the one Checkout echoes).
-`verify_checkout_signature` implements exactly this. The callback proves the payment is
-genuine so the UI can show success; the WALLET CREDIT is still the webhook's job, because
-the callback carries no amount and no tenant notes — only the webhook (or a refund event)
-carries the money and the attribution.
-
-REFUNDS
--------
-`RazorpayOrders.create_refund` is a real `POST /v1/payments/{id}/refund` (VERIFIED —
-REPORTED, corroborated: amount in the smallest unit = integer paise and ≥ ₹1; a `speed`
-of `normal`/`optimum`; idempotency via the `X-Refund-Idempotency` HEADER, min 10 chars,
-alphanumerics/hyphen/underscore only; response carries `id`/`amount`/`status`; the
-`refund.processed` webhook is the definitive final state — WebSearch 2026-08-24: search
-summaries of razorpay.com/docs/api/refunds and razorpay.com/docs/webhooks/refunds). A
-refund is recorded as a COMPENSATING `credit_ledger` entry (`reason="refund"`, a negative
-delta) keyed on the refund id — hard rule 4: money going back to a client is a new entry,
-never an edit, and `credit_refund` is the single writer whether the refund reaches us on
-the API response or on the `refund.processed` webhook.
-
-ORDER CREATION IS NOW IMPLEMENTED (D-98) — and the credential still is not
---------------------------------------------------------------------------
-`RazorpayOrders.create_order` is a real server-to-server `POST /v1/orders`. Two facts
-stay separate, because conflating them is the defect this module was built to avoid:
-
-- `PROVIDER_CREATES_ORDERS` is a claim about CODE: an adapter exists in this repository.
-  It is now True, and it became True because somebody wrote the adapter.
-- `PaymentCapability.creates_orders` is a claim about THIS DEPLOYMENT: the adapter
-  exists AND the API secret is configured. **It is False on every deployment today**,
-  with reason `no_api_secret`, because no Razorpay account has been provisioned — so
-  `create_topup_intent` still answers `provider_order_id: null` /
-  `provider_order_pending: true` exactly as it did, and does so through a named reason
-  rather than through an absence.
-
-WHY BOTHER, IF NOBODY CAN PAY YET — the concrete thing this fixes
------------------------------------------------------------------
-`notes.calevate_tenant_id` is the ONLY way the receiver can attribute a payment, and
-until now the intent merely HANDED those notes to a frontend and hoped a checkout
-attached them. A checkout that forgot would put every rupee through
-`payment_tenant_unresolved` — real money nobody can place. Creating the order
-server-side puts the tenant into the order by construction, which is the difference
-between a contract and a hope.
-
-**No Razorpay client library is added** (hard rule 9). The adapter is `httpx` against
-paths read out of their own SDK; adding `razorpay` to the lockfile would be a
-supply-chain decision buying nothing but four constants we can read for free.
-
-THE CAPABILITY IS NOW SOMETHING THE CODE CAN SAY, NOT ONLY SOMETHING IT LACKS
-------------------------------------------------------------------------------
-The honest hole above was right and it stays. What was wrong is that nothing in the
-codebase could ANSWER "does this deployment take payments?" — every caller read
-`settings.razorpay_key_id` and decided for itself, which is the defect fixed for Google
-Sheets last wave (`workers/sheets_sync.py`, `integrations/routes.py`): a key id is a
-credential, not a statement that the capability exists, and two independent reads of
-the same settings eventually disagree. So, exactly as there:
-
-- `PAYMENT_PROVIDER` is the statement. The only name with anything behind it is
-  `razorpay`; any other name resolves to `provider_not_implemented`, on purpose, so
-  `PAYMENT_PROVIDER=stripe` fails loudly rather than looking configured.
-- `payment_capability()` is the ONE selector, and `online_payments_available()` is the
-  boolean every caller asks — the intent route, the webhook, and any surface that later
-  wants to decide whether to render a pay button. A second read of settings cannot
-  disagree with it because there is no second read.
-- the refusal is RFC-9457 problem+json and writes NOTHING — no intent row, no inbox
-  claim, no ledger entry.
-- `PROVIDER_CREATES_ORDERS` is a greppable constant rather than a note in a doc,
-  because "we have credentials" and "we have an order-creation adapter" are different
-  facts and the contract must not conflate them.
-  `tests/payments_provider_seam_test.py` pins BOTH halves: that the constant is True
-  only while a real HTTP order call is present in this module, and that the capability
-  is still False without the secret.
+`PROVIDER_CREATES_ORDERS` is a claim about CODE (an adapter exists here);
+`PaymentCapability.creates_orders` is a claim about THIS DEPLOYMENT (the adapter AND the
+API secret). `payment_capability()` is the one selector every surface asks, and it also
+refuses a key from the wrong mode (`payment_mode_problem`). No Razorpay client library is
+added (hard rule 9): the adapter is `httpx` against the documented paths.
 
 WHAT IS OURS, AND IS FINISHED
 -----------------------------
@@ -157,13 +80,10 @@ WHAT IS OURS, AND IS FINISHED
   browser chooses, so a second click cannot mint a second order. The argument, and why
   it is not a third answer, is on that function.
 
-Deliberately NOT here: a `payment_orders` table. D-39's rule is that anything needing
-a migration later is built now — and this flow still needs no such row. The order id is
-replayed out of `idempotency_records`, which is the table this repository already keeps
-for "the same client-initiated mutation, twice"; the signature proves the callback is
-genuine; the notes carry the tenant; and the ledger is the durable record of money.
-Adding a table would add a second place a payment can be half-recorded, and the thing it
-would hold — an unpaid order id — is worth less than the row it costs.
+Where an order is recorded: `razorpay_object_routes` (D-699) holds the tenant, purpose and
+amount of every order we create, because a webhook needs both the tenant and the amount
+WE asked for before it may credit anything. It records no payment state: the ledger is the
+durable record of money, and `topup_attempts` the narrative a client's screen reads.
 """
 
 from __future__ import annotations
@@ -186,6 +106,7 @@ from apps.api.billing.credit_packs import (
     CreditPack,
     pack_paid_for,
 )
+from apps.api.billing.first_payment import on_payment_credited
 from apps.api.billing.lots import split_meta
 from apps.api.billing.rates import MONEY_Q, ROUNDING
 from apps.api.billing.service import (
@@ -211,33 +132,67 @@ log = get_logger(__name__)
 
 PROVIDER: Final = "razorpay"
 
-# VERIFIED (REPORTED, corroborated — module docstring): the header Razorpay signs
-# webhooks with. HMAC-SHA256 hex of the RAW body, keyed with the webhook secret.
+# The header Razorpay signs webhooks with: HMAC-SHA256 hex of the RAW body, keyed with the
+# webhook secret (`webhooks/validate-test.md`, 9 Oct 2026).
 SIGNATURE_HEADER: Final = "X-Razorpay-Signature"
+# Unique per event; Razorpay's own recommended dedupe key for a redelivered webhook
+# (`webhooks/validate-test.md` "Idempotency", 9 Oct 2026).
+EVENT_ID_HEADER: Final = "X-Razorpay-Event-Id"
 
-# The events that ADD credit to a wallet, both carrying `payload.payment.entity`:
-#   - payment.captured fires when a payment is captured;
-#   - order.paid fires when the payment against an order is captured (it carries the same
-#     payment entity, so it is read through the same extractor and deduped on the same
-#     payment id — whichever of the two arrives first credits, the second is a replay).
-# VERIFIED (REPORTED, corroborated — module docstring; WebSearch 2026-08-24).
+# The events that ADD credit to a wallet, both carrying `payload.payment.entity`
+# (`webhooks/payments.md`, `webhooks/orders.md`, 9 Oct 2026). `order.paid` also carries the
+# order entity. Whichever of the two arrives first credits; the other is a replay of the
+# same payment id.
 CAPTURED_EVENT: Final = "payment.captured"
 ORDER_PAID_EVENT: Final = "order.paid"
 CREDIT_EVENTS: Final = frozenset({CAPTURED_EVENT, ORDER_PAID_EVENT})
 
-# A payment attempt that failed. It moves NO money — there is nothing to credit — so it is
-# logged for an operator and acked so the provider stops retrying. Recording a failure row
-# would need a `payment_orders` table this integration deliberately does not have (the
-# order id is replayed from `idempotency_records`, module docstring), and an unpaid order
-# expiring is not an event the ledger has anything to say about.
+# The bank approved the payment and it awaits capture. It moves no money here: auto-capture
+# follows, and the client's screen shows "verifying" meanwhile.
+AUTHORIZED_EVENT: Final = "payment.authorized"
+
+# A payment attempt that failed. It moves NO money, so nothing is credited; the attempt
+# row is marked and, for an auto-recharge, the failure is counted.
 PAYMENT_FAILED_EVENT: Final = "payment.failed"
 
-# The definitive final state of a refund (VERIFIED — REPORTED, corroborated). `refund.created`
-# is only the INITIATION and a created refund may still fail or reverse, so acting on it
-# would risk debiting a wallet for money that never went back; we wait for `processed`,
-# where the money has actually moved. `credit_refund` is idempotent on the refund id, so a
-# refund we issued and already recorded from the API response dedupes against this event.
+# The definitive final state of a refund. `refund.created` is only the initiation and may
+# still fail, so the ledger waits for `processed`, where the money has moved. A
+# `refund.failed` releases the claim it held (`webhooks/refunds.md`, 9 Oct 2026).
 REFUND_PROCESSED_EVENT: Final = "refund.processed"
+REFUND_FAILED_EVENT: Final = "refund.failed"
+
+# Recurring-payment token states (`api/payments/recurring-payments/webhooks.md`,
+# 9 Oct 2026). Their payload is `payload.token.entity` and carries NO notes, so the
+# tenant is resolved through `razorpay_object_routes`.
+TOKEN_EVENTS: Final = frozenset(
+    {"token.confirmed", "token.rejected", "token.cancelled", "token.paused"}
+)
+
+# Disputes (`webhooks/disputes.md`, 9 Oct 2026). Payload: `payload.payment.entity` and
+# `payload.dispute.entity`.
+DISPUTE_EVENTS: Final = frozenset(
+    {
+        "payment.dispute.created",
+        "payment.dispute.won",
+        "payment.dispute.lost",
+        "payment.dispute.closed",
+        "payment.dispute.under_review",
+        "payment.dispute.action_required",
+    }
+)
+
+#: The events to tick in the Razorpay dashboard for this webhook, in one place so the
+#: runbook, the admin status page and the handler cannot disagree.
+SUBSCRIBED_EVENTS: Final[tuple[str, ...]] = (
+    AUTHORIZED_EVENT,
+    CAPTURED_EVENT,
+    PAYMENT_FAILED_EVENT,
+    ORDER_PAID_EVENT,
+    REFUND_PROCESSED_EVENT,
+    REFUND_FAILED_EVENT,
+    *sorted(TOKEN_EVENTS),
+    *sorted(DISPUTE_EVENTS),
+)
 
 # The key our checkout attaches to the order's `notes`, carrying the tenant through
 # the provider and back. It is prefixed because `notes` is a shared free-form map.
@@ -254,71 +209,42 @@ SUPPORTED_CURRENCY: Final = "INR"
 
 PAISE_PER_RUPEE: Final = Decimal(100)
 
-# --- the vendor's control plane, as far as their own code states it -------------
+# --- the vendor's control plane (module docstring for the sources) ---------------
 #
-# READ AT SOURCE for all four: `razorpay/constants/url.py` on razorpay/razorpay-python
-# (`master`, fetched 2026-08-14) defines `BASE_URL = 'https://api.razorpay.com'`,
-# `V1 = '/v1'`, `V2 = '/v2'`, `ORDER_URL = "/orders"`, and `razorpay/resources/order.py`
-# builds the create path as `URL.V1 + URL.ORDER_URL`, POSTed with no id segment.
+# `https://api.razorpay.com/v1/...` with HTTP Basic auth (`api/authentication.md`,
+# `api/orders/create.md`, 9 Oct 2026). The version is PINNED in the path: a v2 migration
+# is a diff in this module with a test beside it, not a response that changes shape under
+# a running deployment.
 BASE_URL: Final = "https://api.razorpay.com"
-
-# PINNED DELIBERATELY. Razorpay's API is versioned in the PATH, not in a header, and
-# `URL.V2` exists in the same file — so the version is a real axis they already move on,
-# and "whatever the client library defaults to" is a breaking change on somebody else's
-# release schedule. Pinning here means a v2 migration is a diff in this module with a
-# test beside it, not a response that quietly changes shape under a running deployment.
 API_VERSION_PATH: Final = "/v1"
 ORDERS_PATH: Final = "/orders"
 
-# The refund path is templated on the payment id: `POST /v1/payments/{id}/refund`
-# (VERIFIED — REPORTED, corroborated by search summaries of razorpay.com/docs/api/refunds,
-# WebSearch 2026-08-24). READ AT SOURCE for the segment names: `razorpay/constants/url.py`
-# defines `PAYMENT_URL = "/payments"` and `razorpay/resources/payment.py::refund` builds
-# `URL.V1 + PAYMENT_URL + "/" + payment_id + "/refund"`.
+# `POST /v1/payments/:id/refund` (`api/refunds/create-normal.md`, 9 Oct 2026).
 PAYMENTS_PATH: Final = "/payments"
 REFUND_PATH_SUFFIX: Final = "/refund"
 
-# The header carrying a refund idempotency key. VERIFIED (REPORTED, corroborated): a
-# NORMAL refund is made idempotent by an `X-Refund-Idempotency` header whose value is at
-# least 10 characters of alphanumerics, hyphens and underscores (WebSearch 2026-08-24:
-# razorpay.com/docs/api/refunds/normal-refunds-idempotent). We derive the value rather
-# than let a caller choose it — a second click must not issue a second refund.
+# At least 10 characters of letters, digits, `-` and `_`; the retried body must be
+# identical (`api/refunds/normal-refunds-idempotent.md`, 9 Oct 2026). We derive the value
+# rather than let a caller choose it, so a second click cannot issue a second refund.
 REFUND_IDEMPOTENCY_HEADER: Final = "X-Refund-Idempotency"
 
-# `optimum` lets Razorpay pick the fastest rail (instant where the method allows it),
-# `normal` is the default T+n bank rail. We ask for `normal`: an instant refund carries a
-# fee and the money-back promise a client cares about is the AMOUNT and that it is
-# processed, not the minutes (VERIFIED — REPORTED, corroborated, WebSearch 2026-08-24).
+# `normal` is Razorpay's default speed, 5-7 working days (`api/refunds/create-normal.md`).
+# An instant refund carries a fee; what a client is promised is the amount, not the hours.
 REFUND_SPEED: Final = "normal"
 
-# How long a refund takes to reach the client's account, as stated on the public Refund &
-# Cancellation policy the payment gateway requires to be live (LEGAL-OPS-PLAYBOOK §7.2:
-# "Live website with Terms, Privacy, Refunds, Contact, Grievance"). It is quoted back to a
-# client on the refund confirmation so the wallet debit and the bank credit line up in
-# their head. Bank rails settle in a few working days; 7 is the conservative ceiling the
-# policy commits to. The policy PAGE itself lives in `apps/web` (`/legal/refunds`) and is
-# owned there; this is the machine-readable half the API quotes so the two cannot drift.
+# How long a refund takes to reach the client, quoted on the refund confirmation and on
+# `/legal/refunds`: the upper end of Razorpay's 5-7 working days for a normal refund.
 REFUND_PROCESSING_DAYS: Final = 7
 
-# READ AT SOURCE: `razorpay/client.py` passes `auth=` (a `(key_id, key_secret)` tuple)
-# straight to `requests`, i.e. HTTP Basic, and sets `Content-Type: application/json` on
-# POST. httpx spells the same thing `auth=(id, secret)`.
-#
-# Their client also sends a `User-Agent` of `Razorpay-Python/<version>`. We do NOT
-# impersonate it: claiming to be a client library we are not is the kind of small lie
-# that makes a vendor's support answer the wrong question.
+# We do not send Razorpay's SDK user agent: claiming to be a library we are not makes a
+# vendor's support answer the wrong question.
 USER_AGENT: Final = "Calevate/1.0 (+https://calevate.tech)"
 
-# One order creation sits inside a client request, so the budget is a human's patience,
-# not a worker's. Shorter than the engine adapter's because a slow payment provider must
-# surface as OUR refusal rather than as a browser timeout with no explanation.
+# One order creation sits inside a client request, so the budget is a human's patience.
 ORDER_TIMEOUT_S: Final = 8.0
 
-# REPORTED, NOT READ (search summary of `razorpay.com/docs/api/orders/create`, which the
-# egress proxy refuses): `receipt` is at most 40 characters, and an account MAY be
-# configured to reject a duplicate receipt. We do not RELY on that — dashboard-toggled
-# vendor behaviour is not an idempotency guarantee — but we do stay inside the length,
-# because a receipt silently truncated by the vendor would stop being the key we derived.
+# `receipt` is at most 40 characters (`api/orders/create.md`, 9 Oct 2026). We stay inside
+# it: a receipt truncated by the vendor would stop being the key we derived.
 RECEIPT_MAX_LEN: Final = 40
 RECEIPT_PREFIX: Final = "clv"
 
@@ -342,6 +268,35 @@ NO_WEBHOOK_SECRET_REASON: Final = "no_webhook_secret"
 # webhook and credit a wallet. It refuses only the ORDER, which is why it rides on
 # `creates_orders` and never on `available`.
 NO_API_SECRET_REASON: Final = "no_api_secret"
+# The key id belongs to the other Razorpay mode, or a test key on production (D-699).
+MODE_MISMATCH_REASON: Final = "payment_mode_mismatch"
+TEST_MODE_IN_PRODUCTION_REASON: Final = "test_mode_in_production"
+
+# The key-id prefix of each mode. REPORTED, NOT VERIFIED: Razorpay's docs (read 9 Oct
+# 2026: `api/authentication.md`, `payments/dashboard/account-settings/api-keys.md`) say
+# keys are generated per mode but print no prefix. A key that matches neither prefix is
+# refused, so a wrong guess fails closed and is seen at the test-mode rehearsal
+# (`runbooks/topup-payments.md`), where the founder reads the real key off the dashboard.
+KEY_ID_PREFIX: Final = {"test": "rzp_test_", "live": "rzp_live_"}
+
+
+def payment_mode_problem() -> str | None:
+    """Why this deployment's Razorpay mode is unusable, or None.
+
+    Two rules: the key id must belong to the configured mode, and production may only run
+    `live`. With no mode configured, a production deployment is refused (it must say which
+    keys it holds) and any other deployment is allowed, which is what tests and local
+    development run on.
+    """
+    settings = get_settings()
+    mode = settings.razorpay_mode
+    key_id = settings.razorpay_key_id or ""
+    if settings.app_env == "prod" and (mode != "live" or key_id.startswith(KEY_ID_PREFIX["test"])):
+        return TEST_MODE_IN_PRODUCTION_REASON
+    if mode is not None and not key_id.startswith(KEY_ID_PREFIX[mode]):
+        return MODE_MISMATCH_REASON
+    return None
+
 
 # Is there an order-creation adapter IN THIS REPOSITORY? Yes, since D-98:
 # `RazorpayOrders.create_order`, a real `POST /v1/orders`.
@@ -433,6 +388,9 @@ def payment_capability() -> PaymentCapability:
         return PaymentCapability(
             available=False, provider=provider, reason=NO_WEBHOOK_SECRET_REASON
         )
+    mode_problem = payment_mode_problem()
+    if mode_problem is not None:
+        return PaymentCapability(available=False, provider=provider, reason=mode_problem)
     # The order half is a SEPARATE credential and therefore a separate answer. A
     # deployment that can verify webhooks but holds no API secret is perfectly coherent
     # — it credits payments taken elsewhere — so this must never pull `available` down.
@@ -485,6 +443,15 @@ class CapturedPayment:
     # plain top-up. Carried as the raw id and resolved against the catalogue at credit time,
     # so a pack this build no longer offers resolves to "no bonus" rather than crashing.
     pack_id: str | None = None
+    #: The order this payment paid, which `payment_objects.verify_order` checks the amount
+    #: and tenant against. None for a payment made outside an order.
+    order_id: str | None = None
+    #: Paid with an international card. International payments are off on our account
+    #: (a dashboard setting, `payments/international-payments/
+    #: international-debit-credit-cards.md`); one arriving anyway is credited and alarmed.
+    international: bool = False
+    #: The recurring token a mandate's authorisation payment created.
+    token_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -513,7 +480,7 @@ def verify_signature(*, secret: str, body: bytes, signature: str | None) -> bool
     `verify_webhook_signature(body, signature, secret)` is a one-line delegation to it.
     The digest below is that, exactly.
 
-    The HEADER NAME is now VERIFIED (REPORTED, corroborated — module docstring). Two
+    The header name and digest are documented (module docstring). Two
     properties hold regardless:
 
     - the comparison is `hmac.compare_digest`, so a wrong signature leaks no timing
@@ -536,8 +503,8 @@ def verify_checkout_signature(
     After a successful Checkout the browser hands back `razorpay_order_id`,
     `razorpay_payment_id` and `razorpay_signature`. The signature is
     `HMAC-SHA256(order_id + "|" + payment_id)` keyed with the **`key_secret`** — NOT the
-    webhook secret — hex, timing-safe compared (VERIFIED — REPORTED, corroborated; module
-    docstring; WebSearch 2026-08-24). Getting the secret wrong here is the classic bug:
+    webhook secret — hex, timing-safe compared (`integration-steps.md` §1.5, module
+    docstring). Getting the secret wrong here is the classic bug:
     both secrets are opaque strings, so signing the callback with the webhook secret
     type-checks and fails only as a rejected genuine payment, which is why the two
     verifiers are separate functions naming the secret they take.
@@ -805,11 +772,8 @@ class RazorpayOrders:
         (`CAPTURED_EVENT`). Leaving it out means the account decides, which is where that
         decision belongs.
 
-        UNVERIFIED for the response: that the order id arrives as `id`. If it does not,
-        this raises `payment_order_unreadable` and the client is told the payment could
-        not be started — loud, and nothing is fabricated. A made-up order id would be
-        handed to a checkout that rejects it, which turns a broken integration into a
-        client who believes they have paid.
+        The order id arrives as `id` (`api/orders/create.md`, 9 Oct 2026). If it does
+        not, this raises `payment_order_unreadable` rather than fabricating one.
         """
         amount_paise = inr_to_paise(amount_inr)
         payload = {
@@ -881,7 +845,7 @@ class RazorpayOrders:
     ) -> ProviderRefund:
         """Refund one captured payment, in whole paise. `POST /v1/payments/{id}/refund`.
 
-        The request is VERIFIED (REPORTED, corroborated — module docstring): `amount` in
+        The request is documented (module docstring): `amount` in
         integer paise (a PARTIAL refund is a smaller amount; a full refund omits it, but we
         always send it so the amount is our decision and never inferred), `speed` = normal,
         `notes` carrying the tenant so `extract_refund` can attribute the `refund.processed`
@@ -890,7 +854,7 @@ class RazorpayOrders:
         issues a second refund at the provider. The key is DERIVED by the caller, min 10
         chars, never taken from a client.
 
-        The response id arrives as `id` and the state as `status` (REPORTED, corroborated).
+        The response id arrives as `id` and the state as `status` (`api/refunds/entity.md`).
         If the id is unreadable this raises `refund_unreadable` rather than fabricating one:
         a made-up refund id would become a ledger `ref` that never dedupes against the
         webhook, so the compensating entry would land twice.
@@ -902,6 +866,17 @@ class RazorpayOrders:
             path, payload, extra_headers={REFUND_IDEMPOTENCY_HEADER: idempotency_key}
         )
 
+        if response.status_code == 409:
+            # "If a request is received while a prior request is still being processed,
+            # the system will return a 409 Conflict" (`api/refunds/
+            # normal-refunds-idempotent.md`, 9 Oct 2026). A refund may be moving, so the
+            # claim must survive this (`REFUND_MAY_HAVE_MOVED_CODES`).
+            log.warning("razorpay_refund_in_progress", extra={"payment_id": payment_id})
+            raise ProblemError.conflict(
+                "refund_in_progress",
+                "This refund is already being processed by the payment provider.",
+                remediation="Wait a minute and refresh; do not issue it again.",
+            )
         if response.status_code >= 400:
             # No vendor prose forwarded, and the payment id is safe to log (it is an
             # identifier, not PII — hard rule 6 logs ids).
@@ -960,7 +935,7 @@ class RazorpayOrders:
 #: (`refund_amount_mismatch`) or may (`refund_unreadable`). Its claim on the refund ceiling
 #: must survive them, where a refusal that proves nothing was refunded releases it.
 REFUND_MAY_HAVE_MOVED_CODES: Final[frozenset[str]] = frozenset(
-    {"refund_unreadable", "refund_amount_mismatch"}
+    {"refund_unreadable", "refund_amount_mismatch", "refund_in_progress"}
 )
 
 
@@ -974,7 +949,7 @@ def refund_idempotency_key(*, payment_id: str, amount_inr: Decimal) -> str:
     (a different amount, or the full remaining balance) is one field away.
 
     Prefixed `rfnd_` and hex, so it satisfies the vendor's rule — at least 10 characters,
-    alphanumerics/hyphens/underscores only (VERIFIED — REPORTED, corroborated).
+    alphanumerics/hyphens/underscores only (`normal-refunds-idempotent.md`, 9 Oct 2026).
     """
     digest = body_hash({"payment_id": payment_id, "amount_inr": str(to_paise(amount_inr))})
     return f"rfnd_{digest[:32]}"
@@ -996,21 +971,21 @@ def razorpay_orders() -> RazorpayOrders:
 
 
 def event_name(envelope: Any) -> str:
-    """UNVERIFIED field: the top-level `event` string."""
+    """The top-level `event` string (`webhooks/payments.md`, 9 Oct 2026)."""
     if not isinstance(envelope, dict):
         return ""
     value = envelope.get("event")
     return value if isinstance(value, str) else ""
 
 
-def extract_captured_payment(envelope: Any) -> CapturedPayment:
+def extract_captured_payment(envelope: Any, *, tenant_hint: UUID | None = None) -> CapturedPayment:
     """Vendor envelope → `CapturedPayment`, or a refusal that credits nothing.
 
-    EVERY field path read here is UNVERIFIED (module docstring). They are all read in
-    this one function so that verifying the contract against a real account is a
-    single-function change, and so that being wrong is visible: a missing or oddly
-    shaped field produces `payment_payload_unrecognized`, never a guess and never a
-    partial credit.
+    The field paths are the documented ones (module docstring). A missing or oddly shaped
+    field produces `payment_payload_unrecognized`, never a guess and never a partial
+    credit. `tenant_hint` is the tenant OUR order record names, used only when neither the
+    payment's nor the order's notes carry one; `payment_objects.verify_order` then checks
+    the amount against that record either way.
     """
     entity: Any = None
     if isinstance(envelope, dict):
@@ -1023,7 +998,7 @@ def extract_captured_payment(envelope: Any) -> CapturedPayment:
         raise ProblemError.business_rule(
             "payment_payload_unrecognized",
             "This payment event did not match the shape this deployment can read.",
-            remediation="Nothing was credited. Check the provider's payload contract.",
+            remediation="Nothing was credited. Check the provider's event format.",
         )
 
     payment_id = entity.get("id")
@@ -1044,8 +1019,16 @@ def extract_captured_payment(envelope: Any) -> CapturedPayment:
 
     amount_inr = paise_to_inr(entity.get("amount"))
 
+    # The payment's own notes first (Checkout passes ours), then the order's, which we set
+    # server-side and `order.paid` carries beside the payment. `notes` is `[]` when empty.
     notes = entity.get("notes")
+    if not (isinstance(notes, dict) and notes.get(NOTES_TENANT_KEY)):
+        order_notes = _order_entity_notes(envelope)
+        if order_notes is not None:
+            notes = order_notes
     raw_tenant = notes.get(NOTES_TENANT_KEY) if isinstance(notes, dict) else None
+    if raw_tenant is None and tenant_hint is not None:
+        raw_tenant = str(tenant_hint)
     try:
         tenant_id = UUID(str(raw_tenant))
     except (TypeError, ValueError) as exc:
@@ -1067,13 +1050,41 @@ def extract_captured_payment(envelope: Any) -> CapturedPayment:
     raw_pack = notes.get(NOTES_PACK_KEY) if isinstance(notes, dict) else None
     pack_id = raw_pack.strip() if isinstance(raw_pack, str) and raw_pack.strip() else None
 
+    order_id = entity.get("order_id")
+    token_id = entity.get("token_id")
     return CapturedPayment(
         payment_id=payment_id.strip(),
         tenant_id=tenant_id,
         amount_inr=amount_inr,
         currency=SUPPORTED_CURRENCY,
         pack_id=pack_id,
+        order_id=order_id.strip() if isinstance(order_id, str) and order_id.strip() else None,
+        international=entity.get("international") is True,
+        token_id=token_id.strip() if isinstance(token_id, str) and token_id.strip() else None,
     )
+
+
+def _order_entity_notes(envelope: Any) -> dict[str, Any] | None:
+    """`payload.order.entity.notes` on an `order.paid` delivery, or None."""
+    if not isinstance(envelope, dict):
+        return None
+    payload = envelope.get("payload")
+    order = payload.get("order") if isinstance(payload, dict) else None
+    entity = order.get("entity") if isinstance(order, dict) else None
+    notes = entity.get("notes") if isinstance(entity, dict) else None
+    return notes if isinstance(notes, dict) else None
+
+
+def payment_order_id(envelope: Any) -> str | None:
+    """`payload.payment.entity.order_id`, or None. What the receiver resolves a tenant by
+    when the notes carry none (`payment_objects.route_for`)."""
+    if not isinstance(envelope, dict):
+        return None
+    payload = envelope.get("payload")
+    payment = payload.get("payment") if isinstance(payload, dict) else None
+    entity = payment.get("entity") if isinstance(payment, dict) else None
+    order_id = entity.get("order_id") if isinstance(entity, dict) else None
+    return order_id.strip() if isinstance(order_id, str) and order_id.strip() else None
 
 
 async def credit_captured_payment(
@@ -1188,6 +1199,11 @@ async def credit_captured_payment(
     log.info(
         "razorpay_topup_recorded",
         extra={"tenant_id": str(payment.tenant_id), "entry_id": str(written.entry_id)},
+    )
+    # THE ONE PAYMENT-CREDITED HOOK (D-697): the first payment ends a trial and owes the
+    # account its own voice workspace, in this transaction.
+    await on_payment_credited(
+        session, tenant_id=payment.tenant_id, amount_inr=payment.amount_inr, via="wallet_topup"
     )
 
     # The volume bonus, in the SAME transaction as the paid credit, so a wallet can never
@@ -1332,7 +1348,7 @@ class RefundEvent:
 def extract_refund(envelope: Any) -> RefundEvent:
     """A `refund.processed` envelope → `RefundEvent`, or a refusal that moves nothing.
 
-    Every field path is REPORTED, corroborated (module docstring): `payload.refund.entity.
+    Every field path is documented (`webhooks/refunds.md`, 9 Oct 2026): `payload.refund.entity.
     {id, payment_id, amount, currency, notes, status}` with `amount` an integer count of
     paise. Read in this one function so verifying it against a real account is a single
     change and so being wrong is loud: a shape it cannot read is `refund_payload_unrecognized`
@@ -1355,7 +1371,7 @@ def extract_refund(envelope: Any) -> RefundEvent:
         raise ProblemError.business_rule(
             "refund_payload_unrecognized",
             "This refund event did not match the shape this deployment can read.",
-            remediation="Nothing was recorded. Check the provider's payload contract.",
+            remediation="Nothing was recorded. Check the provider's event format.",
         )
 
     refund_id = entity.get("id")
@@ -1926,7 +1942,9 @@ class PaymentAttemptIds:
     payment_id: str | None
 
 
-def payment_attempt_ids(envelope: Any) -> PaymentAttemptIds | None:
+def payment_attempt_ids(
+    envelope: Any, *, tenant_hint: UUID | None = None
+) -> PaymentAttemptIds | None:
     """Which top-up attempt an event belongs to, or None when it cannot be told.
 
     NONE IS A REAL AND EXPECTED ANSWER, and it is why this returns rather than raises.
@@ -1938,9 +1956,9 @@ def payment_attempt_ids(envelope: Any) -> PaymentAttemptIds | None:
     provider retry a failure for ever.
 
     It reads the SAME entity path and the SAME `notes[NOTES_TENANT_KEY]` as
-    `extract_captured_payment`, deliberately — so this is not a second, independently
-    wrong guess at an UNVERIFIED payload contract, it is the same one. Verifying that
-    contract against a real account fixes both functions at once. `order_id` is the field
+    `extract_captured_payment`, deliberately — so this is not a second, independent
+    reading of the documented payload, it is the same one. A change to that
+    contract changes both functions at once. `order_id` is the field
     the captured extractor does NOT keep, and it is the one this needs: it is the only
     identifier our own attempt row holds before money arrives.
     """
@@ -1961,6 +1979,8 @@ def payment_attempt_ids(envelope: Any) -> PaymentAttemptIds | None:
         return None
     notes = entity.get("notes")
     raw_tenant = notes.get(NOTES_TENANT_KEY) if isinstance(notes, dict) else None
+    if raw_tenant is None and tenant_hint is not None:
+        raw_tenant = str(tenant_hint)
     try:
         tenant_id = UUID(str(raw_tenant))
     except (TypeError, ValueError):
@@ -1977,10 +1997,15 @@ def payment_attempt_ids(envelope: Any) -> PaymentAttemptIds | None:
 
 __all__ = [
     "API_VERSION_PATH",
+    "AUTHORIZED_EVENT",
     "BASE_URL",
     "CAPTURED_EVENT",
     "CREDIT_EVENTS",
+    "DISPUTE_EVENTS",
+    "EVENT_ID_HEADER",
     "INTENT_REPLAY_WINDOW",
+    "KEY_ID_PREFIX",
+    "MODE_MISMATCH_REASON",
     "NOTES_PACK_KEY",
     "NOTES_TENANT_KEY",
     "NO_API_SECRET_REASON",
@@ -1995,12 +2020,16 @@ __all__ = [
     "PROVIDER_CREATES_ORDERS",
     "PROVIDER_NOT_IMPLEMENTED_REASON",
     "RECEIPT_MAX_LEN",
+    "REFUND_FAILED_EVENT",
     "REFUND_MAY_HAVE_MOVED_CODES",
     "REFUND_PATH_SUFFIX",
     "REFUND_PROCESSED_EVENT",
     "REFUND_PROCESSING_DAYS",
     "SIGNATURE_HEADER",
+    "SUBSCRIBED_EVENTS",
     "SUPPORTED_CURRENCY",
+    "TEST_MODE_IN_PRODUCTION_REASON",
+    "TOKEN_EVENTS",
     "CapturedPayment",
     "PaymentAttemptIds",
     "PaymentCapability",
@@ -2025,6 +2054,8 @@ __all__ = [
     "paise_to_inr",
     "payment_attempt_ids",
     "payment_capability",
+    "payment_mode_problem",
+    "payment_order_id",
     "payments_not_configured",
     "razorpay_api_secret",
     "razorpay_orders",

@@ -1,16 +1,16 @@
 "use client";
 
 /**
- * ADDING OR EDITING ONE ACTION — the kind-specific form, and the wire body it builds.
+ * ADDING OR EDITING ONE ACTION — the shared fields, the kind-specific block, and the wire
+ * body it builds.
  *
- * Split out of `Actions.tsx` (UX-DOCTRINE §6). The form is one component rather than three
- * because the SHARED half (name, when the AI should use it, credential, parameters,
- * trigger, filler line) is most of it and the kind-specific half is three short blocks —
- * three near-identical forms would be three places to fix the next shared field.
+ * One component rather than seven because the SHARED half (name, when the agent should use
+ * it, the connected account, the values it collects, when it runs, the line it says while
+ * it works) is most of it; each kind adds a short block (`KindFields.tsx`). Seven forms
+ * would be seven places to fix the next shared field.
  */
 
 import { useState } from "react";
-import { CalendarClock } from "lucide-react";
 
 import {
   FIELD,
@@ -22,7 +22,6 @@ import {
 } from "@/components/ui";
 import {
   ACTION_KIND_LABELS,
-  useCalendarConnect,
   useCreateAction,
   useCredentials,
   useUpdateAction,
@@ -33,14 +32,59 @@ import type { Session } from "@/lib/api/client";
 
 import { useFormValidation } from "@/components/formValidation";
 
+import { KindFields, buildConfig, initialDraft, type KindDraft } from "./KindFields";
 import { ParamEditor } from "./ParamEditor";
-import { fromParam, toParam, type DraftParam, type Kind, type Provider } from "./params";
+import { credentialKindFor, fromParam, toParam, type DraftParam, type Kind, type Provider } from "./params";
 
-/** A stored config value as a string, or the fallback. `config` is an open dict on the wire. */
-function configText(existing: ActionTool | undefined, key: string, fallback: string): string {
-  const value = existing?.config[key];
-  return typeof value === "string" && value !== "" ? value : fallback;
-}
+const DEFAULT_PROVIDER: Partial<Record<Kind, Provider>> = {
+  whatsapp: "aisensy",
+  calendar: "google",
+  payment_link: "razorpay",
+  crm: "zoho",
+  caller_lookup: "zoho",
+};
+
+/** Which providers a kind offers, in the order shown. */
+const PROVIDER_CHOICES: Partial<Record<Kind, { value: Provider; label: string }[]>> = {
+  whatsapp: [
+    { value: "aisensy", label: "AiSensy" },
+    { value: "meta_cloud", label: "WhatsApp Cloud API" },
+    { value: "interakt", label: "Interakt" },
+  ],
+  crm: [
+    { value: "zoho", label: "Zoho CRM" },
+    { value: "hubspot", label: "HubSpot" },
+  ],
+  caller_lookup: [
+    { value: "zoho", label: "Zoho CRM" },
+    { value: "hubspot", label: "HubSpot" },
+    { value: "sheet", label: "A Google Sheet" },
+    { value: "api", label: "Your own API" },
+  ],
+};
+
+/** Kinds that only make sense while the caller is on the line. */
+const DURING_CALL_ONLY: readonly Kind[] = ["caller_lookup", "payment_link"];
+
+const NAME_PLACEHOLDER: Record<Kind, string> = {
+  custom_api: "check_order_status",
+  whatsapp: "send_price_list",
+  calendar: "book_appointment",
+  sheets: "save_answers",
+  payment_link: "send_payment_link",
+  crm: "save_to_crm",
+  caller_lookup: "look_up_caller",
+};
+
+const DESCRIPTION_PLACEHOLDER: Record<Kind, string> = {
+  custom_api: "Look up an order when the caller gives the order number.",
+  whatsapp: "Send the price list once the caller asks for it on WhatsApp.",
+  calendar: "Check free times, then book once the caller agrees to one.",
+  sheets: "Save the caller's answers as soon as they give their name and need.",
+  payment_link: "Send the payment link once the caller agrees to pay the booking fee.",
+  crm: "Save the caller to the CRM once you know their name and what they want.",
+  caller_lookup: "Call this first, before greeting, to find out who is calling.",
+};
 
 export function ActionForm({
   kind,
@@ -60,110 +104,50 @@ export function ActionForm({
   const update = useUpdateAction(session, agentId);
   const save = existing ? update : create;
   const creds = useCredentials(session);
-  const calendarConnect = useCalendarConnect(session);
-  const [name, setName] = useState(existing?.name ?? "");
   const valid = useFormValidation();
+  const [name, setName] = useState(existing?.name ?? "");
   const [description, setDescription] = useState(existing?.description ?? "");
   const [trigger, setTrigger] = useState<"during_call" | "after_call">(
     existing?.trigger === "after_call" ? "after_call" : "during_call",
   );
   const [preCall, setPreCall] = useState(existing?.pre_call_message ?? "");
   const [credentialId, setCredentialId] = useState(existing?.credential_id ?? "");
+  const choices = PROVIDER_CHOICES[kind];
   const [provider, setProvider] = useState<Provider>(
-    kind === "calendar"
-      ? "google"
-      : ((["aisensy", "meta_cloud", "interakt", "custom"] as const).find(
-          (p) => p === existing?.provider,
-        ) ?? "aisensy"),
+    choices?.find((c) => c.value === existing?.provider)?.value ??
+      DEFAULT_PROVIDER[kind] ??
+      "custom",
   );
   const [params, setParams] = useState<DraftParam[]>(() =>
     (existing?.params ?? []).map(fromParam),
   );
-
-  // custom_api
-  const [method, setMethod] = useState<"GET" | "POST">(
-    configText(existing, "method", "POST") === "GET" ? "GET" : "POST",
-  );
-  const [url, setUrl] = useState(configText(existing, "url", ""));
-  // whatsapp
-  const [template, setTemplate] = useState(configText(existing, "template", ""));
-  const [language, setLanguage] = useState(configText(existing, "language", "en"));
-  const [phoneNumberId, setPhoneNumberId] = useState(configText(existing, "phone_number_id", ""));
-  // calendar
-  const [operation, setOperation] = useState<"book" | "check">(
-    configText(existing, "operation", "check") === "book" ? "book" : "check",
-  );
-  const [calendarId, setCalendarId] = useState(configText(existing, "calendar_id", "primary"));
+  const [draft, setDraft] = useState<KindDraft>(() => initialDraft(kind, existing));
 
   function buildBody(): ActionToolInput {
-    const base = {
+    const needsProvider = kind !== "custom_api" && kind !== "sheets";
+    return {
+      kind,
+      provider: needsProvider ? provider : null,
       name,
       description,
-      trigger,
+      trigger: DURING_CALL_ONLY.includes(kind) ? "during_call" : trigger,
       pre_call_message: preCall || null,
       credential_id: credentialId || null,
       params: params.map(toParam),
-    };
-    if (kind === "custom_api") {
-      return {
-        ...base,
-        kind: "custom_api",
-        provider: null,
-        config: {
-          method,
-          url,
-          // Every AI/lead param is sent in the body for POST, else as a query param.
-          body: method === "POST" ? params.map((p) => ({ key: p.name, param: p.name })) : [],
-          query: method === "GET" ? params.map((p) => ({ key: p.name, param: p.name })) : [],
-        },
-      };
-    }
-    if (kind === "whatsapp") {
-      const recipient =
-        params.find((p) => p.source === "lead_var")?.name ?? params[0]?.name ?? "recipient";
-      const bodyVars = params.filter((p) => p.name !== recipient).map((p) => p.name);
-      return {
-        ...base,
-        kind: "whatsapp",
-        provider,
-        config: {
-          recipient_param: recipient,
-          template,
-          language: provider === "aisensy" ? null : language,
-          phone_number_id: provider === "meta_cloud" ? phoneNumberId : null,
-          body_params: bodyVars,
-        },
-      };
-    }
-    // calendar
-    const start = params.find((p) => p.name.includes("start"))?.name ?? params[0]?.name;
-    const end = params.find((p) => p.name.includes("end"))?.name ?? null;
-    return {
-      ...base,
-      kind: "calendar",
-      provider: "google",
-      config: {
-        operation,
-        calendar_id: calendarId,
-        start_param: start,
-        end_param: end,
-        duration_min: operation === "book" && !end ? 30 : null,
-        summary_param: params.find((p) => p.name.includes("summary"))?.name ?? null,
-      },
+      config: buildConfig(kind, provider, draft, params),
     };
   }
 
   // Only from a read that actually ARRIVED — a paused (offline) query reports no error and
   // no data, so `creds.data` must be checked directly rather than defaulted to `[]` (§52).
-  const credentialKind =
-    kind === "custom_api" ? "custom_api" : kind === "calendar" ? "google_calendar" : provider;
+  const credentialKind = credentialKindFor(kind, provider);
   const relevantCreds = creds.data
     ? creds.data.filter((c) => c.kind === credentialKind)
     : undefined;
 
   return (
     <form
-      className="space-y-3 rounded-card border border-line bg-app p-4"
+      className="min-w-0 space-y-3 rounded-card border border-line bg-app p-4"
       noValidate
       onSubmit={valid.onSubmit(() => {
         const body = buildBody();
@@ -172,239 +156,146 @@ export function ActionForm({
       })}
     >
       <p className="text-sm font-semibold text-ink">
-        {existing ? `Edit ${existing.name}` : `New ${ACTION_KIND_LABELS[kind]} action`}
+        {existing ? `Edit ${existing.name}` : `New action: ${ACTION_KIND_LABELS[kind]}`}
       </p>
 
-      {kind !== "custom_api" && kind !== "calendar" ? (
-        <div>
-          <label className="block">
-            <span className={FIELD_LABEL}>Provider</span>
-            <select
-              className={FIELD}
-              value={provider}
-              onChange={(e) => setProvider(e.target.value as Provider)}
-            >
-              <option value="aisensy">AiSensy</option>
-              <option value="meta_cloud">Meta Cloud API</option>
-              <option value="interakt">Interakt</option>
-              <option value="custom">Other (Custom API)</option>
-            </select>
-          </label>
-        </div>
+      {choices ? (
+        <label className="block">
+          <span className={FIELD_LABEL}>
+            {kind === "caller_lookup" ? "Look the caller up in" : "Using"}
+          </span>
+          <select
+            className={FIELD}
+            value={provider}
+            onChange={(e) => {
+              setProvider(e.target.value as Provider);
+              setCredentialId("");
+            }}
+          >
+            {choices.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </label>
       ) : null}
 
       <div>
         <label className="block">
-          <span className={FIELD_LABEL}>Name (snake_case)</span>
+          <span className={FIELD_LABEL}>Name</span>
           <input
             {...valid.field("name", "Give this action a name.")}
             className={FIELD}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="send_price_list"
+            placeholder={NAME_PLACEHOLDER[kind]}
+            pattern="[a-z][a-z0-9_]{2,39}"
             required
           />
         </label>
         {valid.error("name")}
+        <span className={FIELD_HINT}>
+          3 to 40 lowercase letters, numbers or underscores, starting with a letter.
+        </span>
       </div>
       <div>
         <label className="block">
-          <span className={FIELD_LABEL}>When should the AI use this?</span>
+          <span className={FIELD_LABEL}>When should the agent use this?</span>
           <textarea
             {...valid.field("description", "Say when the agent should use this.")}
             className={FIELD}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Send once the caller confirms they want the price list."
+            placeholder={DESCRIPTION_PLACEHOLDER[kind]}
             rows={2}
+            minLength={10}
             required
           />
         </label>
         {valid.error("description")}
-        <span className={FIELD_HINT}>Helps the AI understand WHEN to use this integration.</span>
+        <span className={FIELD_HINT}>
+          The agent decides from this alone, so say when to use it and when not to.
+        </span>
       </div>
 
-      {kind === "custom_api" ? (
-        <div className="flex gap-2">
-          <div className="w-28">
+      <KindFields
+        kind={kind}
+        provider={provider}
+        draft={draft}
+        onChange={setDraft}
+        session={session}
+        valid={valid}
+      />
+
+      {credentialKind ? (
+        relevantCreds === undefined ? (
+          <ProblemNotice
+            error={creds.error ?? new Error("Your connected accounts could not be loaded.")}
+          />
+        ) : (
+          <div>
             <label className="block">
-              <span className={FIELD_LABEL}>Method</span>
+              <span className={FIELD_LABEL}>Connected account</span>
               <select
                 className={FIELD}
-                value={method}
-                onChange={(e) => setMethod(e.target.value as "GET" | "POST")}
+                value={credentialId}
+                onChange={(e) => setCredentialId(e.target.value)}
               >
-                <option value="GET">GET</option>
-                <option value="POST">POST</option>
+                <option value="">
+                  {kind === "custom_api" || provider === "api" ? "— no key needed —" : "— choose —"}
+                </option>
+                {relevantCreds.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label} (····{c.last_four})
+                  </option>
+                ))}
+              </select>
+            </label>
+            {relevantCreds.length === 0 ? (
+              <span className={FIELD_HINT}>
+                Nothing connected for this yet. Connect it on the Integrations page, then come
+                back.
+              </span>
+            ) : null}
+          </div>
+        )
+      ) : null}
+
+      {kind !== "caller_lookup" ? <ParamEditor params={params} onChange={setParams} /> : null}
+
+      <div className="flex flex-wrap gap-2">
+        {DURING_CALL_ONLY.includes(kind) ? null : (
+          <div className="flex-1 sm:min-w-[12rem]">
+            <label className="block">
+              <span className={FIELD_LABEL}>When to run</span>
+              <select
+                className={FIELD}
+                value={trigger}
+                onChange={(e) => setTrigger(e.target.value as "during_call" | "after_call")}
+              >
+                <option value="during_call">During the call — the agent decides</option>
+                <option value="after_call">After the call ends — automatic</option>
               </select>
             </label>
           </div>
-          <div className="flex-1">
-            <label className="block">
-              <span className={FIELD_LABEL}>API URL</span>
-              <input
-                {...valid.field("url", "Enter the web address to call.")}
-                className={FIELD}
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://api.yourstore.com/orders"
-                required
-              />
-            </label>
-            {valid.error("url")}
-          </div>
-        </div>
-      ) : null}
-
-      {kind === "whatsapp" ? (
-        <>
-          <div>
-            <label className="block">
-              <span className={FIELD_LABEL}>
-                {provider === "aisensy" ? "Campaign name" : "Template name"}
-              </span>
-              <input
-                {...valid.field(
-                  "template",
-                  provider === "aisensy"
-                    ? "Enter the campaign name."
-                    : "Enter the template name.",
-                )}
-                className={FIELD}
-                value={template}
-                onChange={(e) => setTemplate(e.target.value)}
-                required
-              />
-            </label>
-            {valid.error("template")}
-          </div>
-          {provider !== "aisensy" ? (
-            <div>
-              <label className="block">
-                <span className={FIELD_LABEL}>Template language</span>
-                <input
-                  className={FIELD}
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                  placeholder="en"
-                />
-              </label>
-            </div>
-          ) : null}
-          {provider === "meta_cloud" ? (
-            <div>
-              <label className="block">
-                <span className={FIELD_LABEL}>Phone Number ID</span>
-                <input
-                  {...valid.field("phoneNumberId", "Enter the phone number id.")}
-                  className={FIELD}
-                  value={phoneNumberId}
-                  onChange={(e) => setPhoneNumberId(e.target.value)}
-                  required
-                />
-              </label>
-              {valid.error("phoneNumberId")}
-            </div>
-          ) : null}
-        </>
-      ) : null}
-
-      {kind === "calendar" ? (
-        <>
-          <div className="flex gap-2">
-            <div className="w-32">
-              <label className="block">
-                <span className={FIELD_LABEL}>Operation</span>
-                <select
-                  className={FIELD}
-                  value={operation}
-                  onChange={(e) => setOperation(e.target.value as "book" | "check")}
-                >
-                  <option value="check">Check availability</option>
-                  <option value="book">Book a slot</option>
-                </select>
-              </label>
-            </div>
-            <div className="flex-1">
-              <label className="block">
-                <span className={FIELD_LABEL}>Calendar id</span>
-                <input
-                  className={FIELD}
-                  value={calendarId}
-                  onChange={(e) => setCalendarId(e.target.value)}
-                />
-              </label>
-            </div>
-          </div>
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            onClick={() =>
-              calendarConnect.mutate(undefined, {
-                onSuccess: (r) => window.open(r.authorize_url, "_blank", "noopener"),
-              })
-            }
-          >
-            <CalendarClock className="mr-1 inline h-3.5 w-3.5" /> Connect Google Calendar
-          </button>
-          {calendarConnect.error ? <ProblemNotice error={calendarConnect.error} /> : null}
-        </>
-      ) : null}
-
-      {/* Credential picker (WhatsApp, Custom API, Calendar all need one). */}
-      {relevantCreds === undefined ? (
-        <ProblemNotice error={creds.error ?? new Error("Saved credentials could not be loaded.")} />
-      ) : (
-        <div>
+        )}
+        <div className="flex-1 sm:min-w-[12rem]">
           <label className="block">
-            <span className={FIELD_LABEL}>Credential</span>
-            <select
-              className={FIELD}
-              value={credentialId}
-              onChange={(e) => setCredentialId(e.target.value)}
-            >
-              <option value="">— none —</option>
-              {relevantCreds.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label} (····{c.last_four})
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
-
-      <ParamEditor params={params} onChange={setParams} />
-
-      <div className="flex gap-2">
-        <div className="flex-1">
-          <label className="block">
-            <span className={FIELD_LABEL}>When to run</span>
-            <select
-              className={FIELD}
-              value={trigger}
-              onChange={(e) => setTrigger(e.target.value as "during_call" | "after_call")}
-            >
-              <option value="during_call">During the call — AI decides</option>
-              <option value="after_call">After the call ends — automatic</option>
-            </select>
-          </label>
-        </div>
-        <div className="flex-1">
-          <label className="block">
-            <span className={FIELD_LABEL}>Filler line (spoken while it runs)</span>
+            <span className={FIELD_LABEL}>What the agent says while it works</span>
             <input
               className={FIELD}
               value={preCall}
+              maxLength={200}
               onChange={(e) => setPreCall(e.target.value)}
-              placeholder="One moment…"
+              placeholder="One moment, let me check."
             />
           </label>
         </div>
       </div>
 
       {save.isError ? <ProblemNotice error={save.error} /> : null}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button type="submit" className={PRIMARY_BUTTON} disabled={save.isPending}>
           {save.isPending ? "Saving…" : existing ? "Save changes" : "Save action"}
         </button>

@@ -29,6 +29,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { PlugZap, ShieldAlert } from "lucide-react";
 
+import { withNext } from "@/lib/authn/nextPath";
 import { markSignedOut } from "@/lib/authn/signedOutNotice";
 
 import {
@@ -243,8 +244,11 @@ function SignedOutRedirect({
   useEffect(() => {
     if (alreadyThere) return;
     markSignedOut(realm);
-    router.replace(signInPath);
-  }, [alreadyThere, realm, router, signInPath]);
+    // The page they were on rides along as `?next=`, so signing in returns them to it.
+    // The sign-in screen accepts it only as a path inside its own realm's console
+    // (`lib/authn/nextPath.ts`); this side just reports where the person was.
+    router.replace(withNext(signInPath, `${pathname ?? ""}${window.location.search}`));
+  }, [alreadyThere, pathname, realm, router, signInPath]);
 
   if (alreadyThere) {
     return frame(

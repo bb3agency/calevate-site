@@ -111,6 +111,138 @@ const COPY_ATTRS = new Set([
   "line",
 ]);
 
+/**
+ * JSX attributes that are never copy, for the WIDE walk below: styling, routing, wiring and
+ * accessibility references by id. Everything else passed as a string to a JSX element is
+ * treated as words somebody reads — our own components take their copy as props (`hint`,
+ * `description`, `label`, `emptyText`, …) and a closed allowlist of those names went
+ * blind every time a component grew a new one.
+ */
+const NON_COPY_ATTRS = new Set([
+  "className",
+  "href",
+  "id",
+  "key",
+  "src",
+  "type",
+  "name",
+  "value",
+  "defaultValue",
+  "role",
+  "htmlFor",
+  "as",
+  "method",
+  "target",
+  "rel",
+  "autoComplete",
+  "inputMode",
+  "pattern",
+  "variant",
+  "size",
+  "tone",
+  "kind",
+  "mode",
+  "icon",
+  "style",
+  "width",
+  "height",
+  "viewBox",
+  "d",
+  "fill",
+  "stroke",
+  "lang",
+  "dir",
+  "form",
+  "accept",
+  "step",
+  "min",
+  "max",
+  "align",
+  "side",
+  "status",
+  "state",
+  "testId",
+  "aria-labelledby",
+  "aria-describedby",
+  "aria-controls",
+  "aria-current",
+  "aria-live",
+  "aria-hidden",
+  "aria-expanded",
+  "aria-haspopup",
+  "aria-invalid",
+  "aria-required",
+  "aria-busy",
+  "aria-modal",
+  "aria-orientation",
+  "aria-sort",
+  "aria-checked",
+  "aria-selected",
+  "aria-pressed",
+  "aria-disabled",
+]);
+
+/** Options for {@link copyIn}. */
+export interface CopyScanOptions {
+  /**
+   * Also take every string JSX attribute not in {@link NON_COPY_ATTRS}, and every string
+   * literal anywhere in the file that reads as a sentence (three words or more). Used by
+   * the internal-references guards, whose patterns are narrow enough that reading more
+   * text costs nothing; the wire-name guards keep the closed walk.
+   */
+  readonly wide?: boolean;
+}
+
+/** A sentence-shaped literal: three or more words and no path or markup shape. */
+function readsAsProse(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("/") || trimmed.startsWith("<") || trimmed.startsWith("#")) return false;
+  return trimmed.split(/\s+/).filter((word) => /[A-Za-z]/.test(word)).length >= 3;
+}
+
+/**
+ * Object properties that hold notes for a developer rather than copy, in the WIDE walk.
+ * `why` is the documented reason beside each `robots.txt` prefix and sitemap entry in
+ * `lib/site.ts`, which no page renders.
+ */
+const NON_COPY_KEYS = new Set(["why"]);
+
+/**
+ * A literal that is an argument to `console.*`, an import, a `className` helper, a
+ * developer-only property, or a `throw`. A thrown error in this app is an invariant for
+ * the next developer; what a person reads on failure comes from the problem ladder.
+ */
+function isNonCopyContext(node: ts.Node): boolean {
+  let parent: ts.Node | undefined = node.parent;
+  while (
+    parent &&
+    (ts.isBinaryExpression(parent) ||
+      ts.isTemplateExpression(parent) ||
+      ts.isTemplateSpan(parent) ||
+      ts.isParenthesizedExpression(parent))
+  ) {
+    parent = parent.parent;
+  }
+  if (!parent) return false;
+  if (
+    ts.isPropertyAssignment(parent) &&
+    ts.isIdentifier(parent.name) &&
+    NON_COPY_KEYS.has(parent.name.text)
+  ) {
+    return true;
+  }
+  for (let up: ts.Node | undefined = parent; up && !ts.isSourceFile(up); up = up.parent) {
+    if (ts.isThrowStatement(up)) return true;
+    if (ts.isBlock(up) || ts.isJsxElement(up)) break;
+  }
+  if (ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent)) return true;
+  if (ts.isCallExpression(parent)) {
+    const callee = parent.expression.getText();
+    return /^console\./.test(callee) || callee === "clsx" || callee === "cn";
+  }
+  return false;
+}
+
 /** One rendered string, and where to go and look at it. */
 export interface CopyString {
   /** Path relative to `apps/web`, so a failure message is something to open. */
@@ -153,18 +285,24 @@ function webRelative(file: string): string {
   return file.slice(WEB_ROOT.length + 1).split(sep).join("/");
 }
 
-export function copyIn(file: string): CopyString[] {
+export function copyIn(file: string, options: CopyScanOptions = {}): CopyString[] {
   const source = ts.createSourceFile(
     file,
     readFileSync(file, "utf8"),
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TSX,
+    // A `.ts` file parsed as TSX reads a `<T>` cast or generic arrow as JSX and turns
+    // the code after it into "text".
+    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
   const relative = file.startsWith(WEB_ROOT) ? webRelative(file) : file;
   const found: CopyString[] = [];
+  const taken = new Set<number>();
   const take = (node: ts.Node, text: string): void => {
     if (!text.trim()) return;
+    const start = node.getStart();
+    if (taken.has(start)) return;
+    taken.add(start);
     found.push({
       file: relative,
       line: source.getLineAndCharacterOfPosition(node.getStart()).line + 1,
@@ -207,6 +345,33 @@ export function copyIn(file: string): CopyString[] {
       }
     }
 
+    if (options.wide) {
+      if (
+        ts.isJsxAttribute(node) &&
+        node.initializer &&
+        !NON_COPY_ATTRS.has(node.name.getText()) &&
+        !/^(data-|on[A-Z])/.test(node.name.getText())
+      ) {
+        if (ts.isStringLiteral(node.initializer)) take(node.initializer, node.initializer.text);
+        else if (ts.isJsxExpression(node.initializer) && node.initializer.expression) {
+          for (const literal of literals(node.initializer.expression)) {
+            take(literal, (literal as ts.LiteralLikeNode).text);
+          }
+        }
+      }
+      if (
+        (ts.isStringLiteral(node) ||
+          ts.isNoSubstitutionTemplateLiteral(node) ||
+          ts.isTemplateHead(node) ||
+          ts.isTemplateMiddle(node) ||
+          ts.isTemplateTail(node)) &&
+        readsAsProse((node as ts.LiteralLikeNode).text) &&
+        !isNonCopyContext(node)
+      ) {
+        take(node, (node as ts.LiteralLikeNode).text);
+      }
+    }
+
     ts.forEachChild(node, visit);
   };
   visit(source);
@@ -214,13 +379,17 @@ export function copyIn(file: string): CopyString[] {
 }
 
 /** Every rendered string under a set of roots, with the exempt prefixes dropped. */
-export function copyUnder(roots: readonly string[], exempt: readonly string[] = []): CopyString[] {
+export function copyUnder(
+  roots: readonly string[],
+  exempt: readonly string[] = [],
+  options: CopyScanOptions = {},
+): CopyString[] {
   const out: CopyString[] = [];
   for (const root of roots) {
     for (const file of tsSources(join(WEB_ROOT, root))) {
       const relative = webRelative(file);
       if (exempt.some((prefix) => relative.startsWith(prefix))) continue;
-      out.push(...copyIn(file));
+      out.push(...copyIn(file, options));
     }
   }
   return out;

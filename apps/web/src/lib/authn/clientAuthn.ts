@@ -11,6 +11,9 @@
  * and there is no admin-realm spelling of it.
  */
 
+import { clientConsoleUrl } from "@/lib/consoleOrigin";
+
+import { nextFromLocation } from "./nextPath";
 import { createRealmAuthn } from "./realm";
 import { authnRequest } from "./transport";
 
@@ -64,4 +67,14 @@ export async function acceptInvitation(input: {
   });
   clientAuthn.reset();
   return accepted;
+}
+
+/**
+ * Where a successful sign-in sends a client: the console page in `?next=` when it is a
+ * path inside `/c`, otherwise `/c`, which decides where a signed-in person belongs (their
+ * workspace, or setup when they have none). The sign-in form and `ClientGuestOnly` both
+ * call this, so the two navigations that fire together after a sign-in agree.
+ */
+export function clientSignedInDestination(): string {
+  return clientConsoleUrl(nextFromLocation(CLIENT_CONSOLE_PATH) ?? CLIENT_CONSOLE_PATH);
 }

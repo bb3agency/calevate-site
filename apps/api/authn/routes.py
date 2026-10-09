@@ -39,6 +39,8 @@ trying to work out why nobody can sign in.
 | bad email/password, unknown account, dead account | 401 | `invalid_credentials` |
 | wrong emailed sign-in code | 401 | `invalid_second_factor` |
 | wrong emailed OTP | 401 | `invalid_code` |
+| expired sign-in, step-up or emailed code | 401 | `code_expired` |
+| sign-in code resent inside the cooldown | 429 | `resend_too_soon` (+ `Retry-After`) |
 | no/expired/replayed session cookie | 401 | `unauthorized` |
 | admin session that has not done MFA | 401 | `second_factor_required` |
 | cross-site request | 403 | `cross_site_request` |

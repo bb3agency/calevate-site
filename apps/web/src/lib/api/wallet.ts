@@ -101,6 +101,20 @@ export function useWallet(session: Session): UseQueryResult<Wallet> {
 }
 
 /**
+ * The wallet the client shell already read, without asking again (D-697). Every client
+ * screen mounts under the shell, whose trial strip reads `useWallet`; a screen that only
+ * needs to know whether the account is on a test-calls-only trial reads that same cache
+ * entry and never sends a request of its own. `undefined` until the shell's read lands.
+ */
+export function useShellWallet(session: Session): Wallet | undefined {
+  return useQuery({
+    queryKey: walletKey(session.orgSlug),
+    queryFn: () => apiRequest<Wallet>(session, "/v1/billing/wallet"),
+    enabled: false,
+  }).data;
+}
+
+/**
  * The ledger and the payments behind it. Its OWN query rather than a field on the
  * summary, so a failure to read a year of history cannot blank the balance — which is the
  * one figure a client came to this screen for.

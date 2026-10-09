@@ -37,7 +37,8 @@ function Dot({ index, wave }: { index: number; wave: MotionValue<number> }) {
   return <motion.span className="block h-1.5 w-1.5 rounded-full bg-current" style={{ scale, opacity }} />;
 }
 
-function Wave({ active }: { active: boolean }) {
+/** The three-dot wave, still under reduced motion. Also the assistant's "thinking" mark. */
+export function DotWave({ active }: { active: boolean }) {
   const reduced = useReducedMotion();
   const wave = useMotionValue(0);
   useEffect(() => {
@@ -127,7 +128,7 @@ export function SpeakingIndicator({
           who === "agent" ? "flex-row-reverse text-right" : ""
         }`}
       >
-        <Wave active={active} />
+        <DotWave active={active} />
         <span className="min-w-0">
           <span className="block truncate text-[13px] font-medium text-ink">{labels[who]}</span>
           <span className="block text-[11px]">{active ? "Speaking" : " "}</span>

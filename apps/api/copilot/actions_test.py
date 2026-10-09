@@ -71,10 +71,21 @@ _REVIEWED_IMMEDIATE: dict[str, str] = {
         "non-live agent per contact and the engine holds nothing for it), costs nothing, "
         "and can be renamed or archived"
     ),
+    "lead_set_status": (
+        "D-694: a CRM label move reaches no caller and spends nothing, and its inverse is "
+        "exact — the prior status is captured before the move and Undo restores it under a "
+        "compare-and-swap"
+    ),
     "agent_rename": (
         "the name is internal — no caller ever hears it — and renaming it back restores "
         "the world exactly"
     ),
+    # D-698's console actions (`console_actions_test.py` argues each).
+    "lead_assign": "an owner pointer; the prior owner's id is the exact inverse",
+    "campaign_create": "a draft dials nobody; Undo cancels it while it is empty",
+    "campaign_clone": "a draft copy without contacts; Undo cancels it while it is empty",
+    "agent_edit": "refuses a live agent, so no caller hears it; prior settings restored",
+    "agent_capture_fields_set": "field definitions, reaching no caller; the prior list restored",
 }
 
 
@@ -197,12 +208,14 @@ async def test_a_token_for_an_action_that_is_no_longer_tier_two_is_refused_at_co
     lead_id = await _lead_of(tenant_id)
     principal = _principal(tenant_id, _user_of(token))
     proposal = await write_tools.plan_write(
-        "lead_set_status",
-        json.dumps({"lead_id": str(lead_id), "status": "hot"}),
+        "dnc_add",
+        json.dumps({"lead_id": str(lead_id), "reason": "manual"}),
         actor=write_tools.actor_for(principal),
     )
-    retiered = dataclasses.replace(write_tools.LEAD_SET_STATUS, tier="immediate")
-    monkeypatch.setitem(write_tools._BY_NAME, "lead_set_status", retiered)
+    retiered = dataclasses.replace(
+        write_tools.DNC_ADD, tier="immediate", undo=write_tools.LEAD_SET_STATUS.undo
+    )
+    monkeypatch.setitem(write_tools._BY_NAME, "dnc_add", retiered)
 
     async with tenant_session(tenant_id) as session:
         with pytest.raises(ProblemError) as refused:
