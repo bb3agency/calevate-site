@@ -1115,7 +1115,7 @@ const OPS_KEK = {
  * `assertScreenRendered` is what turned that into a red test rather than a silent
  * vacuous pass — the whole reason it exists.
  *
- * `state: "live"` and `using_fallback: false` on purpose. The stale and never-pulled
+ * `state: "live"` and `basis: "published"` on purpose. The stale and never-pulled
  * states render an extra warning, so scanning the LIVE state is the weaker choice and
  * would leave that warning unswept — but the panel's own stale/fallback rendering is
  * covered by its own suite, and this fixture's job is the screen around it.
@@ -1198,15 +1198,17 @@ const OPS_FX_RATE = {
   base_currency: "USD",
   quote_currency: "INR",
   effective_rate: "88.4200",
-  fallback_rate: "95.6600",
+  manual_rate: "95.6600",
+  manual_override: false,
   published_rate: "88.4200",
   published_source: "exchangerate.host",
   published_as_of: "2026-09-04",
   observed_at: "2026-09-04T06:00:00Z",
-  age_label: "today",
+  last_checked_at: "2026-08-27T04:05:00Z",
+  last_checked_label: "today",
   max_age_days: 7,
   state: "live",
-  using_fallback: false,
+  basis: "published",
   history: [],
 };
 

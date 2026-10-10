@@ -276,17 +276,15 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "startup log line) and held for the life of each server process, so a change "
         "here does not take effect until every server process is restarted.",
     ),
-    # THIS FIELD IS THE FALLBACK, NOT THE RATE, AND THAT CHANGED WHAT IT MEANS RATHER THAN
-    # WHEN IT APPLIES. Vendor cost is normally converted at the PUBLISHED rate that
-    # `apps/workers/fx_pull.py` pulls every five minutes into `fx_rate_observations`, which
-    # reaches its readers through `core/fx.py`'s in-memory holder. This value is what that
-    # conversion falls back to when nothing has been pulled yet or the published rate has
-    # aged past `core/fx.MAX_QUOTE_AGE`.
+    # The typed USD/INR rate and its override switch. Vendor cost is normally converted at
+    # the PUBLISHED rate `apps/workers/fx_pull.py` pulls into `fx_rate_observations`; these
+    # two decide only the manual rungs of `core/fx.resolve_usd_inr_rate`.
     #
-    # Every reader calls `get_settings().usd_inr_rate` at the point of use, on every
-    # request — `billing/number_rental.rental_inr`, `ops/config_routes.py` (the margin
-    # figures, twice) and `ops/fx_routes.read_fx_rate` — so nothing captures it at boot.
+    # Both are read through `core/fx.usd_inr_rate_now` at the point of use, on every
+    # conversion, and by `ops/fx_routes.read_fx_rate` per request, so nothing captures
+    # either at boot.
     "usd_inr_rate": AppliesRule(LIVE),
+    "usd_inr_rate_override": AppliesRule(LIVE),
     # The Cartesia adapter captures this at construction and `get_engine()` caches the
     # adapter for the life of the process.
     "cartesia_from_number_id": AppliesRule(

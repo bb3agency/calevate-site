@@ -124,7 +124,6 @@ from apps.api.billing.service import plan_tier_of, record_usage_from_lots, to_pa
 from apps.api.billing.trials import trial_covers
 from apps.api.core.fx import usd_inr_rate_now
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.tenancy.closure import read_closure
 
@@ -185,7 +184,7 @@ def rental_inr(monthly_rental_usd: Decimal) -> tuple[Decimal, str, str | None]:
     that does not fit it is rounded by the database silently, at whatever mode the server
     happens to use.
     """
-    resolved = usd_inr_rate_now(get_settings().usd_inr_rate)
+    resolved = usd_inr_rate_now()
     cost = (monthly_rental_usd * resolved.rate).quantize(MONEY_Q, rounding=ROUNDING)
     return cost, resolved.source, resolved.as_of.isoformat() if resolved.as_of else None
 

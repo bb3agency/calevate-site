@@ -7873,7 +7873,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The USD/INR rate in force, its age and its source
+         * The USD/INR rate in force, why, and when it was last checked
          * @description What vendor costs are being converted at, and whether anyone should worry.
          */
         get: operations["read_fx_rate_v1_ops_fx_rate_get"];
@@ -14708,7 +14708,7 @@ export interface components {
             /**
              * Observed At
              * Format: date-time
-             * @description When this deployment fetched it
+             * @description When this deployment first stored it
              */
             observed_at: string;
             /**
@@ -14728,16 +14728,25 @@ export interface components {
          *     state rather than an absence.
          */
         FxRateOut: {
-            /** Age Label */
-            age_label: string | null;
             /** Base Currency */
             base_currency: string;
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "published" | "stale_published" | "manual_override" | "manual_no_quote";
             /** Effective Rate */
             effective_rate: string;
-            /** Fallback Rate */
-            fallback_rate: string;
             /** History */
             history: components["schemas"]["FxObservationOut"][];
+            /** Last Checked At */
+            last_checked_at: string | null;
+            /** Last Checked Label */
+            last_checked_label: string | null;
+            /** Manual Override */
+            manual_override: boolean;
+            /** Manual Rate */
+            manual_rate: string;
             /** Max Age Days */
             max_age_days: number;
             /** Observed At */
@@ -14755,8 +14764,6 @@ export interface components {
              * @enum {string}
              */
             state: "live" | "stale" | "never_pulled";
-            /** Using Fallback */
-            using_fallback: boolean;
         };
         /**
          * GapDismissIn

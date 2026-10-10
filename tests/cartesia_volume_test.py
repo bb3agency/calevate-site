@@ -163,7 +163,9 @@ def test_the_wire_carries_the_volume_the_fx_and_a_breakeven_for_every_studio_run
     point of pinning a screen's honesty in a test rather than trusting a reviewer to notice
     a missing column.
     """
-    fx = UsdInrRate(rate=CARTESIA_EVIDENCE_USD_INR, source="frankfurter:FBIL", as_of=None)
+    fx = UsdInrRate(
+        rate=CARTESIA_EVIDENCE_USD_INR, source="frankfurter:FBIL", as_of=None, basis="published"
+    )
     # The Clear column is struck at a speaking-rate BASIS since D-557; the assumed one is
     # what is in force until twenty calls with a transcript exist, and it is what this case
     # is about — the Studio assertions below must not move with it either way.
@@ -223,7 +225,10 @@ def test_the_volume_block_names_its_fx_rate_and_its_fallback() -> None:
     published = config_routes._cartesia_volume_out(
         volume,
         fx=UsdInrRate(
-            rate=Decimal("95.66"), source="frankfurter:FBIL", as_of=datetime.now(UTC).date()
+            rate=Decimal("95.66"),
+            source="frankfurter:FBIL",
+            as_of=datetime.now(UTC).date(),
+            basis="published",
         ),
     )
     assert published.fx_usd_inr == "95.66"
@@ -244,7 +249,12 @@ def test_the_volume_block_names_its_fx_rate_and_its_fallback() -> None:
 
     fallback = config_routes._cartesia_volume_out(
         volume,
-        fx=UsdInrRate(rate=Decimal("88"), source="configured:usd_inr_rate", as_of=None),
+        fx=UsdInrRate(
+            rate=Decimal("88"),
+            source="configured:usd_inr_rate",
+            as_of=None,
+            basis="manual_no_quote",
+        ),
     )
     assert fallback.fx_as_of is None
     assert fallback.fx_source == "configured:usd_inr_rate"
@@ -266,7 +276,12 @@ def test_a_month_with_no_studio_minutes_states_the_absence_rather_than_a_zero() 
     says — a zero here would read as "this voice is free"."""
     published = config_routes._cartesia_volume_out(
         CartesiaVolume(month="2026-09", characters=Decimal("0"), call_minutes=Decimal("0")),
-        fx=UsdInrRate(rate=Decimal("88"), source="configured:usd_inr_rate", as_of=None),
+        fx=UsdInrRate(
+            rate=Decimal("88"),
+            source="configured:usd_inr_rate",
+            as_of=None,
+            basis="manual_no_quote",
+        ),
     )
     assert published.cost_inr_per_min is None
     assert published.plan_id is None

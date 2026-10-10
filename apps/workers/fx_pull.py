@@ -81,7 +81,7 @@ does not recognise is REFUSED with the reason named, never guessed at, and the p
 keeps converting at the rate it already had.
 
 THE LADDER: FBIL DIRECT, THEN FRANKFURTER'S FBIL, THEN FRANKFURTER'S DEFAULT, THEN THE
-TYPED CONSTANT
+LAST PUBLISHED RATE
 --------------------------------------------------------------------------------------
 Four rungs. The first is new (D-609); the other three are D-589's, unchanged, and the
 incident that produced them is why a preference with nothing behind it is not allowed
@@ -118,8 +118,10 @@ So the rungs are:
    row may not carry one (hard rule 11). It is a real rate published TODAY, which is
    strictly better than a constant typed a fortnight ago, and it is obviously not the
    benchmark on any row.
-4. ``configured:usd_inr_rate`` — the operator's typed number, unchanged, and reached only
-   when every PUBLISHED rung is stale.
+4. When every published rung is stale, nothing new is stored and money keeps converting
+   at the newest stored rate, labelled stale (`core/fx.resolve_usd_inr_rate`).
+   ``configured:usd_inr_rate``, the operator's typed number, is reached only when nothing
+   has ever been published or the operator has switched the manual override on.
 
 **A LOWER RUNG IS FETCHED ONLY WHEN A HIGHER ONE CANNOT SERVE; EVERY RUNG FETCHED IS
 RECORDED.** Two rules, both load-bearing:
@@ -153,7 +155,7 @@ be that same defect wearing a ladder: "the feed is quiet" is what the ladder is 
 feed answered and we do not believe it" is a human's problem from the first occurrence.
 
 **THE STALENESS CEILING IS PER-RUNG**, because it is a property of a QUOTE and always
-was: `FxQuote.usable` is asked of the rate this rung just published, so a fresh rung 3 is
+was: `FxQuote.fresh` is asked of the rate this rung just published, so a fresh rung 3 is
 not stale merely because rung 1 is. `MAX_QUOTE_AGE` itself stays one constant — it
 bounds a daily publication cadence every published rung shares.
 
@@ -218,9 +220,12 @@ from apps.api.db.session import untenanted_session
 from apps.api.ops.fx_rates import (
     BASE_CURRENCY,
     QUOTE_CURRENCY,
+    FxCheck,
     FxObservation,
     ImplausibleRateError,
+    last_check,
     latest_observation,
+    record_check,
     record_observation,
     refresh_fx_snapshot,
 )
@@ -244,7 +249,7 @@ FBIL_AUTHENTICATED = "false"
 #: DERIVED FROM IT RATHER THAN TYPED**, which is the whole reason it is not five days.
 #: Asking for exactly the usable window would make "FBIL published nothing usable" and
 #: "FBIL answered about no dollar at all" the same response, and those need different
-#: answers: the first is the feed being behind and is decided ONE place — `FxQuote.usable`
+#: answers: the first is the feed being behind and is decided ONE place — `FxQuote.fresh`
 #: on a stored row, the same predicate money applies — while the second is the contract
 #: or the content having moved and must be read by a human. A window WIDER than the
 #: ceiling means a record that is merely too old still ARRIVES, is still recorded (the
@@ -336,7 +341,7 @@ FxRefusalCode = Literal[
 #: WHICH RUNG IS SERVING, for the tick summary arq keeps and the log line an operator
 #: greps. Same closed-vocabulary reasoning: "is this platform billing off the benchmark"
 #: is a question that must be answerable without parsing a sentence.
-ServingRung = Literal["preferred", "fallback_source", "configured_fallback"]
+ServingRung = Literal["preferred", "fallback_source", "stale_published"]
 
 #: The schedule, in minutes past the hour — the founder's five minutes, spelled once here
 #: so `settings.py` builds the `cron()` registration from it rather than repeating a set
@@ -802,33 +807,40 @@ async def fetch_published_rate(
 
 
 async def _warn_if_silent() -> None:
-    """Page an operator when the store has had no successful pull for too long.
+    """Page an operator when no pull tick has completed for too long.
 
     Runs on the FAILURE path only. `ops/fx_rates.refresh_fx_snapshot` alarms on the DATA
     going stale; this alarms on the PULLER going quiet, which happens first and is the
-    signal that still has time to be acted on. Best-effort: a store we cannot read is
-    already alarmed by the poll, and a second exception here would replace the failure
-    the caller is about to report.
+    signal that still has time to be acted on. Measured from the last completed tick
+    (`fx_rates.last_check`), not from the newest row: a daily publication is stored once,
+    so its `observed_at` is hours old on a perfectly healthy poller. The row is the
+    fallback only when no tick is recorded. Best-effort: a second exception here would
+    replace the failure the caller is about to report.
     """
-    try:
-        async with untenanted_session() as session:
-            observation = await latest_observation(session)
-    except Exception as exc:
-        # Logged rather than swallowed: this runs on a path that is ALREADY failing, and a
-        # silent return would hide the second failure behind the first.
-        log.warning("fx_silence_check_failed", extra={"error": type(exc).__name__})
-        return
-    if observation is None:
-        return
-    silence = datetime.now(UTC) - observation.observed_at
+    check = await last_check()
+    if check is not None:
+        last_ok = check.checked_at
+    else:
+        try:
+            async with untenanted_session() as session:
+                observation = await latest_observation(session)
+        except Exception as exc:
+            # Logged rather than swallowed: this runs on a path that is ALREADY failing,
+            # and a silent return would hide the second failure behind the first.
+            log.warning("fx_silence_check_failed", extra={"error": type(exc).__name__})
+            return
+        if observation is None:
+            return
+        last_ok = observation.observed_at
+    silence = datetime.now(UTC) - last_ok
     if silence > MAX_PULL_SILENCE:
         alert(
             "WORKER_TERMINAL",
             "fx_pull_silent",
             detail=(
-                f"No USD/INR rate has been pulled for {int(silence.total_seconds() // 60)} "
-                "minutes. Vendor costs are still being converted at the last published "
-                "rate and will fall back to the configured USD_INR_RATE once it ages out."
+                f"No USD/INR pull has completed for {int(silence.total_seconds() // 60)} "
+                "minutes. Vendor costs keep converting at the last published rate, "
+                "labelled stale once it is past the ceiling."
             ),
             source=SOURCE,
         )
@@ -930,8 +942,8 @@ async def _walk_ladder(now: datetime) -> LadderResult:
             raise
         # The ceiling is asked of THIS rung's own quote, which is what makes staleness
         # per-rung: a fresh rung 3 is not stale because rung 1 is. One spelling of the
-        # rule — `FxQuote.usable`, the same predicate money and the ops panel apply.
-        if observation.as_quote().usable(now):
+        # rule — `FxQuote.fresh`, the same predicate money and the ops panel apply.
+        if observation.as_quote().fresh(now):
             return LadderResult(
                 serving=(rung, observation, inserted), refusals=tuple(refusals), last_error=None
             )
@@ -1016,9 +1028,9 @@ async def pull_fx_rate(ctx: dict[str, Any]) -> str:
         # EVERY published rung answered and every one of them is behind the ceiling. Not a
         # pull failure — the feeds are working, they are simply not publishing — so this
         # is neither retried nor paged from here. `refresh_fx_snapshot` below raises
-        # `fx_rate_stale`, which is the alarm that has always meant "the typed constant is
-        # what money is using", and now means it about the whole ladder.
-        serving_state = "configured_fallback"
+        # `fx_rate_stale`: money keeps converting at the newest stored rate, labelled
+        # stale, until a rung publishes again.
+        serving_state = "stale_published"
         log.warning(
             "fx_ladder_exhausted",
             extra={"refusals": ";".join(str(refusal) for refusal in result.refusals)},
@@ -1054,6 +1066,17 @@ async def pull_fx_rate(ctx: dict[str, Any]) -> str:
             refusal_code=preferred_code or preferred_reason,
         )
 
+    # Every tick that gets here completed, whether or not it stored a row: a daily
+    # publication polled every five minutes inserts once, so the observation rows cannot
+    # say the poller is alive. This record is what the panel's "Last checked" and the
+    # silence alarm read.
+    await record_check(
+        FxCheck(
+            checked_at=now,
+            serving_source=result.serving[0].source if result.serving else None,
+            serving_as_of=result.serving[1].as_of if result.serving else None,
+        )
+    )
     # This process is made current immediately rather than waiting for its own poll: the
     # worker is where `_meter` converts, so the tick that fetched the rate is the one that
     # should already be using it. It also re-raises `fx_rate_stale` when nothing serves.

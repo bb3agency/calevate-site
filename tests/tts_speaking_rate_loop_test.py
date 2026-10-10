@@ -492,7 +492,9 @@ def test_the_rate_card_prices_the_clear_column_at_the_measured_rate() -> None:
     becomes a per-CALL-MINUTE cost only through the speaking rate, so it now returns the
     floor at the fleet's measured rate — and the Studio column, which is measured from two
     counts of a real month, is untouched by the speaking rate entirely."""
-    fx = UsdInrRate(rate=Decimal("88"), source="configured:usd_inr_rate", as_of=None)
+    fx = UsdInrRate(
+        rate=Decimal("88"), source="configured:usd_inr_rate", as_of=None, basis="manual_no_quote"
+    )
     clear = _measured_floor()
     cells = config_routes._cells_out(
         PACK_CATALOGUE, measured_cost=Decimal("6.9011"), fx=fx, clear=clear

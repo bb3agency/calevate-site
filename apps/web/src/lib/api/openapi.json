@@ -14374,7 +14374,7 @@
             "type": "string"
           },
           "observed_at": {
-            "description": "When this deployment fetched it",
+            "description": "When this deployment first stored it",
             "format": "date-time",
             "title": "Observed At",
             "type": "string"
@@ -14407,27 +14407,22 @@
         "additionalProperties": false,
         "description": "The rate panel, whole. Every field is required \u2014 the config and pricing panels'\nrule: a fact the console must trust is never defaulted, and `null` carries a real\nstate rather than an absence.",
         "properties": {
-          "age_label": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Age Label"
-          },
           "base_currency": {
             "title": "Base Currency",
             "type": "string"
           },
-          "effective_rate": {
-            "title": "Effective Rate",
+          "basis": {
+            "enum": [
+              "published",
+              "stale_published",
+              "manual_override",
+              "manual_no_quote"
+            ],
+            "title": "Basis",
             "type": "string"
           },
-          "fallback_rate": {
-            "title": "Fallback Rate",
+          "effective_rate": {
+            "title": "Effective Rate",
             "type": "string"
           },
           "history": {
@@ -14436,6 +14431,37 @@
             },
             "title": "History",
             "type": "array"
+          },
+          "last_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Checked At"
+          },
+          "last_checked_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Checked Label"
+          },
+          "manual_override": {
+            "title": "Manual Override",
+            "type": "boolean"
+          },
+          "manual_rate": {
+            "title": "Manual Rate",
+            "type": "string"
           },
           "max_age_days": {
             "title": "Max Age Days",
@@ -14498,24 +14524,22 @@
             ],
             "title": "State",
             "type": "string"
-          },
-          "using_fallback": {
-            "title": "Using Fallback",
-            "type": "boolean"
           }
         },
         "required": [
           "base_currency",
           "quote_currency",
           "effective_rate",
+          "basis",
           "state",
-          "using_fallback",
-          "fallback_rate",
+          "manual_rate",
+          "manual_override",
           "published_rate",
           "published_as_of",
           "published_source",
           "observed_at",
-          "age_label",
+          "last_checked_at",
+          "last_checked_label",
           "max_age_days",
           "history"
         ],
@@ -54710,7 +54734,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The USD/INR rate in force, its age and its source",
+        "summary": "The USD/INR rate in force, why, and when it was last checked",
         "tags": [
           "ops"
         ],

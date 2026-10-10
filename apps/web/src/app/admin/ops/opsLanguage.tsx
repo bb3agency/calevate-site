@@ -414,8 +414,8 @@ const FX_SOURCE: Record<string, ProvenanceCopy> = {
     help: "The Frankfurter rate API's default answer, with no publisher asked for. It is a real rate published that day, but it is not the Indian benchmark and it is not a figure anyone can look up.",
   },
   "configured:usd_inr_rate": {
-    label: "The fallback you set",
-    help: "Not a published rate at all — this is the number you typed under usd_inr_rate, used because nothing published was fresh enough.",
+    label: "Your manual rate",
+    help: "Not a published rate — the number typed under usd_inr_rate, used because no rate had been published yet or the manual override was on.",
   },
 };
 

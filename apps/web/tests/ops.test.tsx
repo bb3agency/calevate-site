@@ -261,13 +261,15 @@ function fxRate(): FxRate {
     quote_currency: "INR",
     effective_rate: "88.427500",
     state: "live",
-    using_fallback: false,
-    fallback_rate: "88.00",
+    basis: "published",
+    manual_rate: "88.00",
+    manual_override: false,
     published_rate: "88.427500",
     published_as_of: "2026-08-27",
     published_source: "frankfurter:FBIL",
     observed_at: "2026-08-27T04:05:00Z",
-    age_label: "3 minutes ago",
+    last_checked_at: "2026-08-27T04:05:00Z",
+    last_checked_label: "3 minutes ago",
     max_age_days: 5,
     history: [],
   };
@@ -2527,10 +2529,9 @@ describe("the platform configuration panel", () => {
     );
 
     await screen.findByText("db_pool_size");
-    // A field that quietly does nothing for six hours is §8's defect wearing a delay.
-    // The collapsed row now carries this as the timing badge; the fuller sentence still
-    // appears once the change form is opened.
-    expect(container.textContent).toContain("Applies after a restart");
+    // A field that quietly does nothing until a restart says so in its details; the
+    // collapsed row no longer carries a timing badge.
+    expect(container.textContent).toContain("stays in force until every server restarts");
   });
 
   /**

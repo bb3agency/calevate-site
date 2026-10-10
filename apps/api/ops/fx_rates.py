@@ -1,10 +1,12 @@
 """The FX observation store, and the seam between it and the in-memory holder.
 
-Three jobs, all of them the ops side of `core/fx.py`'s holder:
+Four jobs, all of them the ops side of `core/fx.py`'s holder:
 
 * `record_observation` — the WRITE the five-minute pull performs, idempotent and
   single-flighted, with the plausibility guard that stops a changed vendor unit from
   repricing the platform;
+* `record_check` / `last_check` — when the pull last completed, which the observation
+  rows cannot say (below);
 * `latest_observation` / `recent_observations` — the READS the console renders;
 * `refresh_fx_snapshot` / `start_fx_refresher` — the poll that puts the current
   observation into `core/fx`'s holder so a synchronous conversion can reach it.
@@ -12,28 +14,31 @@ Three jobs, all of them the ops side of `core/fx.py`'s holder:
 The shape is `ops/pricing_snapshot.py`'s, and deliberately: durable truth in Postgres, an
 in-memory snapshot in front, a background poll that refreshes it off the request path.
 What differs is the ceiling — an attested price does not go stale, a rate does — so this
-module also owns the ALARM for a rate that has aged past `core/fx.MAX_QUOTE_AGE`, because
-falling back to the configured rate silently is the failure this feature exists to
-prevent (money quietly using a week-old number).
+module also owns the ALARM for a rate in force that has aged past `core/fx.MAX_QUOTE_AGE`:
+money keeps converting at it, and doing that silently is the failure this feature exists
+to prevent.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Final
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.rates import ROUNDING
 from apps.api.core.alerting import alert
-from apps.api.core.fx import FxQuote, install_fx_quote
+from apps.api.core.fx import MAX_QUOTE_AGE, FxQuote, install_fx_quote
 from apps.api.core.logging import get_logger
+from apps.api.core.redis import get_redis
 from apps.api.db.session import untenanted_session
 
 log = get_logger(__name__)
@@ -274,27 +279,89 @@ async def record_observation(
     return _row_to_observation(existing), False
 
 
+#: Where the pull's last completed tick is recorded.
+#:
+#: Not in `fx_rate_observations`: that table is append-only and its `observation_key`
+#: makes a repeat poll of one publication a no-op, so a row's `observed_at` is when that
+#: publication was FIRST seen and a healthy poller looks stuck behind it. Not a Postgres
+#: row either: it would be a mutable row rewritten 288 times a day, for a value nothing
+#: reconciles money against. Redis loses it only on a flush, which costs one tick of
+#: "not checked yet" on the panel and nothing else.
+LAST_CHECK_KEY: Final = "calevate:fx:last_check"
+
+#: How long one Redis round trip may take before the record is skipped. A tick or a
+#: panel read must never wait on telemetry.
+_CHECK_BUDGET_S: Final = 0.5
+
+
+@dataclass(frozen=True, slots=True)
+class FxCheck:
+    """One completed pull tick: when, and which source it found serving."""
+
+    checked_at: datetime
+    #: The rung that served, or `None` when every rung answered with a publication past
+    #: the ceiling (the feeds work and are behind).
+    serving_source: str | None
+    serving_as_of: date | None
+
+
+async def record_check(check: FxCheck) -> None:
+    """Record a completed tick. Never raises: a lost record costs a panel line, while a
+    raise here would file a good tick as a failure."""
+    payload = json.dumps(
+        {
+            "checked_at": check.checked_at.isoformat(),
+            "serving_source": check.serving_source,
+            "serving_as_of": check.serving_as_of.isoformat() if check.serving_as_of else None,
+        }
+    )
+    try:
+        await asyncio.wait_for(get_redis().set(LAST_CHECK_KEY, payload), timeout=_CHECK_BUDGET_S)
+    except Exception as exc:
+        log.warning("fx_check_record_failed", extra={"reason": type(exc).__name__})
+
+
+async def last_check() -> FxCheck | None:
+    """The last completed tick, or `None` if none is recorded or Redis cannot answer."""
+    try:
+        raw = await asyncio.wait_for(get_redis().get(LAST_CHECK_KEY), timeout=_CHECK_BUDGET_S)
+    except Exception as exc:
+        log.warning("fx_check_read_failed", extra={"reason": type(exc).__name__})
+        return None
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        as_of = data.get("serving_as_of")
+        return FxCheck(
+            checked_at=datetime.fromisoformat(data["checked_at"]),
+            serving_source=data.get("serving_source"),
+            serving_as_of=date.fromisoformat(as_of) if as_of else None,
+        )
+    except (ValueError, KeyError, TypeError) as exc:
+        log.warning("fx_check_unreadable", extra={"reason": type(exc).__name__})
+        return None
+
+
 async def refresh_fx_snapshot() -> FxQuote | None:
     """Re-read the store into `core/fx`'s holder. Returns what was installed.
 
     Never raises, for `platform_config.refresh`'s reason and with the same fail-safe
     direction: a store this process cannot read must not take down the metering path. The
-    previously installed quote keeps serving (bounded by `MAX_QUOTE_AGE` on every read,
-    so "keeps serving" cannot become "for ever"), and the failure is logged.
+    previously installed quote keeps serving, labelled stale past `MAX_QUOTE_AGE` on every
+    read, and the failure is logged.
 
     IT ALSO RAISES THE STALENESS ALARM, and that is the reason this function is worth
     having rather than installing from the pull job directly. The pull job only runs when
     the pull runs; the case that must be noisy is the one where it does NOT — a feed that
-    stopped three days ago produces no job, no exception and no log line anywhere, and
-    silently reverts every conversion to the configured fallback. This poll is the thing
-    that is still running when nothing else is.
+    stopped a week ago produces no job, no exception and no log line anywhere, while every
+    conversion keeps using its last rate. This poll is the thing that is still running
+    when nothing else is.
 
-    **`fx_rate_stale` NOW MEANS THE WHOLE LADDER IS STALE, NOT ONE SOURCE (D-589).** The
-    pull walks `workers/fx_pull.LADDER` and stores whichever rung can serve, so a quiet
-    preferred source no longer reaches this alarm at all — it raises `fx_source_degraded`
-    from the pull and keeps converting at a published rate. Nothing here had to change to
-    make that true, and that is the point of deciding usability on the read: this function
-    asks whether the rate IN FORCE is past the ceiling, whoever published it.
+    `fx_rate_stale` means the WHOLE source ladder is behind (D-589): a quiet preferred
+    source alone raises `fx_source_degraded` from the pull and keeps a fresh published
+    rate in force. This function asks whether the newest stored rate, whoever published
+    it, is past the ceiling.
     """
     try:
         async with untenanted_session() as session:
@@ -308,16 +375,17 @@ async def refresh_fx_snapshot() -> FxQuote | None:
         return None
     quote = observation.as_quote()
     install_fx_quote(quote)
-    if not quote.usable():
+    if not quote.fresh():
         alert(
             "CORE_LOGIC",
             "fx_rate_stale",
             detail=(
-                "EVERY published USD/INR source is older than the ceiling, so every vendor "
-                "cost is being converted at the configured USD_INR_RATE instead. This is "
-                "the bottom of the ladder in apps/workers/fx_pull.py: the preferred source "
-                "and its published fallback have both gone quiet, or the puller is not "
-                "running. Check the fx_rate_pull job and the upstream feed."
+                f"Every published USD/INR source is older than {MAX_QUOTE_AGE.days} days, so "
+                f"vendor costs are converting at the last published rate, {quote.rate} from "
+                f"{quote.as_of.isoformat()} ({quote.source}), and every new usage row carries "
+                "that date. The preferred source and its published fallbacks have all gone "
+                "quiet, or the puller is not running. Check the fx_rate_pull job and the "
+                "upstream feeds."
             ),
             as_of=quote.as_of.isoformat(),
             age_days=str(quote.age().days),
@@ -365,15 +433,19 @@ async def stop_fx_refresher() -> None:
 
 __all__ = [
     "BASE_CURRENCY",
+    "LAST_CHECK_KEY",
     "MAX_PLAUSIBLE_MOVE",
     "MAX_RATE",
     "MIN_RATE",
     "QUOTE_CURRENCY",
+    "FxCheck",
     "FxObservation",
     "ImplausibleRateError",
+    "last_check",
     "latest_observation",
     "observation_key",
     "recent_observations",
+    "record_check",
     "record_observation",
     "refresh_fx_snapshot",
     "start_fx_refresher",

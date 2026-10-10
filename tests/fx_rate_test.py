@@ -5,10 +5,11 @@ Ranked by what each failure costs, worst first:
 1. **A costing cannot straddle a rate change.** One call, one rate, on the total and on
    every leg — and the rate it used is on the row. A call billed at two rates is a WRONG
    number in an append-only ledger, and it is the defect this whole seam is shaped around.
-2. **A stale rate stops being used, and is not silently replaced.** Past the ceiling the
-   conversion falls back to the operator's configured value and says so on the row; the
-   ceiling is re-decided on every READ, so a dead refresher cannot leave a month of calls
-   costed off a number nobody was watching.
+2. **The ladder is published, then last published, then typed.** Past the ceiling the
+   newest published rate stays in force, labelled stale on the read and dated on the row;
+   the typed rate is used only before anything is published or under an explicit
+   override. And the pull's last completed tick is recorded on every tick, because a
+   daily publication is stored once and its row cannot say the poller is alive.
 3. **The rate never passes through a binary float.** The vendor publishes a JSON number;
    `json.loads` would make it a `float`; a rate that cannot be written down exactly is a
    multiplier nobody can reconcile an invoice against (hard rule 7).
@@ -37,19 +38,28 @@ from typing import Any
 import pytest
 from apps.api.core import fx as fx_module
 from apps.api.core.fx import (
+    CONFIGURED_FX_SOURCE,
     MAX_QUOTE_AGE,
     FxQuote,
     current_fx_quote,
     fx_scope,
     install_fx_quote,
+    resolve_usd_inr_rate,
     usd_inr_rate_now,
 )
+from apps.api.core.redis import get_redis
+from apps.api.core.settings import get_settings
 from apps.api.db.session import untenanted_session
 from apps.api.ops.fx_rates import (
+    LAST_CHECK_KEY,
+    FxCheck,
+    FxObservation,
     ImplausibleRateError,
+    last_check,
     latest_observation,
     observation_key,
     recent_observations,
+    record_check,
     record_observation,
     refresh_fx_snapshot,
 )
@@ -123,12 +133,26 @@ async def _purge() -> None:
         await engine.dispose()
 
 
+def _set_manual(monkeypatch: pytest.MonkeyPatch, *, override: bool) -> None:
+    """Pin the typed rate to `FALLBACK` and the override switch, for `usd_inr_rate_now`.
+
+    Patched on `core/fx`'s own `get_settings` so the one door is what is exercised, with
+    inputs this file controls rather than whatever the developer's `.env` holds."""
+    pinned = get_settings().model_copy(
+        update={"usd_inr_rate": FALLBACK, "usd_inr_rate_override": override}
+    )
+    monkeypatch.setattr(fx_module, "get_settings", lambda: pinned)
+
+
 @pytest.fixture(autouse=True)
-async def _clean() -> AsyncIterator[None]:
+async def _clean(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[None]:
     fx_module.reset_for_test()
+    _set_manual(monkeypatch, override=False)
+    await get_redis().delete(LAST_CHECK_KEY)
     yield
     fx_module.reset_for_test()
     await _purge()
+    await get_redis().delete(LAST_CHECK_KEY)
 
 
 # --- 1. one unit of work, one rate ----------------------------------------------------
@@ -152,7 +176,7 @@ def test_a_rate_installed_mid_job_does_not_reach_a_job_already_running() -> None
             )
         )
         assert current_fx_quote() is first, "the pin must survive an install"
-        assert usd_inr_rate_now(FALLBACK).rate == PUBLISHED
+        assert usd_inr_rate_now().rate == PUBLISHED
     # Outside the scope the process has moved on — the next unit of work gets the new rate.
     after = current_fx_quote()
     assert after is not None and after.rate == Decimal("95.0000")
@@ -172,10 +196,10 @@ def test_a_nested_scope_reuses_the_outer_pin() -> None:
             assert inner is outer
 
 
-def test_the_pin_distinguishes_no_usable_rate_from_no_scope() -> None:
-    """A job that opened with a stale feed must STAY on the fallback for its whole life,
-    even if a fresh rate lands halfway through — otherwise its first rows and its last are
-    converted at different numbers."""
+def test_the_pin_distinguishes_no_quote_from_no_scope() -> None:
+    """A job that opened before anything was published must STAY on the typed rate for its
+    whole life, even if a rate lands halfway through — otherwise its first rows and its
+    last are converted at different numbers."""
     install_fx_quote(None)
     with fx_scope() as pinned:
         assert pinned is None
@@ -188,28 +212,85 @@ def test_the_pin_distinguishes_no_usable_rate_from_no_scope() -> None:
             )
         )
         assert current_fx_quote() is None
-        assert usd_inr_rate_now(FALLBACK).rate == FALLBACK
+        resolved = usd_inr_rate_now()
+        assert resolved.rate == FALLBACK
+        assert resolved.basis == "manual_no_quote"
 
 
-# --- 2. the staleness ceiling ---------------------------------------------------------
+# --- 2. the ladder: published, last published, typed ----------------------------------
 
 
-def test_a_rate_past_the_ceiling_is_refused_on_the_read_not_at_install() -> None:
-    """The ceiling is a property of the PROCESS, not of the refresher's liveness: a poller
-    that died leaves the quote installed, and the read is what must still refuse it."""
-    stale = FxQuote(
-        rate=PUBLISHED,
-        as_of=(datetime.now(UTC) - MAX_QUOTE_AGE - timedelta(days=1)).date(),
-        source=TEST_SOURCE,
-        observed_at=datetime.now(UTC),
-    )
+def _quote(as_of: date) -> FxQuote:
+    return FxQuote(rate=PUBLISHED, as_of=as_of, source=TEST_SOURCE, observed_at=datetime.now(UTC))
+
+
+def test_a_fresh_published_rate_is_used() -> None:
+    install_fx_quote(_quote(date.today()))
+    resolved = usd_inr_rate_now()
+    assert resolved.rate == PUBLISHED
+    assert resolved.source == TEST_SOURCE
+    assert resolved.as_of == date.today()
+    assert resolved.basis == "published"
+
+
+def test_a_stale_published_rate_is_preferred_over_the_typed_one() -> None:
+    """The founder's ask: the typed figure was set once and never moves, so past the
+    ceiling the newest PUBLISHED rate stays in force. Staleness is decided on the read (a
+    dead refresher leaves the quote installed) and recorded as the basis, and the row
+    carries the quote's own old `as_of` so the age is visible on every ledger row."""
+    stale_day = (datetime.now(UTC) - MAX_QUOTE_AGE - timedelta(days=1)).date()
+    stale = _quote(stale_day)
     install_fx_quote(stale)
-    assert stale.usable() is False
-    assert current_fx_quote() is None
-    resolved = usd_inr_rate_now(FALLBACK)
-    assert resolved.rate == FALLBACK, "past the ceiling, money converts at the configured rate"
-    assert resolved.source == "configured:usd_inr_rate"
+    assert stale.fresh() is False
+    assert current_fx_quote() is stale, "the holder returns the quote whatever its age"
+    resolved = usd_inr_rate_now()
+    assert resolved.rate == PUBLISHED, "never the typed rate while a published one exists"
+    assert resolved.rate != FALLBACK
+    assert resolved.source == TEST_SOURCE, "Frankfurter/FBIL provenance survives staleness"
+    assert resolved.as_of == stale_day
+    assert resolved.basis == "stale_published"
+
+
+def test_the_typed_rate_is_used_when_nothing_was_ever_published() -> None:
+    install_fx_quote(None)
+    resolved = usd_inr_rate_now()
+    assert resolved.rate == FALLBACK
+    assert resolved.source == CONFIGURED_FX_SOURCE
+    assert resolved.as_of is None, "a typed number has no publication date"
+    assert resolved.basis == "manual_no_quote"
+
+
+def test_the_typed_rate_overrides_a_fresh_published_one_only_when_switched_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fx_quote(_quote(date.today()))
+    assert usd_inr_rate_now().basis == "published", "off by default"
+    _set_manual(monkeypatch, override=True)
+    resolved = usd_inr_rate_now()
+    assert resolved.rate == FALLBACK
+    assert resolved.source == CONFIGURED_FX_SOURCE
     assert resolved.as_of is None
+    assert resolved.basis == "manual_override"
+
+
+def test_the_ladder_has_one_spelling_for_money_and_the_panel() -> None:
+    """`resolve_usd_inr_rate` is pure, so the panel (from the store) and the conversion
+    (from the holder) apply one rule to their own inputs. Every rung, asserted once."""
+    now = datetime(2026, 10, 10, 12, 0, tzinfo=UTC)
+    fresh = _quote(now.date())
+    stale = _quote((now - MAX_QUOTE_AGE - timedelta(days=1)).date())
+    cases = [
+        (fresh, False, "published", PUBLISHED),
+        (stale, False, "stale_published", PUBLISHED),
+        (None, False, "manual_no_quote", FALLBACK),
+        (fresh, True, "manual_override", FALLBACK),
+        (stale, True, "manual_override", FALLBACK),
+        (None, True, "manual_override", FALLBACK),
+    ]
+    for quote, override, basis, rate in cases:
+        resolved = resolve_usd_inr_rate(quote, manual=FALLBACK, manual_override=override, now=now)
+        assert (resolved.basis, resolved.rate) == (basis, rate), (quote, override)
+        assert isinstance(resolved.rate, Decimal)
 
 
 def test_the_ceiling_is_measured_from_the_end_of_the_publication_day() -> None:
@@ -227,7 +308,7 @@ def test_the_ceiling_is_measured_from_the_end_of_the_publication_day() -> None:
         source=TEST_SOURCE,
         observed_at=edge,
     )
-    assert exactly_at_ceiling.usable(edge) is True, "the ceiling is inclusive"
+    assert exactly_at_ceiling.fresh(edge) is True, "the ceiling is inclusive"
 
 
 def test_a_conversion_records_which_rate_it_used() -> None:
@@ -238,7 +319,7 @@ def test_a_conversion_records_which_rate_it_used() -> None:
     install_fx_quote(
         FxQuote(rate=PUBLISHED, as_of=as_of, source=TEST_SOURCE, observed_at=datetime.now(UTC))
     )
-    resolved = usd_inr_rate_now(FALLBACK)
+    resolved = usd_inr_rate_now()
     assert resolved.source == TEST_SOURCE
     assert resolved.as_of == as_of
 
@@ -457,7 +538,7 @@ async def test_the_refresh_installs_the_stored_rate_for_the_conversion_to_read()
         )
     quote = await refresh_fx_snapshot()
     assert quote is not None and quote.rate == PUBLISHED
-    cost = usd_inr_rate_now(FALLBACK)
+    cost = usd_inr_rate_now()
     assert cost is not None and cost.rate == PUBLISHED
 
 
@@ -495,42 +576,161 @@ def test_the_schedule_is_every_five_minutes() -> None:
     assert len(PULL_MINUTES) == 12
 
 
+def test_the_pull_is_registered_on_the_worker_every_five_minutes() -> None:
+    """A schedule the worker never registered is a panel that says "every five minutes"
+    over a job that never runs. Asserted against the worker's own cron list."""
+    from apps.workers.settings import CRON_JOBS, WorkerSettings
+
+    jobs = [job for job in CRON_JOBS if job.name.endswith("pull_fx_rate")]
+    assert len(jobs) == 1, [job.name for job in CRON_JOBS]
+    assert jobs[0].minute == set(PULL_MINUTES)
+    assert jobs[0].max_tries is not None and jobs[0].max_tries > 1
+    assert jobs[0] in WorkerSettings.cron_jobs
+
+
+async def test_every_completed_tick_records_a_check_even_when_nothing_new_is_stored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE PRODUCTION REPORT (10 Oct 2026): "fetched 5 hours ago" on a healthy poller. A
+    daily publication polled every five minutes inserts once, so the row's `observed_at`
+    never moves; the check record must move on EVERY completed tick, insert or not."""
+    _install_ladder(monkeypatch, {"test:fbil": (FBIL_RATE, date.today())})
+
+    first = json.loads(await pull_fx_rate({"job_try": 1}))
+    assert first["inserted"] is True
+    after_first = await last_check()
+    assert after_first is not None
+    assert after_first.serving_source == "test:fbil"
+    assert after_first.serving_as_of == date.today()
+
+    second = json.loads(await pull_fx_rate({"job_try": 1}))
+    assert second["inserted"] is False, "the same publication is not stored twice"
+    after_second = await last_check()
+    assert after_second is not None
+    assert after_second.checked_at > after_first.checked_at, "the check moved anyway"
+
+    async with untenanted_session() as session:
+        row = await latest_observation(session)
+    assert row is not None and row.observed_at < after_second.checked_at
+
+
+async def test_a_tick_where_every_source_is_behind_still_counts_as_checked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_ladder(
+        monkeypatch,
+        {"test:fbil": (FBIL_RATE, _stale_date()), "test:default": (DEFAULT_RATE, _stale_date())},
+    )
+    await pull_fx_rate({"job_try": 1})
+    check = await last_check()
+    assert check is not None and check.serving_source is None
+
+
+async def test_a_failed_tick_records_no_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ "Last checked" means a tick COMPLETED. A failing one must not refresh it, or a dead
+    feed would look like a live poller."""
+    _install_ladder(
+        monkeypatch,
+        {
+            "test:fbil": FxFeedUnreachableError("the endpoint answered HTTP 503"),
+            "test:default": FxFeedUnreachableError("the endpoint answered HTTP 503"),
+        },
+    )
+    with pytest.raises(FxPullError):
+        await pull_fx_rate({"job_try": 3})
+    assert await last_check() is None
+
+
+async def test_the_silence_alarm_reads_the_last_check_not_the_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A publication first stored hours ago is normal; a check that old is not. The alarm
+    must fire on the second and stay quiet on the first."""
+    import apps.workers.fx_pull as job_module
+
+    alerts: list[str] = []
+    monkeypatch.setattr(job_module, "alert", lambda *a, **k: alerts.append(str(a[1])))
+    async with untenanted_session() as session:
+        await record_observation(
+            session, rate=PUBLISHED, as_of=date.today(), source=TEST_SOURCE, source_url="u"
+        )
+
+    await record_check(
+        FxCheck(checked_at=datetime.now(UTC), serving_source=TEST_SOURCE, serving_as_of=None)
+    )
+    await job_module._warn_if_silent()
+    assert alerts == [], "a fresh check is a live poller, however old the row"
+
+    await record_check(
+        FxCheck(
+            checked_at=datetime.now(UTC) - job_module.MAX_PULL_SILENCE - timedelta(minutes=1),
+            serving_source=TEST_SOURCE,
+            serving_as_of=None,
+        )
+    )
+    await job_module._warn_if_silent()
+    assert alerts == ["fx_pull_silent"]
+
+
 # --- the wire -------------------------------------------------------------------------
+
+
+def _observation(now: datetime, as_of: date) -> FxObservation:
+    return FxObservation(
+        id=uuid.uuid4(),
+        base_currency="USD",
+        quote_currency="INR",
+        rate=PUBLISHED,
+        as_of=as_of,
+        source=TEST_SOURCE,
+        source_url="u",
+        observed_at=now - timedelta(hours=5),
+    )
 
 
 def test_the_rate_crosses_the_wire_as_a_string_and_the_server_decides_staleness() -> None:
     """Hard rule 7 does not stop at the database: `88.4275` sent as a JSON number has been
     through a binary double before the screen sees it. And the browser is told the VERDICT,
     not the threshold — `apps/web/src/lib/api/aiQuota.ts:1-26`."""
-    from apps.api.ops.fx_rates import FxObservation
-
-    now = datetime(2026, 8, 27, 12, 0, tzinfo=UTC)
-    fresh = FxObservation(
-        id=uuid.uuid4(),
-        base_currency="USD",
-        quote_currency="INR",
-        rate=PUBLISHED,
-        as_of=now.date(),
-        source=TEST_SOURCE,
-        source_url="u",
-        observed_at=now - timedelta(minutes=3),
+    now = datetime(2026, 10, 10, 15, 0, tzinfo=UTC)
+    fresh = _observation(now, now.date())
+    checked = FxCheck(
+        checked_at=now - timedelta(minutes=3), serving_source=TEST_SOURCE, serving_as_of=None
     )
-    out = _build(fresh, now=now, fallback=str(FALLBACK), history=[fresh])
+
+    def build(
+        observation: FxObservation | None, *, override: bool = False, check: FxCheck | None = None
+    ) -> Any:
+        return _build(
+            observation,
+            now=now,
+            manual_rate=FALLBACK,
+            manual_override=override,
+            checked=check,
+            history=[observation] if observation else [],
+        )
+
+    out = build(fresh, check=checked)
     dumped = json.loads(out.model_dump_json())
     assert dumped["effective_rate"] == "88.4275"
     assert isinstance(dumped["effective_rate"], str)
-    assert dumped["state"] == "live" and dumped["using_fallback"] is False
-    assert dumped["age_label"] == "3 minutes ago"
+    assert isinstance(dumped["manual_rate"], str)
+    assert dumped["basis"] == "published" and dumped["state"] == "live"
+    assert dumped["last_checked_label"] == "3 minutes ago", "the check, not the 5h-old row"
     assert dumped["history"][0]["rate"] == "88.4275"
 
-    stale = replace(fresh, as_of=(now - MAX_QUOTE_AGE - timedelta(days=1)).date())
-    degraded = _build(stale, now=now, fallback=str(FALLBACK), history=[])
-    assert degraded.state == "stale"
-    assert degraded.using_fallback is True
-    assert degraded.effective_rate == str(FALLBACK), "the screen shows what money is using"
+    stale = build(replace(fresh, as_of=(now - MAX_QUOTE_AGE - timedelta(days=1)).date()))
+    assert stale.state == "stale" and stale.basis == "stale_published"
+    assert stale.effective_rate == "88.4275", "the last published rate, not the typed one"
+    assert stale.last_checked_at is None and stale.last_checked_label is None
 
-    nothing = _build(None, now=now, fallback=str(FALLBACK), history=[])
-    assert nothing.state == "never_pulled" and nothing.published_rate is None
+    overridden = build(fresh, override=True)
+    assert overridden.basis == "manual_override" and overridden.state == "live"
+    assert overridden.effective_rate == str(FALLBACK)
+
+    nothing = build(None)
+    assert nothing.state == "never_pulled" and nothing.basis == "manual_no_quote"
+    assert nothing.published_rate is None and nothing.effective_rate == str(FALLBACK)
 
 
 # --- 6. the source ladder (D-589) -----------------------------------------------------
@@ -670,7 +870,7 @@ async def test_the_preferred_rung_serves_and_the_fallback_is_never_asked(
     assert summary["source"] == "test:fbil"
     assert summary["rate"] == "94.491400"
     assert alerts == []
-    cost = usd_inr_rate_now(FALLBACK)
+    cost = usd_inr_rate_now()
     assert cost is not None and cost.source == "test:fbil" and cost.rate == FBIL_RATE
 
 
@@ -714,7 +914,7 @@ async def test_the_fallback_rung_serves_when_the_preferred_one_has_gone_quiet(
 
     # And the conversion actually follows: `latest_observation` picks the newest
     # publication, which is the serving rung, with no second spelling of the ladder in SQL.
-    cost = usd_inr_rate_now(FALLBACK)
+    cost = usd_inr_rate_now()
     assert cost is not None
     assert cost.rate == DEFAULT_RATE
     assert cost.source == "test:default", "the ROW says which rung priced this minute"
@@ -762,12 +962,12 @@ async def test_a_response_the_parser_refuses_is_a_different_reason_than_a_quiet_
     assert alerts[0][1]["refusal_code"] == "rate_not_numeric"
 
 
-async def test_the_typed_constant_serves_only_when_every_published_rung_is_stale(
+async def test_the_last_published_rate_serves_when_every_published_rung_is_stale(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """STATE 2 OF 3, and the one that used to be indistinguishable from state 1. Both
-    published rungs are behind the ceiling, so the operator's number is what money uses —
-    and `fx_rate_stale` now means exactly that about the WHOLE ladder."""
+    """STATE 2 OF 3. Both published rungs are behind the ceiling: money keeps converting
+    at the newest stored rate, never at the typed constant, and `fx_rate_stale` says so
+    about the WHOLE ladder."""
     alerts, fetched = _install_ladder(
         monkeypatch,
         {
@@ -776,20 +976,21 @@ async def test_the_typed_constant_serves_only_when_every_published_rung_is_stale
         },
     )
     summary = json.loads(await pull_fx_rate({"job_try": 1}))
-    assert fetched == ["test:fbil", "test:default"], "every rung is tried before the constant"
-    assert summary["serving"] == "configured_fallback"
+    assert fetched == ["test:fbil", "test:default"], "every rung is tried"
+    assert summary["serving"] == "stale_published"
     assert summary["source"] is None and summary["rate"] is None
 
     codes = [code for code, _ in alerts]
-    assert "fx_rate_stale" in codes, "the bottom of the ladder is the alarm it always was"
+    assert "fx_rate_stale" in codes, "the bottom of the ladder is still an alarm"
     assert "fx_source_degraded" not in codes, "nothing is degraded when nothing is serving"
     assert "fx_pull_failed" not in codes, "the feeds answered — they are behind, not broken"
 
-    cost = usd_inr_rate_now(FALLBACK)
-    assert cost is not None
-    assert cost.rate == FALLBACK
-    assert cost.source == "configured:usd_inr_rate"
-    assert cost.as_of is None, "a typed number has no publication date"
+    cost = usd_inr_rate_now()
+    assert cost.rate == DEFAULT_RATE, "the newest stored publication, not the typed rate"
+    assert cost.rate != FALLBACK
+    assert cost.source == "test:default"
+    assert cost.as_of == _stale_date(), "the row shows how old the rate is"
+    assert cost.basis == "stale_published"
 
 
 async def test_the_plausibility_band_applies_to_the_fallback_rung(
@@ -1231,7 +1432,7 @@ async def test_the_ladder_descends_past_two_stale_rungs_to_the_third(
     assert alerts[0][1]["preferred_source"] == "test:direct"
     assert alerts[0][1]["reason"] == "stale_publication"
 
-    cost = usd_inr_rate_now(FALLBACK)
+    cost = usd_inr_rate_now()
     assert cost is not None and cost.source == "test:default"
 
 

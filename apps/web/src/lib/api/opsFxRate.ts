@@ -9,13 +9,13 @@
  * No arithmetic, no formatting of a rate, no staleness decision. Every one of those is
  * the server's, and the reasons are the ones stated at `aiQuota.ts:1-26`:
  *
- * - **it never decides whether the rate is stale.** `state` and `using_fallback` are the
+ * - **it never decides whether the rate is stale.** `basis` and `state` are the
  *   server's own words, computed against `core/fx.MAX_QUOTE_AGE` — the same constant the
  *   metering path applies. A browser that re-decided it would need the ceiling in the
  *   bundle, and a bundled threshold is wrong the day it changes.
- * - **it never says how old the rate is.** `age_label` arrives as a phrase. A clock in a
- *   browser is the viewer's clock, and the one number on this screen that must not be
- *   computed from a laptop's timezone is the age of the rate that money uses.
+ * - **it never says how old a check is.** `last_checked_label` arrives as a phrase. A
+ *   clock in a browser is the viewer's clock, and the age of the check that keeps the
+ *   rate money uses current must not be computed from a laptop's timezone.
  * - **it never touches the rate as a number.** Rates cross the wire as decimal STRINGS
  *   and are rendered as they arrive. `Number("88.4275")` is a binary double, and this is
  *   the multiplier under every client's invoice (hard rule 7).
@@ -25,9 +25,9 @@
  * Deliberately, and `apps/api/ops/fx_routes.py` carries the argument: the pulled rate is
  * a machine observation with a source and a publication date, and a console that could
  * overwrite it would produce a number with the authority of a measurement and the
- * provenance of a guess. The operator's control is `USD_INR_RATE` in the config panel —
- * the declared FALLBACK, which is what money converts at whenever the pull has nothing
- * fresh.
+ * provenance of a guess. The operator's controls are `usd_inr_rate` and
+ * `usd_inr_rate_override` in the config panel: the manual rate, used only before any rate
+ * has been published or while the override is on.
  */
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";

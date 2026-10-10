@@ -578,8 +578,16 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     "usd_inr_rate": _m(
         "billing",
         "prices",
-        "USD to INR fallback rate",
-        "Used for dollar-priced costs only when no fresh published rate has been pulled.",
+        "Manual USD to INR rate (only if no published rate exists)",
+        "Normally unused: dollar costs convert at the published rate, even an old one. "
+        "Used only before any rate is published, or with the override on.",
+    ),
+    "usd_inr_rate_override": _m(
+        "billing",
+        "prices",
+        "Use the manual USD to INR rate instead of the published one",
+        "Off unless you have a reason to distrust the published rate. While on, every "
+        "dollar cost converts at the manual rate above.",
     ),
     "payment_provider": _m(
         "billing",
@@ -1131,7 +1139,8 @@ HIGH_RISK: Final[dict[str, str]] = {
     "vobiz_signature_required": "Turning it on before signing is set up refuses every call.",
     "carrier_recording_enabled": "Changes whether callers are recorded and told they are.",
     "self_serve_inr_per_min": "Every self-serve client is charged this price.",
-    "usd_inr_rate": "Dollar-priced costs are converted at this rate when no fresh rate exists.",
+    "usd_inr_rate": "Used only if no rate was ever published, or with the override on.",
+    "usd_inr_rate_override": "Every dollar cost converts at your manual rate while this is on.",
     "payment_provider": "Clients pay through the provider you choose.",
     "razorpay_mode": "Live takes real money; test takes none.",
     "campaign_consent_max_age_days": "Decides which contact lists a campaign may call.",

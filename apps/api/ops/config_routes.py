@@ -30,8 +30,8 @@ already 800 lines of argument about levers. Mounted in `apps/api/main.py` beside
 **WHY THE WRITES TAKE A STEP-UP CONFIRMATION.** These are not incident levers, so the
 case has to be made rather than inherited. `engine` decides which vendor every call in
 the platform is placed through. `self_serve_inr_per_min` is the price every self-serve
-client is charged. `usd_inr_rate` is the FALLBACK the USD->INR conversion uses whenever the
-automatic rate pull has nothing fresh (D-475), and the rate a call was actually costed
+client is charged. `usd_inr_rate` is the typed USD->INR rate, used when nothing has been
+published or `usd_inr_rate_override` is on (D-475), and the rate a call was actually costed
 at is stamped into `usage_events.meta` — which is how a billed minute is re-derived a
 year later (hard rule 7). A stolen admin session that
 could change any of those with one POST would be able to reprice the platform or divert
@@ -1309,13 +1309,12 @@ class CartesiaVolumeOut(BaseModel):
     #: The founder's decision of 9 Sep 2026: Cartesia bills in dollars, so a cost we pay in
     #: dollars moves with the rupee, and this deployment already pulls and publishes the
     #: rate every five minutes. `fx_source` is `"fbil:refrates"`-shaped for a published
-    #: quote and `"configured:usd_inr_rate"` when the feed is silent or its rate has aged
-    #: past `core/fx.MAX_QUOTE_AGE` — the fallback is NAMED rather than hidden, because a
-    #: floor quietly struck at an operator's typed number is the same "best case presented
-    #: as fact" defect this whole block exists to remove. `fx_as_of` is the SOURCE's own
-    #: publication date and is `null` exactly when the configured rate was used: a typed
-    #: number has no publication date and inventing today's would make a stale fallback
-    #: look fresh.
+    #: quote (fresh or stale) and `"configured:usd_inr_rate"` when the typed rate was used
+    #: (nothing ever published, or the manual override on) — NAMED rather than hidden,
+    #: because a floor quietly struck at an operator's typed number is the same "best case
+    #: presented as fact" defect this whole block exists to remove. `fx_as_of` is the
+    #: SOURCE's own publication date, so a stale quote shows its old date, and is `null`
+    #: exactly when the typed rate was used: a typed number has no publication date.
     fx_usd_inr: str
     fx_source: str
     fx_as_of: str | None
@@ -1481,11 +1480,11 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
     # the speaking rate below it. Both run on the READ and not on the write for the reason
     # `notice_recipients` does: the figure an operator needs is the one they read BEFORE
     # pressing Record.
-    # ONE RATE FOR THE WHOLE RESPONSE, resolved here. `usd_inr_rate_now` is the ONE
-    # spelling of "the published rate while it is fresh, else the operator's typed one"
-    # (`core/fx.py`); `billing/number_rental.py` calls it the same way. Resolving it per
-    # figure would let a five-minute tick land between two rows of one table.
-    fx = usd_inr_rate_now(get_settings().usd_inr_rate)
+    # ONE RATE FOR THE WHOLE RESPONSE, resolved here. `usd_inr_rate_now` is the one door
+    # to the rate ladder (`core/fx.py`); `billing/number_rental.py` calls it the same way.
+    # Resolving it per figure would let a five-minute tick land between two rows of one
+    # table.
+    fx = usd_inr_rate_now()
     volume = await fleet_cartesia_volume(session, month=ist_billing_month(now))
     # THE FLEET SPEAKING RATE, on the session already open — one aggregate over one row per
     # month (`billing/tts_speaking_rate.fleet_speaking_rate`, D-557). Deliberately NOT the
@@ -2023,7 +2022,7 @@ async def record_rate_card(
         cells=_cells_out(
             card,
             measured_cost=None,
-            fx=usd_inr_rate_now(get_settings().usd_inr_rate),
+            fx=usd_inr_rate_now(),
             clear=clear_cost_floor_at((await fleet_speaking_rate(session)).basis()),
         ),
         clients_notified=notified is not None,

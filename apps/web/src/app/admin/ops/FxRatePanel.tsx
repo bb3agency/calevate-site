@@ -18,40 +18,37 @@ import {
 import { useFxRate, type FxRate } from "@/lib/api/opsFxRate";
 
 /**
- * The exchange rate every dollar of vendor cost is converted at — what it is, how old it
- * is, and where it came from.
+ * The exchange rate every dollar of vendor cost is converted at — what is in force, why,
+ * and how fresh it is.
  *
  * ## Why an operator needs this screen at all
  *
  * Cartesia and Azure invoice this business in dollars; every figure the platform records is
- * rupees. One multiplier stands between the two, and until it was pulled automatically it
- * was a number somebody typed months ago that quietly drifted with the market. The pull
- * fixed the drift and introduced a new way to be wrong — a feed that stops — so this panel
- * exists to make the second one visible. The question it answers in one line is: **is the
- * platform billing off a published rate right now, or off the typed fallback?**
+ * rupees. One multiplier stands between the two. It is pulled automatically, so the ways
+ * to be wrong are a feed that stops publishing and a puller that stops running, and this
+ * panel keeps them apart: "Published for" is the SOURCE's date and moves once a business
+ * day; "Last checked" is the puller's own last completed tick and moves every five
+ * minutes. A daily publication polled every five minutes is stored once, so the time a
+ * publication was first stored is not evidence the puller is alive.
  *
  * ## This panel computes nothing
  *
- * No arithmetic, no age, no staleness verdict. `state`, `using_fallback`, `age_label` and
+ * No arithmetic, no age, no staleness verdict. `basis`, `state`, `last_checked_label` and
  * every rate are the server's, printed as they arrive (`lib/api/opsFxRate.ts` carries the
  * argument). The one thing decided here is which sentence to show, and it is decided from
- * the server's own `state` rather than by re-testing a threshold this bundle would then
+ * the server's own `basis` rather than by re-testing a threshold this bundle would then
  * own a stale copy of.
  *
- * ## Which rung is on each row, and why the raw string stays
+ * ## Which source is on each row, and why the raw string stays
  *
  * The pull walks a ladder of published sources (`apps/workers/fx_pull.LADDER`: FBIL
- * directly, then FBIL through Frankfurter, then Frankfurter's own rate, then the number
- * you typed). Every rung it fetched is stored, so "Recent pulls" is a list of DIFFERENT
- * SOURCES and not a list of the same one over time — a row without its source is
- * unreadable, and that is what this list used to be.
- *
- * The source is printed verbatim AND glossed (`fxSourceCopy`, opsLanguage §7). Verbatim
- * because it is the string stamped on every `usage_events` row the rate converted and
- * can never be re-stamped (hard rule 4), so it is what an operator matches in a
- * reconciliation; glossed because the string alone does not say whether the platform is
- * billing off the Indian benchmark. A source this bundle does not recognise — a rung
- * added after it was built — prints raw with no gloss rather than being called something
+ * directly, then FBIL through Frankfurter, then Frankfurter's own rate). Every source it
+ * fetched is stored, so "Recent publications" is a list of DIFFERENT SOURCES and not a
+ * list of the same one over time. The source is printed verbatim AND glossed
+ * (`fxSourceCopy`, opsLanguage §7): verbatim because it is the string stamped on every
+ * `usage_events` row the rate converted (hard rule 4), glossed because the string alone
+ * does not say whether the platform is billing off the Indian benchmark. A source this
+ * bundle does not recognise prints raw with no gloss rather than being called something
  * wrong.
  */
 
@@ -74,36 +71,53 @@ export function fxRateState(query: {
   return { status: "read", rate: query.data };
 }
 
-/** The headline sentence, chosen from the SERVER's state and never re-derived. */
+/** The one line under the rate: which rung it came from. From the SERVER's `basis`. */
+export function fxReason(rate: FxRate): string {
+  const date = rate.published_as_of ?? "an unknown date";
+  switch (rate.basis) {
+    case "published":
+      return `Published rate for ${date}, in force now.`;
+    case "stale_published":
+      return `Last published rate, for ${date}. Stale: no source has published for more than ${rate.max_age_days} days.`;
+    case "manual_override":
+      return "Your manual rate. The override is on, so the published rate is not used.";
+    case "manual_no_quote":
+      return "Your manual rate. No rate has been published yet.";
+  }
+}
+
+/** The headline notice, chosen from the SERVER's `basis` and never re-derived. */
 export function fxHeadline(rate: FxRate): {
   title: string;
   body: string;
   tone: "ok" | "warn";
 } {
-  if (rate.state === "live") {
-    // The age clause is DROPPED rather than filled in when the server did not send one.
-    // "fetched recently" would be this browser inventing a freshness claim, which is the
-    // one sentence on this panel an operator would act on — and a missing age must never
-    // render as a number either (a `0` here reads as "just now" and means "unknown").
-    const when = rate.age_label ? `, fetched ${rate.age_label}` : "";
-    return {
-      tone: "ok",
-      title: "Vendor costs are converting at the published rate",
-      body: `Published by ${rate.published_source ?? "the rate source"} for ${rate.published_as_of ?? "an unknown date"}${when}.`,
-    };
+  switch (rate.basis) {
+    case "published":
+      return {
+        tone: "ok",
+        title: "Vendor costs are converting at the published rate",
+        body: `Published by ${rate.published_source ?? "the rate source"} for ${rate.published_as_of ?? "an unknown date"}.`,
+      };
+    case "stale_published":
+      return {
+        tone: "warn",
+        title: "The published rate is out of date",
+        body: `Costs keep converting at the last published rate, from ${rate.published_as_of ?? "an unknown date"}, until a source publishes again. Check the last-checked time below: if it is old, the rate pull is not running.`,
+      };
+    case "manual_override":
+      return {
+        tone: "warn",
+        title: "Costs are converting at your manual rate",
+        body: "The manual override is on in Platform configuration. Switch it off to return to the published rate.",
+      };
+    case "manual_no_quote":
+      return {
+        tone: "warn",
+        title: "No rate has been published yet",
+        body: "Costs are converting at your manual rate. This is normal for the first few minutes after a deploy; if it persists, the rate pull is not running.",
+      };
   }
-  if (rate.state === "stale") {
-    return {
-      tone: "warn",
-      title: "The published rate is too old to use",
-      body: `The last one is from ${rate.published_as_of ?? "an unknown date"}, older than the ${rate.max_age_days}-day limit, so costs are converting at the fallback you set instead. Check that the rate pull is still running.`,
-    };
-  }
-  return {
-    tone: "warn",
-    title: "No rate has been pulled yet",
-    body: "Costs are converting at the fallback you set. This is normal for the first few minutes after a deploy; if it persists, the rate pull is not running.",
-  };
 }
 
 export function FxRatePanel() {
@@ -128,11 +142,12 @@ export function FxRatePanel() {
       <div className="space-y-4">
         <p className="text-body text-ink-muted">
           Your voice and model vendors bill in US dollars; everything you charge
-          and record is in rupees. This is the rate in between. It is pulled
-          automatically every five minutes from a published reference rate — the
-          underlying rate itself is set once each business day — and the value
-          you set under <MonoValue>usd_inr_rate</MonoValue> is the fallback used
-          whenever a fresh one is not available.
+          and record is in rupees. This is the rate in between. It is checked
+          automatically every five minutes against a published reference rate,
+          which itself changes once each business day. If no new rate has been
+          published, the last published one stays in force. The manual rate
+          under <MonoValue>usd_inr_rate</MonoValue> is used only before any rate
+          has been published, or while you have the override switched on.
         </p>
 
         {query.error && (
@@ -181,6 +196,8 @@ function FxSource({ source }: { source: string }) {
 
 function FxRateBody({ rate }: { rate: FxRate }) {
   const headline = fxHeadline(rate);
+  const manualInUse =
+    rate.basis === "manual_override" || rate.basis === "manual_no_quote";
   return (
     <div className="space-y-4">
       <div className="border-y border-line py-3">
@@ -192,11 +209,7 @@ function FxRateBody({ rate }: { rate: FxRate }) {
           <MonoValue>{rate.effective_rate}</MonoValue>
           <span className="text-body text-ink-muted">{rate.quote_currency}</span>
         </div>
-        <p className="mt-1 text-body text-ink-muted">
-          {rate.using_fallback
-            ? "This is the fallback you set, not a published rate."
-            : "This is the published rate, in force now."}
-        </p>
+        <p className="mt-1 text-body text-ink-muted">{fxReason(rate)}</p>
       </div>
 
       <NoticeBox
@@ -214,9 +227,27 @@ function FxRateBody({ rate }: { rate: FxRate }) {
       </NoticeBox>
 
       <dl className="grid grid-cols-2 gap-2 text-body">
-        <dt className="text-ink-muted">Fallback you set</dt>
+        <dt className="text-ink-muted">Last checked</dt>
         <dd>
-          <MonoValue>{rate.fallback_rate}</MonoValue>
+          {rate.last_checked_at ? (
+            <span>
+              {formatIST(rate.last_checked_at)}
+              {rate.last_checked_label && (
+                <span className="text-ink-muted">
+                  {" "}
+                  ({rate.last_checked_label})
+                </span>
+              )}
+            </span>
+          ) : (
+            <span className="text-ink-muted">not recorded yet</span>
+          )}
+        </dd>
+        <dt className="text-ink-muted">Published for</dt>
+        <dd>
+          {rate.published_as_of ?? (
+            <span className="text-ink-muted">none yet</span>
+          )}
         </dd>
         <dt className="text-ink-muted">Last published rate</dt>
         <dd>
@@ -234,14 +265,22 @@ function FxRateBody({ rate }: { rate: FxRate }) {
             <span className="text-ink-muted">none yet</span>
           )}
         </dd>
+        <dt className="text-ink-muted">Manual rate</dt>
+        <dd>
+          <MonoValue>{rate.manual_rate}</MonoValue>
+          <span className="text-ink-muted">
+            {manualInUse ? " (in use)" : " (not in use)"}
+          </span>
+        </dd>
       </dl>
 
       {rate.history.length > 0 && (
         <div>
-          <p className="text-body font-medium text-ink">Recent pulls</p>
+          <p className="text-body font-medium text-ink">Recent publications</p>
           <p className="mt-1 text-body text-ink-muted">
-            One row per source the pull actually asked. Several sources on one
-            day is the ladder working, not a fault.
+            One row per publication stored, with the time it was first seen. A
+            check that finds the same publication again adds no row, so these
+            times do not show how recently the rate was checked.
           </p>
           <ul className="mt-2 space-y-2 text-body">
             {rate.history.map((observation) => (

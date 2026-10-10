@@ -643,12 +643,11 @@ class Settings(BaseSettings):
     # margin figures), stamped with its source wherever it reaches a ledger row (hard
     # rule 7).
     #
-    # ⚠ THIS IS THE FALLBACK, NOT THE RATE. `apps/workers/fx_pull.py` pulls a PUBLISHED
-    # reference rate every five minutes into `fx_rate_observations` and `core/fx.
-    # usd_inr_rate_now` prefers it; the observation history is append-only. This value is
-    # used only when nothing has been pulled or the published rate has aged past
-    # `core/fx.MAX_QUOTE_AGE` — which is why it is still a number a human owns and still
-    # worth keeping accurate.
+    # THIS IS NORMALLY UNUSED. `apps/workers/fx_pull.py` pulls a PUBLISHED reference rate
+    # every five minutes into `fx_rate_observations`, and `core/fx.usd_inr_rate_now` uses
+    # the newest published rate whatever its age (labelled stale past
+    # `core/fx.MAX_QUOTE_AGE`). This typed value is used only when nothing has ever been
+    # published, or when `usd_inr_rate_override` below says to use it regardless.
     #
     # BOUNDED BECAUSE IT IS MONEY AND IT IS CONSOLE-SETTABLE. `0` is type-valid and
     # makes every dollar-quoted cost nothing — the platform bills zero and nobody
@@ -657,6 +656,12 @@ class Settings(BaseSettings):
     # would overcharge every client by 100x, and an ops console is exactly where that
     # keystroke happens.
     usd_inr_rate: Decimal = Field(default=Decimal("88.00"), gt=0, le=1000)
+    # An operator's explicit decision to convert at `usd_inr_rate` even while a published
+    # rate exists — for the day a published source is believed wrong. A separate switch
+    # rather than "the typed value wins whenever somebody set one", because the typed value
+    # has a default and an old console edit, and neither of those is a decision to override
+    # the market.
+    usd_inr_rate_override: bool = False
 
     # BYOK models — canonical stack per D-36: Sarvam does STT + LLM + TTS, and per D-127
     # it also does the FIRST post-call extraction, permanently, because that pass reads

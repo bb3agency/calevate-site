@@ -234,7 +234,7 @@ async def test_the_fx_rate_is_live_because_every_reader_resolves_it_at_use() -> 
     construction and `get_engine()` cached that adapter for the life of the process; a
     console change then reached `get_settings()` and not the conversion that stamped
     `usage_events.meta`. That adapter is gone (D-639) and every remaining reader calls
-    `usd_inr_rate_now(get_settings().usd_inr_rate)` at the point of use, so the label moved
+    `usd_inr_rate_now()` at the point of use, so the label moved
     with the behaviour. The label may not drift from the behaviour in either direction.
     """
     from apps.api.core.fx import usd_inr_rate_now
@@ -246,8 +246,8 @@ async def test_the_fx_rate_is_live_because_every_reader_resolves_it_at_use() -> 
     await _write("usd_inr_rate", "91.50", expected=await _revision("usd_inr_rate"))
     await pc.refresh(force=True)
     assert get_settings().usd_inr_rate == Decimal("91.50")
-    resolved = usd_inr_rate_now(get_settings().usd_inr_rate)
-    if resolved.as_of is None:  # no fresh published quote: the typed rate is what converts
+    resolved = usd_inr_rate_now()
+    if resolved.as_of is None:  # nothing published: the typed rate is what converts
         assert resolved.rate == Decimal("91.50")
     assert pc.applies_rule("usd_inr_rate").applies == pc.LIVE
 
