@@ -80,6 +80,80 @@ class BoundedByConstruction:
 
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
+    # --- the teach box and the improvement loop (founder decisions 9 and 11) ---------------
+    "GET /v1/kb/knows": BoundedByConstruction(
+        by=(
+            "facts capped by `teach.facts.MAX_FACTS` in the LIMIT, and uploads by "
+            "`kb.uploads.MAX_UPLOADS_PAGE` in theirs."
+        )
+    ),
+    "GET /v1/kb/struggles": BoundedByConstruction(
+        by="`teach.struggles.MAX_GAPS` open gaps plus `MAX_CALLS` calls, both in the LIMIT."
+    ),
+    "GET /v1/kb/teach/{teaching_id}": BoundedByConstruction(
+        by="one teaching's items, at most `workers.kb_teach.MAX_ITEMS` and 30 on save (`SaveIn`)."
+    ),
+    "POST /v1/kb/teach": BoundedByConstruction(
+        by="the same one teaching as `GET /v1/kb/teach/{teaching_id}`."
+    ),
+    "POST /v1/kb/teach/upload": BoundedByConstruction(
+        by="the same one teaching as `GET /v1/kb/teach/{teaching_id}`."
+    ),
+    "POST /v1/kb/teach/{teaching_id}/words": BoundedByConstruction(
+        by="the same one teaching as `GET /v1/kb/teach/{teaching_id}`."
+    ),
+    "POST /v1/kb/teach/{teaching_id}/discard": BoundedByConstruction(
+        by="the same one teaching as `GET /v1/kb/teach/{teaching_id}`."
+    ),
+    "GET /v1/agents/{agent_id}/script/proposed-rules": BoundedByConstruction(
+        by="LIMIT 100, and `teach.rules.MAX_PENDING_RULES` pending per agent on write."
+    ),
+    "GET /v1/agents/{agent_id}/test-cases": BoundedByConstruction(
+        by=(
+            "`teach.test_cases.MAX_CASES_PER_AGENT` (refused on write, and the LIMIT), each "
+            "with at most `MAX_CASE_LINES` lines and as many answers."
+        )
+    ),
+    "POST /v1/agents/{agent_id}/test-cases/run": BoundedByConstruction(
+        by="the same list as `GET /v1/agents/{agent_id}/test-cases`."
+    ),
+    "POST /v1/agents/{agent_id}/test-cases": BoundedByConstruction(
+        by="one test case: at most `MAX_CASE_LINES` lines (CHECK and `TestCaseIn`)."
+    ),
+    "POST /v1/calls/{call_id}/test-case": BoundedByConstruction(
+        by="one test case: at most `MAX_CASE_LINES` lines (CHECK and `TestCaseIn`)."
+    ),
+    "GET /v1/calls/{call_id}/test-case-draft": BoundedByConstruction(
+        by="the call's first `teach.models.MAX_CASE_LINES` caller turns, in the LIMIT."
+    ),
+    # --- founder decision 15: business-neutral lead details --------------------------------
+    "GET /v1/lead-fields": BoundedByConstruction(
+        by=(
+            "the fixed core (`calevate_shared.lead_fields.CORE_LEAD_FIELDS`), one type's "
+            "standard set from `scripts/seed`, the draft's at most `MAX_DRAFTED_FIELDS`, and "
+            "agents capped by `agents.lead_fields.MAX_AGENTS` in the LIMIT, each holding at "
+            "most `extraction_routes.MAX_EXTRACTION_FIELDS` fields (refused on write)."
+        )
+    ),
+    "GET /v1/admin/tenants/{tenant_id}/lead-fields": BoundedByConstruction(
+        by="the same render as `GET /v1/lead-fields`, for one named tenant."
+    ),
+    "POST /v1/lead-fields/draft": BoundedByConstruction(
+        by=(
+            "the one draft row, whose fields are at most "
+            "`workers.lead_fields_draft.MAX_DRAFTED_FIELDS`."
+        )
+    ),
+    "POST /v1/admin/tenants/{tenant_id}/lead-fields/draft": BoundedByConstruction(
+        by="the same one draft row as `POST /v1/lead-fields/draft`."
+    ),
+    "GET /v1/leads/{lead_id}/captured": BoundedByConstruction(
+        by=(
+            "one lead's own captured values: the core plus the fields of the version that "
+            "captured them, and any other key in `leads.data`, which only an extraction "
+            "against one of the agent's schemas (each at most `MAX_EXTRACTION_FIELDS`) writes."
+        )
+    ),
     # --- D-701 the auto-healer --------------------------------------------------------------
     "GET /v1/ops/healer": BoundedByConstruction(
         by="one row per playbook in `healer.playbooks.PLAYBOOKS`, a fixed registry in code."
@@ -554,6 +628,44 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/agents/{agent_id}/script/assist": BoundedByConstruction(
         by="one drafted `CallScript`, whose lists carry the same `calevate_shared.call_script` "
         "`max_length` ceilings as the loaded script above — never a caller's row count."
+    ),
+    "POST /v1/agents/{agent_id}/script/versions/{version}/restore": BoundedByConstruction(
+        by="one version copied into the draft: a `CallScript` under the same "
+        "`calevate_shared.call_script` `max_length` ceilings as `GET .../script`."
+    ),
+    "POST /v1/agents/{agent_id}/script/convert": BoundedByConstruction(
+        by="one proposed `CallScript` (the `call_script` ceilings) and `unplaced`, lines of "
+        "the one prompt being converted: `ConvertIn.raw_text` is capped at 20,000 "
+        "characters and only lines of three words or more are listed."
+    ),
+    "POST /v1/agents/{agent_id}/script/tests": BoundedByConstruction(
+        by="one run's `results`, one per scenario in `agents.test_conversations.SCENARIOS`, "
+        "a code constant — never a count of the client's rows."
+    ),
+    # Calling setup (D-716): one plan per client.
+    "GET /v1/lead-calling": BoundedByConstruction(
+        by="one client's plan: `days` is at most the seven weekdays, `holidays` at most 60 "
+        "(`LeadCallingIn` max_length and `lead_policy.validated`), `always_applied` the "
+        "`policy_routes.ALWAYS_APPLIED` constant."
+    ),
+    "PUT /v1/lead-calling": BoundedByConstruction(
+        by="the same one plan as `GET /v1/lead-calling`, read back after the save."
+    ),
+    # Studio per-client BYOK (D-717): an operator's switch-off decision reads the whole set.
+    "GET /v1/ops/voices/studio-voices": BoundedByConstruction(
+        by="`missing` is at most the five readiness steps in `StudioReadiness.missing`; "
+        "`workspaces` is one row per signed client running Studio in its own workspace "
+        "(`tenancy.engine_workspace.studio_workspaces`, LIMIT 1000), bounded by the clients "
+        "we provision rather than by anything a client mints. A page would hide a workspace "
+        "from the operator deciding whether the developer switch can go off."
+    ),
+    "POST /v1/ops/voices/studio-voices/enable": BoundedByConstruction(
+        by="the same `StudioVoicesOut` as `GET /v1/ops/voices/studio-voices`, re-read after "
+        "the switch."
+    ),
+    "POST /v1/ops/voices/studio-voices/disable": BoundedByConstruction(
+        by="the same `StudioVoicesOut` as `GET /v1/ops/voices/studio-voices`, re-read after "
+        "the switch."
     ),
     "GET /v1/billing/topups/packs": BoundedByConstruction(
         by="`packs` is one row per member of `billing.credit_packs.PACK_CATALOGUE`, a static "

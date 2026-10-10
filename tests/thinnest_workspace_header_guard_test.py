@@ -226,6 +226,15 @@ def _tenant_ops(rec: Recorder) -> list[Callable[[], Awaitable[Any]]]:
         lambda: scoped(lambda: engine.find_voice_clone("v")),
         lambda: scoped(lambda: engine.delete_voice_clone("c")),
         lambda: scoped(engine.own_key_state),
+        lambda: scoped(engine.list_own_key_voices),
+        lambda: scoped(
+            lambda: engine.preview_own_key_voice(voice_id="v", text=None, language=None)
+        ),
+        lambda: scoped(
+            lambda: engine.install_own_voice_key(provider="cartesia", api_key="k", model=None)
+        ),
+        lambda: scoped(engine.enable_own_voice_key),
+        lambda: scoped(engine.disable_own_voice_key),
         lambda: scoped(engine.list_hosted_voices),
         lambda: numbers.get_number(number),
         lambda: numbers.attach(number, agent=AGENT, calling_agent=None),
@@ -276,7 +285,6 @@ async def test_our_own_accounts_calls_carry_no_header() -> None:
     customers = ThinnestCustomers(api_key="ta_live_test", client=_http(rec))
     for op in (
         engine.own_key_state,
-        engine.enable_own_voice_key,
         engine.disable_own_voice_key,
         lambda: engine.install_own_voice_key(provider="cartesia", api_key="k", model=None),
         engine.read_catalogue,
@@ -291,3 +299,17 @@ async def test_our_own_accounts_calls_carry_no_header() -> None:
             await op()
     assert rec.seen
     assert [s for s in rec.seen if s[2] is not None] == []
+
+
+async def test_our_developer_workspace_byok_switch_is_never_turned_on() -> None:
+    """D-717: our developer workspace only HOLDS the Cartesia key; switching it on would let
+    every client without a key of its own inherit it (bring-your-own-keys.md:129-133). The
+    adapter refuses before any request; inside a client's workspace it is sent there."""
+    rec = Recorder()
+    engine = ThinnestEngine(api_key="ta_live_test", client=_http(rec))
+    with pytest.raises(WorkspaceScopeError):
+        await engine.enable_own_voice_key()
+    assert rec.seen == []
+    with in_workspace(WS), contextlib.suppress(ProblemError):
+        await engine.enable_own_voice_key()
+    assert ("PATCH", "/byok", WS) in rec.seen

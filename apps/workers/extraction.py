@@ -110,10 +110,12 @@ from calevate_shared.engine import (
     azure_openai_base_url,
 )
 from calevate_shared.extraction import (
+    OUTCOME_HINTS,
     ExtractionField,
     ExtractionOutput,
     ExtractionSchemaSpec,
     build_extraction_prompt,
+    clip_headline,
     validate_extraction,
 )
 
@@ -122,6 +124,7 @@ from apps.api.core.alerting import record_extraction_failure
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from apps.api.crm.outcomes import hint_of
 from apps.workers import chat
 from apps.workers.chat import TokenUsage, usage_from_body
 from apps.workers.redaction import redact
@@ -360,16 +363,15 @@ _AZURE_TYPES: Final[dict[str, str]] = {
     "date": "string",
 }
 
-#: The five keys every extraction returns regardless of schema (TRD §7). NOT nullable:
+#: The keys every extraction returns regardless of schema (TRD §7). NOT nullable:
 #: these are what `ExtractionOutput` always carries, and a model omitting one is a
 #: malformed answer rather than an empty field.
 _AZURE_FIXED_PROPERTIES: Final[dict[str, dict[str, Any]]] = {
     "summary": {"type": "string"},
+    "headline": {"type": "string"},
+    "next_step": {"type": "string"},
     "sentiment": {"type": "string", "enum": ["positive", "neutral", "negative"]},
-    "outcome_tag": {
-        "type": "string",
-        "enum": ["resolved", "needs_follow_up", "transferred", "dropped"],
-    },
+    "outcome_tag": {"type": "string", "enum": list(OUTCOME_HINTS)},
     "out_of_scope": {"type": "boolean"},
     "callback_requested": {"type": "boolean"},
 }
@@ -864,7 +866,37 @@ class OfflineExtractor:
         re.IGNORECASE,
     )
     _NEGATIVE = ("complaint", "angry", "worst", "refund", "cheating", "bad")
-    _CALLBACK = ("call me back", "callback", "malli call", "tarvata call")
+    # "Call me back" as callers say it here, in Latin letters and in Telugu and Devanagari
+    # script: the STT writes whichever script it heard, so the Telugu-script request and
+    # "call back" are the same request (first-call review F-4: the Telugu one was missed
+    # and the call read "resolved"). A STOPGAP list, not comprehension; the model reads
+    # meaning.
+    _CALLBACK = (
+        "call me back",
+        "call back",
+        "callback",
+        "call cheyyandi",
+        "call cheyandi",
+        "malli call",
+        "tarvata call",
+        "taruvata call",
+        "baad mein call",
+        "baad me call",
+        "wapas call",
+        "vapas call",
+        "\u0c15\u0c3e\u0c32\u0c4d \u0c2c\u0c4d\u0c2f\u0c3e\u0c15\u0c4d",
+        "\u0c15\u0c3e\u0c32\u0c4d \u0c1a\u0c47\u0c2f\u0c02\u0c21\u0c3f",
+        "\u0c15\u0c3e\u0c32\u0c4d \u0c1a\u0c46\u0c2f\u0c4d\u0c2f\u0c02\u0c21\u0c3f",
+        "\u0c15\u0c3e\u0c32\u0c4d \u0c1a\u0c47\u0c2a\u0c3f\u0c02\u0c1a\u0c02\u0c21\u0c3f",
+        "\u0c2e\u0c33\u0c4d\u0c33\u0c40 \u0c15\u0c3e\u0c32\u0c4d",
+        "\u0c2e\u0c33\u0c4d\u0c32\u0c40 \u0c15\u0c3e\u0c32\u0c4d",
+        "\u0c24\u0c30\u0c4d\u0c35\u0c3e\u0c24 \u0c15\u0c3e\u0c32\u0c4d",
+        "\u0915\u0949\u0932 \u092c\u0948\u0915",
+        "\u0935\u093e\u092a\u0938 \u0915\u0949\u0932",
+        "\u092c\u093e\u0926 \u092e\u0947\u0902 \u0915\u0949\u0932",
+        "\u092b\u093f\u0930 \u0938\u0947 \u0915\u0949\u0932",
+        "\u0915\u0949\u0932 \u0915\u0940\u091c\u093f\u090f",
+    )
     # Negation triggers, Telugu · Hindi · English, word-bounded. A candidate value named
     # inside a clause that carries one of these is a caller REFUSING or RETRACTING the
     # thing, which is the opposite of the fact we would otherwise record.
@@ -1109,26 +1141,27 @@ class OfflineExtractor:
                 if value:
                     data[field.key] = value
 
-        all_lines = [ln for ln in transcript.splitlines() if ln.strip()]
+        callback = any(w in lowered for w in self._CALLBACK)
         return {
             **data,
-            # A TRANSCRIPT LINE, VERBATIM — speaker prefix and all. That is honest for a
-            # deterministic baseline ("reads what the transcript literally says") and it
-            # is why `calls.summary` is treated as transcript-derived text on every exit
-            # rather than as a safely abstracted field: the API read path redacts it
-            # (`crm.service.redacted_summary`), the outbound webhook redacts it
-            # (`workers/pipeline`), the hot-lead notification redacts it
-            # (`notifications._compose`) and the DPDP export masks foreign numbers out of
-            # it (`compliance/export`). Making this abstractive would NOT retire any of
-            # those: the model path writes free prose that can quote a number the caller
-            # read out, and every summary already stored would keep whatever it holds.
-            "summary": (all_lines[-1][:200] if all_lines else "No transcript available."),
+            # NO SUMMARY, NO HEADLINE. This runner cannot write prose about a call, and the
+            # last transcript line it used to put here was read on the call list as the
+            # summary (first-call review F-6). Empty is what the screen shows as "no
+            # summary"; the engine's own summary, when there is one, takes the place.
+            "summary": "",
+            "headline": "",
+            "next_step": "",
             "sentiment": "negative" if any(w in lowered for w in self._NEGATIVE) else "neutral",
+            # What the words show, read as shallowly as this runner reads everything: a
+            # call-back request is `needs_you`, a caller who said nothing never got a
+            # conversation, and a caller who spoke and asked for nothing reads as
+            # `answered`. The facts outrank all three (`crm/outcomes.derive_outcome`):
+            # a booked call back reads as one whatever this says.
             "outcome_tag": (
-                "needs_follow_up" if any(w in lowered for w in self._CALLBACK) else "resolved"
+                "needs_you" if callback else ("answered" if caller_turns else "hung_up_early")
             ),
             "out_of_scope": False,
-            "callback_requested": any(w in lowered for w in self._CALLBACK),
+            "callback_requested": callback,
         }
 
 
@@ -1942,9 +1975,9 @@ def _nothing_was_said(spec: ExtractionSchemaSpec) -> ExtractionOutput:
     so this row is byte-identical to the one a perfectly behaved model would have
     produced, minus the round trip.
 
-    `outcome_tag` is `dropped` rather than `resolved`: a call with no transcript resolved
-    nothing, and `resolved` is what the CRM fan-out publishes to the client's own system.
-    `sentiment` stays `neutral`, which is what "we cannot tell" has always meant here.
+    `outcome_tag` is `hung_up_early`: nobody said anything, so no conversation happened.
+    `derive_outcome` still turns a call that never connected into `missed`. `sentiment`
+    stays `neutral`, which is what "we cannot tell" has always meant here.
 
     NOT a `_model` error. `pipeline._settled_extraction` refuses to reuse a row carrying
     one, because that code means "the provider never answered and a retry is the repair" —
@@ -1956,19 +1989,46 @@ def _nothing_was_said(spec: ExtractionSchemaSpec) -> ExtractionOutput:
         data=outcome.data,
         summary="",
         sentiment="neutral",
-        outcome_tag="dropped",
+        outcome_tag="hung_up_early",
         valid=outcome.valid,
         errors=outcome.errors,
         needs_review=outcome.needs_review,
     )
 
 
+#: A leading speaker label: "agent: ..." is a transcript line, not prose about the call.
+_TRANSCRIPT_LINE_RE: Final = re.compile(
+    r"^\s*(agent|caller|assistant|customer|user|bot)\s*:", re.IGNORECASE
+)
+
+
+def _prose(value: object, *, limit: int) -> str:
+    """A model's free-text answer, trimmed and bounded; "" for anything that is not prose.
+
+    A string opening with a speaker label is a transcript line copied back, the failure
+    that put the agent's last words on the call list as a summary (F-6), so it is dropped
+    rather than shown as one.
+    """
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    if not text or _TRANSCRIPT_LINE_RE.match(text):
+        return ""
+    return text[:limit]
+
+
 def _provider_of(runner: Extractor) -> str | None:
-    """Which provider a runner calls, for `provider_health`; None for one that calls none."""
-    if isinstance(runner, SarvamExtractor):
-        return SARVAM_PROVIDER
-    if isinstance(runner, AzureOpenAIExtractor):
-        return AZURE_PROVIDER
+    """Which provider a runner calls, for `provider_health`; None for one that calls none.
+
+    The module names are read at call time and may be a stand-in constructor rather than
+    the class (the Azure tests patch `AzureOpenAIExtractor` with a factory), so only a
+    name that is still a class is asked; `isinstance` against a function raises."""
+    for kind, provider in (
+        (SarvamExtractor, SARVAM_PROVIDER),
+        (AzureOpenAIExtractor, AZURE_PROVIDER),
+    ):
+        if isinstance(kind, type) and isinstance(runner, kind):
+            return provider
     return None
 
 
@@ -2028,16 +2088,14 @@ async def extract_call(
         record_extraction_failure(reason="schema_validation")
 
     sentiment = raw.get("sentiment")
-    outcome_tag = raw.get("outcome_tag")
     return ExtractionOutput(
         data=outcome.data,
-        summary=str(raw.get("summary") or "")[:2000],
+        summary=_prose(raw.get("summary"), limit=2000),
+        headline=clip_headline(_prose(raw.get("headline"), limit=400)),
+        next_step=_prose(raw.get("next_step"), limit=300),
         sentiment=sentiment if sentiment in ("positive", "neutral", "negative") else "neutral",
-        outcome_tag=(
-            outcome_tag
-            if outcome_tag in ("resolved", "needs_follow_up", "transferred", "dropped")
-            else "resolved"
-        ),
+        # Unknown is None, never a verdict (first-call review F-4).
+        outcome_tag=hint_of(raw.get("outcome_tag")),
         out_of_scope=bool(raw.get("out_of_scope")),
         callback_requested=bool(raw.get("callback_requested")),
         valid=outcome.valid,

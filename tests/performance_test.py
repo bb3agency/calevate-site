@@ -67,7 +67,7 @@ async def _call(
 
 async def test_voicemail_and_no_answer_are_dials_not_conversations() -> None:
     tenant_id, agent_id = await _tenant()
-    await _call(tenant_id, agent_id, status="completed", duration_s=120, outcome="resolved")
+    await _call(tenant_id, agent_id, status="completed", duration_s=120, outcome="answered")
     await _call(tenant_id, agent_id, status="no_answer")
     await _call(tenant_id, agent_id, status="voicemail")
     await _call(tenant_id, agent_id, status="busy")
@@ -78,7 +78,7 @@ async def test_voicemail_and_no_answer_are_dials_not_conversations() -> None:
     assert result["funnel"]["calls"] == 4
     assert result["funnel"]["connected"] == 1, "voicemail/no-answer/busy do not inflate this"
     assert result["connect_rate_pct"] == 25
-    assert result["outcomes"]["resolved"] == 1
+    assert result["outcomes"]["answered"] == 1
     assert result["outcomes"]["no_answer"] == 1, "un-tagged calls report their status honestly"
 
 

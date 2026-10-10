@@ -502,7 +502,7 @@ async def test_the_crm_event_never_carries_an_unredacted_summary() -> None:
             data={"intent": "book"},
             summary="Caller Ravi asked us to call 9876543210 back about a booking.",
             sentiment="neutral",
-            outcome_tag="needs_follow_up",
+            outcome_tag="needs_you",
         )
 
     import apps.workers.pipeline as pipeline_module

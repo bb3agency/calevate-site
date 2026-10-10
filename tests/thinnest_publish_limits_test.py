@@ -93,7 +93,8 @@ def _refusal(engine: FakeEngine, cfg: AgentConfig) -> ProblemError:
 
 
 def test_the_limits_are_the_documented_field_ceilings() -> None:
-    assert THINNEST_LIMITS.prompt_chars == 20_000
+    # 8,000: the console's ceiling, below the API reference's 20,000 (D-714).
+    assert THINNEST_LIMITS.prompt_chars == 8_000
     assert THINNEST_LIMITS.greeting_chars == 200
     assert THINNEST_LIMITS.call_opening_chars == 300
     assert THINNEST_LIMITS.call_opening_required is True
@@ -120,16 +121,16 @@ def test_a_prompt_that_fits_passes() -> None:
 
 
 def test_a_prompt_over_the_ceiling_is_refused_with_the_numbers_to_cut() -> None:
-    cfg = _cfg(system_prompt="word " * 4_200)
+    cfg = _cfg(system_prompt="word " * 1_800)
     composed = len(compose_engine_prompt(cfg))
-    assert composed > 20_000
+    assert composed > 8_000
     problem = _refusal(_thinnest(), cfg)
     assert problem.code == PROMPT_TOO_LONG
     assert problem.status == 422
-    assert f"{composed:,}" in problem.detail and "20,000" in problem.detail
-    assert f"{composed - 20_000:,}" in (problem.remediation or "")
+    assert f"{composed:,}" in problem.detail and "8,000" in problem.detail
+    assert f"{composed - 8_000:,}" in (problem.remediation or "")
     # The room left for the script is exact: a script that long fits, one longer does not.
-    room = 20_000 - (composed - len(cfg.system_prompt.strip()))
+    room = 8_000 - (composed - len(cfg.system_prompt.strip()))
     assert f"{room:,}" in (problem.remediation or "")
     refuse_over_engine_limits(_thinnest(), _cfg(system_prompt="w" * room))
     with pytest.raises(ProblemError):

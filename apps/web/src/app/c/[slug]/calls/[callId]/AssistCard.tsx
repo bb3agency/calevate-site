@@ -1,10 +1,9 @@
 "use client";
 
-import { Section } from "@/components/console/section";
 import { useState } from "react";
-import { Sparkles } from "lucide-react";
 
 import {
+  Disclosure,
   NoticeBox,
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
@@ -77,28 +76,29 @@ export function AssistCard({ session, callId }: { session: Session; callId: stri
   const [asking, setAsking] = useState(false);
 
   return (
-    <Section
-      title="Ask the assistant"
-      info={
-        <p>
-          Read this call again with the AI assistant and write a fresh summary. It reads
-          the redacted transcript only, and it does not change anything already saved
-          against this call.
-        </p>
-      }
+    // Behind a disclosure (UX-DOCTRINE §3): rarely used, low consequence, and it spends the
+    // client's AI allowance, so it is offered rather than put in the reader's way. The
+    // closed state says what is inside.
+    <Disclosure
+      variant="inline"
+      title="A second reading of this call"
+      className="border-t border-line"
     >
-      <div className="space-y-3">
+      <div className="space-y-3 pb-3">
+        <p className="text-meta text-ink-muted">
+          The assistant reads the redacted transcript again and writes a fresh summary beside
+          the one above. It uses your AI allowance and changes nothing already saved.
+        </p>
 
         <RestrictionNote reason={write.reason} />
 
         <button
           type="button"
-          className={`${SECONDARY_BUTTON} w-full justify-center`}
+          className={SECONDARY_BUTTON}
           disabled={!write.allowed || assist.isPending}
           onClick={() => assist.mutate()}
         >
-          <Sparkles className="mr-2 inline h-4 w-4" />
-          {assist.isPending ? "Reading the call…" : "Re-summarise with AI"}
+          {assist.isPending ? "Reading the call…" : "Write a second reading"}
         </button>
 
         {/* Loading is a skeleton. Not a spinner in the button alone: the answer lands in
@@ -131,7 +131,7 @@ export function AssistCard({ session, callId }: { session: Session; callId: stri
 
         {assist.data && <AssistAnswer answer={assist.data} />}
       </div>
-    </Section>
+    </Disclosure>
   );
 }
 
@@ -241,7 +241,7 @@ function CeilingOffer({
         <div role="status" className="mt-3">
           <p>
             AI help is available again for the rest of {buy.data.month}. Press
-            &ldquo;Re-summarise with AI&rdquo; to try again.
+            &ldquo;Write a second reading&rdquo; to try again.
           </p>
         </div>
       )}

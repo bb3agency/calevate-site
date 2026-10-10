@@ -8,7 +8,14 @@ import type { AgentWithLlm, ClientLlmDefaults } from "@/lib/api/llmModels";
 import type { PendingState } from "@/lib/api/publishing";
 
 import { problem, renderClientPage, stillLoading } from "./harness";
-import { LANES, clientLlmTiers, voiceCatalogue } from "./fixtures/sharedReads";
+import {
+  AGENT_SPEND_PATH,
+  LANES,
+  agentScript,
+  clientLlmTiers,
+  spendThisMonth,
+  voiceCatalogue,
+} from "./fixtures/sharedReads";
 
 // An agent's own model is in the workspace's Advanced section (D-657); the settings page
 // reads no section, so the one mock serves both screens in this file.
@@ -435,6 +442,7 @@ function agentRoutes(over: Record<string, unknown> = {}) {
     "/v1/me": OWNER,
     "/v1/agents/agent-1": agent(),
     "/v1/agents/agent-1/pending": pending,
+    "/v1/agents/agent-1/script": agentScript(),
     "/v1/kb/sources": [],
     "/v1/organization/llm-defaults": defaults(),
     // The other panels this screen mounts, stubbed so the only alert is the model panel's.
@@ -464,6 +472,8 @@ function agentRoutes(over: Record<string, unknown> = {}) {
     },
     "/v1/agents/voices": voiceCatalogue("client"),
     "/v1/agents/lanes": LANES,
+    // The header's "spent this month" line (owners hold billing:read).
+    [AGENT_SPEND_PATH]: spendThisMonth(),
     ...over,
   };
 }

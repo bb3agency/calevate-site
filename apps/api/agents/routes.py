@@ -51,6 +51,7 @@ from uuid import UUID
 
 from calevate_shared.engine import LlmTier
 from calevate_shared.extraction import OutcomeTag
+from calevate_shared.lead_fields import with_core
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi import status as http_status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -65,6 +66,7 @@ from apps.api.agents import lifecycle, roster, starters
 # handler on purpose (`core/errors._LIBRARY_PHRASINGS`), so a bare Literal here refuses
 # `xx-IN` with a field name and no reason.
 from apps.api.agents.languages import OfferedLanguage
+from apps.api.agents.lead_fields import starting_business_fields
 from apps.api.agents.llm_tiers import engine_model_from_client, resolve_tier_choice
 from apps.api.agents.models import (
     CALL_CAP_MAX_S,
@@ -205,7 +207,12 @@ async def list_starters(
     if org is None:
         raise ProblemError.not_found("Account")
     vertical = starters.vertical_of(org[1])
-    labels = [str(field["label"]) for field in starters.captured_fields(vertical)]
+    # What a new agent of THIS account captures: the core, then the account's own business
+    # fields (`agents/lead_fields`), the same set `starters.apply_starter` writes.
+    business = await starting_business_fields(
+        session, tenant_id=principal.tenant_id, vertical=None if org[1] is None else str(org[1])
+    )
+    labels = [field.label for field in with_core(business)]
     jobs = starters.STARTER_JOBS if job is None else (job,)
     return StartersOut(
         vertical=vertical,

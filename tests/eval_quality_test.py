@@ -117,8 +117,8 @@ def _invent_urgency(raw: dict[str, Any], transcript: str) -> dict[str, Any]:
 
 
 def _always_resolved(raw: dict[str, Any], transcript: str) -> dict[str, Any]:
-    """Outcome drives the hot-lead rules; every call 'resolved' means no follow-up."""
-    raw["outcome_tag"] = "resolved"
+    """Outcome drives the hot-lead rules; every call 'answered' means no follow-up."""
+    raw["outcome_tag"] = "answered"
     return raw
 
 
@@ -181,7 +181,7 @@ def _only_baselined_cases(raw: dict[str, Any], transcript: str) -> dict[str, Any
     waiver meant these fixtures were scored and then ignored.
     """
     if any(marker in transcript for marker in ("Ravi Kumar", "Suresh", "Anjali")):
-        return {"name": "Ramesh", "urgency": "urgent", "outcome_tag": "dropped"}
+        return {"name": "Ramesh", "urgency": "urgent", "outcome_tag": "hung_up_early"}
     return raw
 
 

@@ -238,7 +238,7 @@ async def build_subject_export(
         await session.execute(
             text(
                 "SELECT id, direction, started_at, duration_s, outcome_tag, summary, "
-                "(recording_url IS NOT NULL) FROM calls "
+                "(recording_url IS NOT NULL), summary_local, headline, next_step FROM calls "
                 "WHERE from_e164 = :phone OR to_e164 = :phone "
                 "ORDER BY started_at ASC NULLS LAST, id ASC"
             ),
@@ -254,6 +254,11 @@ async def build_subject_export(
             "duration_s": row[3],
             "outcome_tag": row[4],
             "summary": mask_foreign_numbers(row[5], subject_phone=phone_e164),
+            # The same summary in the call's language and the two one-liners: model prose
+            # about the subject's call, so it is theirs to read, masked the same way.
+            "summary_local": mask_foreign_numbers(row[7], subject_phone=phone_e164),
+            "headline": mask_foreign_numbers(row[8], subject_phone=phone_e164),
+            "next_step": mask_foreign_numbers(row[9], subject_phone=phone_e164),
             # A boolean, not a link (decision 2). The audited recording endpoint is the
             # only way to the bytes.
             "recording_available": bool(row[6]),

@@ -10,10 +10,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import type { Agent } from "@/lib/api/agents";
 import type { PendingState } from "@/lib/api/publishing";
+import { EMPTY_SCRIPT } from "@/lib/api/script";
 
 import { problem, renderClientPage } from "./harness";
 import { businessProfileFixture } from "./businessProfileFixture";
-import { LANES, LEGAL_READY, clientLlmTiers, prepaidWallet, voiceCatalogue } from "./fixtures/sharedReads";
+import {
+  AGENT_SPEND_PATH,
+  LANES,
+  LEGAL_READY,
+  clientLlmTiers,
+  prepaidWallet,
+  spendThisMonth,
+  voiceCatalogue,
+} from "./fixtures/sharedReads";
 
 /*
  * THE WORKSPACE IS A SETTINGS LAYOUT (D-657): one section is mounted at a time, chosen by
@@ -228,7 +237,7 @@ const STAGED: PendingState = settled({
       staged_version: 9,
       live_version: 4,
       staged_at: "2026-08-12T09:30:00Z",
-      headline: "Script v9 is waiting to go live (callers currently hear v4).",
+      headline: "Script changes are waiting to go live.",
       why: "The script decides what the agent says, and a bad version is discovered by a customer on the phone. It waits for Apply.",
     },
   ],
@@ -311,6 +320,8 @@ function routes(over: Record<string, unknown> = {}) {
     // both are read on this screen, and an unanswered read is a stray `role="alert"`.
     "/v1/agents/voices": voiceCatalogue("client"),
     "/v1/agents/lanes": LANES,
+    // The header's "spent this month" line (owners hold billing:read).
+    [AGENT_SPEND_PATH]: spendThisMonth(),
     // Overview's setup checklist reads the agreements and the script's version.
     "/v1/legal/readiness": LEGAL_READY,
     "/v1/billing/wallet": prepaidWallet(),
@@ -344,18 +355,17 @@ function factValue(label: string): string {
 }
 
 describe("which script callers are actually hearing", () => {
-  it("shows the staged version as waiting and the live version as live, not the reverse", async () => {
+  it("says a change is waiting and that callers keep what is live, with no version numbers", async () => {
     const { container } = await renderClientPage(
       page,
       routes({ "/v1/agents/agent-1/pending": STAGED }),
     );
 
     await screen.findByText("Changes waiting to go live");
-
-    // The whole feature in two assertions. v9 is staged and v4 is live; a screen that reads
-    // the pointers the wrong way round passes every other test in this file.
-    expect(factValue("Live version")).toBe("Version 4");
-    expect(factValue("Waiting to be applied")).toBe("Version 9");
+    // Founder decision (10 Oct 2026): owners see "live" and "waiting", never version numbers.
+    expect(container.textContent).toContain("Callers keep hearing what is live now until the change is put live");
+    expect(screen.queryByText("Live version")).toBeNull();
+    expect(screen.queryByText("Waiting to be applied")).toBeNull();
 
     // …and the sentence under the list must not re-attach "what callers hear" to the
     // version listed above it, which is the staged one. This exact phrasing shipped.
@@ -380,7 +390,7 @@ describe("which script callers are actually hearing", () => {
               staged_version: 1,
               live_version: null,
               staged_at: "2026-08-12T09:30:00Z",
-              headline: "Script v1 is waiting to go live.",
+              headline: "The script is waiting to go live.",
               why: "It waits for Apply.",
             },
           ],
@@ -389,8 +399,7 @@ describe("which script callers are actually hearing", () => {
     );
 
     await screen.findByText("Changes waiting to go live");
-    expect(factValue("Live version")).toBe("None yet");
-    expect(factValue("Waiting to be applied")).toBe("Version 1");
+    expect(container.textContent).not.toContain("Version 1");
     expect(container.textContent).not.toContain("v0");
   });
 
@@ -1358,17 +1367,23 @@ describe("editing what an agent captures (the extraction variables)", () => {
   });
 });
 
-describe("applying a staged script from the header (D-657)", () => {
-  it("offers the owner Apply on the client-realm door, CAS on the staged version", async () => {
-    // CHANGED with D-657: this test used to assert there was NO Apply here, on the premise
-    // that applying is admin-only. The client realm has its own door —
-    // `POST /v1/agents/{id}/script/apply`, `org:manage` (`script_routes.py`), the one the
-    // builder already used — so the workspace header now offers it, CAS on the staged
-    // version the banner shows.
+describe("putting a waiting script live from the header", () => {
+  it("offers the owner Put it live on the client-realm door, CAS on the waiting version", async () => {
+    // CHANGED 10 Oct 2026 (founder: one "Put it live", no Save → Apply): the header's
+    // primary is "Put it live", shown while the script differs from what callers hear. A
+    // change saved the older way and still waiting goes through `POST .../script/apply`,
+    // CAS on the version the owner was shown.
     const { calls } = await renderClientPage(
       page,
       routes({
         "/v1/agents/agent-1/pending": STAGED,
+        "/v1/agents/agent-1/script": {
+          script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram." },
+          version: 9,
+          is_freeform: false,
+          has_pending: true,
+          standard_variables: [],
+        },
         "POST /v1/agents/agent-1/script/apply": {
           applied: true,
           live_version: 9,
@@ -1378,20 +1393,24 @@ describe("applying a staged script from the header (D-657)", () => {
     );
 
     await screen.findByText("Changes waiting to go live");
-    const apply = screen.getByRole("button", { name: "Apply changes" });
-    await waitFor(() => expect(apply.hasAttribute("disabled")).toBe(false));
+    const open = await screen.findByRole("button", { name: "Put it live" });
+    await waitFor(() => expect(open.hasAttribute("disabled")).toBe(false));
     await act(async () => {
-      fireEvent.click(apply);
+      fireEvent.click(open);
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Put these changes live?" });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Put it live" }));
     });
     const posted = calls.find((call) => call.path === "/v1/agents/agent-1/script/apply");
     expect(posted?.method).toBe("POST");
     expect(JSON.parse(posted?.body ?? "{}")).toEqual({ expected_version: 9 });
   });
 
-  it("offers no Apply when nothing is waiting", async () => {
+  it("offers no Put it live when nothing is waiting", async () => {
     await renderClientPage(page, routes());
     await screen.findByText("Reception");
-    expect(screen.queryByRole("button", { name: /^apply/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /put it live/i })).toBeNull();
   });
 
   it("issues no admin-realm request from a client screen", async () => {
@@ -1460,21 +1479,25 @@ const SWITCHED_OFF = {
 };
 
 describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
-  // CHANGED with D-657: the moves left the stacked "Switching it on and off" card. The one
-  // that moves an agent forward is the header's primary; Switch off is in the header's ⋯
-  // menu; Delete, with its consequences, is in Advanced. The server's transition table is
-  // what each test still pins.
+  // CHANGED 10 Oct 2026: on and off are one "Taking calls" switch in the header (it was a
+  // primary button and a ⋯ menu item); Delete, with its consequences, is in Settings. The
+  // server's transition table is what each test still pins.
   it("offers a live agent only the moves the server's transition table allows", async () => {
-    await renderClientPage(page, routes());
+    const { calls } = await renderClientPage(page, routes({
+      "POST /v1/agents/agent-1/deactivate": { agent_id: "agent-1", status: "paused", changed: true },
+    }));
 
     await screen.findByText("Reception");
-    // `live -> {paused}` ONLY (lifecycle.AGENT_TRANSITIONS).
-    expect(screen.queryByRole("button", { name: "Switch on" })).toBeNull();
+    // `live -> {paused}` ONLY (lifecycle.AGENT_TRANSITIONS): the switch is on, and turning
+    // it off is the one move.
+    const toggle = screen.getByRole("switch", { name: "Taking calls" }) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
     expect(screen.queryByRole("button", { name: "Bring it back" })).toBeNull();
+    await waitFor(() => expect(toggle.disabled).toBe(false));
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "More actions for Reception" }));
+      fireEvent.click(toggle);
     });
-    expect(await screen.findByRole("menuitem", { name: /Switch off/ })).toBeTruthy();
+    expect(calls.find((call) => call.method === "POST")?.path).toBe("/v1/agents/agent-1/deactivate");
   });
 
   it("will not offer to delete a working agent, and says the one thing to do first", async () => {
@@ -1492,7 +1515,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     await renderClientPage(page, routes(SWITCHED_OFF));
 
     await screen.findByText("Reception");
-    expect(screen.getByRole("button", { name: "Switch on" })).toBeTruthy();
+    expect((screen.getByRole("switch", { name: "Taking calls" }) as HTMLInputElement).checked).toBe(false);
     const panel = screen.getByRole("region", { name: "Delete this agent" });
     expect(within(panel).getByRole("button", { name: /^Delete…$/ })).toBeTruthy();
   });
@@ -1513,7 +1536,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     await screen.findByText("Reception");
     expect(screen.getByRole("button", { name: "Bring it back" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Delete/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Switch off" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Taking calls" })).toBeNull();
     expect(document.body.textContent).toContain("comes back switched off");
   });
 
@@ -1626,7 +1649,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     );
 
     await screen.findByText("Reception");
-    const switchOn = screen.getByRole("button", { name: "Switch on" });
+    const switchOn = screen.getByRole("switch", { name: "Taking calls" });
     await waitFor(() => expect(switchOn.hasAttribute("disabled")).toBe(false));
     await act(async () => {
       fireEvent.click(switchOn);
@@ -1835,15 +1858,31 @@ describe("the header holds the one primary, and Overview keeps the guarantee fir
   const HEADER_PRIMARY = "bg-brand-strong px-4 py-2";
 
   it("puts a single primary in the header, and no hero-sized button anywhere", async () => {
-    const { container } = await renderClientPage(page, routes(SWITCHED_OFF));
+    // CHANGED 10 Oct 2026: switching on is the header's switch, so the one filled button is
+    // "Put it live", and only while the script's draft differs from what callers hear.
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        ...SWITCHED_OFF,
+        "/v1/agents/agent-1/script": {
+          script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram." },
+          draft: { script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram andi." }, saved_at: "2026-10-10T10:00:00Z" },
+          version: 4,
+          is_freeform: false,
+          has_pending: false,
+          standard_variables: [],
+        },
+      }),
+    );
 
     await screen.findByText("Reception");
     const header = container.querySelector("header") as HTMLElement;
+    await screen.findByRole("button", { name: "Put it live" });
     const primaries = [...header.querySelectorAll("a, button")].filter((node) =>
       node.className.includes(HEADER_PRIMARY),
     );
     expect(primaries).toHaveLength(1);
-    expect(primaries[0].textContent).toContain("Switch on");
+    expect(primaries[0].textContent).toContain("Put it live");
     expect(
       [...container.querySelectorAll("a, button")].filter((node) =>
         node.className.includes("px-5 py-3 text-base"),
@@ -1869,7 +1908,10 @@ describe("the header holds the one primary, and Overview keeps the guarantee fir
     const guarantee = await screen.findByText(
       "Whatever these settings say, the agent always answers honestly when a caller asks.",
     );
-    const switches = screen.getAllByRole("switch");
+    // The header's "Taking calls" switch is the agent's on/off, not a notice.
+    const switches = screen
+      .getAllByRole("switch")
+      .filter((toggle) => toggle.closest("header") === null);
     expect(switches.length).toBeGreaterThanOrEqual(2);
     for (const toggle of switches.slice(0, 2)) {
       expect(
@@ -1884,10 +1926,10 @@ describe("the header holds the one primary, and Overview keeps the guarantee fir
     const { container } = await renderClientPage(page, routes());
 
     await screen.findByText("Reception");
-    const open = await screen.findByRole("link", { name: /Open the script builder/ });
+    const open = await screen.findByRole("link", { name: /Open the script/ });
     expect(open.getAttribute("href")).toBe("/c/acme/agents/agent-1/script");
     expect(container.textContent).toContain(
-      "A change never reaches a live call until you apply it",
+      "callers hear them only after you put them live",
     );
   });
 
@@ -2099,5 +2141,45 @@ describe("progressive disclosure defaults", () => {
     const summary = card("What it is").querySelector("summary");
     expect(summary).not.toBeNull();
     expect(within(summary as HTMLElement).getByRole("heading")).toBeTruthy();
+  });
+});
+
+/**
+ * The header's month line: what this agent has been charged this month, from the same
+ * `/v1/billing/spend` the Spend screen reads, and only for someone who may read billing.
+ */
+describe("what this agent spent this month", () => {
+  it("names this agent's charge, grouped, from the string the API sent", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        [AGENT_SPEND_PATH]: spendThisMonth({
+          calls: 3,
+          by_agent: [
+            { agent_id: "agent-2", agent_name: "Sales", calls: 1, minutes: "2.0000", charged_inr: "90.00" },
+            { agent_id: "agent-1", agent_name: "Reception", calls: 2, minutes: "18.5000", charged_inr: "1200.00" },
+          ],
+        }),
+      }),
+    );
+    await screen.findByText(/₹1,200\.00 this month/);
+    expect(screen.queryByText(/₹90\.00/)).toBeNull();
+  });
+
+  it("says nothing was spent when the agent has no row this month", async () => {
+    await renderClientPage(page, routes());
+    await screen.findByText(/Nothing spent this month/);
+  });
+
+  it("does not read billing for someone without billing:read", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/me": { ...OWNER, permissions: OWNER.permissions.filter((p) => p !== "billing:read") },
+      }),
+    );
+    await screen.findByText("Reception");
+    expect(screen.queryByText(/this month/)).toBeNull();
+    expect(calls.some((call) => call.path === AGENT_SPEND_PATH)).toBe(false);
   });
 });

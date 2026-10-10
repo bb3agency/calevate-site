@@ -5,7 +5,14 @@ import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import type { Agent, HandoffOut } from "@/lib/api/agents";
 
 import { renderClientPage } from "./harness";
-import { LANES, clientLlmTiers, voiceCatalogue } from "./fixtures/sharedReads";
+import {
+  AGENT_SPEND_PATH,
+  LANES,
+  agentScript,
+  clientLlmTiers,
+  spendThisMonth,
+  voiceCatalogue,
+} from "./fixtures/sharedReads";
 
 // The handover panel lives in the workspace's Call handling section (D-657), so every test
 // here opens that section.
@@ -134,6 +141,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/me": OWNER,
     "/v1/agents/agent-1": AGENT,
     "/v1/agents/agent-1/pending": PENDING,
+    "/v1/agents/agent-1/script": agentScript(),
     "/v1/kb/sources": [],
     "/v1/organization/llm-defaults": clientLlmTiers({ available: [] }),
     "/v1/agents/agent-1/actions": {
@@ -149,6 +157,8 @@ function routes(over: Record<string, unknown> = {}) {
     },
     "/v1/agents/voices": voiceCatalogue("client"),
     "/v1/agents/lanes": LANES,
+    // The header's "spent this month" line (owners hold billing:read).
+    [AGENT_SPEND_PATH]: spendThisMonth(),
     "/v1/business-profile": PROFILE,
     ...over,
   };

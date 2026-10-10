@@ -3,9 +3,10 @@
 /**
  * ONE AGENT'S WORKSPACE — a settings layout (D-657).
  *
- * A slim header (name, live state, the one action that moves the agent forward), then a
- * section menu: Overview · Script · Voice · Call handling · Captured details · Knowledge ·
- * Advanced. Each section is short and complete on its own and is visited, not read in
+ * A slim header (name, the On/Off switch, Try it, and Put it live while the script has
+ * changes), then a section menu with one line of state each, ordered by what an owner
+ * comes to do (`sections/agentSections.tsx`).
+ * Each section is short and complete on its own and is visited, not read in
  * sequence, which is the case the doctrine allows a section switch for.
  *
  * ## What may not move out of Overview
@@ -30,6 +31,7 @@
  */
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
@@ -52,17 +54,8 @@ import { AgentHeader } from "./sections/agentHeader";
 import { CallHandlingSection, VoiceSection } from "./sections/deliverySections";
 import { Overview } from "./sections/overview";
 import { ScriptSection } from "./sections/scriptSection";
+import { SectionRows, useAgentSections } from "./sections/agentSections";
 
-const SECTIONS = [
-  { id: "overview", label: "Overview" },
-  { id: "script", label: "Script" },
-  { id: "voice", label: "Voice" },
-  { id: "calls", label: "Call handling" },
-  { id: "captured", label: "Captured details" },
-  { id: "knowledge", label: "Knowledge" },
-  { id: "actions", label: "Actions" },
-  { id: "advanced", label: "Advanced" },
-];
 
 /** The screen, from the route's params. Loading, failure and the agent are three branches. */
 export function AgentWorkspace({ slug, agentId }: { slug: string; agentId: string }) {
@@ -138,12 +131,17 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
     );
   }
 
+  return <LiveAgent agent={agent} slug={slug} leadsLink={leadsLink} />;
+}
+
+function LiveAgent({ agent, slug, leadsLink }: { agent: Agent; slug: string; leadsLink: ReactNode }) {
+  const sections = useAgentSections(agent, slug);
   return (
     <div className="space-y-6">
       <AgentHeader agent={agent} slug={slug} />
       <SettingsLayout
         label="Agent settings"
-        sections={SECTIONS}
+        sections={sections}
         renderSection={(id) => {
           switch (id) {
             case "script":
@@ -180,7 +178,13 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
             case "advanced":
               return <AdvancedSection agent={agent} slug={slug} />;
             default:
-              return <Overview agent={agent} slug={slug} />;
+              return (
+                <>
+                  <Overview agent={agent} slug={slug} />
+                  {/* On a phone the menu is a row of pills; this list is the fuller way in. */}
+                  <SectionRows sections={sections.filter((s) => s.id !== "overview")} />
+                </>
+              );
           }
         }}
       />

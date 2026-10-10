@@ -432,61 +432,6 @@ async def test_a_bounded_walk_reports_what_it_left_and_starts_there_next(
     assert second == ["org_w3", "org_w1"]
 
 
-# --- BYOK: every client workspace inherits our voice key ----------------------------------
-
-
-async def test_studio_and_the_sweep_count_client_workspaces_not_on_our_keys(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A customer inherits its developer's keys and scope while it brings none of its own:
-    `GET /byok` there answers `using: developer` (`api-reference/bring-your-own-keys/
-    get-byok-status.md:465-473`). One that does not is counted and alarmed."""
-    from apps.api.agents import studio_voices
-    from apps.api.engine.catalogue import OwnVoiceKeyState
-    from apps.api.engine.thinnest_workspace import current_workspace
-    from tests.hosted_voice_fakes import HostingEngine
-
-    class _PerWorkspace(HostingEngine):
-        async def own_key_state(self) -> OwnVoiceKeyState:
-            using = {None: "own", "org_inherits": "developer", "org_drifted": "none"}
-            return OwnVoiceKeyState(
-                enabled=True,
-                scope="voice",
-                complete=True,
-                using=using.get(current_workspace(), "none"),
-                voice_provider="cartesia",
-            )
-
-    rows = [
-        resolver.WorkspaceRow(tenant_id=uuid.uuid4(), status="active", workspace_id=w)
-        for w in ("org_inherits", "org_drifted")
-    ]
-
-    async def _active(**_kw: Any) -> list[resolver.WorkspaceRow]:
-        return rows
-
-    monkeypatch.setattr(studio_voices, "active_workspaces", _active)
-    engine = _PerWorkspace()
-    assert await studio_voices.workspaces_not_inheriting(engine) == 1
-
-    monkeypatch.setattr(workspace_walk, "active_workspaces", _active)
-    monkeypatch.setattr(get_settings(), "engine", "thinnest")
-    import apps.api.engine as engine_module
-
-    previous = dict(engine_module._instances)
-    engine_module._instances["thinnest"] = engine
-    raised: list[str] = []
-    monkeypatch.setattr(jobs, "alert", lambda _k, code, **_kw: raised.append(code))
-    monkeypatch.setattr(jobs, "engine_number_provider", lambda: None)
-    try:
-        summary = await jobs.sweep_engine_workspaces({})
-    finally:
-        engine_module._instances.clear()
-        engine_module._instances.update(previous)
-    assert "byok_not_inherited=1" in summary
-    assert raised == ["engine_workspace_byok_not_inherited"]
-
-
 async def test_charges_are_read_in_every_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
     """costMicro is reconciled per workspace (D-693): the developer workspace, then each
     client's, each listing read inside its own workspace."""

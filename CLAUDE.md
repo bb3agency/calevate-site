@@ -22,9 +22,17 @@ D-681's "Clear = Premium band" and its "Studio on hold", and D-687's Studio work
   Agent `byok: "off"`.
 - **Studio** = Cartesia on OUR key through ThinnestAI BYOK `scope: "voice"`, with ThinnestAI's
   STT, LLM and telephony (`api-reference/bring-your-own-keys.md:13-24`), ₹1.50/min plus
-  Cartesia's charge. Agent `byok: "workspace"`. Each agent's `byok` says whether it follows
-  the workspace's voice-only BYOK; Voices, "Enable Studio voices" switches it on once per
-  deployment after keeping every Clear agent `off`.
+  Cartesia's charge. Agent `byok: "workspace"`. **Our key is switched on ONLY in the customer
+  workspace of a client that uses Studio (D-717, founder 10 Oct 2026, superseding D-688/D-693's
+  developer-workspace switch)**: the client's first Studio publish installs it, switches
+  `scope: voice` on there and reads it back (`agents/studio_voices.ensure_studio_workspace`),
+  after keeping that client's Clear agents `off`. Our developer workspace only HOLDS the key
+  with its switch OFF, so nothing inherits it; it cannot list or preview Cartesia voices then
+  (`409`), so the catalogue reads them through a Studio client's workspace. Voices, "Studio
+  ready" holds the key (and can switch the first client on); rotation fans out to every Studio
+  workspace; an hourly check repairs drift. Trials are Clear only. Studio agents also get the
+  in-call default model, which must be `voiceOnlyByok`. Admin screens call ThinnestAI's own
+  bands "ThinnestAI Premium band" / "ThinnestAI Studio band"; clients see only Clear and Studio.
 - **Knowledge belongs to the client** and every agent of that client carries it, on both
   engines: Pipecat agents share it too (D-689, founder 9 Oct 2026).
 - **The adapter follows ThinnestAI's 8 Oct docs** (D-690, D-691): built-in tools pinned at
@@ -38,8 +46,8 @@ D-681's "Clear = Premium band" and its "Studio on hold", and D-687's Studio work
   (`Thinnest-Workspace: org_…`), resolved only by `tenancy/engine_workspace.resolve_workspace`
   and sent only by `engine/thinnest_workspace.workspace_headers`; handles carry the workspace as
   `<id>@<org_…>`. Clients buy numbers in their own business name once KYC is verified and
-  their business details are approved. The developer workspace keeps our account, plan, BYOK
-  keys (customers inherit them), the voice catalogue, and objects made before D-693 until
+  their business details are approved. The developer workspace keeps our account, plan, the
+  Cartesia key held with its switch off (D-717), the voice catalogue, and objects made before D-693 until
   their next publish recreates them. Never fall back to the developer workspace for a client
   resource. Plan cap: 3 customers on pay-as-you-go (OPERATIONS T-8).
 - **Clients never clone**; they pick and preview voices the admin added and enabled.

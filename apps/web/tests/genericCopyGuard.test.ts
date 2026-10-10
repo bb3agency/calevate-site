@@ -41,19 +41,14 @@ const CLINIC_ONLY = /\b(?:clinics?|hospitals?|patients?|doctors?|dentists?|denta
 /** Places where the word names the clinic business type itself, with the reason. */
 const ALLOWED: ReadonlyArray<{ file: string; text: RegExp; reason: string }> = [
   {
-    file: "src/app/admin/new/shared.ts",
-    text: /^Clinic$/,
-    reason: "the clinic business type's own label in the operator's new-client picker",
+    file: "src/lib/businessTypes.ts",
+    text: /^Clinic or health$/,
+    reason: "the clinic business type's own label, in the one list every picker reads",
   },
   {
-    file: "src/app/admin/new/shared.ts",
-    text: /^Appointments, department, patient name$/,
-    reason: "the lead fields the clinic business type seeds, shown only beside that type",
-  },
-  {
-    file: "src/lib/api/signup.ts",
-    text: /^Clinic or hospital$/,
-    reason: "the clinic business type's own label in the signup picker",
+    file: "src/lib/businessTypes.ts",
+    text: /^Reason for the visit, urgency, preferred doctor$/,
+    reason: "the lead details the clinic business type seeds, shown only beside that type",
   },
 ];
 

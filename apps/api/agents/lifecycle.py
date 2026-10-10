@@ -77,6 +77,7 @@ from apps.api.agents.models import AGENT_DIRECTIONS, AgentDirection, AgentStatus
 from apps.api.agents.service import (
     INBOUND_SILENCE_TRUTHFUL_ANSWER,
     publish_agent,
+    refuse_call_cap_out_of_range,
     retire_agent_carrier_bindings,
     retire_in_call_actions,
     route_inbound_numbers,
@@ -331,6 +332,7 @@ async def create_agent(
     # (D-507). The column is NOT NULL with a non-empty CHECK and has no server default, so
     # omitting it here is an IntegrityError on every create — which is how this was found.
     memory_line = caller_memory_notice_for(language=language_primary)
+    refuse_call_cap_out_of_range(max_call_duration_s)
     agent_id = uuid7()
     await session.execute(
         text(
@@ -371,6 +373,7 @@ async def create_agent(
             vertical_template=vertical_template,
             business=str(business),
             created_by=created_by,
+            language=language_primary,
         )
     log.info(
         "agent_created",

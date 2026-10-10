@@ -117,9 +117,10 @@ def _check_prompt(engine: VoiceEngine, cfg: AgentConfig, cap: int) -> None:
         ),
         remediation=(
             f"Shorten the agent's script by at least {over:,} characters (it can be up to "
-            f"{room:,} characters long), then publish again. The required rules cannot be "
-            "shortened: they are what makes the agent answer truthfully about being an AI "
-            "and about recording."
+            f"{room:,} characters long), then publish again. Move prices, products and other "
+            "facts into Knowledge, which the agent searches, and keep quick facts and "
+            "objections short. The required rules cannot be shortened: they are what makes "
+            "the agent answer truthfully about being an AI and about recording."
         ),
     )
 

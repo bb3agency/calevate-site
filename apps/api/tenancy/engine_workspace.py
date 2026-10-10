@@ -236,6 +236,83 @@ async def active_workspaces(*, limit: int = 1000) -> list[WorkspaceRow]:
     ]
 
 
+@dataclass(frozen=True, slots=True)
+class StudioWorkspace:
+    """A client workspace where our Cartesia key was confirmed on (D-717)."""
+
+    tenant_id: UUID
+    workspace_id: str
+    enabled_at: datetime
+    checked_at: datetime | None
+    error_code: str | None
+
+
+async def studio_workspaces(*, limit: int = 1000) -> list[StudioWorkspace]:
+    """Every ACTIVE client workspace that runs Studio, the earliest switched on first, from
+    the untenanted directory read. A rotation reaches each, the hourly check verifies each,
+    and the first one that answers is where Studio voices are listed and previewed."""
+    async with untenanted_session() as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT tenant_id, workspace_id, studio_enabled_at, studio_checked_at, "
+                    "studio_error_code FROM tenant_engine_workspaces WHERE status = 'active' "
+                    "AND studio_enabled_at IS NOT NULL ORDER BY studio_enabled_at, tenant_id "
+                    "LIMIT :limit"
+                ),
+                {"limit": limit},
+            )
+        ).all()
+    return [
+        StudioWorkspace(
+            tenant_id=UUID(str(r[0])),
+            workspace_id=str(r[1]),
+            enabled_at=r[2],
+            checked_at=r[3],
+            error_code=r[4],
+        )
+        for r in rows
+        if is_own_workspace(r[1])
+    ]
+
+
+async def studio_enabled(session: AsyncSession, tenant_id: UUID) -> bool:
+    """Was our Cartesia key confirmed on in this tenant's workspace, in its tenant session?"""
+    row = (
+        await session.execute(
+            text("SELECT studio_enabled_at FROM tenant_engine_workspaces WHERE tenant_id = :tid"),
+            {"tid": tenant_id},
+        )
+    ).first()
+    return row is not None and row[0] is not None
+
+
+async def record_studio_check(
+    session: AsyncSession, tenant_id: UUID, *, error_code: str | None
+) -> None:
+    """Record one install-and-verify or check of this tenant's Studio state, in the caller's
+    tenant session. A pass stamps `studio_checked_at` (and `studio_enabled_at` the first
+    time) and clears the error; a failure records only the error, so a workspace never
+    switched on stays unrecorded."""
+    if error_code is None:
+        await session.execute(
+            text(
+                "UPDATE tenant_engine_workspaces SET studio_enabled_at = "
+                "COALESCE(studio_enabled_at, now()), studio_checked_at = now(), "
+                "studio_error_code = NULL, updated_at = now() WHERE tenant_id = :tid"
+            ),
+            {"tid": tenant_id},
+        )
+        return
+    await session.execute(
+        text(
+            "UPDATE tenant_engine_workspaces SET studio_error_code = :code, updated_at = now() "
+            "WHERE tenant_id = :tid"
+        ),
+        {"tid": tenant_id, "code": error_code[:64]},
+    )
+
+
 async def workspaces_in_review(*, limit: int = 1000) -> list[WorkspaceRow]:
     """Active client workspaces whose business-details application is being checked, by the
     status last read from the voice platform, ordered by tenant."""
@@ -264,6 +341,7 @@ __all__ = [
     "PROVISION_JOB",
     "WORKSPACE_ENGINES",
     "WORKSPACE_PREFIX",
+    "StudioWorkspace",
     "WorkspaceRow",
     "WorkspaceState",
     "WorkspaceStatus",
@@ -275,7 +353,10 @@ __all__ = [
     "queue_workspace_offboarding",
     "queue_workspace_provisioning",
     "read_workspace_state",
+    "record_studio_check",
     "resolve_workspace",
+    "studio_enabled",
+    "studio_workspaces",
     "workspace_directory",
     "workspace_for_tenant",
     "workspaces_in_review",

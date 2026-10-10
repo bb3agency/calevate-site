@@ -107,6 +107,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import publishing
 from apps.api.agents.models import CALL_CAP_DEFAULT_S, CALL_CAP_MAX_S, CALL_CAP_MIN_S
+from apps.api.agents.service import call_cap_max_s
 from apps.api.agents.voices import VOICE_TIER_OF_PROVIDER, Voice, VoiceProvider
 from apps.api.billing.lots import TierRate, voice_tier_rates
 from apps.api.billing.rates import voice_tier_label
@@ -432,7 +433,8 @@ async def list_lanes(_: PublishingReader) -> LanesOut:
         ],
         call_cap_default_s=CALL_CAP_DEFAULT_S,
         call_cap_min_s=CALL_CAP_MIN_S,
-        call_cap_max_s=CALL_CAP_MAX_S,
+        # The engine's ceiling where it is lower than ours (ThinnestAI: 20 minutes).
+        call_cap_max_s=call_cap_max_s(),
     )
 
 

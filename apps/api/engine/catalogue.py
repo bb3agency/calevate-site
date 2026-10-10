@@ -47,6 +47,14 @@ class CatalogueModel(BaseModel):
     #: The engine lets a call run on this model while only the VOICE is our own key. An
     #: agent speaking a `byok` voice may be set to no other (D-687).
     voice_only_byok: bool = False
+    #: The per-minute price band the model lifts a call to, when we have it on record: `none`
+    #: (the call bills at its voice's band) or `premium`. `None` is UNKNOWN, and a model with
+    #: an unknown band is never offered for calls (hard rule 7): a call on it could bill at
+    #: a band nobody priced.
+    surcharge: Literal["none", "premium"] | None = None
+    #: The reply latency the engine's own console shows for the model, in milliseconds, when
+    #: on record. Shown to operators choosing a model; the engine's API returns none.
+    console_latency_ms: int | None = None
 
 
 class EngineCatalogue(BaseModel):

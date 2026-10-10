@@ -57,6 +57,9 @@ SEGMENTED_MAX: Final = 3
 #: Strings with no closed set and no format beyond their pattern: identifiers another
 #: system issues and no API here lists, or prose printed verbatim. Each says why.
 FREE_TEXT: Final[dict[str, str]] = {
+    "thinnest_in_call_default_model": (
+        "a model id or console name from ThinnestAI's live list, checked when it is saved"
+    ),
     "object_store_bucket": "a bucket name chosen when the storage was created",
     "cartesia_from_number_id": "an id from Cartesia's console; no API here lists them",
     "vobiz_callback_ips": "a list of network addresses Vobiz publishes",

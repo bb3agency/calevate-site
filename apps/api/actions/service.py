@@ -16,6 +16,7 @@ from typing import Any
 from uuid import UUID
 
 from calevate_shared.engine import ActionToolParam, ActionToolSpec
+from calevate_shared.lead_fields import CORE_KEYS
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -222,7 +223,7 @@ def _validate(
                 "An action name must be 3 to 40 characters: lowercase letters, digits and "
                 "underscores, starting with a letter."
             ),
-            remediation="For example: send_price_list or book_a_slot.",
+            remediation="For example: `send_price_list` or `book_a_slot`.",
         )
     if len(description.strip()) < MIN_DESCRIPTION_CHARS:
         raise ProblemError(
@@ -302,9 +303,11 @@ _AGENT_FIELDS_SQL = (
 async def agent_field_keys(session: AsyncSession, *, agent_id: UUID) -> set[str]:
     """The keys of the details this agent captures, for validating `field:<key>` bindings."""
     raw = (await session.execute(text(_AGENT_FIELDS_SQL), {"aid": agent_id})).scalar_one_or_none()
-    if not isinstance(raw, list):
-        return set()
-    return {str(f["key"]) for f in raw if isinstance(f, dict) and isinstance(f.get("key"), str)}
+    stored = raw if isinstance(raw, list) else []
+    # The core every agent captures counts too (`calevate_shared.lead_fields`).
+    return set(CORE_KEYS) | {
+        str(f["key"]) for f in stored if isinstance(f, dict) and isinstance(f.get("key"), str)
+    }
 
 
 async def _assert_lead_fields(

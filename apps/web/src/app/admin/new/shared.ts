@@ -1,21 +1,17 @@
 import { ApiProblem } from "@/lib/api/client";
 import type { CreateOrgIn } from "@/lib/api/admin";
+import { BUSINESS_TYPES } from "@/lib/businessTypes";
 
 /**
- * The business types, with what choosing one DOES: it seeds the lead fields the agent
- * collects, which become the client's CRM columns. The values are the API's own enum.
+ * The business types, with what choosing one DOES: it picks the lead details every call of
+ * that business writes down, on top of the ones every business gets. One list, shared with
+ * signup and the client's own screens (`lib/businessTypes.ts`).
  */
-export const VERTICALS: {
-  value: CreateOrgIn["vertical_template"];
+export const VERTICALS: readonly {
+  value: NonNullable<CreateOrgIn["vertical_template"]>;
   label: string;
   hint: string;
-}[] = [
-  { value: "clinic", label: "Clinic", hint: "Appointments, department, patient name" },
-  { value: "real_estate", label: "Real estate", hint: "Budget, locality, site-visit interest" },
-  { value: "insurance", label: "Insurance", hint: "Policy type, renewal date, sum assured" },
-  { value: "education", label: "Education", hint: "Course, batch, admission stage" },
-  { value: "custom", label: "Custom", hint: "Minimal fields — build them by hand" },
-];
+}[] = BUSINESS_TYPES;
 
 /**
  * A refusal already received, as a reason to stop offering the control. Only 403: any

@@ -10,7 +10,7 @@
  * so they are on the first screen.
  */
 
-import { useState, useSyncExternalStore } from "react";
+import { useState } from "react";
 
 import { ProblemNotice, Skeleton, formatINR } from "@/components/ui";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
@@ -23,6 +23,7 @@ import { useCalls } from "@/lib/api/hooks";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 
 import { LatestCalls } from "../../../LatestCalls";
 import { OpeningNotices } from "../../panels/openingNotices";
@@ -31,20 +32,9 @@ import { TryIt } from "./tryIt";
 
 const PHONE = "(max-width: 639px)";
 
-function subscribe(onChange: () => void): () => void {
-  if (typeof window === "undefined" || !window.matchMedia) return () => {};
-  const query = window.matchMedia(PHONE);
-  query.addEventListener("change", onChange);
-  return () => query.removeEventListener("change", onChange);
-}
-
 /** True on a phone-width viewport; false on the server and in a browser without matchMedia. */
 function useIsPhone(): boolean {
-  return useSyncExternalStore(
-    subscribe,
-    () => (typeof window !== "undefined" && window.matchMedia ? window.matchMedia(PHONE).matches : false),
-    () => false,
-  );
+  return useMediaQuery(PHONE);
 }
 
 export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
@@ -282,7 +272,7 @@ function SetupChecklist({
     id: "live",
     label: "Switch it on",
     state: working ? "done" : "todo",
-    detail: working ? undefined : "Use Switch on at the top of this page.",
+    detail: working ? undefined : "Use the Taking calls switch at the top of this page.",
     ...(scriptDone === false && !working
       ? { disabledReason: "An agent with no script cannot be switched on." }
       : agreementsOutstanding && !working

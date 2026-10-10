@@ -293,10 +293,24 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
     ),
     Screen(
         route="/c/{slug}/lead-sources",
-        name="Lead sources",
+        name="Leads & hours",
         group="Compliance & data",
-        summary="Where each list of numbers came from — the record that makes calling them lawful.",
-        aliases=("where leads came from", "lists", "imports", "data source"),
+        summary=(
+            "How new leads are called: which agent, how soon, calling hours and holidays, "
+            "after-hours handling and leads held for you, retries, answering machines; and "
+            "where leads come from."
+        ),
+        aliases=(
+            "lead sources",
+            "where leads came from",
+            "calling hours",
+            "after hours",
+            "retries",
+            "answering machine",
+            "lists",
+            "imports",
+            "data source",
+        ),
     ),
     Screen(
         route="/c/{slug}/data-rights",
@@ -326,6 +340,21 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
             "price list",
             "escalation contacts",
             "business info",
+        ),
+    ),
+    Screen(
+        route="/c/{slug}/settings/lead-details",
+        name="Lead details",
+        group=SETTINGS_GROUP,
+        summary="The details every call writes down for a lead: the ones every business "
+        "gets, and the ones about this business, which the owner can add, rename or remove.",
+        aliases=(
+            "lead fields",
+            "captured details",
+            "lead columns",
+            "what the agent writes down",
+            "extraction fields",
+            "variables",
         ),
     ),
     Screen(

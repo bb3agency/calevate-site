@@ -34,9 +34,9 @@ async def _seed_calls(tenant_id: uuid.UUID) -> datetime:
     async with tenant_session(tenant_id) as s:
         agent_id = (await s.execute(text("SELECT id FROM agents LIMIT 1"))).scalar_one()
         rows = (
-            ("inbound", "resolved", now - timedelta(hours=1), "+919800000001"),
-            ("outbound", "needs_follow_up", now - timedelta(days=2), "+919800000002"),
-            ("inbound", "dropped", now - timedelta(days=40), "+919800000003"),
+            ("inbound", "answered", now - timedelta(hours=1), "+919800000001"),
+            ("outbound", "needs_you", now - timedelta(days=2), "+919800000002"),
+            ("inbound", "hung_up_early", now - timedelta(days=40), "+919800000003"),
         )
         for direction, outcome, started, number in rows:
             await s.execute(
@@ -65,15 +65,13 @@ async def test_the_list_narrows_by_outcome_direction_and_date() -> None:
     tenant_id, slug, token = await _make_tenant()
     now = await _seed_calls(tenant_id)
     async with _client() as http:
-        by_outcome = await http.get(
-            "/v1/calls?outcome=needs_follow_up", headers=_headers(slug, token)
-        )
+        by_outcome = await http.get("/v1/calls?outcome=needs_you", headers=_headers(slug, token))
         by_direction = await http.get("/v1/calls?direction=inbound", headers=_headers(slug, token))
         since = (now - timedelta(days=7)).isoformat()
         by_date = await http.get(
             "/v1/calls", params={"since": since}, headers=_headers(slug, token)
         )
-    assert [c["outcome_tag"] for c in by_outcome.json()] == ["needs_follow_up"]
+    assert [c["outcome_tag"] for c in by_outcome.json()] == ["needs_you"]
     assert {c["direction"] for c in by_direction.json()} == {"inbound"}
     assert len(by_direction.json()) == 2
     assert len(by_date.json()) == 2, by_date.text
@@ -106,7 +104,13 @@ async def test_the_owner_exports_what_they_filtered_with_full_numbers_and_an_aud
     assert rows[1][2].strip() == "+919800000002"
     async with tenant_session(tenant_id) as s:
         audited = (
-            await s.execute(text("SELECT count(*) FROM audit_log WHERE action = 'calls.export'"))
+            await s.execute(
+                text(
+                    "SELECT count(*) FROM audit_log WHERE action = 'calls.export' "
+                    "AND tenant_id = :t"
+                ),
+                {"t": tenant_id},
+            )
         ).scalar_one()
     assert audited == 1
 
@@ -126,3 +130,71 @@ async def test_a_neighbours_calls_never_reach_the_file() -> None:
         exported = await http.get("/v1/calls/export.csv", headers=_headers(slug, token))
     rows = list(csv.reader(io.StringIO(exported.text)))
     assert len(rows) == 1, "only the header: the neighbour's calls are invisible"
+
+
+async def test_test_calls_can_be_left_out_and_a_row_names_its_lead() -> None:
+    """The call log's "Include test calls" switch, and the lead's name beside its number."""
+    tenant_id, slug, token = await _make_tenant()
+    lead_id = uuid.uuid4()
+    async with tenant_session(tenant_id) as s:
+        agent_id = (await s.execute(text("SELECT id FROM agents LIMIT 1"))).scalar_one()
+        await s.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, name, source, status, "
+                "data, created_at, updated_at) VALUES (:i, :t, :a, '+919800000009', 'Lakshmi', "
+                "'inbound_call', 'new', '{}'::jsonb, now(), now())"
+            ),
+            {"i": lead_id, "t": tenant_id, "a": agent_id},
+        )
+        for trial, lead in ((True, None), (False, lead_id)):
+            await s.execute(
+                text(
+                    "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                    "status, started_at, duration_s, from_e164, to_e164, trial_call, lead_id, "
+                    "created_at, updated_at) VALUES (:id, :t, :a, :e, 'inbound', 'completed', "
+                    "now(), 30, '+919800000009', '+918000000000', :trial, :lead, now(), now())"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "t": tenant_id,
+                    "a": agent_id,
+                    "e": f"tc-{uuid.uuid4().hex[:10]}",
+                    "trial": trial,
+                    "lead": lead,
+                },
+            )
+    async with _client() as http:
+        everything = await http.get("/v1/calls", headers=_headers(slug, token))
+        real_only = await http.get(
+            "/v1/calls", params={"test_calls": "false"}, headers=_headers(slug, token)
+        )
+        exported = await http.get(
+            "/v1/calls/export.csv", params={"test_calls": "false"}, headers=_headers(slug, token)
+        )
+    assert sorted(c["test_call"] for c in everything.json()) == [False, True]
+    assert [c["test_call"] for c in real_only.json()] == [False]
+    assert real_only.json()[0]["lead_name"] == "Lakshmi"
+    assert len(list(csv.reader(io.StringIO(exported.text)))) == 2
+
+
+async def test_the_list_narrows_to_one_agent() -> None:
+    """The agent page links to the call log with `?agent_id=`; the list and the file honour it."""
+    tenant_id, slug, token = await _make_tenant()
+    await _seed_calls(tenant_id)
+    async with tenant_session(tenant_id) as s:
+        agent_id = (await s.execute(text("SELECT id FROM agents LIMIT 1"))).scalar_one()
+    other = uuid.uuid4()
+    async with _client() as http:
+        mine = await http.get(
+            "/v1/calls", params={"agent_id": str(agent_id)}, headers=_headers(slug, token)
+        )
+        nobody = await http.get(
+            "/v1/calls", params={"agent_id": str(other)}, headers=_headers(slug, token)
+        )
+        exported = await http.get(
+            "/v1/calls/export.csv", params={"agent_id": str(other)}, headers=_headers(slug, token)
+        )
+    assert len(mine.json()) == 3
+    assert {c["agent_id"] for c in mine.json()} == {str(agent_id)}
+    assert nobody.json() == []
+    assert len(list(csv.reader(io.StringIO(exported.text)))) == 1

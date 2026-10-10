@@ -398,13 +398,16 @@ class Settings(BaseSettings):
     thinnest_api_base_url: str = Field(
         default="https://app.thinnest.ai/api/v1", max_length=512, pattern=r"^https?://\S+$"
     )
-    #: The ThinnestAI workspace runs on its OWN keys (BYOK). An operator sets it AFTER all
-    #: three legs (speech-to-text, language model, voice) are configured in ThinnestAI's
-    #: console at Settings → Your keys (`/settings/byok`): BYOK there is workspace-wide and
-    #: console-only, with no API field (FOUNDER-RELAYED console reading, 6 Oct 2026). On, a
-    #: per-agent catalogue voice or model does not apply (`agents/engine_choice.py` refuses
-    #: one and the pickers lock), and every minute is metered at the `platform` rate key,
-    #: the ₹1/min BYOK rate, instead of a voice tier.
+    #: The developer workspace runs on ALL THREE of its own keys (full BYOK, scope `all`): our
+    #: speech-to-text, language-model and voice accounts. NOT the Studio tier, which is our
+    #: Cartesia key alone, switched on per client workspace (D-717). ThinnestAI sets full
+    #: BYOK in its console (Settings → Your keys) or through its API (`PUT /byok/credentials`,
+    #: `PATCH /byok`, `thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/
+    #: bring-your-own-keys.md:135-222`); this setting is the operator's statement that it is
+    #: so, checked against `GET /byok` at every publish. On, a per-agent voice or model does not
+    #: apply (`agents/engine_choice.py` refuses one and the pickers lock), and every minute is
+    #: metered at the `platform` rate key, the ₹1/min BYOK rate (:21), instead of a tier. A
+    #: write needs step-up and the typed confirmation (`ops/config_catalog.HIGH_RISK`).
     thinnest_byok_enabled: bool = False
     #: The ThinnestAI voice band sold as the Clear rung (D-688): `premium` (pay-as-you-go,
     #: no plan needed) or `studio` (the shared Studio catalogue and our clones, listed only on
@@ -413,6 +416,21 @@ class Settings(BaseSettings):
     #: and a Clear minute is metered at this band's attested rate. An agent already published
     #: keeps its band's rate key until it is republished.
     thinnest_clear_voice_band: Literal["premium", "studio"] = "premium"
+    #: The IN-CALL language model a Clear agent answers calls with when the agent names
+    #: none. Unset (the default) sends nothing, so the agent stays on ThinnestAI's own
+    #: default, Prana [Voice] (`thinnest-findings/mirror/snapshots/2026-10-08/pages/
+    #: api-reference/agents/update-agent.md:539-545`). The founder chose GPT-OSS 120B
+    #: (10 Oct 2026); its id is not in the docs, so the console takes the model's name and
+    #: stores the id `GET /models` returns for it (`agents/engine_choice.
+    #: resolve_in_call_default`). Set through the environment, it must be the id. A write is
+    #: refused unless the live list marks it `voice: true` and
+    #: `available: true` and its per-minute price band is on record
+    #: (`engine/thinnest._MODEL_CONSOLE_READING`), because a model can lift a call to a
+    #: dearer band (GPT-5 Mini is tagged "premium", founder-relayed console reading,
+    #: 10 Oct 2026). Studio agents get it too (D-717), so it must be a model a voice-only BYOK
+    #: call may run (`voiceOnlyByok`, `bring-your-own-keys.md:44-58`). In-call leg only: the
+    #: platform's own model (`platform_llm_model`) is a different setting.
+    thinnest_in_call_default_model: str | None = Field(default=None, min_length=1, max_length=128)
     #: The public `https://` origin of `apps/api` (e.g. `https://api.calevate.tech`) that
     #: ThinnestAI's custom actions call for our in-call tools (`reliability/engine_actions.py`).
     #: Not `webhook_base_url`: that is voice-runtime's face, which may not write the DNC list

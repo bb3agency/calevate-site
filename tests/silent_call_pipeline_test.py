@@ -187,7 +187,7 @@ async def test_a_call_with_no_transcript_buys_no_provider_round_trip(
         "`_settled_extraction` refuses to reuse a row carrying `_model`"
     )
     assert row[3] is None, "no words means no summary, not an invented one"
-    assert row[4] == "dropped", "a call in which nobody spoke resolved nothing"
+    assert row[4] == "hung_up_early", "a call in which nobody spoke resolved nothing"
 
 
 async def test_a_transcript_of_blank_turns_is_a_silence_not_a_page_of_labels(

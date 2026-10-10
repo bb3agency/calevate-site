@@ -1703,6 +1703,50 @@
         "title": "AdminReleasedOut",
         "type": "object"
       },
+      "AdminReplaceIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Ids"
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "retail",
+                  "local_services",
+                  "automobile",
+                  "clinic",
+                  "real_estate",
+                  "insurance",
+                  "education",
+                  "custom"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type"
+          }
+        },
+        "title": "AdminReplaceIn",
+        "type": "object"
+      },
       "AgentChargeOut": {
         "additionalProperties": false,
         "description": "What one agent added to this month's bill. No cost field, and there never is one.",
@@ -3040,17 +3084,39 @@
       },
       "AssistIn": {
         "additionalProperties": false,
+        "description": "The owner's words. Either the five short answers (keys of `OWNER_QUESTIONS`), a\nfree description, or both; at least ten characters in all.",
         "properties": {
+          "answers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "maxProperties": 5,
+            "title": "Answers",
+            "type": "object"
+          },
+          "change": {
+            "default": "",
+            "maxLength": 600,
+            "title": "Change",
+            "type": "string"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallScript"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "description": {
+            "default": "",
             "maxLength": 4000,
-            "minLength": 10,
             "title": "Description",
             "type": "string"
           }
         },
-        "required": [
-          "description"
-        ],
         "title": "AssistIn",
         "type": "object"
       },
@@ -3810,6 +3876,42 @@
           "document"
         ],
         "title": "Body_submit_v1_compliance_carrier_application_post",
+        "type": "object"
+      },
+      "Body_teach_upload_v1_kb_teach_upload_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "gap_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap Id"
+          },
+          "kind": {
+            "enum": [
+              "photo",
+              "file",
+              "voice"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "kind"
+        ],
+        "title": "Body_teach_upload_v1_kb_teach_upload_post",
         "type": "object"
       },
       "Body_upload_document_v1_compliance_kyc_documents_post": {
@@ -4672,6 +4774,64 @@
         "title": "CallBackOut",
         "type": "object"
       },
+      "CallCallbackOut": {
+        "additionalProperties": false,
+        "description": "The call back booked ON this call, if any (F-4/F-5): the newest one.",
+        "properties": {
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          },
+          "blocked_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Rule"
+          },
+          "due_at": {
+            "format": "date-time",
+            "title": "Due At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "scheduled",
+              "dialing",
+              "completed",
+              "cancelled",
+              "refused",
+              "missed",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "due_at",
+          "status"
+        ],
+        "title": "CallCallbackOut",
+        "type": "object"
+      },
       "CallCapOut": {
         "additionalProperties": false,
         "properties": {
@@ -4872,6 +5032,27 @@
             ],
             "title": "Agent Name"
           },
+          "callback": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallCallbackOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "callback_requested": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Callback Requested"
+          },
           "caller_e164": {
             "anyOf": [
               {
@@ -4882,6 +5063,13 @@
               }
             ],
             "title": "Caller E164"
+          },
+          "captured": {
+            "items": {
+              "$ref": "#/components/schemas/CapturedFieldOut"
+            },
+            "title": "Captured",
+            "type": "array"
           },
           "direction": {
             "enum": [
@@ -4918,6 +5106,17 @@
             "title": "Extraction",
             "type": "object"
           },
+          "extraction_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extraction Model"
+          },
           "extraction_needs_review": {
             "additionalProperties": {
               "type": "string"
@@ -4934,6 +5133,17 @@
             "default": false,
             "title": "Has Recording",
             "type": "boolean"
+          },
+          "headline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headline"
           },
           "id": {
             "format": "uuid",
@@ -4952,6 +5162,17 @@
             ],
             "title": "Lead Id"
           },
+          "lead_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Name"
+          },
           "moments": {
             "items": {
               "$ref": "#/components/schemas/CallMomentOut"
@@ -4959,9 +5180,28 @@
             "title": "Moments",
             "type": "array"
           },
+          "next_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Step"
+          },
           "outcome_tag": {
             "anyOf": [
               {
+                "enum": [
+                  "call_back_booked",
+                  "needs_you",
+                  "answered",
+                  "transferred",
+                  "hung_up_early",
+                  "missed"
+                ],
                 "type": "string"
               },
               {
@@ -5008,12 +5248,74 @@
             ],
             "title": "Summary"
           },
+          "summary_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Language"
+          },
+          "summary_local": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Local"
+          },
+          "summary_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "engine",
+                  "extraction"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Source"
+          },
+          "summary_state": {
+            "enum": [
+              "pending",
+              "ready",
+              "failed",
+              "empty"
+            ],
+            "title": "Summary State",
+            "type": "string"
+          },
+          "test_call": {
+            "title": "Test Call",
+            "type": "boolean"
+          },
           "transcript": {
             "items": {
               "$ref": "#/components/schemas/TranscriptTurnOut"
             },
             "title": "Transcript",
             "type": "array"
+          },
+          "translation_state": {
+            "enum": [
+              "pending",
+              "ready",
+              "failed",
+              "not_needed",
+              "unavailable"
+            ],
+            "title": "Translation State",
+            "type": "string"
           }
         },
         "required": [
@@ -5021,7 +5323,11 @@
           "agent_id",
           "direction",
           "status",
-          "moments"
+          "summary_state",
+          "test_call",
+          "moments",
+          "captured",
+          "translation_state"
         ],
         "title": "CallDetailOut",
         "type": "object"
@@ -5148,6 +5454,21 @@
         "additionalProperties": false,
         "description": "A whole agent script, structured \u2014 or a raw escape hatch, never both at once.\n\nONE MODEL, TWO SHAPES. `raw_override` is the escape hatch AND the lossless\nrepresentation of a legacy freeform prompt: when it is set, the compiler returns it\nverbatim and the structured fields are ignored, so nothing an author wrote in raw mode\nis reinterpreted, and a pre-structured `prompt_versions.body` round-trips exactly (see\n`from_freeform`). When it is None, the structured fields compile. A model validator\nforbids the ambiguous middle \u2014 structured content AND a raw override \u2014 because a row\nthat is half one and half the other has no single answer to \"what does this compile\nto\".\n\nThe `opening_line` here is the agent's GREETING, the client's own words, and it is a\nseparate thing from the two notices (D-163, D-708). The notices are composed by\n`compose_opening_line` from the agent's two switches; a notice that is switched on is\nsaid before this line, and with both off this line is the first thing a caller hears.\nNo switch adds, removes or replaces it. `engine.compose_first_utterance` joins the two\nfor an engine that speaks one greeting field.",
         "properties": {
+          "adherence": {
+            "default": "flexible",
+            "enum": [
+              "flexible",
+              "strict"
+            ],
+            "title": "Adherence",
+            "type": "string"
+          },
+          "business_line": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Business Line",
+            "type": "string"
+          },
           "end_call_extra_rules": {
             "items": {
               "type": "string"
@@ -5155,6 +5476,25 @@
             "maxItems": 100,
             "title": "End Call Extra Rules",
             "type": "array"
+          },
+          "ending": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Ending",
+            "type": "string"
+          },
+          "example_exchange": {
+            "items": {
+              "$ref": "#/components/schemas/ExampleLine"
+            },
+            "maxItems": 20,
+            "title": "Example Exchange",
+            "type": "array"
+          },
+          "example_needs_review": {
+            "default": false,
+            "title": "Example Needs Review",
+            "type": "boolean"
           },
           "faq_fallback": {
             "default": "\u0c28\u0c3e\u0c15\u0c41 \u0c06 \u0c35\u0c3f\u0c35\u0c30\u0c02 \u0c16\u0c1a\u0c4d\u0c1a\u0c3f\u0c24\u0c02\u0c17\u0c3e \u0c24\u0c46\u0c32\u0c3f\u0c2f\u0c26\u0c41 \u2014 \u0c2e\u0c3e \u0c1f\u0c40\u0c2e\u0c4d \u0c2e\u0c40\u0c15\u0c41 \u0c24\u0c3f\u0c30\u0c3f\u0c17\u0c3f \u0c15\u0c3e\u0c32\u0c4d \u0c1a\u0c47\u0c38\u0c3f \u0c1a\u0c46\u0c2c\u0c41\u0c24\u0c41\u0c02\u0c26\u0c3f.",
@@ -5171,11 +5511,40 @@
             "title": "Faqs",
             "type": "array"
           },
+          "goal": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Goal",
+            "type": "string"
+          },
+          "identity": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Identity",
+            "type": "string"
+          },
+          "objections": {
+            "items": {
+              "$ref": "#/components/schemas/Objection"
+            },
+            "maxItems": 30,
+            "title": "Objections",
+            "type": "array"
+          },
           "opening_line": {
             "default": "",
             "maxLength": 1000,
             "title": "Opening Line",
             "type": "string"
+          },
+          "outbound_purpose": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Outbound Purpose",
+            "type": "string"
+          },
+          "policies": {
+            "$ref": "#/components/schemas/ScriptPolicies"
           },
           "raw_override": {
             "anyOf": [
@@ -5189,6 +5558,23 @@
             ],
             "title": "Raw Override"
           },
+          "schema_version": {
+            "default": 1,
+            "enum": [
+              1,
+              2
+            ],
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationStage"
+            },
+            "maxItems": 12,
+            "title": "Stages",
+            "type": "array"
+          },
           "steps": {
             "items": {
               "$ref": "#/components/schemas/ScriptStep"
@@ -5196,6 +5582,9 @@
             "maxItems": 100,
             "title": "Steps",
             "type": "array"
+          },
+          "style": {
+            "$ref": "#/components/schemas/SpeakingStyle"
           },
           "variables": {
             "items": {
@@ -5316,6 +5705,16 @@
             ],
             "title": "Agent Name"
           },
+          "callback": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallCallbackOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "caller_e164": {
             "anyOf": [
               {
@@ -5346,6 +5745,17 @@
             ],
             "title": "Duration S"
           },
+          "headline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headline"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -5363,9 +5773,28 @@
             ],
             "title": "Lead Id"
           },
+          "lead_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Name"
+          },
           "outcome_tag": {
             "anyOf": [
               {
+                "enum": [
+                  "call_back_booked",
+                  "needs_you",
+                  "answered",
+                  "transferred",
+                  "hung_up_early",
+                  "missed"
+                ],
                 "type": "string"
               },
               {
@@ -5411,13 +5840,29 @@
               }
             ],
             "title": "Summary"
+          },
+          "summary_state": {
+            "enum": [
+              "pending",
+              "ready",
+              "failed",
+              "empty"
+            ],
+            "title": "Summary State",
+            "type": "string"
+          },
+          "test_call": {
+            "title": "Test Call",
+            "type": "boolean"
           }
         },
         "required": [
           "id",
           "agent_id",
           "direction",
-          "status"
+          "status",
+          "summary_state",
+          "test_call"
         ],
         "title": "CallSummaryOut",
         "type": "object"
@@ -5767,6 +6212,26 @@
         "title": "CampaignSummaryOut",
         "type": "object"
       },
+      "CanvasPosition": {
+        "additionalProperties": false,
+        "description": "Where a section sits on the builder's canvas. Layout only: never compiled.",
+        "properties": {
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "title": "CanvasPosition",
+        "type": "object"
+      },
       "CapsIn": {
         "additionalProperties": false,
         "description": "The whole client-side pair. `null` clears that side (see the module docstring).",
@@ -5905,6 +6370,68 @@
           "capped"
         ],
         "title": "CapsOut",
+        "type": "object"
+      },
+      "CapturedFieldOut": {
+        "additionalProperties": false,
+        "description": "One captured detail under the name it was captured with (`crm/captured.py`).\n\n`core` marks the details every business captures (`calevate_shared.lead_fields`);\n`current` is False for a detail the agent no longer captures, whose value is still shown.",
+        "properties": {
+          "core": {
+            "title": "Core",
+            "type": "boolean"
+          },
+          "current": {
+            "title": "Current",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "text",
+              "number",
+              "bool",
+              "enum",
+              "date"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "type",
+          "core",
+          "current"
+        ],
+        "title": "CapturedFieldOut",
+        "type": "object"
+      },
+      "CapturedFieldsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/CapturedFieldOut"
+            },
+            "title": "Fields",
+            "type": "array"
+          }
+        },
+        "required": [
+          "fields"
+        ],
+        "title": "CapturedFieldsOut",
         "type": "object"
       },
       "CarrierApplicationOut": {
@@ -6361,6 +6888,52 @@
           "ladder"
         ],
         "title": "CartesiaVolumeOut",
+        "type": "object"
+      },
+      "CaseDraftOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "call_id": {
+            "format": "uuid",
+            "title": "Call Id",
+            "type": "string"
+          },
+          "caller_lines": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Caller Lines",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_id",
+          "agent_id",
+          "agent_name",
+          "caller_lines",
+          "title"
+        ],
+        "title": "CaseDraftOut",
         "type": "object"
       },
       "ChainBreakOut": {
@@ -7276,6 +7849,30 @@
           "forfeited_credit_inr"
         ],
         "title": "ClosureOut",
+        "type": "object"
+      },
+      "CollectFieldOut": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "label",
+          "reason",
+          "required"
+        ],
+        "title": "CollectFieldOut",
         "type": "object"
       },
       "CollectedItemOut": {
@@ -8387,6 +8984,143 @@
           "phone"
         ],
         "title": "ContactIn",
+        "type": "object"
+      },
+      "ConversationStage": {
+        "additionalProperties": false,
+        "description": "One section of the call, a node of the script's section graph.\n\nThe list order is the call order. `mode` \"say\" asks for `instruction` to be said as\nwritten (best effort: only the opening line is guaranteed verbatim). `sounds_like` is an\noptional line in the call's language showing how it sounds. `branches` are the ways out\non a condition, `otherwise` where to go when none holds (empty: the next section), and\n`collect` what must be in hand first. `position` is the canvas layout and is never\ncompiled. Instruction and sounds-like share ThinnestAI's 600-character step detail.",
+        "properties": {
+          "branches": {
+            "items": {
+              "$ref": "#/components/schemas/StageBranch"
+            },
+            "maxItems": 6,
+            "title": "Branches",
+            "type": "array"
+          },
+          "collect": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Collect",
+            "type": "array"
+          },
+          "id": {
+            "maxLength": 40,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,39}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "instruction": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Instruction",
+            "type": "string"
+          },
+          "mode": {
+            "default": "guide",
+            "enum": [
+              "guide",
+              "say"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "otherwise": {
+            "default": "",
+            "maxLength": 40,
+            "title": "Otherwise",
+            "type": "string"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CanvasPosition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sounds_like": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Sounds Like",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "instruction"
+        ],
+        "title": "ConversationStage",
+        "type": "object"
+      },
+      "ConvertIn": {
+        "additionalProperties": false,
+        "properties": {
+          "raw_text": {
+            "anyOf": [
+              {
+                "maxLength": 20000,
+                "minLength": 10,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Text"
+          }
+        },
+        "title": "ConvertIn",
+        "type": "object"
+      },
+      "ConvertOut": {
+        "additionalProperties": false,
+        "properties": {
+          "disclosure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclosure"
+          },
+          "metered": {
+            "title": "Metered",
+            "type": "boolean"
+          },
+          "script": {
+            "$ref": "#/components/schemas/CallScript"
+          },
+          "unplaced": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unplaced",
+            "type": "array"
+          }
+        },
+        "required": [
+          "script",
+          "unplaced",
+          "disclosure",
+          "metered"
+        ],
+        "title": "ConvertOut",
         "type": "object"
       },
       "CopilotActionOut": {
@@ -9974,8 +10708,11 @@
             "title": "Slug"
           },
           "vertical_template": {
-            "default": "clinic",
+            "default": "custom",
             "enum": [
+              "retail",
+              "local_services",
+              "automobile",
               "clinic",
               "real_estate",
               "insurance",
@@ -11944,6 +12681,53 @@
         "title": "DownloadOut",
         "type": "object"
       },
+      "DraftOut": {
+        "additionalProperties": false,
+        "properties": {
+          "saved_at": {
+            "format": "date-time",
+            "title": "Saved At",
+            "type": "string"
+          },
+          "script": {
+            "$ref": "#/components/schemas/CallScript"
+          }
+        },
+        "required": [
+          "script",
+          "saved_at"
+        ],
+        "title": "DraftOut",
+        "type": "object"
+      },
+      "DraftRequestOut": {
+        "additionalProperties": false,
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/LeadFieldsDraftOut"
+          }
+        },
+        "required": [
+          "draft"
+        ],
+        "title": "DraftRequestOut",
+        "type": "object"
+      },
+      "DraftSavedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "saved_at": {
+            "format": "date-time",
+            "title": "Saved At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "saved_at"
+        ],
+        "title": "DraftSavedOut",
+        "type": "object"
+      },
       "DrawdownOut": {
         "additionalProperties": false,
         "description": "WHERE THE MONEY WENT, over the same window the runway was measured on.\n\nEvery figure is POSITIVE and its direction is in the field name, never in a sign \u2014 a\nscreen that had to decide whether `-340.00` was a debit or a correction of one is a\nscreen that will eventually decide wrong.\n\nTHERE IS NO MESSAGING BUCKET, and that is deliberate rather than missing: nothing on\nthis platform debits the wallet for a WhatsApp message or an SMS, so a \"Messaging\"\nrow reading \u20b90.00 would be a category invented to look complete, and a client reading\nit would reasonably conclude they are being charged for messages.",
@@ -12029,6 +12813,9 @@
             "anyOf": [
               {
                 "enum": [
+                  "retail",
+                  "local_services",
+                  "automobile",
                   "clinic",
                   "real_estate",
                   "insurance",
@@ -12400,6 +13187,17 @@
             "title": "Label",
             "type": "string"
           },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
           "model_id": {
             "title": "Model Id",
             "type": "string"
@@ -12411,6 +13209,21 @@
           "plan_allows": {
             "title": "Plan Allows",
             "type": "boolean"
+          },
+          "price_band": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "premium"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Band"
           },
           "reason": {
             "anyOf": [
@@ -12467,6 +13280,17 @@
             "title": "Complete",
             "type": "boolean"
           },
+          "default_model_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Model Label"
+          },
           "models": {
             "items": {
               "$ref": "#/components/schemas/EngineCatalogueModelOut"
@@ -12482,6 +13306,17 @@
             "default": false,
             "title": "Studio Available",
             "type": "boolean"
+          },
+          "studio_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Studio Note"
           },
           "voices": {
             "items": {
@@ -13363,6 +14198,31 @@
         "title": "ErasureScopeOut",
         "type": "object"
       },
+      "ExampleLine": {
+        "additionalProperties": false,
+        "properties": {
+          "speaker": {
+            "enum": [
+              "caller",
+              "agent"
+            ],
+            "title": "Speaker",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "speaker",
+          "text"
+        ],
+        "title": "ExampleLine",
+        "type": "object"
+      },
       "ExperimentOut": {
         "additionalProperties": false,
         "properties": {
@@ -13698,6 +14558,13 @@
             "title": "Changed",
             "type": "boolean"
           },
+          "core_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionField"
+            },
+            "title": "Core Fields",
+            "type": "array"
+          },
           "fields": {
             "items": {
               "$ref": "#/components/schemas/ExtractionField"
@@ -13712,10 +14579,134 @@
         },
         "required": [
           "fields",
+          "core_fields",
           "version",
           "changed"
         ],
         "title": "ExtractionSchemaOut",
+        "type": "object"
+      },
+      "FactIn": {
+        "additionalProperties": false,
+        "properties": {
+          "pinned": {
+            "default": false,
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question"
+          },
+          "text": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "FactIn",
+        "type": "object"
+      },
+      "FactOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "pinned": {
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "pinned",
+          "origin",
+          "created_at"
+        ],
+        "title": "FactOut",
+        "type": "object"
+      },
+      "FactPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "pinned": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pinned"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "title": "FactPatch",
         "type": "object"
       },
       "FallbackPhoneIn": {
@@ -15714,6 +16705,83 @@
           "severity"
         ],
         "title": "HealthSignalOut",
+        "type": "object"
+      },
+      "HeldLeadOut": {
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "held_at": {
+            "format": "date-time",
+            "title": "Held At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lead_id": {
+            "format": "uuid",
+            "title": "Lead Id",
+            "type": "string"
+          },
+          "lead_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Name"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "lead_id",
+          "lead_name",
+          "agent_id",
+          "agent_name",
+          "source",
+          "held_at"
+        ],
+        "title": "HeldLeadOut",
+        "type": "object"
+      },
+      "HeldLeadsOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/HeldLeadOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "HeldLeadsOut",
         "type": "object"
       },
       "HeldTenantOut": {
@@ -17842,6 +18910,89 @@
         "title": "KnowledgeGapOut",
         "type": "object"
       },
+      "KnownItemOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "state"
+        ],
+        "title": "KnownItemOut",
+        "type": "object"
+      },
+      "KnowsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/FactOut"
+            },
+            "title": "Facts",
+            "type": "array"
+          },
+          "facts_state": {
+            "title": "Facts State",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/KnownItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "facts",
+          "facts_state",
+          "items"
+        ],
+        "title": "KnowsOut",
+        "type": "object"
+      },
       "KycDocumentOut": {
         "additionalProperties": false,
         "description": "One file on record. Metadata only; the bytes are never returned to the client.",
@@ -18537,6 +19688,246 @@
         "title": "LeadBulkOut",
         "type": "object"
       },
+      "LeadCallingIn": {
+        "additionalProperties": false,
+        "properties": {
+          "after_hours": {
+            "default": "next_open",
+            "enum": [
+              "next_open",
+              "open_plus_3h",
+              "next_day",
+              "hold"
+            ],
+            "title": "After Hours",
+            "type": "string"
+          },
+          "calling_agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calling Agent Id"
+          },
+          "days": {
+            "items": {
+              "enum": [
+                "mon",
+                "tue",
+                "wed",
+                "thu",
+                "fri",
+                "sat",
+                "sun"
+              ],
+              "type": "string"
+            },
+            "maxItems": 7,
+            "minItems": 1,
+            "title": "Days",
+            "type": "array"
+          },
+          "detect_machines": {
+            "default": false,
+            "title": "Detect Machines",
+            "type": "boolean"
+          },
+          "holidays": {
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "maxItems": 60,
+            "title": "Holidays",
+            "type": "array"
+          },
+          "hours_end": {
+            "default": "21:00:00",
+            "format": "time",
+            "title": "Hours End",
+            "type": "string"
+          },
+          "hours_start": {
+            "default": "09:00:00",
+            "format": "time",
+            "title": "Hours Start",
+            "type": "string"
+          },
+          "retry_attempts": {
+            "default": 0,
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Retry Attempts",
+            "type": "integer"
+          },
+          "retry_interval_minutes": {
+            "default": 60,
+            "maximum": 1440.0,
+            "minimum": 10.0,
+            "title": "Retry Interval Minutes",
+            "type": "integer"
+          },
+          "wait_seconds": {
+            "default": 0,
+            "maximum": 3600.0,
+            "minimum": 0.0,
+            "title": "Wait Seconds",
+            "type": "integer"
+          }
+        },
+        "title": "LeadCallingIn",
+        "type": "object"
+      },
+      "LeadCallingOut": {
+        "properties": {
+          "after_hours": {
+            "enum": [
+              "next_open",
+              "open_plus_3h",
+              "next_day",
+              "hold"
+            ],
+            "title": "After Hours",
+            "type": "string"
+          },
+          "agents_updated": {
+            "default": 0,
+            "title": "Agents Updated",
+            "type": "integer"
+          },
+          "always_applied": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Always Applied",
+            "type": "array"
+          },
+          "calling_agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calling Agent Id"
+          },
+          "days": {
+            "items": {
+              "enum": [
+                "mon",
+                "tue",
+                "wed",
+                "thu",
+                "fri",
+                "sat",
+                "sun"
+              ],
+              "type": "string"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "detect_machines": {
+            "title": "Detect Machines",
+            "type": "boolean"
+          },
+          "held_count": {
+            "title": "Held Count",
+            "type": "integer"
+          },
+          "holidays": {
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "title": "Holidays",
+            "type": "array"
+          },
+          "hours_end": {
+            "format": "time",
+            "title": "Hours End",
+            "type": "string"
+          },
+          "hours_start": {
+            "format": "time",
+            "title": "Hours Start",
+            "type": "string"
+          },
+          "retry_attempts": {
+            "title": "Retry Attempts",
+            "type": "integer"
+          },
+          "retry_interval_minutes": {
+            "title": "Retry Interval Minutes",
+            "type": "integer"
+          },
+          "trial_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trial Notice"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "wait_seconds": {
+            "title": "Wait Seconds",
+            "type": "integer"
+          },
+          "window_end": {
+            "format": "time",
+            "title": "Window End",
+            "type": "string"
+          },
+          "window_start": {
+            "format": "time",
+            "title": "Window Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "calling_agent_id",
+          "wait_seconds",
+          "hours_start",
+          "hours_end",
+          "days",
+          "holidays",
+          "after_hours",
+          "retry_attempts",
+          "retry_interval_minutes",
+          "detect_machines",
+          "updated_at",
+          "window_start",
+          "window_end",
+          "held_count",
+          "trial_notice",
+          "always_applied"
+        ],
+        "title": "LeadCallingOut",
+        "type": "object"
+      },
       "LeadColumnOut": {
         "additionalProperties": false,
         "description": "One selectable column of the Leads table \u2014 `crm.columns.LeadColumn` on the wire.\n\n`kind` is what lets the screen render a column without knowing its name: `fixed`\ncolumns come off `LeadOut`'s own attributes (the `phone` column is `phone_e164`\nthere, the same full number the export writes), `extraction` columns come out of\n`LeadOut.data` under `key`.",
@@ -18650,6 +20041,185 @@
           "omitted_field_count"
         ],
         "title": "LeadFacetsOut",
+        "type": "object"
+      },
+      "LeadFieldsAgentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "business_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionField"
+            },
+            "title": "Business Fields",
+            "type": "array"
+          },
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "direction",
+          "status",
+          "version",
+          "business_fields"
+        ],
+        "title": "LeadFieldsAgentOut",
+        "type": "object"
+      },
+      "LeadFieldsDraftOut": {
+        "additionalProperties": false,
+        "description": "The one AI draft of a custom business's fields.",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionField"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "requested_at",
+          "completed_at",
+          "fields",
+          "error_code"
+        ],
+        "title": "LeadFieldsDraftOut",
+        "type": "object"
+      },
+      "LeadFieldsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/LeadFieldsAgentOut"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type"
+          },
+          "business_type_label": {
+            "title": "Business Type Label",
+            "type": "string"
+          },
+          "can_draft": {
+            "title": "Can Draft",
+            "type": "boolean"
+          },
+          "core_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionField"
+            },
+            "title": "Core Fields",
+            "type": "array"
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LeadFieldsDraftOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "has_standard_set": {
+            "title": "Has Standard Set",
+            "type": "boolean"
+          },
+          "need_key": {
+            "title": "Need Key",
+            "type": "string"
+          },
+          "standard_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionField"
+            },
+            "title": "Standard Fields",
+            "type": "array"
+          }
+        },
+        "required": [
+          "business_type",
+          "business_type_label",
+          "core_fields",
+          "need_key",
+          "standard_fields",
+          "has_standard_set",
+          "draft",
+          "can_draft",
+          "agents"
+        ],
+        "title": "LeadFieldsOut",
         "type": "object"
       },
       "LeadLensIn": {
@@ -18868,6 +20438,17 @@
             "title": "Is Repeat Caller",
             "type": "boolean"
           },
+          "last_call_headline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call Headline"
+          },
           "last_call_id": {
             "anyOf": [
               {
@@ -18880,6 +20461,25 @@
             ],
             "title": "Last Call Id"
           },
+          "last_call_outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "call_back_booked",
+                  "needs_you",
+                  "answered",
+                  "transferred",
+                  "hung_up_early",
+                  "missed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call Outcome"
+          },
           "name": {
             "anyOf": [
               {
@@ -18890,6 +20490,29 @@
               }
             ],
             "title": "Name"
+          },
+          "next_callback_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Callback At"
+          },
+          "next_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Step"
           },
           "phone_e164": {
             "title": "Phone E164",
@@ -18907,6 +20530,14 @@
             "title": "Schema Version"
           },
           "source": {
+            "enum": [
+              "inbound_call",
+              "webhook",
+              "campaign",
+              "manual",
+              "test_call",
+              "outbound_call"
+            ],
             "title": "Source",
             "type": "string"
           },
@@ -18922,6 +20553,14 @@
             "title": "Status",
             "type": "string"
           },
+          "status_set_by": {
+            "enum": [
+              "system",
+              "person"
+            ],
+            "title": "Status Set By",
+            "type": "string"
+          },
           "updated_at": {
             "format": "date-time",
             "title": "Updated At",
@@ -18932,6 +20571,7 @@
           "id",
           "phone_e164",
           "status",
+          "status_set_by",
           "source",
           "call_count",
           "is_repeat_caller",
@@ -21805,6 +23445,29 @@
         "title": "OAuthCallbackIn",
         "type": "object"
       },
+      "Objection": {
+        "additionalProperties": false,
+        "properties": {
+          "objection": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Objection",
+            "type": "string"
+          },
+          "response": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Response",
+            "type": "string"
+          }
+        },
+        "required": [
+          "objection",
+          "response"
+        ],
+        "title": "Objection",
+        "type": "object"
+      },
       "OfferedNumberOut": {
         "additionalProperties": false,
         "description": "One number a client could buy, at the price they would pay.\n\n**RUPEES, AND NOT THE VENDOR'S DOLLARS.** What Calevate is charged is on the operator's\nscreen only (`/v1/admin/numbers/available`). This figure is the rate an operator\nattested; a client's purchase screen carrying our cost would invite them to quote it\nback as their price. A string rather than a float, like every other money field on this\nAPI (hard rule 7).",
@@ -23344,6 +25007,26 @@
         "title": "PerformanceOut",
         "type": "object"
       },
+      "PinnedOrderIn": {
+        "additionalProperties": false,
+        "properties": {
+          "ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 300,
+            "minItems": 1,
+            "title": "Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "title": "PinnedOrderIn",
+        "type": "object"
+      },
       "PlanMarginOut": {
         "additionalProperties": false,
         "description": "The gross margin of a committed-volume bundle's rates at our cost floor (D-469).\n\nReturned on every plan the operator reads or writes, so the margin of a bundle is a\nnumber on the screen that sets it \u2014 not something discovered when a client reconciles.\nThe effective committed rate is `monthly_fee / included_min`; both it and the overage\nrate are judged against the Clear cost floor of the deployment's engine and `MIN_GROSS_MARGIN`\n(`billing/rates.py`, the same floor the prepaid packs use). Money and ratios are exact\nstrings (hard rule 7); `null` where a rate is unset, never a zero standing in for it.",
@@ -24009,6 +25692,27 @@
           "compiled": {
             "title": "Compiled",
             "type": "string"
+          },
+          "instructions_chars": {
+            "default": 0,
+            "title": "Instructions Chars",
+            "type": "integer"
+          },
+          "instructions_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instructions Limit"
+          },
+          "native_steps": {
+            "default": 0,
+            "title": "Native Steps",
+            "type": "integer"
           }
         },
         "required": [
@@ -24463,6 +26167,29 @@
         "title": "PromptWrittenOut",
         "type": "object"
       },
+      "Pronunciation": {
+        "additionalProperties": false,
+        "properties": {
+          "say_as": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Say As",
+            "type": "string"
+          },
+          "word": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Word",
+            "type": "string"
+          }
+        },
+        "required": [
+          "word",
+          "say_as"
+        ],
+        "title": "Pronunciation",
+        "type": "object"
+      },
       "ProposalOut": {
         "additionalProperties": false,
         "properties": {
@@ -24676,6 +26403,44 @@
           "provider"
         ],
         "title": "ProvisionNumberIn",
+        "type": "object"
+      },
+      "PublishIn": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version"
+          },
+          "script": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallScript"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "summary": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary"
+        ],
+        "title": "PublishIn",
         "type": "object"
       },
       "PurchaseIn": {
@@ -26492,6 +28257,26 @@
         "title": "ReleaseOwnNumberIn",
         "type": "object"
       },
+      "ReleasedOut": {
+        "properties": {
+          "callback_id": {
+            "format": "uuid",
+            "title": "Callback Id",
+            "type": "string"
+          },
+          "due_at": {
+            "format": "date-time",
+            "title": "Due At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "callback_id",
+          "due_at"
+        ],
+        "title": "ReleasedOut",
+        "type": "object"
+      },
       "ReleasedOwnNumberOut": {
         "additionalProperties": false,
         "properties": {
@@ -26510,6 +28295,49 @@
           "released"
         ],
         "title": "ReleasedOwnNumberOut",
+        "type": "object"
+      },
+      "ReplaceIn": {
+        "additionalProperties": false,
+        "description": "Which agents get a fresh set of business fields. Omit `agent_ids` for all of them.",
+        "properties": {
+          "agent_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Ids"
+          }
+        },
+        "title": "ReplaceIn",
+        "type": "object"
+      },
+      "ReplaceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agents_changed": {
+            "title": "Agents Changed",
+            "type": "integer"
+          },
+          "agents_unchanged": {
+            "title": "Agents Unchanged",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agents_changed",
+          "agents_unchanged"
+        ],
+        "title": "ReplaceOut",
         "type": "object"
       },
       "ReplayOut": {
@@ -26650,6 +28478,24 @@
           "email"
         ],
         "title": "ResetRequestIn",
+        "type": "object"
+      },
+      "ResolveRuleIn": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "applied",
+              "dismissed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ResolveRuleIn",
         "type": "object"
       },
       "RestatementIn": {
@@ -26988,6 +28834,43 @@
         "title": "RotateSecretOut",
         "type": "object"
       },
+      "RuleOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "agent_id",
+          "text",
+          "status",
+          "created_at"
+        ],
+        "title": "RuleOut",
+        "type": "object"
+      },
       "RunwayOut": {
         "additionalProperties": false,
         "description": "How long the balance lasts \u2014 and, when it may not be said, WHY not.\n\n`days` is null on every basis but `projected`, and `basis` carries which reason.\n\"We have not been watching you long enough to tell\" and \"you are not spending\nanything\" are different sentences to an owner deciding whether to top up, and a\nscreen that collapsed them into a blank would answer neither.\n\nNO DEFAULTS on any field, for `TopUpIntentOut.provider_order_id`'s reason: a Pydantic\ndefault generates an OPTIONAL property in the TypeScript client, and `days: null`\n(we will not put a number on it) must stay distinguishable from `undefined` (the\nserver did not say).",
@@ -27053,6 +28936,62 @@
         "title": "RunwayOut",
         "type": "object"
       },
+      "SaveDraftIn": {
+        "additionalProperties": false,
+        "properties": {
+          "base_saved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Saved At"
+          },
+          "script": {
+            "$ref": "#/components/schemas/CallScript"
+          }
+        },
+        "required": [
+          "script"
+        ],
+        "title": "SaveDraftIn",
+        "type": "object"
+      },
+      "SaveIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TeachItemIO"
+            },
+            "maxItems": 30,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "SaveIn",
+        "type": "object"
+      },
       "SaveScriptIn": {
         "additionalProperties": false,
         "properties": {
@@ -27107,6 +29046,38 @@
           "staged"
         ],
         "title": "SaveScriptOut",
+        "type": "object"
+      },
+      "SavedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "facts_added": {
+            "title": "Facts Added",
+            "type": "integer"
+          },
+          "rules_added": {
+            "title": "Rules Added",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "facts_added",
+          "rules_added",
+          "agent_id"
+        ],
+        "title": "SavedOut",
         "type": "object"
       },
       "SavedViewFilters": {
@@ -27519,10 +29490,159 @@
         "title": "ScheduledCallbackOut",
         "type": "object"
       },
+      "ScriptContextOut": {
+        "additionalProperties": false,
+        "description": "What the builder shows beside the script and does not edit there.",
+        "properties": {
+          "business_type": {
+            "title": "Business Type",
+            "type": "string"
+          },
+          "call_backs_available": {
+            "title": "Call Backs Available",
+            "type": "boolean"
+          },
+          "collect": {
+            "items": {
+              "$ref": "#/components/schemas/CollectFieldOut"
+            },
+            "title": "Collect",
+            "type": "array"
+          },
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "hand_over_enabled": {
+            "title": "Hand Over Enabled",
+            "type": "boolean"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/ScriptLimitsOut"
+          },
+          "register_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Register Name"
+          },
+          "register_needs_review": {
+            "title": "Register Needs Review",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "collect",
+          "call_backs_available",
+          "hand_over_enabled",
+          "direction",
+          "language",
+          "register_name",
+          "register_needs_review",
+          "business_type",
+          "limits"
+        ],
+        "title": "ScriptContextOut",
+        "type": "object"
+      },
+      "ScriptLimitsOut": {
+        "additionalProperties": false,
+        "description": "The builder's limits on this deployment's engine (D-714).",
+        "properties": {
+          "instructions_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instructions Limit"
+          },
+          "max_branches": {
+            "title": "Max Branches",
+            "type": "integer"
+          },
+          "max_collect": {
+            "title": "Max Collect",
+            "type": "integer"
+          },
+          "max_sections": {
+            "title": "Max Sections",
+            "type": "integer"
+          },
+          "native_steps": {
+            "title": "Native Steps",
+            "type": "boolean"
+          },
+          "section_detail_max": {
+            "title": "Section Detail Max",
+            "type": "integer"
+          },
+          "section_title_max": {
+            "title": "Section Title Max",
+            "type": "integer"
+          },
+          "sounds_like_max": {
+            "title": "Sounds Like Max",
+            "type": "integer"
+          },
+          "special_targets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Special Targets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "max_sections",
+          "section_title_max",
+          "section_detail_max",
+          "sounds_like_max",
+          "max_branches",
+          "max_collect",
+          "instructions_limit",
+          "native_steps",
+          "special_targets"
+        ],
+        "title": "ScriptLimitsOut",
+        "type": "object"
+      },
       "ScriptOut": {
         "additionalProperties": false,
-        "description": "The draft script the builder edits, plus where it stands and the free merge fields.",
+        "description": "The draft script the builder edits, plus where it stands and the free merge fields.\n\n`script` is always in the current sections: a script saved in the older format is shown\nconverted (`upgrade_to_v2`) and stays as it was stored until it is saved again.",
         "properties": {
+          "context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScriptContextOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DraftOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "has_pending": {
             "title": "Has Pending",
             "type": "boolean"
@@ -27540,6 +29660,17 @@
             },
             "title": "Standard Variables",
             "type": "array"
+          },
+          "stored_schema_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stored Schema Version"
           },
           "version": {
             "anyOf": [
@@ -27561,6 +29692,29 @@
           "standard_variables"
         ],
         "title": "ScriptOut",
+        "type": "object"
+      },
+      "ScriptPolicies": {
+        "additionalProperties": false,
+        "description": "What the business allows its agent to do. Call backs are also bounded by what the\naccount can do (a trial cannot, D-697), which the platform enforces after the script.",
+        "properties": {
+          "offer_call_backs": {
+            "default": true,
+            "title": "Offer Call Backs",
+            "type": "boolean"
+          },
+          "share_prices": {
+            "default": true,
+            "title": "Share Prices",
+            "type": "boolean"
+          },
+          "take_bookings": {
+            "default": true,
+            "title": "Take Bookings",
+            "type": "boolean"
+          }
+        },
+        "title": "ScriptPolicies",
         "type": "object"
       },
       "ScriptStep": {
@@ -28601,6 +30755,52 @@
         "title": "SpeakingRatePointOut",
         "type": "object"
       },
+      "SpeakingStyle": {
+        "additionalProperties": false,
+        "description": "How the agent sounds: tone, how it addresses callers, how much English it mixes in,\nphrases it may use and how to say difficult words.",
+        "properties": {
+          "address_form": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Address Form",
+            "type": "string"
+          },
+          "code_mix": {
+            "default": "natural",
+            "enum": [
+              "light",
+              "natural",
+              "heavy"
+            ],
+            "title": "Code Mix",
+            "type": "string"
+          },
+          "pronunciations": {
+            "items": {
+              "$ref": "#/components/schemas/Pronunciation"
+            },
+            "maxItems": 50,
+            "title": "Pronunciations",
+            "type": "array"
+          },
+          "sample_phrases": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Sample Phrases",
+            "type": "array"
+          },
+          "tone": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Tone",
+            "type": "string"
+          }
+        },
+        "title": "SpeakingStyle",
+        "type": "object"
+      },
       "SpendCapRecomputeOut": {
         "additionalProperties": false,
         "description": "What the flag was, what it is now, and the numbers that decided it.\n\nAn operator running this mid-incident needs to know not just whether the tenant is\nreleased but WHY \u2014 a recompute that leaves `capped` true has done its job and the\nceiling is simply still below the spend. Reporting the counters and the effective\nceiling next to the flag is what turns \"it did not work\" into \"the ceiling is 2 and\nthey have used 3\".",
@@ -28940,6 +31140,30 @@
           "name"
         ],
         "title": "StaffMember",
+        "type": "object"
+      },
+      "StageBranch": {
+        "additionalProperties": false,
+        "description": "\"When <condition>, go to <target>\": a section id, or one of `SPECIAL_TARGETS`.",
+        "properties": {
+          "target": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Target",
+            "type": "string"
+          },
+          "when": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "When",
+            "type": "string"
+          }
+        },
+        "required": [
+          "when",
+          "target"
+        ],
+        "title": "StageBranch",
         "type": "object"
       },
       "StartExperimentIn": {
@@ -29416,6 +31640,115 @@
         "title": "StatusPostIn",
         "type": "object"
       },
+      "StruggleOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "gap_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call Id"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question"
+          },
+          "times": {
+            "title": "Times",
+            "type": "integer"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "gap_id",
+          "agent_id",
+          "agent_name",
+          "topic",
+          "question",
+          "answer",
+          "times",
+          "calls",
+          "last_call_id",
+          "last_seen_at"
+        ],
+        "title": "StruggleOut",
+        "type": "object"
+      },
       "StudioEnableIn": {
         "additionalProperties": false,
         "properties": {
@@ -29430,6 +31763,18 @@
               }
             ],
             "title": "Model"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
           }
         },
         "title": "StudioEnableIn",
@@ -29440,6 +31785,14 @@
         "properties": {
           "cartesia_key_configured": {
             "title": "Cartesia Key Configured",
+            "type": "boolean"
+          },
+          "developer_holds_key": {
+            "title": "Developer Holds Key",
+            "type": "boolean"
+          },
+          "developer_switch_on": {
+            "title": "Developer Switch On",
             "type": "boolean"
           },
           "explanation": {
@@ -29453,6 +31806,17 @@
             "title": "Live Studio Agents",
             "type": "integer"
           },
+          "minute_attested": {
+            "title": "Minute Attested",
+            "type": "boolean"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
           "note": {
             "title": "Note",
             "type": "string"
@@ -29460,17 +31824,97 @@
           "ready": {
             "title": "Ready",
             "type": "boolean"
+          },
+          "synthesis_priced": {
+            "title": "Synthesis Priced",
+            "type": "boolean"
+          },
+          "voices_listed": {
+            "title": "Voices Listed",
+            "type": "boolean"
+          },
+          "workspaces": {
+            "items": {
+              "$ref": "#/components/schemas/StudioWorkspaceOut"
+            },
+            "title": "Workspaces",
+            "type": "array"
           }
         },
         "required": [
           "key",
           "ready",
           "cartesia_key_configured",
+          "developer_holds_key",
+          "developer_switch_on",
+          "minute_attested",
+          "synthesis_priced",
+          "voices_listed",
+          "missing",
+          "workspaces",
           "live_studio_agents",
           "explanation",
           "note"
         ],
         "title": "StudioVoicesOut",
+        "type": "object"
+      },
+      "StudioWorkspaceOut": {
+        "additionalProperties": false,
+        "description": "A client workspace where our Cartesia key was confirmed on (D-717).",
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "enabled_at": {
+            "format": "date-time",
+            "title": "Enabled At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "tenant_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Name"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "tenant_name",
+          "enabled_at",
+          "checked_at",
+          "error_code"
+        ],
+        "title": "StudioWorkspaceOut",
         "type": "object"
       },
       "SubjectExportCallOut": {
@@ -29502,6 +31946,28 @@
               }
             ],
             "title": "Duration S"
+          },
+          "headline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headline"
+          },
+          "next_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Step"
           },
           "outcome_tag": {
             "anyOf": [
@@ -29539,6 +32005,17 @@
               }
             ],
             "title": "Summary"
+          },
+          "summary_local": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Local"
           }
         },
         "required": [
@@ -30195,6 +32672,165 @@
           "status"
         ],
         "title": "SubmitOut",
+        "type": "object"
+      },
+      "TeachIn": {
+        "additionalProperties": false,
+        "properties": {
+          "gap_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap Id"
+          },
+          "words": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Words",
+            "type": "string"
+          }
+        },
+        "required": [
+          "words"
+        ],
+        "title": "TeachIn",
+        "type": "object"
+      },
+      "TeachItemIO": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "fact",
+              "rule"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "pinned": {
+            "default": false,
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "text": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ],
+        "title": "TeachItemIO",
+        "type": "object"
+      },
+      "TeachingOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "gap_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_kind": {
+            "title": "Input Kind",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TeachItemIO"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "words": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Words"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "input_kind",
+          "words",
+          "items",
+          "agent_id",
+          "gap_id",
+          "note",
+          "error_code",
+          "created_at"
+        ],
+        "title": "TeachingOut",
         "type": "object"
       },
       "TeamMemberOut": {
@@ -31707,6 +34343,392 @@
         "title": "TestActionOut",
         "type": "object"
       },
+      "TestCaseIn": {
+        "additionalProperties": false,
+        "properties": {
+          "caller_lines": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 6,
+            "minItems": 1,
+            "title": "Caller Lines",
+            "type": "array"
+          },
+          "expected": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Expected",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "caller_lines",
+          "expected"
+        ],
+        "title": "TestCaseIn",
+        "type": "object"
+      },
+      "TestCaseOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "caller_lines": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Caller Lines",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expected": {
+            "title": "Expected",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_prompt_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Prompt Version"
+          },
+          "last_result": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/TestTurnOut"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Result"
+          },
+          "last_run_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run At"
+          },
+          "source_call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Call Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "agent_id",
+          "source_call_id",
+          "title",
+          "caller_lines",
+          "expected",
+          "status",
+          "last_result",
+          "last_error",
+          "last_run_at",
+          "last_prompt_version",
+          "created_at"
+        ],
+        "title": "TestCaseOut",
+        "type": "object"
+      },
+      "TestCasesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/TestCaseOut"
+            },
+            "title": "Cases",
+            "type": "array"
+          },
+          "cost_note": {
+            "title": "Cost Note",
+            "type": "string"
+          },
+          "live_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Version"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "required": [
+          "cases",
+          "available",
+          "unavailable_reason",
+          "live_version",
+          "cost_note"
+        ],
+        "title": "TestCasesOut",
+        "type": "object"
+      },
+      "TestConversationsOut": {
+        "additionalProperties": false,
+        "description": "Pre-launch test conversations (founder decision 11): advised, never required.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "cost_note": {
+            "title": "Cost Note",
+            "type": "string"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TestRunOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "required": [
+          "available",
+          "unavailable_reason",
+          "cost_note",
+          "latest"
+        ],
+        "title": "TestConversationsOut",
+        "type": "object"
+      },
+      "TestResultOut": {
+        "additionalProperties": false,
+        "properties": {
+          "advice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Advice"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "reply": {
+            "title": "Reply",
+            "type": "string"
+          },
+          "said": {
+            "title": "Said",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "passed",
+              "attention",
+              "failed",
+              "read"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "said",
+          "reply",
+          "verdict",
+          "advice"
+        ],
+        "title": "TestResultOut",
+        "type": "object"
+      },
+      "TestRunOut": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "is_current": {
+            "title": "Is Current",
+            "type": "boolean"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/TestResultOut"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "prompt_version",
+          "is_current",
+          "results",
+          "created_at",
+          "completed_at"
+        ],
+        "title": "TestRunOut",
+        "type": "object"
+      },
+      "TestTurnOut": {
+        "additionalProperties": false,
+        "properties": {
+          "cut_short": {
+            "default": false,
+            "title": "Cut Short",
+            "type": "boolean"
+          },
+          "looked_up_knowledge": {
+            "default": false,
+            "title": "Looked Up Knowledge",
+            "type": "boolean"
+          },
+          "reply": {
+            "title": "Reply",
+            "type": "string"
+          },
+          "said": {
+            "title": "Said",
+            "type": "string"
+          }
+        },
+        "required": [
+          "said",
+          "reply"
+        ],
+        "title": "TestTurnOut",
+        "type": "object"
+      },
       "TestWebhookIn": {
         "additionalProperties": false,
         "properties": {
@@ -32503,6 +35525,17 @@
           "text": {
             "title": "Text",
             "type": "string"
+          },
+          "text_en": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text En"
           }
         },
         "required": [
@@ -33227,6 +36260,68 @@
           "minutes_used"
         ],
         "title": "TrialStatusOut",
+        "type": "object"
+      },
+      "TryChatIn": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "session": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "TryChatIn",
+        "type": "object"
+      },
+      "TryChatOut": {
+        "additionalProperties": false,
+        "properties": {
+          "cost_note": {
+            "title": "Cost Note",
+            "type": "string"
+          },
+          "cut_short": {
+            "title": "Cut Short",
+            "type": "boolean"
+          },
+          "looked_up_knowledge": {
+            "title": "Looked Up Knowledge",
+            "type": "boolean"
+          },
+          "reply": {
+            "title": "Reply",
+            "type": "string"
+          },
+          "session": {
+            "title": "Session",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session",
+          "reply",
+          "looked_up_knowledge",
+          "cut_short",
+          "cost_note"
+        ],
+        "title": "TryChatOut",
         "type": "object"
       },
       "TtsPlanFeeAttestIn": {
@@ -34547,6 +37642,43 @@
         "title": "VerificationOut",
         "type": "object"
       },
+      "VersionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "is_live": {
+            "title": "Is Live",
+            "type": "boolean"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "summary",
+          "created_at",
+          "is_live"
+        ],
+        "title": "VersionOut",
+        "type": "object"
+      },
       "Voice": {
         "additionalProperties": false,
         "description": "One selectable voice. Doubles as the API response model \u2014 the catalog IS the\ncontract, so there is nothing to keep in sync.",
@@ -35446,6 +38578,22 @@
         "title": "WebhookAck",
         "type": "object"
       },
+      "WordsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "words": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Words",
+            "type": "string"
+          }
+        },
+        "required": [
+          "words"
+        ],
+        "title": "WordsIn",
+        "type": "object"
+      },
       "WorkspaceFailureOut": {
         "additionalProperties": false,
         "properties": {
@@ -35688,6 +38836,25 @@
           "agent_id",
           "engine_agent_ref",
           "status"
+        ],
+        "title": "PublishOut",
+        "type": "object"
+      },
+      "apps__api__agents__script_routes__PublishOut": {
+        "additionalProperties": false,
+        "properties": {
+          "live": {
+            "title": "Live",
+            "type": "boolean"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "live"
         ],
         "title": "PublishOut",
         "type": "object"
@@ -41929,6 +45096,137 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/lead-fields": {
+      "get": {
+        "operationId": "admin_get_lead_fields_v1_admin_tenants__tenant_id__lead_fields_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadFieldsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The lead details one client captures",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/lead-fields/draft": {
+      "post": {
+        "operationId": "admin_post_draft_v1_admin_tenants__tenant_id__lead_fields_draft_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftRequestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Draft one client's lead details once, from its business details",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/lead-fields/replace": {
+      "post": {
+        "description": "Each agent named (every agent when none is named) gets the set as a NEW version of its lead details; values already captured stay on their leads and calls, readable under their old names.",
+        "operationId": "admin_post_replace_v1_admin_tenants__tenant_id__lead_fields_replace_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReplaceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Replace one client's agents' lead details with a standard set",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/margin": {
       "get": {
         "description": "Admin realm only. `unit_cost_paid` is our supplier pricing \u2014 it is the reason\nthis lives here and not beside the client's usage panel.\n\nRuns under a tenant-scoped session because `usage_events` is RLS'd and stays that\nway: `app.admin` opens the client DIRECTORY, never their data (migration\nb57e2f9c4a13). An operator reads one client's numbers by entering that client's\nscope deliberately, exactly like impersonation does for pages.",
@@ -44828,6 +48126,107 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/agents/{agent_id}/script/convert": {
+      "post": {
+        "description": "SUBJECT \u2192 GATE \u2192 RUN \u2192 METER, as the assist above, on the client's AI allowance.",
+        "operationId": "convert_script_v1_agents__agent_id__script_convert_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConvertIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConvertOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Propose sections for a hand-written prompt (AI), with what could not be placed",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/draft": {
+      "put": {
+        "operationId": "save_script_draft_v1_agents__agent_id__script_draft_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveDraftIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftSavedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Autosave the working copy (no version, never reaches a call)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/agents/{agent_id}/script/preview": {
       "post": {
         "operationId": "preview_script_v1_agents__agent_id__script_preview_post",
@@ -44878,6 +48277,254 @@
         "x-calevate-permission": "agents:read"
       }
     },
+    "/v1/agents/{agent_id}/script/proposed-rules": {
+      "get": {
+        "operationId": "list_proposed_rules_v1_agents__agent_id__script_proposed_rules_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "pending",
+              "enum": [
+                "pending",
+                "applied",
+                "dismissed"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RuleOut"
+                  },
+                  "title": "Response List Proposed Rules V1 Agents  Agent Id  Script Proposed Rules Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Rules the owner taught that are waiting to be added to this agent's script",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/agents/{agent_id}/script/proposed-rules/{rule_id}": {
+      "post": {
+        "operationId": "resolve_proposed_rule_v1_agents__agent_id__script_proposed_rules__rule_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveRuleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Mark a waiting rule as added to the script, or dismiss it",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/publish": {
+      "post": {
+        "description": "One action in place of Save then Apply: a version with the owner's summary, applied\nto live calls in the same request. Callers keep the old script until this succeeds.",
+        "operationId": "publish_script_v1_agents__agent_id__script_publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/apps__api__agents__script_routes__PublishOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put it live: the draft becomes a version with a change summary and is applied",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/tests": {
+      "get": {
+        "operationId": "get_test_conversations_v1_agents__agent_id__script_tests_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestConversationsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The agent's latest pre-launch test conversations",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "post": {
+        "operationId": "run_test_conversations_v1_agents__agent_id__script_tests_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestConversationsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Run the pre-launch test conversations against the agent",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/agents/{agent_id}/script/undo": {
       "post": {
         "operationId": "undo_script_v1_agents__agent_id__script_undo_post",
@@ -44916,6 +48563,321 @@
           "agents"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/versions": {
+      "get": {
+        "operationId": "script_versions_v1_agents__agent_id__script_versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/VersionOut"
+                  },
+                  "title": "Response Script Versions V1 Agents  Agent Id  Script Versions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The script's versions, newest first, and which one callers hear",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/agents/{agent_id}/script/versions/{version}/restore": {
+      "post": {
+        "operationId": "restore_script_version_v1_agents__agent_id__script_versions__version__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Copy an earlier version into the draft (callers keep the live one)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/test-cases": {
+      "get": {
+        "operationId": "list_test_cases_v1_agents__agent_id__test_cases_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestCasesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This agent's saved tests and their last answers",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "post": {
+        "operationId": "create_test_case_v1_agents__agent_id__test_cases_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestCaseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestCaseOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Save a test written by hand",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/agents/{agent_id}/test-cases/run": {
+      "post": {
+        "description": "Runs in the background, a few seconds per caller line. Poll `GET /v1/agents/{agent_id}/test-cases` while any test is `queued` or `running`.",
+        "operationId": "run_test_cases_v1_agents__agent_id__test_cases_run_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestCasesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Run every saved test against the live agent",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/agents/{agent_id}/test-cases/{case_id}": {
+      "delete": {
+        "operationId": "delete_test_case_v1_agents__agent_id__test_cases__case_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Case Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Delete a saved test",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/agents/{agent_id}/try-chat": {
+      "post": {
+        "operationId": "try_chat_send_v1_agents__agent_id__try_chat_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TryChatIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TryChatOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Chat with the live agent in text, as a caller would",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "agents:write"
       }
     },
     "/v1/agents/{agent_id}/voice": {
@@ -47395,10 +51357,12 @@
               "anyOf": [
                 {
                   "enum": [
-                    "resolved",
-                    "needs_follow_up",
+                    "call_back_booked",
+                    "needs_you",
+                    "answered",
                     "transferred",
-                    "dropped"
+                    "hung_up_early",
+                    "missed"
                   ],
                   "type": "string"
                 },
@@ -47465,6 +51429,18 @@
               ],
               "description": "Calls started before this instant",
               "title": "Until"
+            }
+          },
+          {
+            "description": "False leaves out free-trial test calls",
+            "in": "query",
+            "name": "test_calls",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "False leaves out free-trial test calls",
+              "title": "Test Calls",
+              "type": "boolean"
             }
           }
         ],
@@ -47542,10 +51518,12 @@
               "anyOf": [
                 {
                   "enum": [
-                    "resolved",
-                    "needs_follow_up",
+                    "call_back_booked",
+                    "needs_you",
+                    "answered",
                     "transferred",
-                    "dropped"
+                    "hung_up_early",
+                    "missed"
                   ],
                   "type": "string"
                 },
@@ -47608,6 +51586,16 @@
                 }
               ],
               "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "test_calls",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Test Calls",
+              "type": "boolean"
             }
           }
         ],
@@ -47882,6 +51870,96 @@
         "summary": "Who is speaking on a live call \u2014 streamed as text/event-stream (D-656)",
         "tags": [
           "crm"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/calls/{call_id}/test-case": {
+      "post": {
+        "operationId": "make_call_a_test_v1_calls__call_id__test_case_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestCaseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestCaseOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Make this call a test for its agent",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/calls/{call_id}/test-case-draft": {
+      "get": {
+        "operationId": "draft_test_case_v1_calls__call_id__test_case_draft_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDraftOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Start a test from this call: its caller lines, redacted",
+        "tags": [
+          "teach"
         ],
         "x-calevate-permission": "calls:read"
       }
@@ -51622,6 +55700,184 @@
         "x-calevate-permission": "agents:read"
       }
     },
+    "/v1/kb/facts": {
+      "post": {
+        "operationId": "add_fact_v1_kb_facts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FactIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Add a fact by hand; a pinned one goes into every agent's instructions",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/kb/facts/pinned-order": {
+      "post": {
+        "operationId": "order_pinned_facts_v1_kb_facts_pinned_order_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinnedOrderIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put the pinned facts in order",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/kb/facts/{fact_id}": {
+      "delete": {
+        "operationId": "remove_fact_v1_kb_facts__fact_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fact_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Fact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Remove a fact from every agent",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "kb:write"
+      },
+      "patch": {
+        "operationId": "edit_fact_v1_kb_facts__fact_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fact_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Fact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FactPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Change a fact's wording or question, or pin or unpin it",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/kb/knows": {
+      "get": {
+        "operationId": "what_it_knows_v1_kb_knows_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Everything the agents know: facts, documents, photos, pages and notes",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
     "/v1/kb/links": {
       "post": {
         "description": "An account member's link is published once it is registered, with no review. We re-read the page on a schedule; when it changes materially the new version is published the same way, because the account linked the page and its updates are the account's. A page an operator linked is re-submitted for review instead.",
@@ -51867,6 +56123,316 @@
           "knowledge-base"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/kb/struggles": {
+      "get": {
+        "operationId": "where_it_struggled_v1_kb_struggles_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StruggleOut"
+                  },
+                  "title": "Response Where It Struggled V1 Kb Struggles Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Where the agents struggled on real calls, found from the calls",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/kb/teach": {
+      "post": {
+        "description": "Sorting runs in the background and is counted against this month's AI help. Poll `GET /v1/kb/teach/{id}` until `status` is `ready`. When the AI help is used up the words come back unsorted for the owner to mark.",
+        "operationId": "teach_words_v1_kb_teach_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeachIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeachingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Teach in words; the AI sorts them into facts and rules for review",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/kb/teach/upload": {
+      "post": {
+        "description": "`kind` is `photo` (a picture of a price list or menu), `file` (.docx, .txt, .csv, .xlsx) or `voice` (a voice note under 30 seconds). A voice note stops at `heard` so the owner can check the words; confirm them with `POST .../words`.",
+        "operationId": "teach_upload_v1_kb_teach_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_teach_upload_v1_kb_teach_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeachingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Teach with a photo, a file or a voice note",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/kb/teach/{teaching_id}": {
+      "get": {
+        "operationId": "read_teaching_v1_kb_teach__teaching_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "teaching_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Teaching Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeachingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One teaching and where it is",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/kb/teach/{teaching_id}/discard": {
+      "post": {
+        "operationId": "discard_teaching_v1_kb_teach__teaching_id__discard_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "teaching_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Teaching Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeachingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Throw a teaching away without saving anything",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/kb/teach/{teaching_id}/save": {
+      "post": {
+        "description": "Facts join the business's knowledge and reach every agent without review. Rules wait in the chosen agent's script until the owner adds them and puts the script live.",
+        "operationId": "save_teaching_v1_kb_teach__teaching_id__save_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "teaching_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Teaching Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Keep the reviewed facts and rules",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/kb/teach/{teaching_id}/words": {
+      "post": {
+        "operationId": "confirm_words_v1_kb_teach__teaching_id__words_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "teaching_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Teaching Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WordsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeachingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Confirm (or correct) the words heard in a voice note, then sort them",
+        "tags": [
+          "teach"
+        ],
+        "x-calevate-permission": "kb:write"
       }
     },
     "/v1/kb/uploads": {
@@ -52314,6 +56880,268 @@
           "insights"
         ],
         "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/lead-calling": {
+      "get": {
+        "operationId": "get_lead_calling_v1_lead_calling_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadCallingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How new leads are called: agent, wait, hours, after hours, retries",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "put": {
+        "description": "Its own tenant session rather than the request's, so the plan is committed before the\nanswering-machine switch is pushed to live agents (each in a session of its own).",
+        "operationId": "put_lead_calling_v1_lead_calling_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadCallingIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadCallingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Save how new leads are called",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/lead-calling/held": {
+      "get": {
+        "operationId": "list_held_leads_v1_lead_calling_held_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeldLeadsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "New leads held after hours for you to release",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/lead-calling/held/{hold_id}/drop": {
+      "post": {
+        "operationId": "drop_held_lead_v1_lead_calling_held__hold_id__drop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "hold_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Hold Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Do not call a held lead; the lead itself is kept",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/lead-calling/held/{hold_id}/release": {
+      "post": {
+        "operationId": "release_held_lead_v1_lead_calling_held__hold_id__release_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "hold_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Hold Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleasedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Call a held lead now (inside your hours and the platform window)",
+        "tags": [
+          "lead-ingest"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/lead-fields": {
+      "get": {
+        "operationId": "get_lead_fields_v1_lead_fields_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadFieldsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The lead details this business captures",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/lead-fields/draft": {
+      "post": {
+        "description": "For a business set up as 'Something else'. Queued; the screen polls `GET` for the result. Drafted once: a finished draft is never redrafted (409), and a failed one may be asked for again.",
+        "operationId": "post_draft_v1_lead_fields_draft_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftRequestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Draft this business's lead details once, from its business details",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/lead-fields/replace": {
+      "post": {
+        "description": "Each agent named (every agent when none is named) gets the set as a NEW version of its lead details; values already captured stay on their leads and calls, readable under their old names.",
+        "operationId": "post_replace_v1_lead_fields_replace_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Start agents again from this business type's standard lead details",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/lead-sources": {
@@ -53597,6 +58425,47 @@
           "crm"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/leads/{lead_id}/captured": {
+      "get": {
+        "description": "The core every lead carries first (`calevate_shared.lead_fields`), then the\nbusiness fields of the version the lead was captured under, then any value from an\nearlier version \u2014 so a business moved to new fields still reads its old answers.",
+        "operationId": "get_lead_captured_v1_leads__lead_id__captured_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lead_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lead Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapturedFieldsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "A lead's captured details, each under the name it was captured with",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:read"
       }
     },
     "/v1/leads/{lead_id}/timeline": {
@@ -57674,7 +62543,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Whether Studio voices (our Cartesia key) are switched on in the workspace",
+        "summary": "Whether Studio voices are ready, and which client workspaces run them",
         "tags": [
           "ops"
         ],
@@ -57683,19 +62552,9 @@
     },
     "/v1/ops/voices/studio-voices/disable": {
       "post": {
-        "description": "Switches the workspace's own keys off and takes every Studio voice off offer. Agents on a Studio voice speak the platform's default voice from their next call, so this is refused with `studio_voices_in_use` while any is published, unless `confirm=true`. Requires `X-Confirm-Action: disable_studio_voices`.",
+        "description": "The last step of moving off the old developer-workspace switch: turns our developer workspace's own keys off, keeping the key held there. Refused with `studio_clients_not_moved` while any published Studio agent lives in the developer workspace or in a client workspace not on its own Cartesia key, because it would stop speaking its voice. Requires `X-Confirm-Action: disable_studio_voices`.",
         "operationId": "disable_studio_v1_ops_voices_studio_voices_disable_post",
         "parameters": [
-          {
-            "in": "query",
-            "name": "confirm",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Confirm",
-              "type": "boolean"
-            }
-          },
           {
             "in": "header",
             "name": "x-confirm-action",
@@ -57731,7 +62590,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Switch Studio voices off (step-up confirmed, audited)",
+        "summary": "Switch the developer workspace's own keys off (step-up confirmed, audited)",
         "tags": [
           "ops"
         ],
@@ -57740,7 +62599,7 @@
     },
     "/v1/ops/voices/studio-voices/enable": {
       "post": {
-        "description": "In order: sets every published agent that is not on a Studio voice to stay on the platform's own voices and reads each back, refusing with `studio_agents_not_kept_off` if any is not; installs our Cartesia key as the workspace's voice key unless one is already there; switches own keys on for the voice only; reads the state back and re-reads the Studio voices. Idempotent. Requires `X-Confirm-Action: enable_studio_voices`.",
+        "description": "Installs our Cartesia key in the developer workspace unless one is there, with its own-keys switch left OFF so no client inherits it. With `tenant_id`, also switches Studio on in that client's own workspace (its published Clear agents set to stay off first, then the key, the voice-only switch and a read-back), which is where Studio voices are listed from. Then re-reads the voices. Idempotent. Requires `X-Confirm-Action: enable_studio_voices`.",
         "operationId": "enable_studio_v1_ops_voices_studio_voices_enable_post",
         "parameters": [
           {
@@ -57788,7 +62647,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Switch Studio voices on: Clear agents kept off first (step-up confirmed, audited)",
+        "summary": "Studio ready: hold our Cartesia key in the developer workspace (step-up, audited)",
         "tags": [
           "ops"
         ],

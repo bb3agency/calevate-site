@@ -126,7 +126,7 @@ class FakeAzure:
             "visit_on": None,
             "summary": "Caller asked about a 3BHK.",
             "sentiment": "neutral",
-            "outcome_tag": "resolved",
+            "outcome_tag": "answered",
             "out_of_scope": False,
             "callback_requested": False,
         }
@@ -609,7 +609,7 @@ async def test_an_azure_failure_falls_back_to_sarvam_and_the_answer_says_so(
         self: SarvamExtractor, spec: ExtractionSchemaSpec, transcript: str
     ) -> dict[str, Any]:
         sarvam_calls.append(transcript)
-        return {"summary": "from sarvam", "sentiment": "neutral", "outcome_tag": "resolved"}
+        return {"summary": "from sarvam", "sentiment": "neutral", "outcome_tag": "answered"}
 
     async def _azure_run(
         self: AzureOpenAIExtractor, spec: ExtractionSchemaSpec, transcript: str
@@ -996,7 +996,7 @@ async def test_a_disclosed_sarvam_fallback_reports_no_usage(
     async def _sarvam_run(
         self: SarvamExtractor, spec: ExtractionSchemaSpec, transcript: str
     ) -> dict[str, Any]:
-        return {"summary": "from sarvam", "sentiment": "neutral", "outcome_tag": "resolved"}
+        return {"summary": "from sarvam", "sentiment": "neutral", "outcome_tag": "answered"}
 
     async def _azure_run(
         self: AzureOpenAIExtractor, spec: ExtractionSchemaSpec, transcript: str
@@ -1030,7 +1030,7 @@ async def test_a_truncated_azure_answer_is_still_metered_when_sarvam_writes_the_
     async def _sarvam_run(
         self: SarvamExtractor, spec: ExtractionSchemaSpec, transcript: str
     ) -> dict[str, Any]:
-        return {"summary": "from sarvam", "sentiment": "neutral", "outcome_tag": "resolved"}
+        return {"summary": "from sarvam", "sentiment": "neutral", "outcome_tag": "answered"}
 
     monkeypatch.setattr(SarvamExtractor, "run", _sarvam_run)
 
@@ -1063,7 +1063,7 @@ async def test_the_quota_verdict_reaches_the_runner_and_discloses_the_substituti
         self: SarvamExtractor, spec: ExtractionSchemaSpec, transcript: str
     ) -> dict[str, Any]:
         reached.append("sarvam")
-        return {"summary": "from sarvam", "sentiment": "neutral", "outcome_tag": "resolved"}
+        return {"summary": "from sarvam", "sentiment": "neutral", "outcome_tag": "answered"}
 
     async def _azure_run(
         self: AzureOpenAIExtractor, spec: ExtractionSchemaSpec, transcript: str

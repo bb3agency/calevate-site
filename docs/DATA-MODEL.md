@@ -262,6 +262,30 @@ prompt_versions(id, tenant_id, agent_id, version INT, body TEXT, compiled_t0_con
   -- Deliberately NOT compiled_t0_context: that is a build artefact OF the version,
   -- reserved by D-39 for the T0 compiler.
 extraction_schemas(id, tenant_id, agent_id, version INT, fields JSONB, published_at)
+  -- `fields` holds the agent's BUSINESS fields only (D-715). The fixed core every lead
+  -- carries — name, what they want (`need`), preferred time, other number, language,
+  -- notes (`calevate_shared.lead_fields.CORE_LEAD_FIELDS`) — is composed in by every
+  -- reader (`with_core`) and never stored, so no edit, template or draft can drop it. A
+  -- stored field under a core key (an older agent's `need`/`preferred_time`) is shadowed
+  -- by the core definition on read; its captured values stay under the same key.
+lead_field_drafts(id, tenant_id UNIQUE, status ENUM[queued,running,done,failed],
+  fields JSONB NULL, model, error_code, requested_by, requested_at, completed_at)
+  -- A custom business's ONE AI draft of its business fields (D-715, migration
+  -- b4e8d2a61c90). UNIQUE(tenant_id) is "drafted once, never again"; a failed draft is
+  -- re-queued on the same row. `fields` is the record of what was drafted; the client's
+  -- edits are ordinary `extraction_schemas` versions. FORCEd tenant RLS.
+lead_call_policies(id, tenant_id UNIQUE, calling_agent_id NULL FK agents SET NULL,
+  wait_seconds 0..3600, hours_start TIME >= 09:00, hours_end TIME <= 21:00, days TEXT[],
+  holidays DATE[] <= 60, after_hours ENUM[next_open,open_plus_3h,next_day,hold],
+  retry_attempts 0..3, retry_interval_minutes 10..1440, detect_machines BOOL, updated_by)
+  -- A client's plan for calling new leads (D-716, migration a9c4e2f7d138). No row = the
+  -- defaults (call at once inside the platform window, no retries, machine check off).
+  -- `detect_machines` is published to every agent as `voice.detectMachines`. FORCEd RLS.
+lead_call_holds(id, tenant_id, lead_id FK leads CASCADE, agent_id, source,
+  status ENUM[held,released,dropped], held_at, settled_at, settled_by, callback_id)
+  -- Leads that arrived after hours on a "hold" plan (D-716); one open hold per lead
+  -- (partial UNIQUE). Releasing books a `lead-release:` call back. No phone copied here.
+  -- FORCEd RLS.
 pipecat_agents(id, tenant_id → organizations RESTRICT, agent_id → agents RESTRICT,
   variant_id → prompt_experiment_variants RESTRICT NULL, engine_agent_ref TEXT UNIQUE,
   name, agent_config_version_id, resolved_config JSONB, created_at, updated_at)
@@ -422,8 +446,18 @@ calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e
                                        -- carrier_recording_id, recording_url set and the carrier
                                        -- copy not yet deleted serves the deletion sweep.
   disclosure_played BOOL, consent_recording ENUM[granted,declined,na],
-  outcome_tag ENUM[resolved,needs_follow_up,transferred,dropped],
-  sentiment ENUM[positive,neutral,negative], summary TEXT,
+  outcome_tag ENUM[call_back_booked,needs_you,answered,transferred,hung_up_early,missed],
+                                       -- DERIVED from facts after extraction (crm/outcomes,
+                                       -- founder decision 6, migration c4e8a1f7d290). The CHECK
+                                       -- still admits resolved/needs_follow_up/dropped for one
+                                       -- release (hard rule 8); nothing writes them.
+  sentiment ENUM[positive,neutral,negative],
+  summary TEXT,                        -- ENGLISH; the engine's own when in Latin script, else
+                                       -- the extraction model's.
+  summary_local TEXT, summary_language TEXT, -- the same summary in the call's language
+  summary_source ENUM[engine,extraction], summary_state ENUM[pending,ready,failed,empty],
+  headline TEXT (<= 90 chars, stored redacted), next_step TEXT (stored redacted),
+  callback_requested BOOL, translation_state ENUM[pending,ready,failed,not_needed,unavailable],
   campaign_id NULL → campaigns, lead_id NULL → leads,
   callback_of_call_id NULL → calls ON DELETE RESTRICT,   -- D-21 M2: the call this one
     -- follows up. Naming the parent is what BOUNDS the callback chain, and an unbounded

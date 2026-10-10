@@ -2,6 +2,8 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import LeadSourcesPage from "@/app/c/[slug]/lead-sources/page";
+
+import { LEAD_CALLING_ROUTES } from "./fixtures/leadCalling";
 import type { Me } from "@/lib/api/client";
 import type {
   IngestActivityItem,
@@ -142,6 +144,7 @@ async function renderPage(routes: Record<string, unknown> = {}, me: Me = ME) {
       leadSource({ id: FORM_SOURCE_ID, source: "website_form" }),
     ),
     [AGENTS_PATH]: [],
+    ...LEAD_CALLING_ROUTES,
     ...routes,
   });
   await screen.findByText("Recent deliveries");
@@ -752,9 +755,12 @@ describe("controls are gated on the permission their route requires", () => {
   it("disables the org:manage controls for a viewer who lacks it, and says so once", async () => {
     const { container, calls } = await renderPage({ [META_PATH]: setup() }, READ_ONLY_ME);
 
-    expect(container.textContent).toContain(
-      "Only an account owner can test or set up a lead source.",
-    );
+    // One sentence for the whole screen. Since the calling plan joined it (D-716) the same
+    // org:manage refusal covers the plan, the held leads and the sources, so it names both.
+    const refusal =
+      "Only an account owner can change how leads are called or set up a lead source.";
+    expect(container.textContent).toContain(refusal);
+    expect(container.textContent!.split(refusal)).toHaveLength(2);
     for (const button of screen.getAllByRole("button", { name: /Send test lead to/ })) {
       expect((button as HTMLButtonElement).disabled).toBe(true);
     }

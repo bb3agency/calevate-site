@@ -30,17 +30,17 @@ from apps.api.engine.thinnest import (
     THINNEST_CAPABILITIES,
     ThinnestEngine,
 )
+from apps.api.tenancy.engine_workspace import studio_enabled
 from calevate_shared.engine import AgentConfig, EngineAgentRef, KBSourceRef
 from sqlalchemy import text
 from tests.conftest import accept_agreements
 from tests.hosted_voice_fakes import (
     OFF_KEY,
-    READY_KEY,
     CatalogueRows,
     HostingEngine,
     selected,
 )
-from tests.workspace_support import give_own_workspace
+from tests.workspace_support import give_own_workspace, workspace_of
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
@@ -394,20 +394,22 @@ async def test_a_studio_voice_runs_only_on_the_standard_models(
     assert caught.value.code == engine_choice.MODEL_NOT_WITH_OWN_VOICE
 
 
-async def test_a_studio_publish_needs_the_engine_to_say_the_key_is_live(
+async def test_a_studio_choice_never_asks_our_developer_workspace_for_its_key(
     attested: set[str], hosted_rows: CatalogueRows
 ) -> None:
+    """D-717: the developer workspace's switch stays off, so a Studio choice is priced
+    without reading it; the publish switches Studio on in the client's own workspace."""
     voice = await hosted_rows.add("byok")
-    for state in (OFF_KEY, READY_KEY.model_copy(update={"voice_provider": "elevenlabs"})):
-        with pytest.raises(ProblemError) as caught:
+    for for_publish in (False, True):
+        assert (
             await _choose(
-                HostingEngine(key_state=state), voice_id=voice, model_id=None, for_publish=True
+                HostingEngine(key_state=OFF_KEY),
+                voice_id=voice,
+                model_id=None,
+                for_publish=for_publish,
             )
-        assert caught.value.code == engine_choice.STUDIO_KEY_NOT_READY
-    # A draft save does not ask the engine.
-    assert await _choose(HostingEngine(key_state=OFF_KEY), voice_id=voice, model_id=None) == (
-        "byok_voice"
-    )
+            == "byok_voice"
+        )
 
 
 async def test_a_model_missing_from_a_short_list_is_not_called_unknown(
@@ -526,15 +528,34 @@ async def test_publish_sends_a_clear_voice_kept_off_our_key_and_meters_its_band(
     assert await _route(tenant_id, ref) == ("premium", True)
 
 
-async def test_publish_puts_a_studio_voice_on_our_key(
-    attested: set[str], no_webhook: None, hosted_rows: CatalogueRows
+async def test_publish_puts_a_studio_voice_on_our_key_in_the_clients_own_workspace(
+    attested: set[str],
+    no_webhook: None,
+    hosted_rows: CatalogueRows,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """D-717: the first Studio publish installs our key and switches voice-only BYOK on in
+    the client's workspace, never in ours, and records it."""
+    from apps.api.core.settings import get_settings
+
+    monkeypatch.setenv("CARTESIA_API_KEY", "sk_car_test")
+    get_settings.cache_clear()
     tenant_id, agent_id = await _agent()
     voice = await hosted_rows.add("byok")
     await _set_columns(tenant_id, agent_id, voice, None)
-    with selected(HostingEngine()) as engine:
-        ref = await _publish(tenant_id, agent_id)
+    try:
+        with selected(HostingEngine(key_state=OFF_KEY)) as engine:
+            ref = await _publish(tenant_id, agent_id)
+    finally:
+        monkeypatch.delenv("CARTESIA_API_KEY", raising=False)
+        get_settings.cache_clear()
     assert isinstance(engine, HostingEngine)
+    ws = workspace_of(uuid.UUID(str(tenant_id)))
+    assert engine.installed_in == [ws] and engine.enabled == 1
+    assert engine.workspace_keys[ws].speaks_on_own_voice
+    assert engine.key_state.enabled is False
+    async with tenant_session(tenant_id) as session:
+        assert await studio_enabled(session, uuid.UUID(str(tenant_id)))
     sent = engine.sent[-1]
     assert (sent.engine_voice_id, sent.engine_byok_voice_id) == (
         None,
@@ -542,6 +563,50 @@ async def test_publish_puts_a_studio_voice_on_our_key(
     )
     assert sent.engine_own_voice_key is True and engine.own_voice_key[ref] is True
     assert await _route(tenant_id, ref) == ("byok_voice", True)
+
+
+async def test_a_studio_publish_that_cannot_switch_studio_on_is_refused_naming_no_vendor(
+    attested: set[str],
+    no_webhook: None,
+    hosted_rows: CatalogueRows,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api.core.settings import get_settings
+
+    monkeypatch.delenv("CARTESIA_API_KEY", raising=False)
+    get_settings.cache_clear()
+    tenant_id, agent_id = await _agent()
+    voice = await hosted_rows.add("byok")
+    await _set_columns(tenant_id, agent_id, voice, None)
+    engine = HostingEngine(key_state=OFF_KEY)
+    try:
+        with selected(engine), pytest.raises(ProblemError) as caught:
+            await _publish(tenant_id, agent_id)
+    finally:
+        get_settings.cache_clear()
+    problem = caught.value
+    assert problem.code == "studio_account_not_ready"
+    said = f"{problem.title} {problem.detail} {problem.remediation}"
+    assert "Cartesia" not in said and "ThinnestAI" not in said
+    assert engine.sent == [] and engine.enabled == 0
+
+
+async def test_a_trial_agent_speaks_clear_only() -> None:
+    """D-697, D-717: a trial agent lives in our developer workspace, whose switch is off."""
+    from apps.api.agents.service import _studio_in_client_workspace
+    from tests.thinnest_engine_test import _cfg
+
+    with pytest.raises(ProblemError) as caught:
+        await _studio_in_client_workspace(
+            None,  # type: ignore[arg-type]  # refused before any read
+            HostingEngine(),
+            tenant_id=uuid.uuid4(),
+            rate_key="byok_voice",
+            config=_cfg(),
+            trial=True,
+        )
+    assert caught.value.code == engine_choice.STUDIO_AFTER_GO_LIVE
+    assert caught.value.title == "Studio voices are available once you go live"
 
 
 async def test_a_rung_switch_is_a_field_change_on_the_same_agent(
@@ -808,3 +873,15 @@ async def test_a_model_on_an_engine_that_lists_no_models_is_refused(attested: se
     with pytest.raises(ProblemError) as caught:
         await _choose(bare, voice_id=None, model_id="prana-voice")
     assert caught.value.code == engine_choice.MODEL_CHOICE_NOT_OFFERED
+
+
+async def test_the_in_call_default_must_be_a_model_studio_agents_may_run() -> None:
+    """D-717: Studio agents get the default too, and a voice-only BYOK call runs only on the
+    vendor's `voiceOnlyByok` models (bring-your-own-keys.md:44-63), so the console refuses a
+    default outside them rather than leave Studio agents unpublishable."""
+    with selected(HostingEngine()):
+        assert await engine_choice.resolve_in_call_default("Prana") == "prana-voice"
+        with pytest.raises(ProblemError) as caught:
+            await engine_choice.resolve_in_call_default("gpt-4.1")
+    assert caught.value.code == engine_choice.IN_CALL_DEFAULT_UNUSABLE
+    assert "Studio" in (caught.value.detail or "")

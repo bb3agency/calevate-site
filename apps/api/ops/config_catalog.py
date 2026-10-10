@@ -268,17 +268,25 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     "thinnest_byok_enabled": _m(
         "voice-engine",
         "thinnest",
-        "ThinnestAI runs on our own keys (BYOK)",
-        "Turn on only after all three legs are set up in ThinnestAI; minutes then bill at "
-        "the BYOK rate.",
+        "ThinnestAI runs on all three of our own keys (full BYOK)",
+        "Not Studio. Speech, model and voice all on our keys (ThinnestAI console or API). On, "
+        "every minute bills at ₹1 and per-agent voice and model choices lock.",
         _THINNEST,
     ),
     "thinnest_clear_voice_band": _m(
         "voice-engine",
         "thinnest",
-        "Voice band sold as Clear",
-        "ThinnestAI voices sold as Clear: Premium (any plan) or Studio (Pro and above; its free "
-        "preview voice is never listed). Attest that band's rate first.",
+        "ThinnestAI voice band sold as Clear",
+        "ThinnestAI's Premium band (any plan) or its Studio band (Pro and above), sold as "
+        "Clear. Not our Studio tier. Attest that band's rate first.",
+        _THINNEST,
+    ),
+    "thinnest_in_call_default_model": _m(
+        "voice-engine",
+        "thinnest",
+        "In-call language model for agents with none chosen",
+        "Clear and Studio agents with no model of their own answer calls on it; empty keeps "
+        "Prana [Voice]. Must be call-capable, priced and allowed with Studio voices.",
         _THINNEST,
     ),
     "pipecat_stream_base_url": _m(
@@ -1032,11 +1040,14 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "carrier": ControlHint(options=(OptionLabel("vobiz", "Vobiz"), OptionLabel("plivo", "Plivo"))),
     "thinnest_clear_voice_band": ControlHint(
         options=(
-            OptionLabel("premium", "Premium voices", "Available on every ThinnestAI plan."),
+            OptionLabel(
+                "premium", "ThinnestAI Premium band", "Available on every ThinnestAI plan."
+            ),
             OptionLabel(
                 "studio",
-                "Studio voices",
-                "Needs ThinnestAI Pro or above; its free Studio preview voice cannot be used.",
+                "ThinnestAI Studio band",
+                "Needs ThinnestAI Pro or above; its free preview voice cannot be used. Not our "
+                "Studio tier.",
             ),
         )
     ),
@@ -1161,8 +1172,11 @@ HIGH_RISK: Final[dict[str, str]] = {
     "engine": "Every call and every agent publish moves to the engine you choose.",
     "webhook_base_url": "Call events stop arriving if this address is wrong.",
     "engine_actions_base_url": "In-call actions stop working if this address is wrong.",
-    "thinnest_byok_enabled": "Changes which keys ThinnestAI runs on and what each minute costs.",
-    "thinnest_clear_voice_band": "Changes which voices clients are sold as Clear.",
+    "thinnest_byok_enabled": "Every minute moves to the ₹1 full-BYOK rate on our own speech, "
+    "model and voice keys, and every agent's voice and model choice is locked.",
+    "thinnest_clear_voice_band": "Changes which ThinnestAI band clients are sold as Clear.",
+    "thinnest_in_call_default_model": "Changes the language model every agent with none of its "
+    "own answers calls with at its next publish.",
     "thinnest_developer_workspace_id": "Decides which workspace is ours, not a client's.",
     "carrier": "New calls are dialled on the carrier you choose.",
     "vobiz_signature_required": "Turning it on before signing is set up refuses every call.",

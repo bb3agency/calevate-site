@@ -42,6 +42,7 @@ from apps.api.core.errors import install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.db.session import tenant_session, untenanted_session
 from calevate_shared.extraction import ExtractionField
+from calevate_shared.lead_fields import CORE_LEAD_FIELDS
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -312,6 +313,7 @@ async def test_the_save_writes_an_audit_entry_of_the_shape_not_the_values() -> N
     summary = _audit_summary(
         ExtractionSchemaOut(
             fields=[ExtractionField.model_validate(f) for f in _TWO_FIELDS],
+            core_fields=[],
             version=2,
             changed=True,
         )
@@ -377,7 +379,14 @@ async def test_an_agent_with_no_schema_reads_empty_and_first_save_is_version_one
     async with _client(app) as http:
         got = await http.get(f"/v1/agents/{bare_agent}/extraction-schema", headers=_bearer(token))
         assert got.status_code == 200
-        assert got.json() == {"fields": [], "version": 0, "changed": False}
+        body = got.json()
+        assert {k: body[k] for k in ("fields", "version", "changed")} == {
+            "fields": [],
+            "version": 0,
+            "changed": False,
+        }
+        # The core every agent captures is reported beside the agent's own fields.
+        assert [f["key"] for f in body["core_fields"]] == [f.key for f in CORE_LEAD_FIELDS]
         put = await http.put(
             f"/v1/agents/{bare_agent}/extraction-schema",
             json={"fields": _TWO_FIELDS},

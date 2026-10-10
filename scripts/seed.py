@@ -279,28 +279,155 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
         },
         {"key": "demo_booked", "label": "Demo booked", "type": "bool", "required": False},
     ],
+    # Founder decision 10 (10 Oct 2026): shops and food & produce, salons and local
+    # services, automobile and repairs. Each set is what THAT business needs on top of the
+    # core every lead carries (`calevate_shared.lead_fields`), so none repeats a name, what
+    # they want, a time or a next step.
+    "retail": [
+        {
+            "key": "product",
+            "label": "Product",
+            "type": "text",
+            "reason": (
+                "The product or item the caller asked about, as they named it "
+                "('green chilli', 'basmati rice', 'school shoes')."
+            ),
+            "required": True,
+        },
+        {
+            "key": "quantity",
+            "label": "Quantity",
+            "type": "text",
+            "reason": "How much they want, with the unit they used ('2 kg', 'one dozen').",
+            "required": False,
+        },
+        {
+            "key": "fulfilment",
+            "label": "Pickup or delivery",
+            "type": "enum",
+            "enum_values": ["Pickup", "Home delivery", "Will visit the store"],
+            "reason": "How the caller wants to get it. Only what the caller chose.",
+            "required": False,
+        },
+        {
+            "key": "delivery_area",
+            "label": "Delivery area",
+            "type": "text",
+            "reason": "The locality to deliver to, only when the caller wants delivery.",
+            "required": False,
+        },
+        {
+            "key": "asked_price",
+            "label": "Asked the price",
+            "type": "bool",
+            "reason": "true if the caller asked what something costs.",
+            "required": False,
+        },
+    ],
+    "local_services": [
+        {
+            "key": "service_wanted",
+            "label": "Service wanted",
+            "type": "text",
+            "reason": (
+                "The service the caller asked for, in their words ('haircut', 'bridal "
+                "makeup', 'AC repair', 'pest control')."
+            ),
+            "required": True,
+        },
+        {
+            "key": "service_at",
+            "label": "Where",
+            "type": "enum",
+            "enum_values": ["At the shop", "At home"],
+            "reason": "Whether the caller will come in or wants someone to come to them.",
+            "required": False,
+        },
+        {
+            "key": "service_area",
+            "label": "Area",
+            "type": "text",
+            "reason": "The locality for a home visit, only when the caller wants one.",
+            "required": False,
+        },
+        {
+            "key": "preferred_staff",
+            "label": "Preferred staff",
+            "type": "text",
+            "reason": "A stylist or technician the caller asked for by name.",
+            "required": False,
+        },
+        {
+            "key": "slot_agreed",
+            "label": "Slot agreed",
+            "type": "bool",
+            "reason": "true ONLY if the caller agreed to a specific day and time.",
+            "required": False,
+        },
+    ],
+    "automobile": [
+        {
+            "key": "vehicle",
+            "label": "Vehicle",
+            "type": "text",
+            "reason": "The make and model the caller named ('Activa', 'Swift 2019').",
+            "required": True,
+        },
+        {
+            "key": "vehicle_kind",
+            "label": "Vehicle type",
+            "type": "enum",
+            "enum_values": ["Two-wheeler", "Car", "Auto or commercial"],
+            "required": False,
+        },
+        {
+            "key": "work_needed",
+            "label": "Work needed",
+            "type": "text",
+            "reason": (
+                "The service, repair or purchase the caller asked about ('general service', "
+                "'brake noise', 'new tyres', 'test drive')."
+            ),
+            "required": False,
+        },
+        {
+            # Not "registration number": a label or reason holding "number" makes the
+            # field a phone field (`calevate_shared.extraction.is_phone_field`), and every
+            # plate would then be flagged as "not a standard Indian mobile".
+            "key": "vehicle_reg",
+            "label": "Registration",
+            "type": "text",
+            "reason": "The vehicle's registration plate as the caller read it out.",
+            "required": False,
+        },
+        {
+            "key": "pickup_needed",
+            "label": "Pickup needed",
+            "type": "bool",
+            "reason": "true ONLY if the caller asked for the vehicle to be collected.",
+            "required": False,
+        },
+    ],
 }
 
-# The `custom` business type's starting point: a business that fits none of the templates
-# above. It is kept out of VERTICAL_TEMPLATES because self-serve signup accepts exactly
-# that dict's keys. Falling back to the clinic's fields here gave a shop or a travel agent
-# CRM columns for symptoms and a preferred doctor.
-CUSTOM_EXTRACTION_FIELDS: list[dict[str, Any]] = [
-    {
-        "key": "need",
-        "label": "What they need",
-        "type": "text",
-        "reason": "What the caller is asking for, in their own words",
-        "required": True,
-    },
-    {
-        "key": "preferred_time",
-        "label": "Preferred time",
-        "type": "text",
-        "reason": "Day or time the caller wants to be called back or served",
-        "required": False,
-    },
-]
+#: How each business type reads to a person. The order is the order every picker shows,
+#: and it does not start with a clinic: no type is anybody's default.
+BUSINESS_TYPE_LABELS: dict[str, str] = {
+    "retail": "Shop, food or produce",
+    "local_services": "Salon or local service",
+    "automobile": "Automobile or repairs",
+    "clinic": "Clinic or health",
+    "real_estate": "Real estate",
+    "insurance": "Insurance",
+    "education": "Education or coaching",
+    "custom": "Something else",
+}
+
+# The `custom` business type's starting point: no business fields at all. Every lead still
+# gets the core (`calevate_shared.lead_fields`), and a custom business's own fields are
+# drafted once by AI from its business details (`apps/workers/lead_fields_draft.py`). It is
+# kept out of VERTICAL_TEMPLATES because self-serve signup accepts exactly that dict's keys.
+CUSTOM_EXTRACTION_FIELDS: list[dict[str, Any]] = []
 
 
 async def seed_reserved_slugs() -> int:

@@ -1,20 +1,20 @@
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import AgentScriptPage from "@/app/c/[slug]/agents/[agentId]/script/page";
 import type { Me } from "@/lib/api/client";
-import type { ScriptOut } from "@/lib/api/script";
+import { EMPTY_SCRIPT, type ScriptOut } from "@/lib/api/script";
 
 import { renderClientPage } from "./harness";
-import { agentRow } from "./fixtures/sharedReads";
+import { agentRow, settledPending } from "./fixtures/sharedReads";
 
 /**
- * Who may save the call script.
+ * Who may change the call script.
  *
  * `GET /v1/agents/{id}/script` and `POST …/script/preview` are `agents:read`, so staff open
- * the builder and may preview a draft; `PUT …/script`, `…/apply` and `…/undo` are
- * `org:manage`, which only the owner holds (`core/rbac.ROLE_PERMISSIONS`). A Save button
- * offered to staff is a whole script typed and then refused.
+ * the builder and see the room left; the draft autosave, "Put it live", restore and undo
+ * are `org:manage`, which only the owner holds (`core/rbac.ROLE_PERMISSIONS`). An editor
+ * that autosaves for staff would be a stream of refusals.
  */
 
 function me(role: "owner" | "staff", permissions: string[]): Me {
@@ -30,18 +30,13 @@ function me(role: "owner" | "staff", permissions: string[]): Me {
 }
 
 const SCRIPT: ScriptOut = {
-  script: {
-    opening_line: "Namaskaram, this is Sri Clinic.",
-    steps: [],
-    faqs: [],
-    faq_fallback: "Our team will call you back with the details.",
-    end_call_extra_rules: [],
-    variables: [],
-    raw_override: null,
-  },
+  script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram, this is Sri Clinic." },
+  draft: { script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram! Sri Clinic." }, saved_at: "2026-10-10T12:00:00+00:00" },
+  stored_schema_version: 2,
+  context: null,
   version: 3,
   is_freeform: false,
-  has_pending: true,
+  has_pending: false,
   standard_variables: [],
 };
 
@@ -54,57 +49,39 @@ function routes(who: Me, script: ScriptOut = SCRIPT) {
     "/v1/me": who,
     "/v1/agents/agent-1": agentRow(),
     "/v1/agents/agent-1/script": script,
-    "PUT /v1/agents/agent-1/script": { version: 4, staged: true },
+    "POST /v1/agents/agent-1/script/preview": { compiled: "", instructions_chars: 100, instructions_limit: 8000, native_steps: 0 },
+    "POST /v1/agents/agent-1/script/publish": { version: 4, live: true },
+    "/v1/agents/agent-1/script/proposed-rules": [],
+    "/v1/agents/agent-1/pending": settledPending(),
+    "/v1/agents/agent-1/script/tests": {
+      available: false,
+      unavailable_reason: "Not yet.",
+      cost_note: "",
+      latest: null,
+    },
   };
 }
 
-describe("saving the call script", () => {
-  it("is open to an owner", async () => {
-    // Nothing staged, so the toolbar's one primary is Save (with a version waiting and a
-    // clean editor it is Apply instead — D-657's one-primary rule).
-    const { calls } = await renderClientPage(
-      page,
-      routes(me("owner", ["agents:read", "org:read", "org:manage"]), {
-        ...SCRIPT,
-        has_pending: false,
-      }),
-    );
-    const save = await screen.findByRole("button", { name: "Save script" });
-    await waitFor(() => expect(save.matches(":disabled")).toBe(false));
-    fireEvent.click(save);
-    await waitFor(() =>
-      expect(calls.some((call) => call.method === "PUT")).toBe(true),
-    );
+describe("changing the call script", () => {
+  it("is open to an owner: Put it live is offered while the draft differs", async () => {
+    await renderClientPage(page, routes(me("owner", ["agents:read", "org:read", "org:manage"])));
+    const live = await screen.findByRole("button", { name: "Put it live" });
+    await waitFor(() => expect(live.matches(":disabled")).toBe(false));
   });
 
-  it("is closed to staff, with Apply and Undo, and the screen says why", async () => {
+  it("is closed to staff, who see the draft read-only and why", async () => {
     const { calls } = await renderClientPage(
       page,
       routes(me("staff", ["agents:read", "agents:write", "org:read"])),
     );
-
-    expect(
-      await screen.findByText("Only an account owner can save or apply this script."),
-    ).toBeTruthy();
-    // CHANGED with D-657: the toolbar shows ONE primary — Apply here, because a version is
-    // staged and nothing is unsaved — and Undo and the compiled prompt moved into its ⋯
-    // menu. Each refused control is still shown, disabled, with the reason on screen.
-    const applyButton = screen.getByRole("button", { name: "Apply to live calls" });
-    expect(applyButton.matches(":disabled")).toBe(true);
+    expect(await screen.findByText("Only an account owner can change this script.")).toBeTruthy();
+    const live = screen.getByRole("button", { name: "Put it live" });
+    expect(live.matches(":disabled")).toBe(true);
+    expect(screen.getByText(/View only/)).toBeTruthy();
+    expect(screen.getByLabelText("Opening line").matches(":disabled")).toBe(true);
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "More actions for this script" }));
+      await new Promise((r) => setTimeout(r, 1500));
     });
-    expect(
-      (await screen.findByRole("menuitem", { name: /undo changes/i })).getAttribute(
-        "aria-disabled",
-      ),
-    ).toBe("true");
-    // Previewing is `agents:read`, so it stays open.
-    expect(
-      screen.getByRole("menuitem", { name: /view compiled prompt/i }).getAttribute("aria-disabled"),
-    ).toBeNull();
-
-    fireEvent.click(applyButton);
-    expect(calls.some((call) => call.method !== "GET")).toBe(false);
+    expect(calls.some((call) => call.method === "PUT" || call.path.endsWith("/publish"))).toBe(false);
   });
 });

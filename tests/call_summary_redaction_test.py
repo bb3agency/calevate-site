@@ -55,7 +55,7 @@ async def _call_with_summary(tenant_id: uuid.UUID, summary: str) -> uuid.UUID:
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status, "
                 "from_e164, summary, sentiment, outcome_tag, started_at, created_at, updated_at) "
                 "VALUES (:id, :tid, :aid, :ecid, 'inbound', 'completed', :from_e, :summary, "
-                "'neutral', 'needs_follow_up', now(), now(), now())"
+                "'neutral', 'needs_you', now(), now(), now())"
             ),
             {
                 "id": call_id,
@@ -99,15 +99,13 @@ async def _audit_rows_for(call_id: uuid.UUID) -> int:
 # --- 1. provenance: the summary really is transcript text ----------------------
 
 
-async def test_the_offline_extractors_summary_is_a_transcript_line_verbatim() -> None:
-    """Not a paraphrase, not an abstraction: the last line of the transcript, copied.
+async def test_the_offline_extractor_writes_no_summary_rather_than_a_transcript_line() -> None:
+    """It used to copy the transcript's last line in as the summary, which the call list
+    then showed as one (first-call review F-6). It cannot write prose, so it writes none.
 
-    This is why the read path cannot treat `summary` as a derived-and-therefore-harmless
-    field. `get_extractor()` returns this extractor whenever no provider key is
-    configured — every local run and all of CI — and the model path is no guarantee
-    either: the prompt asks for two sentences of prose with nothing constraining what
-    may appear inside them, which is exactly what `compliance/export.py` says about this
-    same column when it masks foreign numbers out of it.
+    The read path still treats `summary` as transcript-derived: the model path writes free
+    prose with nothing constraining what may appear inside it, which is exactly what
+    `compliance/export.py` says about this column when it masks foreign numbers out of it.
     """
     spec = ExtractionSchemaSpec(
         fields=[ExtractionField(key="name", label="Name", type="text", reason="caller name")]
@@ -115,8 +113,11 @@ async def test_the_offline_extractors_summary_is_a_transcript_line_verbatim() ->
 
     result = await OfflineExtractor().run(spec, TRANSCRIPT)
 
-    assert result["summary"] == LAST_TURN
-    assert CALLER_NUMBER in result["summary"], "a raw phone number, straight off the transcript"
+    assert result["summary"] == ""
+    assert result["headline"] == ""
+    # "malli call cheyandi" is a call-back request, and the stopgap reads it as one.
+    assert result["callback_requested"] is True
+    assert result["outcome_tag"] == "needs_you"
 
 
 # --- 2. the breach: reachable with plain `calls:read` --------------------------

@@ -85,7 +85,7 @@ async def _seed_call(
                 "from_e164, to_e164, started_at, ended_at, duration_s, recording_url, summary, "
                 "outcome_tag, created_at, updated_at) VALUES (:id, :t, :a, :e, 'inbound', "
                 "'completed', :phone, '+911140000000', now(), now(), 74, :rec, :summary, "
-                "'resolved', now(), now())"
+                "'answered', now(), now())"
             ),
             {
                 "id": call_id,
@@ -195,7 +195,7 @@ async def test_the_export_carries_the_lead_the_calls_and_the_transcript() -> Non
     by_id = {call["call_id"]: call for call in document["calls"]}
     assert by_id[str(first)]["summary"] == "Caller booked an appointment."
     assert by_id[str(first)]["duration_s"] == 74
-    assert by_id[str(first)]["outcome_tag"] == "resolved"
+    assert by_id[str(first)]["outcome_tag"] == "answered"
     # A boolean, never a link — the recording is fetched through the audited endpoint.
     assert by_id[str(first)]["recording_available"] is True
     assert by_id[str(second)]["recording_available"] is False

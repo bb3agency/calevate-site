@@ -52,7 +52,10 @@ function TestCall({ callId }: { callId: string }) {
   return (
     <div className="space-y-3 border-t border-line pt-6">
       <TranscriptCard
+        detail={detail.data}
         turns={turns}
+        player={null}
+        noRecording={false}
         showingRaw={false}
         showRaw={false}
         rawError={null}

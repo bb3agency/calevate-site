@@ -1,9 +1,8 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
-
 import { Checklist } from "@/components/console/checklist";
 import type { CallerNotice } from "@/lib/api/callerNotice";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 
 import { blankLabel, valueOf, type BlankValues } from "@/lib/noticeDraft/blanks";
 
@@ -11,19 +10,8 @@ import { blankLabel, valueOf, type BlankValues } from "@/lib/noticeDraft/blanks"
 // says "N of M done", and an open list of five rows would push the document off the screen.
 const STACKED = "(max-width: 1023px)";
 
-function subscribe(onChange: () => void): () => void {
-  if (typeof window === "undefined" || !window.matchMedia) return () => {};
-  const query = window.matchMedia(STACKED);
-  query.addEventListener("change", onChange);
-  return () => query.removeEventListener("change", onChange);
-}
-
 function useStacked(): boolean {
-  return useSyncExternalStore(
-    subscribe,
-    () => (typeof window !== "undefined" && window.matchMedia ? window.matchMedia(STACKED).matches : false),
-    () => false,
-  );
+  return useMediaQuery(STACKED);
 }
 
 /**

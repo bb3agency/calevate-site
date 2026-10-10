@@ -16,6 +16,7 @@ import {
   stubDownloads,
   type ApiCall,
 } from "./harness";
+import { LEAD_FIELDS_CORE_ONLY } from "./fixtures/sharedReads";
 
 /**
  * The leads table — the client's own customer list, and the screen where a wrong number
@@ -150,7 +151,8 @@ function lead(over: Partial<Lead> = {}): Lead {
     name: "Ramesh Kumar",
     phone_e164: PHONE_A,
     status: "new",
-    source: "call",
+    source: "inbound_call",
+    status_set_by: "system",
     data: {},
     schema_version: 1,
     call_count: 2,
@@ -216,6 +218,7 @@ function routes(over: Record<string, unknown> = {}) {
     // that quietly grew a call nobody expected should say so.
     "/v1/leads/facets": { facets: [], omitted_field_count: 0 },
     "/v1/leads/views": { items: [] },
+    "/v1/lead-fields": LEAD_FIELDS_CORE_ONLY,
     ...over,
   };
 }
@@ -344,14 +347,16 @@ describe("the number on the row", () => {
     }
   });
 
-  it("says a lead has no name rather than inventing one", async () => {
+  it("names a nameless lead by its number, never 'No name' and never an invented name", async () => {
+    // First-call review F-7: "No name" told the owner nothing they could act on. The
+    // number is the identifier a nameless lead has, so it is the link to the lead.
     const { container } = await renderClientPage(
       <LeadsPage />,
       routes({ "POST /v1/leads/search": leadList([lead({ name: null })]) }),
     );
 
-    await screen.findByText(SHOWN_A);
-    expect(container.textContent).toContain("No name");
+    expect((await screen.findAllByText(SHOWN_A)).some((el) => el.tagName === "A")).toBe(true);
+    expect(container.textContent).not.toContain("No name");
     // The masked number is the identifier for a nameless lead; nothing else stands in.
     expect(container.textContent).not.toContain("Unknown caller");
   });
@@ -624,7 +629,8 @@ describe("the counts come from the server or are not shown", () => {
       return found;
     });
     // The mirroring, in the shape both now travel in: the file's lens IS the table's.
-    expect(lensOf(exportCall)).toEqual({ status: "hot" });
+    // The columns travel too: the usual five until the client picks, in both requests.
+    expect(lensOf(exportCall)).toEqual({ status: "hot", columns: "name,need,next_step,last_call,status" });
   });
 
   /**

@@ -1,11 +1,12 @@
 "use client";
 
 /**
- * SCRIPT — what the agent says, summarised, and the way into the builder.
+ * SCRIPT — what the agent does on a call, summarised, and the way into the builder.
  *
- * The builder is its own route because it has its own unsaved state and its own Save/Apply
- * ladder (doctrine §3: split, do not hide). This section only says what is there and which
- * version callers hear, from the reads the builder itself uses.
+ * The builder is its own route because it is a working surface (a canvas, a list, an
+ * editor beside them). This section says what is there and whether callers hear it yet,
+ * from the same read the builder uses. No version numbers: an owner needs "live" or
+ * "changes waiting", and History in the builder lists entries by date.
  */
 
 import Link from "next/link";
@@ -14,38 +15,30 @@ import { ArrowRight } from "lucide-react";
 import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import type { Agent } from "@/lib/api/agents";
-import { usePendingChanges } from "@/lib/api/publishing";
-import { useScript } from "@/lib/api/script";
+import { useScript, type ScriptOut } from "@/lib/api/script";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
-import { stagedScript } from "../../panels/publishing";
+import { hasUnpublished, workingCopy } from "../script/scriptDraft";
 
-/**
- * Which script version callers hear, in the words the publishing panel uses. An agent that
- * was never switched on has no live version, whatever is saved; one that is switched on
- * hears the applied version, which is the saved one unless a newer one is waiting.
- */
-export function liveVersionText(
-  agent: Pick<Agent, "published">,
-  savedVersion: number | null,
-  staged: { live_version: number | null } | undefined,
-): string {
-  if (!agent.published) return "Not switched on yet";
-  if (staged) return staged.live_version === null ? "None yet" : `Version ${staged.live_version}`;
-  return savedVersion === null ? "None yet" : `Version ${savedVersion}`;
+/** Whether callers hear the script, in plain words. */
+export function liveScriptText(agent: Pick<Agent, "published">, out: ScriptOut): string {
+  const waiting = hasUnpublished(out, workingCopy(out).script);
+  if (out.version === null) return waiting ? "Not put live yet" : "Not written yet";
+  if (!agent.published) return waiting ? "Changes waiting · agent is off" : "Ready · agent is off";
+  return waiting ? "Live, with changes waiting" : "Live";
 }
 
 export function ScriptSection({ agent, slug }: { agent: Agent; slug: string }) {
   const { href } = useClientRealm();
   const session = useClientSession();
   const script = useScript(session, agent.id);
-  const pending = usePendingChanges(session, agent.id);
   const builder = href(`/c/${slug}/agents/${agent.id}/script`);
-
-  const staged = pending.data ? stagedScript(pending.data) : undefined;
   const data = script.data;
+  const working = data ? workingCopy(data).script : null;
+  const count = working?.stages?.length ?? 0;
+  const handWritten = working?.raw_override !== null && working !== null;
 
   useCopilotSurface({
     route: "/c/{slug}/agents/{id}",
@@ -59,14 +52,14 @@ export function ScriptSection({ agent, slug }: { agent: Agent; slug: string }) {
         label: "What is on screen",
         value: data ? "the script summary has loaded" : script.error ? "the script failed to load" : "still loading",
       },
-      ...(data
+      ...(data && working
         ? [
-            { key: "version", label: "Script version saved", value: data.version === null ? "no script yet" : String(data.version) },
-            { key: "opening_line", label: "Opening line", value: data.is_freeform ? "written as free text" : data.script.opening_line },
-            { key: "waiting", label: "A version waiting to be applied", value: staged ? `version ${staged.staged_version}` : "none" },
+            { key: "live", label: "Whether callers hear it", value: liveScriptText(agent, data) },
+            { key: "opening_line", label: "Opening line", value: handWritten ? "written by hand" : working.opening_line },
+            { key: "sections", label: "Sections", value: String(count) },
           ]
         : []),
-      { key: "builder", label: "Where the script is edited", value: "the script builder (Open the script builder)" },
+      { key: "builder", label: "Where the script is edited", value: "the script builder (Open the script)" },
     ],
     apply: noFill,
   });
@@ -74,42 +67,29 @@ export function ScriptSection({ agent, slug }: { agent: Agent; slug: string }) {
   return (
     <div className="max-w-2xl space-y-5">
       <p className="max-w-prose text-body text-ink-muted">
-        The script decides what the agent says and how it handles a call. A change never
-        reaches a live call until you apply it.
+        The script decides what the agent says and how the call goes. Your changes save as a
+        draft; callers hear them only after you put them live.
       </p>
 
       {script.error && <ProblemNotice error={script.error} onRetry={() => void script.refetch()} />}
       {script.isLoading ? (
         <Skeleton rows={3} />
-      ) : data ? (
+      ) : data && working ? (
         <SettingRows>
-          <SettingRow label="Live version" value={liveVersionText(agent, data.version, staged)} />
-          {staged && (
-            <SettingRow label="Waiting to be applied" value={`Version ${staged.staged_version}`} />
-          )}
-          {!staged && data.version !== null && (
-            <SettingRow label="Saved version" value={`Version ${data.version}`} />
-          )}
+          <SettingRow label="Callers hear it" value={liveScriptText(agent, data)} />
           <SettingRow
             label="Opening line"
-            value={
-              data.is_freeform
-                ? "Written as free text"
-                : data.script.opening_line.trim() || "Not written yet"
-            }
+            value={handWritten ? "Written by hand" : working.opening_line.trim() || "Not written yet"}
           />
-          {!data.is_freeform && (
-            <SettingRow
-              label="Steps and answers"
-              value={`${data.script.steps.length} ${data.script.steps.length === 1 ? "step" : "steps"} · ${data.script.faqs.length} ${data.script.faqs.length === 1 ? "answer" : "answers"}`}
-            />
+          {!handWritten && (
+            <SettingRow label="Sections" value={`${count} ${count === 1 ? "section" : "sections"}`} />
           )}
         </SettingRows>
       ) : null}
 
       <div className="flex flex-wrap gap-2">
         <Link href={builder} className={PRIMARY_BUTTON}>
-          Open the script builder
+          Open the script
           <ArrowRight aria-hidden className="h-4 w-4" />
         </Link>
         {data && data.version === null && (

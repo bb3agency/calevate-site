@@ -567,7 +567,7 @@ def _coverage_note(
 
 
 METRIC_LABELS = {
-    "call_outcome_resolved": "calls the agent resolved",
+    "call_outcome_resolved": "calls the agent handled",
     "lead_won": "leads eventually won",
 }
 

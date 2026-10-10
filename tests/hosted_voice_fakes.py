@@ -29,6 +29,8 @@ from apps.api.engine.catalogue import (
 )
 from apps.api.engine.fake import FakeEngine
 from apps.api.engine.thinnest import THINNEST_CAPABILITIES
+from apps.api.engine.thinnest_workspace import current_workspace, refuse_developer_byok_on
+from apps.api.tenancy.engine_workspace import StudioWorkspace
 from calevate_shared.engine import AgentConfig, AgentSnapshot, EngineAgentRef
 from sqlalchemy import text
 
@@ -38,11 +40,23 @@ PRANA = CatalogueModel(
     call_capable=True,
     plan_allows=True,
     voice_only_byok=True,
+    surcharge="none",
 )
-GPT41 = CatalogueModel(model_id="gpt-4.1", label="GPT-4.1", call_capable=True, plan_allows=True)
+GPT41 = CatalogueModel(
+    model_id="gpt-4.1", label="GPT-4.1", call_capable=True, plan_allows=True, surcharge="none"
+)
+#: A model that lifts the call to the Premium band (the console tags GPT-5 Mini so).
+PREMIUM_MODEL = CatalogueModel(
+    model_id="gpt-5-mini",
+    label="GPT-5 Mini",
+    call_capable=True,
+    plan_allows=True,
+    surcharge="premium",
+)
+UNPRICED = CatalogueModel(model_id="qwen", label="Qwen", call_capable=True, plan_allows=True)
 SLOW = CatalogueModel(model_id="gpt-slow", label="Slow", call_capable=False, plan_allows=True)
 LOCKED = CatalogueModel(model_id="gpt-x", label="X", call_capable=True, plan_allows=False)
-MODELS = (PRANA, GPT41, SLOW, LOCKED)
+MODELS = (PRANA, GPT41, SLOW, LOCKED, PREMIUM_MODEL, UNPRICED)
 
 READY_KEY = OwnVoiceKeyState(
     enabled=True, scope="voice", complete=True, using="own", voice_provider="cartesia"
@@ -80,10 +94,16 @@ class HostingEngine(FakeEngine):
         self.clones: dict[str, VoiceClone] = {}
         self.moved = 0
         self.installed: list[tuple[str, str | None]] = []
+        #: The workspace each install landed in (None: our developer workspace).
+        self.installed_in: list[str | None] = []
+        #: Each customer workspace's own-keys state; one not here reads as `key_state`.
+        self.workspace_keys: dict[str, OwnVoiceKeyState] = {}
         self.enabled = 0
         self.disabled = 0
         self.previews: list[str] = []
         self.own_keys_listed = 0
+        #: The workspace each own-key listing was read in.
+        self.listed_in: list[str | None] = []
         #: Each agent's `byok`, as ours: True on our voice key. Unset agents read as None.
         self.own_voice_key: dict[str, bool] = {}
         #: Refs whose switch the vendor refuses to change (a failed PATCH).
@@ -134,6 +154,7 @@ class HostingEngine(FakeEngine):
 
     async def list_own_key_voices(self) -> HostedVoiceListing:
         self.own_keys_listed += 1
+        self.listed_in.append(current_workspace())
         return HostedVoiceListing(voices=self.own_key, provider=self.own_key_provider)
 
     async def preview_own_key_voice(
@@ -163,25 +184,68 @@ class HostingEngine(FakeEngine):
         return self.moved
 
     async def own_key_state(self) -> OwnVoiceKeyState:
-        return self.key_state
+        workspace = current_workspace()
+        if workspace is None:
+            return self.key_state
+        return self.workspace_keys.get(workspace, self.key_state)
+
+    def _set_state(self, state: OwnVoiceKeyState) -> None:
+        workspace = current_workspace()
+        if workspace is None:
+            self.key_state = state
+        else:
+            self.workspace_keys[workspace] = state
 
     async def install_own_voice_key(
         self, *, provider: str, api_key: str, model: str | None
     ) -> None:
         self.installed.append((provider, model))
-        self.key_state = self.key_state.model_copy(update={"voice_provider": provider})
+        self.installed_in.append(current_workspace())
+        state = await self.own_key_state()
+        self._set_state(state.model_copy(update={"voice_provider": provider}))
 
     async def enable_own_voice_key(self) -> OwnVoiceKeyState:
+        # The adapter refuses our developer workspace's switch (D-717); so does the fake.
+        refuse_developer_byok_on(current_workspace())
         self.enabled += 1
-        self.key_state = READY_KEY.model_copy(
-            update={"voice_provider": self.key_state.voice_provider}
-        )
-        return self.key_state
+        state = await self.own_key_state()
+        self._set_state(READY_KEY.model_copy(update={"voice_provider": state.voice_provider}))
+        return await self.own_key_state()
 
     async def disable_own_voice_key(self) -> OwnVoiceKeyState:
         self.disabled += 1
-        self.key_state = self.key_state.model_copy(update={"enabled": False, "using": "none"})
-        return self.key_state
+        state = await self.own_key_state()
+        self._set_state(state.model_copy(update={"enabled": False, "using": "none"}))
+        return await self.own_key_state()
+
+
+#: The client workspace `use_studio_workspace` reports as running Studio.
+STUDIO_WS = "org_studio-fixture"
+
+
+def use_studio_workspace(
+    monkeypatch: Any, workspace: str = STUDIO_WS, tenant_id: uuid.UUID | None = None
+) -> StudioWorkspace:
+    """Make `tenancy.engine_workspace.studio_workspaces` answer one Studio client workspace
+    wherever it is read, without writing a tenant row every test shares."""
+    from apps.api.agents import hosted_voices
+    from apps.api.agents import studio_voices as studio_module
+    from apps.workers import studio_voice_key
+
+    row = StudioWorkspace(
+        tenant_id=tenant_id or uuid.uuid4(),
+        workspace_id=workspace,
+        enabled_at=datetime.now(UTC),
+        checked_at=None,
+        error_code=None,
+    )
+
+    async def _rows(*, limit: int = 1000) -> list[StudioWorkspace]:
+        return [row]
+
+    for module in (hosted_voices, studio_module, studio_voice_key):
+        monkeypatch.setattr(module, "studio_workspaces", _rows)
+    return row
 
 
 #: The smallest bytes our sniff reads as MP3 (an ID3 header).

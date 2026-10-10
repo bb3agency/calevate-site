@@ -65,6 +65,21 @@ class ScheduledCallback(PKMixin, TimestampMixin, Base):
             "next_attempt_at",
             postgresql_where=text("status = 'scheduled'"),
         ),
+        # The call a promise was made on (the outcome reads it per call) and the lead's
+        # next live promise (the lead list reads it), migration c4e8a1f7d290.
+        Index(
+            "ix_scheduled_callbacks_source_call",
+            "tenant_id",
+            "source_call_id",
+            postgresql_where=text("source_call_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_scheduled_callbacks_lead_live",
+            "tenant_id",
+            "lead_id",
+            "requested_at",
+            postgresql_where=text("lead_id IS NOT NULL AND status IN ('scheduled', 'dialing')"),
+        ),
         Index(
             "ix_scheduled_callbacks_phone",
             "tenant_id",

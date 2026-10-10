@@ -140,6 +140,7 @@ async function renderKnowledge(
     "/v1/agents": AGENTS,
     "/v1/kb/sources": sources,
     "/v1/kb/staff-curation": STAFF_CURATION,
+    "/v1/kb/knows": { facts: [], facts_state: "none", items: [] },
     // The document list (D-534). Empty by default: every assertion in this file is about
     // the PASTED-TEXT ladder, and an unrouted endpoint would leave a second `role="alert"`
     // on the screen for the reason `STAFF_CURATION` above records.
@@ -154,11 +155,9 @@ async function renderKnowledge(
   });
 }
 
-/** The one control on the screen, found the way a client finds it. */
+/** The teach box's control, found the way a client finds it. */
 function submitButton(): HTMLButtonElement {
-  return screen.getByRole("button", {
-    name: /add to your knowledge/i,
-  }) as HTMLButtonElement;
+  return screen.getByRole("button", { name: /^sort it$/i }) as HTMLButtonElement;
 }
 
 describe("the approval gate as the client sees it", () => {
@@ -398,32 +397,51 @@ describe("one body of knowledge for the whole business (D-689)", () => {
     // No row is attributed to one agent: every agent answers from every row.
     expect(container.textContent).not.toContain("Front desk");
     expect(container.textContent).not.toContain("Outbound reminders");
-    expect(container.textContent).toContain("every one of your agents answers from it");
+    expect(container.textContent).toContain("shared by every one of your agents");
   });
 
-  it("submits a typed fact with no agent id", async () => {
+  it("teaches in words with no agent id", async () => {
     const { calls } = await renderKnowledge([], {
-      "POST /v1/kb/sources": { id: SOURCE_ID, chunks: 1, version: 1, status: "approved" },
+      "POST /v1/kb/teach": {
+        id: SOURCE_ID,
+        status: "queued",
+        input_kind: "text",
+        words: "We are open from nine to six, Monday to Saturday.",
+        items: [],
+        agent_id: null,
+        gap_id: null,
+        note: null,
+        error_code: null,
+        created_at: "2026-10-10T10:00:00Z",
+      },
+      [`/v1/kb/teach/${SOURCE_ID}`]: {
+        id: SOURCE_ID,
+        status: "sorting",
+        input_kind: "text",
+        words: "We are open from nine to six, Monday to Saturday.",
+        items: [],
+        agent_id: null,
+        gap_id: null,
+        note: null,
+        error_code: null,
+        created_at: "2026-10-10T10:00:00Z",
+      },
     });
     await waitFor(() => expect(submitButton().disabled).toBe(false));
 
-    fireEvent.change(screen.getByLabelText("What this knowledge is about"), {
-      target: { value: "Opening hours" },
-    });
-    fireEvent.change(screen.getByLabelText("What the agent should say"), {
+    fireEvent.change(screen.getByLabelText("What should your agents know?"), {
       target: { value: "We are open from nine to six, Monday to Saturday." },
     });
     fireEvent.click(submitButton());
 
     await waitFor(() =>
-      expect(calls.some((c) => c.method === "POST" && c.path === "/v1/kb/sources")).toBe(true),
+      expect(calls.some((c) => c.method === "POST" && c.path === "/v1/kb/teach")).toBe(true),
     );
-    const posted = calls.find((c) => c.method === "POST" && c.path === "/v1/kb/sources");
+    const posted = calls.find((c) => c.method === "POST" && c.path === "/v1/kb/teach");
     const body = JSON.parse(posted?.body ?? "{}") as Record<string, unknown>;
     expect(body).toEqual({
-      name: "Opening hours",
-      body: "We are open from nine to six, Monday to Saturday.",
-      kind: "text",
+      words: "We are open from nine to six, Monday to Saturday.",
+      gap_id: null,
     });
     expect("agent_id" in body).toBe(false);
   });
@@ -469,9 +487,8 @@ describe("what the screen says the agent does with the text", () => {
     // The mechanism, in the owner's words. Pinned rather than merely un-banned: deleting
     // the sentence would leave a client to assume the document-retrieval product that
     // every competitor's page describes.
-    expect(text).toContain(
-      "part of what the agent already knows when it picks up",
-    );
+    // Pinned facts are read on every call; the rest are found when a caller asks.
+    expect(text).toContain("Pinned facts");
     // And how it gets there, in the same sentence: D-658 — nobody approves what the
     // account's own people add, and saying otherwise has a client waiting on nobody.
     expect(text).toContain("without anyone approving it");
@@ -502,7 +519,7 @@ describe("what the screen says the agent does with the text", () => {
     // The one file sentence worth pinning positively is the limit, because a client who
     // learns it from a 413 has already spent the upload. It is on the Files tab since
     // REDESIGN-2, beside the upload it limits.
-    fireEvent.click(screen.getByRole("tab", { name: "Files" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Files and pages" }));
     expect(container.textContent).toMatch(/20 MB/);
   });
 });

@@ -307,6 +307,11 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "reached through impersonation; and a price is OUR cost basis, not the "
         "client's to see"
     ),
+    "/v1/ops/inr-llm-prices": (
+        "the attested prices of the rupee-billed platform models (Sarvam) — superadmin ops "
+        "surface, gated on platform:config for /v1/ops/model-prices' reason. It is OUR "
+        "supplier cost basis and is never reached from a client dashboard"
+    ),
     "/v1/ops/dashboard-data-use": (
         "which LLM legs the in-app assistant may run on, and the operator attestation "
         "behind each (D-477) — superadmin ops surface, gated on platform:config for the "

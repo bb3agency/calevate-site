@@ -548,6 +548,10 @@ class TenantEngineWorkspace(PKMixin, TimestampMixin, Base):
             "business_review_note IS NULL OR char_length(business_review_note) <= 2000",
             name="review_note_bounded",
         ),
+        CheckConstraint(
+            "studio_error_code IS NULL OR char_length(studio_error_code) <= 64",
+            name="studio_error_code_bounded",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -567,3 +571,8 @@ class TenantEngineWorkspace(PKMixin, TimestampMixin, Base):
     business_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     business_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     business_document_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True), nullable=True)
+    #: Our Cartesia key confirmed on in this workspace (D-717, migration e9b2c7d4a1f3); the
+    #: last read of its `GET /byok` that matched; our code for the last failure.
+    studio_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    studio_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    studio_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)

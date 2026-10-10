@@ -407,7 +407,7 @@ async def test_the_tally_counts_completed_calls_of_the_arm_recorded() -> None:
         )
         await session.execute(
             text(
-                "UPDATE calls SET outcome_tag = 'resolved' WHERE status = 'completed' "
+                "UPDATE calls SET outcome_tag = 'answered' WHERE status = 'completed' "
                 "AND id IN (SELECT a.call_id FROM call_variant_assignments a "
                 "  JOIN prompt_experiment_variants v ON v.id = a.variant_id WHERE v.label = 'A')"
             )

@@ -114,13 +114,12 @@ async def signup(payload: SignupIn, request: Request, user_id: Identity) -> Sign
     # to go and confirm their address should not first be told their slug is taken.
     await assert_email_verified(user_id)
 
-    # `custom` is a business that fits none of the templates; it starts from the neutral
-    # fields in `scripts/seed.CUSTOM_EXTRACTION_FIELDS`, as the operator wizard does.
+    # `custom` is a business that fits none of the templates; it starts with the core lead
+    # details only and its own are drafted once from its business details
+    # (`agents/lead_fields`), as the operator wizard does.
     if payload.vertical_template not in {*VERTICAL_TEMPLATES, "custom"}:
-        # `create_organization` falls back to the clinic template for an unknown
-        # vertical, which is right for an operator who typed something odd and wrong
-        # for a self-serve user who picked from a list: they would get a clinic's
-        # extraction schema and no indication of it.
+        # A value from outside the list is a client bug or a probe, not a business type;
+        # refusing it beats silently seating the business on the neutral set.
         raise ProblemError(
             kind="validation",
             code="unknown_vertical_template",

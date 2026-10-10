@@ -35,7 +35,17 @@ from apps.api.ops import hosted_voice_routes as routes
 from apps.workers import storage
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import select, text
-from tests.hosted_voice_fakes import MP3, OFF_KEY, WAV, CatalogueRows, HostingEngine, selected
+from tests.hosted_voice_fakes import (
+    MP3,
+    OFF_KEY,
+    READY_KEY,
+    STUDIO_WS,
+    WAV,
+    CatalogueRows,
+    HostingEngine,
+    selected,
+    use_studio_workspace,
+)
 
 
 def _client() -> AsyncClient:
@@ -152,8 +162,10 @@ async def test_a_thinnest_refresh_reads_the_hosted_lists_and_never_list_voices(
 
 
 async def test_our_voice_key_on_adds_its_voices_and_prunes_what_left(
-    hosted_rows: CatalogueRows,
+    hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Studio voices are listed through a Studio client workspace (D-717)."""
+    use_studio_workspace(monkeypatch)
     gone = await hosted_rows.add("byok", label="Old", origin="synced", state="disabled")
     kept = f"k{uuid.uuid4().hex[:8]}"
     hosted_rows.track(f"byok:{kept}")
@@ -162,25 +174,33 @@ async def test_our_voice_key_on_adds_its_voices_and_prunes_what_left(
     )
     async with admin_session() as session:
         result = await sync_voice_catalogue(session, engine)
-    assert engine.own_keys_listed == 1
+    assert engine.own_keys_listed == 1 and engine.listed_in == [STUDIO_WS]
     assert result.note is None and result.pruned >= 1
     assert (await _entry(gone)).withdrawn_at is not None
     fresh = await _entry(f"byok:{kept}")
     assert (fresh.provider, fresh.languages, fresh.withdrawn_at) == ("cartesia", ["te-IN"], None)
 
 
-async def test_our_voice_key_off_withdraws_the_studio_voices(hosted_rows: CatalogueRows) -> None:
+async def test_no_studio_workspace_ready_keeps_the_studio_voices_last_listed(
+    hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not being able to read the list is not the list being empty (D-717): the rows stay,
+    and the developer workspace, whose switch is off, is never asked for them."""
     voice = await hosted_rows.add("byok")
+    use_studio_workspace(monkeypatch)
+    engine = HostingEngine(key_state=OFF_KEY)
     async with admin_session() as session:
-        result = await sync_voice_catalogue(session, HostingEngine(key_state=OFF_KEY))
-        assert not await hosted_voices.studio_voices_ready(session)
+        result = await sync_voice_catalogue(session, engine)
+        assert await hosted_voices.studio_voices_ready(session)
     assert result.note == hosted_voices.STUDIO_KEY_OFF_REASON
-    assert (await _entry(voice)).withdrawn_at is not None
+    assert engine.own_keys_listed == 0
+    assert (await _entry(voice)).withdrawn_at is None
 
 
 async def test_an_own_key_of_another_provider_is_not_synced(
     hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    use_studio_workspace(monkeypatch)
     alerts: list[str] = []
     monkeypatch.setattr(hosted_voices, "alert", lambda stage, code, **kw: alerts.append(code))
     engine = HostingEngine(
@@ -198,13 +218,17 @@ async def test_empty_listings_are_refused_and_alarmed(monkeypatch: pytest.Monkey
     monkeypatch.setattr(
         hosted_voices, "alert", lambda stage, code, **kw: alerts.append(kw["source"])
     )
+    use_studio_workspace(monkeypatch)
     async with admin_session() as session:
         result = await sync_voice_catalogue(session, HostingEngine())
     assert result.written == 0 and alerts == ["engine", "byok"]
 
 
 @pytest.mark.parametrize("status", [409, 502])
-async def test_a_409_on_our_voices_is_a_stated_skip_and_an_outage_is_not(status: int) -> None:
+async def test_a_409_on_our_voices_is_a_stated_skip_and_an_outage_is_not(
+    status: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    use_studio_workspace(monkeypatch)
     from apps.api.engine.vendor_http import EngineRejectedError
 
     engine = HostingEngine()
@@ -603,11 +627,37 @@ async def test_an_uploaded_preview_must_be_mp3_or_wav(
     assert previews == {storage.voice_preview_key(voice): WAV}
 
 
+async def test_a_studio_preview_needs_a_studio_client_workspace(
+    admin: dict[str, str], hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Our developer workspace's switch is off, where the vendor refuses a preview with 409
+    (preview-byok-voice.md:396-397), so with no Studio client the preview is refused here."""
+
+    async def _none(*, limit: int = 1000) -> list[Any]:
+        return []
+
+    monkeypatch.setattr(hosted_voices, "studio_workspaces", _none)
+    studio = await hosted_rows.add("byok")
+    engine = HostingEngine()
+    with selected(engine):
+        async with _client() as http:
+            response = await http.post(
+                "/v1/ops/voices/hosted/preview/fetch",
+                headers=admin,
+                json={"voice_id": studio, "text": "Namaste"},
+            )
+    assert response.json()["type"].rsplit("/", 1)[-1] == "studio_preview_no_workspace"
+    assert engine.previews == []
+
+
 async def test_the_platforms_own_preview_is_stored_for_a_studio_voice_and_a_clone(
     admin: dict[str, str],
     previews: dict[str, bytes],
     hosted_rows: CatalogueRows,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A Studio voice is spoken in a Studio client's workspace: ours is off (D-717)."""
+    use_studio_workspace(monkeypatch)
     engine = HostingEngine()
     clone = await engine.create_voice_clone(
         routes.VoiceCloneSample(
@@ -679,8 +729,11 @@ def cartesia_key(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     get_settings.cache_clear()
 
 
-async def _routes_for(engine_refs: dict[str, str]) -> list[tuple[str, str]]:
-    """Active `engine_agent_routes` rows for this test: `{ref: rate_key}`, one tenant."""
+async def _routes_for(
+    engine_refs: dict[str, str], *, workspace: str | None = None
+) -> tuple[UUID, list[tuple[str, str]]]:
+    """A new tenant with active `engine_agent_routes` rows (`{ref: rate_key}`), and, given
+    `workspace`, an active voice workspace row for it."""
     from apps.api.admin import service as admin_service
 
     created = await admin_service.create_organization(
@@ -693,8 +746,17 @@ async def _routes_for(engine_refs: dict[str, str]) -> list[tuple[str, str]]:
     )
     tenant, agent = created["id"], created["agent_id"]
     rows: list[tuple[str, str]] = []
-    for ref, rate_key in engine_refs.items():
-        async with tenant_session(tenant) as session:
+    async with tenant_session(tenant) as session:
+        if workspace is not None:
+            await session.execute(
+                text(
+                    "INSERT INTO tenant_engine_workspaces (id, tenant_id, engine, external_ref, "
+                    "workspace_id, status, created_at, updated_at) VALUES (:id, :tid, "
+                    "'thinnest', :ref, :ws, 'active', now(), now())"
+                ),
+                {"id": uuid.uuid4(), "tid": tenant, "ref": f"calevate-{tenant}", "ws": workspace},
+            )
+        for ref, rate_key in engine_refs.items():
             await session.execute(
                 text(
                     "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
@@ -703,86 +765,81 @@ async def _routes_for(engine_refs: dict[str, str]) -> list[tuple[str, str]]:
                 ),
                 {"ref": ref, "tid": tenant, "aid": agent, "key": rate_key},
             )
-        rows.append((ref, rate_key))
-    return rows
+            rows.append((ref, rate_key))
+    return tenant, rows
 
 
-async def _drop_routes(refs: list[str]) -> None:
+async def _drop_routes(refs: list[str], tenant: UUID | None = None) -> None:
     async with admin_session() as session:
         await session.execute(
             text("DELETE FROM engine_agent_routes WHERE engine_agent_ref = ANY(:refs)"),
             {"refs": refs},
         )
+        if tenant is not None:
+            await session.execute(
+                text("DELETE FROM tenant_engine_workspaces WHERE tenant_id = :tid"),
+                {"tid": tenant},
+            )
 
 
-async def test_studio_voices_read_their_state_and_say_what_switching_on_does(
+def _only_routes_of(monkeypatch: pytest.MonkeyPatch, tenant: UUID) -> None:
+    """The route table is global and other tests leave rows in it; the developer-switch
+    check reads every tenant's, so these tests see only their own."""
+    from apps.api.agents import studio_voices as studio_module
+
+    real = studio_module.published_routes
+
+    async def _mine(session: Any, *, engine: str) -> list[Any]:
+        return [r for r in await real(session, engine=engine) if r.tenant_id == tenant]
+
+    monkeypatch.setattr(studio_module, "published_routes", _mine)
+
+
+def _ws() -> str:
+    return f"org_ss{uuid.uuid4().hex[:10]}"
+
+
+async def test_studio_readiness_says_what_is_missing_and_that_the_developer_switch_stays_off(
     admin: dict[str, str],
 ) -> None:
     with selected(HostingEngine(key_state=OFF_KEY)):
         async with _client() as http:
-            off = (await http.get("/v1/ops/voices/studio-voices", headers=admin)).json()
-    installed_off = OFF_KEY.model_copy(update={"voice_provider": "cartesia"})
-    with selected(HostingEngine(key_state=installed_off)):
+            bare = (await http.get("/v1/ops/voices/studio-voices", headers=admin)).json()
+    held = OFF_KEY.model_copy(update={"voice_provider": "cartesia"})
+    with selected(HostingEngine(key_state=held)):
         async with _client() as http:
-            installed = (await http.get("/v1/ops/voices/studio-voices", headers=admin)).json()
-    with selected(HostingEngine()):
+            holding = (await http.get("/v1/ops/voices/studio-voices", headers=admin)).json()
+    with selected(HostingEngine(key_state=READY_KEY)):
         async with _client() as http:
-            on = (await http.get("/v1/ops/voices/studio-voices", headers=admin)).json()
-    assert off["ready"] is False and "not installed" in off["note"]
-    assert installed["ready"] is False and "not switched on" in installed["note"]
-    assert on["ready"] is True and on["key"]["speaks_on_own_voice"]
-    assert "set to stay off it first" in on["explanation"]
+            legacy = (await http.get("/v1/ops/voices/studio-voices", headers=admin)).json()
+    assert bare["ready"] is False and bare["developer_holds_key"] is False
+    assert any("Studio ready" in step for step in bare["missing"])
+    assert holding["developer_holds_key"] is True and holding["developer_switch_on"] is False
+    assert "switch off" in holding["explanation"]
+    assert legacy["developer_switch_on"] is True and "ON" in legacy["note"]
 
 
-async def test_switching_studio_on_keeps_clear_agents_off_first_then_installs_and_enables(
+async def test_studio_ready_holds_our_key_in_the_developer_workspace_and_never_switches_it_on(
     admin: dict[str, str], cartesia_key: None
 ) -> None:
-    clear, studio = f"ag_{uuid.uuid4().hex[:8]}", f"ag_{uuid.uuid4().hex[:8]}"
-    await _routes_for({clear: "premium", studio: "byok_voice"})
     engine = HostingEngine(key_state=OFF_KEY)
-    engine.own_voice_key[clear] = True
-    try:
-        with selected(engine):
-            async with _client() as http:
-                refused = await http.post(
-                    "/v1/ops/voices/studio-voices/enable", headers=admin, json={}
-                )
-                done = await http.post(
-                    "/v1/ops/voices/studio-voices/enable",
-                    headers={**admin, "X-Confirm-Action": routes.STUDIO_ENABLE_CONFIRMATION},
-                    json={"model": "sonic-3"},
-                )
-    finally:
-        await _drop_routes([clear, studio])
-    assert refused.json()["type"].rsplit("/", 1)[-1] == "step_up_required"
-    assert done.status_code == 200, done.text
-    assert done.json()["ready"] is True
-    assert engine.own_voice_key[clear] is False and studio not in engine.own_voice_key
-    assert engine.installed == [("cartesia", "sonic-3")] and engine.enabled == 1
-    assert await _audits("ops.studio_voices_enabled") >= 1
-
-
-async def test_switching_studio_on_keeps_an_installed_cartesia_key(
-    admin: dict[str, str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from apps.api.core.settings import get_settings
-
-    monkeypatch.delenv("CARTESIA_API_KEY", raising=False)
-    get_settings.cache_clear()
-    engine = HostingEngine(key_state=OFF_KEY.model_copy(update={"voice_provider": "cartesia"}))
     with selected(engine):
         async with _client() as http:
+            refused = await http.post("/v1/ops/voices/studio-voices/enable", headers=admin, json={})
             done = await http.post(
                 "/v1/ops/voices/studio-voices/enable",
                 headers={**admin, "X-Confirm-Action": routes.STUDIO_ENABLE_CONFIRMATION},
-                json={},
+                json={"model": "sonic-3"},
             )
-    get_settings.cache_clear()
+    assert refused.json()["type"].rsplit("/", 1)[-1] == "step_up_required"
     assert done.status_code == 200, done.text
-    assert engine.installed == [] and engine.enabled == 1
+    assert engine.installed == [("cartesia", "sonic-3")] and engine.installed_in == [None]
+    assert engine.enabled == 0 and engine.key_state.enabled is False
+    assert done.json()["developer_holds_key"] is True
+    assert await _audits("ops.studio_voices_prepared") >= 1
 
 
-async def test_switching_studio_on_needs_our_cartesia_key_when_none_is_installed(
+async def test_studio_ready_needs_our_cartesia_key(
     admin: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from apps.api.core.settings import get_settings
@@ -790,25 +847,72 @@ async def test_switching_studio_on_needs_our_cartesia_key_when_none_is_installed
     monkeypatch.delenv("CARTESIA_API_KEY", raising=False)
     get_settings.cache_clear()
     engine = HostingEngine(key_state=OFF_KEY)
-    with selected(engine):
-        async with _client() as http:
-            response = await http.post(
-                "/v1/ops/voices/studio-voices/enable",
-                headers={**admin, "X-Confirm-Action": routes.STUDIO_ENABLE_CONFIRMATION},
-                json={},
-            )
-    get_settings.cache_clear()
-    assert response.json()["type"].rsplit("/", 1)[-1] == "studio_voice_key_missing"
-    assert engine.enabled == 0
+    try:
+        with selected(engine):
+            async with _client() as http:
+                missing = await http.post(
+                    "/v1/ops/voices/studio-voices/enable",
+                    headers={**admin, "X-Confirm-Action": routes.STUDIO_ENABLE_CONFIRMATION},
+                    json={},
+                )
+    finally:
+        get_settings.cache_clear()
+    assert missing.json()["type"].rsplit("/", 1)[-1] == "studio_voice_key_missing"
+    assert engine.installed == [] and engine.enabled == 0
+
+
+async def test_naming_a_client_switches_studio_on_in_its_workspace_with_clear_agents_off_first(
+    admin: dict[str, str], cartesia_key: None
+) -> None:
+    ws = _ws()
+    clear, studio = f"ag_{uuid.uuid4().hex[:8]}@{ws}", f"ag_{uuid.uuid4().hex[:8]}@{ws}"
+    elsewhere = f"ag_{uuid.uuid4().hex[:8]}"
+    tenant, _ = await _routes_for(
+        {clear: "premium", studio: "byok_voice", elsewhere: "premium"}, workspace=ws
+    )
+    engine = HostingEngine(key_state=OFF_KEY)
+    engine.workspace_keys[ws] = OFF_KEY
+    engine.own_voice_key[clear] = True
+    engine.own_voice_key[elsewhere] = True
+    try:
+        with selected(engine):
+            async with _client() as http:
+                done = await http.post(
+                    "/v1/ops/voices/studio-voices/enable",
+                    headers={**admin, "X-Confirm-Action": routes.STUDIO_ENABLE_CONFIRMATION},
+                    json={"tenant_id": str(tenant)},
+                )
+        async with tenant_session(tenant) as session:
+            enabled_at = (
+                await session.execute(
+                    text(
+                        "SELECT studio_enabled_at FROM tenant_engine_workspaces "
+                        "WHERE tenant_id = :tid"
+                    ),
+                    {"tid": tenant},
+                )
+            ).scalar_one()
+    finally:
+        await _drop_routes([clear, studio, elsewhere], tenant)
+    assert done.status_code == 200, done.text
+    assert engine.own_voice_key[clear] is False and studio not in engine.own_voice_key
+    # An agent outside that workspace is not this switch's business.
+    assert engine.own_voice_key[elsewhere] is True
+    assert engine.installed_in == [None, ws] and engine.enabled == 1
+    assert engine.workspace_keys[ws].speaks_on_own_voice
+    assert engine.key_state.enabled is False
+    assert enabled_at is not None
 
 
 @pytest.mark.parametrize("failure", ["refused", "stuck"])
-async def test_studio_is_not_switched_on_while_a_clear_agent_cannot_be_kept_off(
+async def test_a_client_workspace_is_not_switched_on_while_a_clear_agent_cannot_be_kept_off(
     admin: dict[str, str], cartesia_key: None, failure: str
 ) -> None:
-    clear = f"ag_{uuid.uuid4().hex[:8]}"
-    await _routes_for({clear: "premium"})
+    ws = _ws()
+    clear = f"ag_{uuid.uuid4().hex[:8]}@{ws}"
+    tenant, _ = await _routes_for({clear: "premium"}, workspace=ws)
     engine = HostingEngine(key_state=OFF_KEY)
+    engine.workspace_keys[ws] = OFF_KEY
     engine.own_voice_key[clear] = True
     (engine.refuse_switch if failure == "refused" else engine.stuck_switch).add(clear)
     try:
@@ -817,74 +921,71 @@ async def test_studio_is_not_switched_on_while_a_clear_agent_cannot_be_kept_off(
                 response = await http.post(
                     "/v1/ops/voices/studio-voices/enable",
                     headers={**admin, "X-Confirm-Action": routes.STUDIO_ENABLE_CONFIRMATION},
-                    json={},
+                    json={"tenant_id": str(tenant)},
                 )
     finally:
-        await _drop_routes([clear])
+        await _drop_routes([clear], tenant)
     assert response.json()["type"].rsplit("/", 1)[-1] == "studio_agents_not_kept_off"
-    assert engine.installed == [] and engine.enabled == 0
+    assert engine.installed_in == [None] and engine.enabled == 0
 
 
-async def test_a_failed_voice_read_after_switching_on_does_not_undo_it(
-    admin: dict[str, str], cartesia_key: None
+async def test_the_developer_switch_goes_off_only_once_no_studio_agent_depends_on_it(
+    admin: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    engine = HostingEngine(key_state=OFF_KEY)
-
-    async def _down() -> Any:
-        raise ProblemError(kind="dependency", code="engine_unavailable", title="x", detail="x")
-
-    engine.list_hosted_voices = _down  # type: ignore[method-assign]
-    with selected(engine):
-        async with _client() as http:
-            done = await http.post(
-                "/v1/ops/voices/studio-voices/enable",
-                headers={**admin, "X-Confirm-Action": routes.STUDIO_ENABLE_CONFIRMATION},
-                json={},
-            )
-    assert done.status_code == 200, done.text
-    assert done.json()["ready"] is True
-
-
-async def test_switching_studio_off_warns_about_studio_agents_then_withdraws_its_voices(
-    admin: dict[str, str], hosted_rows: CatalogueRows
-) -> None:
-    studio_agent = f"ag_{uuid.uuid4().hex[:8]}"
-    await _routes_for({studio_agent: "byok_voice"})
-    voice = await hosted_rows.add("byok")
-    engine = HostingEngine()
+    ws = _ws()
+    on_developer = f"ag_{uuid.uuid4().hex[:8]}"
+    on_client = f"ag_{uuid.uuid4().hex[:8]}@{ws}"
+    tenant, _ = await _routes_for({on_developer: "byok_voice", on_client: "byok_voice"})
+    _only_routes_of(monkeypatch, tenant)
+    engine = HostingEngine(key_state=READY_KEY)
+    engine.workspace_keys[ws] = READY_KEY
     headers = {**admin, "X-Confirm-Action": routes.STUDIO_DISABLE_CONFIRMATION}
     try:
         with selected(engine):
             async with _client() as http:
-                warned = await http.post("/v1/ops/voices/studio-voices/disable", headers=headers)
-                done = await http.post(
-                    "/v1/ops/voices/studio-voices/disable?confirm=true", headers=headers
-                )
+                blocked = await http.post("/v1/ops/voices/studio-voices/disable", headers=headers)
+                async with tenant_session(tenant) as session:
+                    await session.execute(
+                        text(
+                            "UPDATE engine_agent_routes SET active = false "
+                            "WHERE engine_agent_ref = :ref"
+                        ),
+                        {"ref": on_developer},
+                    )
+                done = await http.post("/v1/ops/voices/studio-voices/disable", headers=headers)
     finally:
-        await _drop_routes([studio_agent])
-    assert warned.json()["type"].rsplit("/", 1)[-1] == "studio_voices_in_use"
+        await _drop_routes([on_developer, on_client], tenant)
+    assert blocked.json()["type"].rsplit("/", 1)[-1] == "studio_clients_not_moved"
+    assert "developer workspace" in blocked.json()["detail"]
     assert done.status_code == 200, done.text
-    assert done.json()["ready"] is False and engine.disabled == 1
-    assert (await _entry(voice)).withdrawn_at is not None
-    assert await _audits("ops.studio_voices_disabled") >= 1
+    assert engine.disabled == 1 and done.json()["developer_switch_on"] is False
+    assert engine.workspace_keys[ws].speaks_on_own_voice
+    assert await _audits("ops.studio_developer_switch_off") >= 1
 
 
-async def test_switching_studio_off_with_no_studio_agent_needs_no_confirmation(
+async def test_a_client_workspace_inheriting_ours_also_blocks_the_developer_switch_off(
     admin: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _none(session: Any, *, engine: str) -> int:
-        return 0
-
-    monkeypatch.setattr(routes, "live_studio_agents", _none)
-    engine = HostingEngine()
-    with selected(engine):
-        async with _client() as http:
-            done = await http.post(
-                "/v1/ops/voices/studio-voices/disable",
-                headers={**admin, "X-Confirm-Action": routes.STUDIO_DISABLE_CONFIRMATION},
-            )
-    assert done.status_code == 200 and engine.disabled == 1
+    ws = _ws()
+    studio = f"ag_{uuid.uuid4().hex[:8]}@{ws}"
+    tenant, _ = await _routes_for({studio: "byok_voice"})
+    _only_routes_of(monkeypatch, tenant)
+    engine = HostingEngine(key_state=READY_KEY)
+    # Inheriting ours rather than on its own key: switching ours off would silence it.
+    engine.workspace_keys[ws] = READY_KEY.model_copy(update={"using": "developer"})
+    try:
+        with selected(engine):
+            async with _client() as http:
+                blocked = await http.post(
+                    "/v1/ops/voices/studio-voices/disable",
+                    headers={**admin, "X-Confirm-Action": routes.STUDIO_DISABLE_CONFIRMATION},
+                )
+    finally:
+        await _drop_routes([studio], tenant)
+    assert blocked.json()["type"].rsplit("/", 1)[-1] == "studio_clients_not_moved"
+    assert engine.disabled == 0
 
 
 # --- the operator's preview player ---------------------------------------------------
@@ -992,7 +1093,8 @@ async def test_a_listing_without_the_sold_band_is_cached_and_raises_the_plan_ala
     assert dict(result.hosted.bands) == {"standard": 1, "studio": 1}
     assert [code for code, _ in alerts] == [hosted_voices.NO_SOLD_BAND_CODE]
     detail = alerts[0][1] or ""
-    assert "none in the Premium tier" in detail and "Voice band sold as Clear" in detail
+    assert "none in the ThinnestAI Premium band" in detail
+    assert "ThinnestAI voice band sold as Clear" in detail
     assert "credential" not in detail
     assert (await _entry(f"engine:{standard.voice_id}")).vendor_band == "standard"
     assert (await _entry(f"engine:{studio.voice_id}")).vendor_band == "studio"
@@ -1029,10 +1131,10 @@ async def test_a_thinnest_refresh_without_the_sold_band_names_the_setting_not_th
     body = await _refresh_on(HostingEngine(hosted=voices, key_state=OFF_KEY), admin)
     note = body["note"]
     assert note.startswith(
-        "ThinnestAI listed 3 voice(s) but none in the Premium tier, the tier sold as Clear "
-        "('Voice band sold as Clear' in the ops console)."
+        "ThinnestAI listed 3 voice(s) but none in the ThinnestAI Premium band, the band sold as "
+        "Clear ('ThinnestAI voice band sold as Clear' in the ops console)."
     )
-    assert "2 Standard, 0 Premium, 1 Studio" in note
+    assert "ThinnestAI bands 2 Standard, 0 Premium, 1 Studio" in note
     assert "credential" not in note and "previous catalogue" not in note
     assert body["bands"] == {"standard": 2, "studio": 1}
 
@@ -1048,7 +1150,9 @@ async def test_on_studio_a_refresh_with_no_studio_voices_names_the_pro_plan(
     for voice in voices:
         hosted_rows.track(f"engine:{voice.voice_id}")
     body = await _refresh_on(HostingEngine(hosted=voices, key_state=OFF_KEY), admin)
-    assert body["note"].startswith("ThinnestAI listed 3 voice(s) but none in the Studio tier")
+    assert body["note"].startswith(
+        "ThinnestAI listed 3 voice(s) but none in the ThinnestAI Studio band"
+    )
     assert hosted_voices.STUDIO_NEEDS_PRO in body["note"]
     # The free preview voice and the Cartesia switch are the two things an operator reaches
     # for; the sentence rules out both.
@@ -1133,8 +1237,8 @@ async def test_a_thinnest_refresh_with_the_sold_band_counts_each_band(
         hosted_rows.track(f"engine:{voice.voice_id}")
     body = await _refresh_on(HostingEngine(hosted=voices, key_state=OFF_KEY), admin)
     assert body["note"].startswith(
-        "ThinnestAI listed 2 voice(s): 1 Standard, 1 Premium, 0 Studio. Only Premium-tier "
-        "voices can be offered as Clear."
+        "ThinnestAI listed 2 voice(s): ThinnestAI bands 1 Standard, 1 Premium, 0 Studio. Only "
+        "ThinnestAI Premium band voices can be offered as Clear."
     )
     assert f"Studio voices: {hosted_voices.STUDIO_KEY_OFF_REASON}." in body["note"]
     assert body["bands"] == {"standard": 1, "premium": 1}
@@ -1204,14 +1308,14 @@ async def test_a_voice_outside_the_sold_band_cannot_be_added_and_is_shown_why(
     problem = refused.json()
     assert refused.status_code == 422
     assert problem["type"].rsplit("/", 1)[-1] == "voice_band_not_sold"
-    assert "Only Premium-tier voices are sold as Clear" in problem["detail"]
-    assert "Anjali is in the Standard tier" in problem["detail"]
-    assert "Voice band sold as Clear" in problem["remediation"]
+    assert "Only ThinnestAI Premium band voices are sold as Clear" in problem["detail"]
+    assert "Anjali is in the ThinnestAI Standard band" in problem["detail"]
+    assert "ThinnestAI voice band sold as Clear" in problem["remediation"]
     assert (await _entry(standard)).origin == "synced"
     body = listed.json()
     row = {v["voice_id"]: v for v in body["voices"]}[standard]
     assert (row["band"], row["sold"], row["rung"]) == ("standard", False, None)
-    assert "Only Premium-tier voices" in row["not_sold_reason"]
+    assert "Only ThinnestAI Premium band voices" in row["not_sold_reason"]
     assert body["bands"].get("standard", 0) >= 1 and body["clear_band"] == "premium"
 
 
@@ -1229,7 +1333,7 @@ async def test_an_added_voice_the_platform_moved_out_of_the_band_cannot_be_enabl
             await hosted_voices.set_hosted_curation(session, voice_id=unbanded, state="enabled")
         assert (await read_hosted_voice(session, unbanded)).rate_key == "premium"
     assert caught.value.code == "voice_band_not_sold"
-    assert caught.value.detail is not None and "no tier we sell" in caught.value.detail
+    assert caught.value.detail is not None and "no band we sell" in caught.value.detail
     with selected(HostingEngine()):
         async with _client() as http:
             response = await http.patch(
@@ -1251,7 +1355,9 @@ async def test_the_panel_explains_a_platform_with_none_of_the_sold_band(
         async with _client() as http:
             body = (await http.get("/v1/ops/voices/hosted", headers=admin)).json()
     assert body["bands"] == {"standard": 4, "studio": 2}
-    assert body["plan_note"].startswith("ThinnestAI listed 6 voice(s) but none in the Premium tier")
+    assert body["plan_note"].startswith(
+        "ThinnestAI listed 6 voice(s) but none in the ThinnestAI Premium band"
+    )
 
 
 async def test_the_panel_says_nothing_about_the_plan_when_the_sold_band_is_listed(

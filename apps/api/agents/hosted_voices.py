@@ -8,14 +8,17 @@ their id, which is namespaced by where the voice comes from:
 * `engine:<id>` — the engine's own voice, or a voice our account cloned on it. Every band the
   engine lists is cached with its band (`vendor_band`) so the operator sees the whole
   platform, but only the band sold as Clear (`Settings.thinnest_clear_voice_band`, see
-  `sold_hosted_band`) can be added and offered. Our clones are in the Studio band, so they
-  are offerable only while Clear is sold on Studio. Metered at that band's rate.
-* `byok:<id>` — a voice of our Cartesia key, installed in our developer workspace as its
-  voice-only own key (BYOK scope `voice`). Metered at `byok_voice` plus Cartesia's own
-  charge to our key, sold as STUDIO.
+  `sold_hosted_band`) can be added and offered. Our clones are in the ThinnestAI Studio band, so
+  they are offerable only while Clear is sold on that band. Metered at that band's rate.
+* `byok:<id>` — a voice of our Cartesia key, switched on as the voice-only own key (BYOK scope
+  `voice`) in the customer workspace of each client that uses Studio (D-717). Metered at
+  `byok_voice` plus Cartesia's own charge to our key, sold as STUDIO. Listed and previewed
+  through the first such workspace that answers ready (`studio_listing_workspace`): our
+  developer workspace holds the key with its switch off, where the vendor refuses both
+  (`list-byok-voices.md:7`, `preview-byok-voice.md:396-397`).
 
-Every agent lives in our one developer workspace and says per agent whether it speaks on our
-own voice key (D-688, evaluation §12 item 1); there is no second workspace.
+Every agent says whether it speaks on our own voice key (D-688): Clear agents `byok: off`,
+Studio agents `byok: workspace`.
 
 Neither prefix is a member of `voices.TtsModel`, and the rows store the source in
 `tts_model`, so `voice_sync.voice_from_row` drops them: Pipecat's lookup catalogue, picker
@@ -26,8 +29,8 @@ The rung is derived in ONE place: a row's rate key (`HostedVoiceRow.rate_key`: i
 on the route.
 
 A client may choose a voice in a sold band that an operator ADDED (`origin = operator`) AND
-ENABLED, that the engine still lists, whose minute is priced, and — for Studio — while our
-voice key is on in the workspace (`studio_voices_ready`).
+ENABLED, that the engine still lists, whose minute is priced, and — for Studio — once its
+voices have been listed from a Studio client workspace (`studio_voices_ready`).
 """
 
 from __future__ import annotations
@@ -69,7 +72,9 @@ from apps.api.engine.catalogue import (
     HostsVoices,
     OwnVoiceKeyState,
 )
+from apps.api.engine.thinnest_workspace import in_workspace
 from apps.api.engine.vendor_http import EngineRejectedError
+from apps.api.tenancy.engine_workspace import studio_workspaces
 
 log = get_logger(__name__)
 
@@ -81,7 +86,7 @@ _SEPARATOR: Final = ":"
 STUDIO_VOICE_PROVIDER: Final = "cartesia"
 
 #: The console's name for the setting that picks the band sold as Clear.
-CLEAR_BAND_SETTING_LABEL: Final = "Voice band sold as Clear"
+CLEAR_BAND_SETTING_LABEL: Final = "ThinnestAI voice band sold as Clear"
 
 #: Language tags a listing names, as a client reads them. A tag not here is shown as given.
 _LANGUAGE_NAMES: Final[dict[str, str]] = {
@@ -154,11 +159,13 @@ def rung_of_source(engine: str, source: HostedVoiceSource) -> VoiceTier:
 #: `voice_catalogue_empty`, which is the engine answering with nothing at all.
 NO_SOLD_BAND_CODE: Final = "voice_catalogue_no_studio_band"
 
-#: How the console names each band. Vendor words, shown on the admin screen only.
+#: How the console names each of ThinnestAI's bands, admin screens only. Always prefixed and
+#: suffixed, because our own Studio RUNG (Cartesia on our key) shares the word "Studio" and
+#: not the mechanism (D-717); a client never sees these.
 BAND_LABELS: Final[Mapping[HostedVoiceBand, str]] = {
-    "standard": "Standard",
-    "premium": "Premium",
-    "studio": "Studio",
+    "standard": "ThinnestAI Standard band",
+    "premium": "ThinnestAI Premium band",
+    "studio": "ThinnestAI Studio band",
 }
 
 
@@ -172,8 +179,8 @@ def no_sold_band_sentence(listed: int) -> str:
     """The operator's sentence for a listing with voices but none in the band sold as Clear."""
     band = sold_hosted_band()
     sentence = (
-        f"ThinnestAI listed {listed} voice(s) but none in the {BAND_LABELS[band]} tier, the "
-        f"tier sold as Clear ('{CLEAR_BAND_SETTING_LABEL}' in the ops console)."
+        f"ThinnestAI listed {listed} voice(s) but none in the {BAND_LABELS[band]}, the "
+        f"band sold as Clear ('{CLEAR_BAND_SETTING_LABEL}' in the ops console)."
     )
     if band == "studio":
         return f"{sentence} {STUDIO_NEEDS_PRO}"
@@ -187,9 +194,9 @@ def no_sold_band_sentence(listed: int) -> str:
 #: (guides/how-your-agent-sounds.md:132-134), it is not settable. The last sentence is there
 #: because our own Studio rung (Cartesia on our key) shares the word and not the mechanism.
 STUDIO_NEEDS_PRO: Final = (
-    "ThinnestAI lists Studio-tier voices and clones only on its Pro plan and above. The one "
-    "Studio voice its console lets every plan play is a listening sample: it is not in the "
-    "voice list below Pro, so no agent can be set to it. Upgrade the ThinnestAI plan and "
+    "ThinnestAI lists its Studio band voices and clones only on its Pro plan and above. The "
+    "one Studio band voice its console lets every plan play is a listening sample: it is not "
+    "in the voice list below Pro, so no agent can be set to it. Upgrade the ThinnestAI plan and "
     "press Refresh, or sell Clear on Premium. Switching on Studio voices (our Cartesia key) "
     "does not change this."
 )
@@ -209,33 +216,33 @@ async def assert_clear_band_listed(session: AsyncSession, band: object) -> None:
     label = BAND_LABELS.get(cast(HostedVoiceBand, band), str(band))
     detail = (
         f"The last voice refresh read {listed} ThinnestAI voice(s) ({_band_summary(bands)}) "
-        f"and none in the {label} tier, so Clear would have no voice to sell."
+        f"and none in the {label}, so Clear would have no voice to sell."
     )
     raise ProblemError(
         kind="business_rule",
         code="voice_band_not_listed",
-        title=f"ThinnestAI lists no {label}-tier voice on this account",
+        title=f"No {label} voice is listed on this account",
         detail=f"{detail} {STUDIO_NEEDS_PRO}" if band == "studio" else detail,
         remediation=(
-            "Upgrade the ThinnestAI plan, press Refresh on the Voices page, then set this again."
+            "Upgrade the voice platform plan, press Refresh on the Voices page, then set this "
+            "again."
         ),
     )
 
 
 def band_not_sold(row: HostedVoiceRow) -> ProblemError:
     sold = BAND_LABELS[sold_hosted_band()]
-    tier = f"the {BAND_LABELS[row.band]} tier" if row.band is not None else "no tier we sell"
+    tier = f"the {BAND_LABELS[row.band]}" if row.band is not None else "no band we sell"
     return ProblemError(
         kind="business_rule",
         code="voice_band_not_sold",
-        title=f"Only {sold}-tier voices are sold as Clear",
+        title=f"Only {sold} voices are sold as Clear",
         detail=(
-            f"Only {sold}-tier voices are sold as Clear on this platform, and {row.label} is "
-            f"in {tier}."
+            f"Only {sold} voices are sold as Clear on this platform, and {row.label} is in {tier}."
         ),
         remediation=(
-            f"Choose a {sold}-tier voice, or change '{CLEAR_BAND_SETTING_LABEL}' in the ops "
-            "console and attest that tier's rate."
+            f"Choose a {sold} voice, or change '{CLEAR_BAND_SETTING_LABEL}' in the ops "
+            "console and attest that band's rate."
         ),
     )
 
@@ -272,10 +279,10 @@ async def live_studio_agents(session: AsyncSession, *, engine: str) -> int:
 
 
 async def studio_voices_ready(session: AsyncSession) -> bool:
-    """Are Studio voices speakable right now, as the last sync, enable or disable recorded
-    it? Our own-key voices are listed only while the workspace speaks on our Cartesia key
-    (`sync_hosted_voices` withdraws them otherwise), so a listed one is the cached answer the
-    rate card and the picker read without a vendor round trip. Publish asks the engine live."""
+    """Can Studio voices be offered, as the catalogue records it? Our own-key voices are
+    listed from a Studio client workspace (`sync_hosted_voices`), so a listed one is the
+    cached answer the rate card and the picker read without a vendor round trip. A publish
+    switches Studio on in its client's own workspace and reads it back live (D-717)."""
     return bool(
         (
             await session.execute(
@@ -287,7 +294,7 @@ async def studio_voices_ready(session: AsyncSession) -> bool:
 
 def rungs_awaiting_setup(engine: str, *, studio_ready: bool) -> frozenset[VoiceTier]:
     """The rungs `engine` sells whose voices cannot be spoken until a setup step is done:
-    the own-voice-key rung while our voice key is not on in the workspace (D-688)."""
+    the own-voice-key rung until its voices are listed (D-688, D-717)."""
     rung = client_voice_tier(engine, BYOK_VOICE_RATE_KEY)
     return frozenset({rung}) if rung is not None and not studio_ready else frozenset()
 
@@ -431,9 +438,11 @@ def _alert_empty(engine: str, source: HostedVoiceSource) -> None:
 
 
 def _band_summary(bands: Mapping[HostedVoiceBand, int]) -> str:
-    return ", ".join(
-        f"{bands.get(band, 0)} {BAND_LABELS[band]}" for band in get_args(HostedVoiceBand)
+    """Counts per ThinnestAI band, e.g. "ThinnestAI bands 1 Standard, 1 Premium, 0 Studio"."""
+    counts = ", ".join(
+        f"{bands.get(band, 0)} {band.capitalize()}" for band in get_args(HostedVoiceBand)
     )
+    return f"ThinnestAI bands {counts}"
 
 
 def hosted_refresh_note(result: HostedSyncResult, *, offered: int) -> str:
@@ -456,7 +465,7 @@ def hosted_refresh_note(result: HostedSyncResult, *, offered: int) -> str:
     else:
         note = (
             f"ThinnestAI listed {result.engine_listed} voice(s): "
-            f"{_band_summary(result.bands)}. Only {sold}-tier voices can be offered as Clear. "
+            f"{_band_summary(result.bands)}. Only {sold} voices can be offered as Clear. "
             f"{result.pruned} withdrawn by the platform; {offered} offered to clients. A newly "
             "seen voice must be added and enabled before a client can choose it."
         )
@@ -468,21 +477,39 @@ def hosted_refresh_note(result: HostedSyncResult, *, offered: int) -> str:
     return note
 
 
-#: Why the Studio half was not read while our voice key is not on in the workspace.
+#: Why the Studio half was not read: no client workspace runs Studio yet, or none answered.
 STUDIO_KEY_OFF_REASON: Final = (
-    "our Cartesia voice key is not switched on in the workspace, so Studio voices are off; "
-    "switch them on under Voices, Studio voices"
+    "no client workspace runs Studio and answers ready, so Studio voices were not re-read "
+    "(the last listing is kept); name the first Studio client under Voices, Studio ready"
 )
 
 
+async def studio_listing_workspace(engine: HostsVoices) -> str | None:
+    """The first Studio client workspace (earliest switched on) that answers ready on our
+    Cartesia key, where Studio voices are listed and previewed, or None. Never the
+    developer workspace: its switch stays off, and there the vendor answers `409`
+    (`list-byok-voices.md:7`, `preview-byok-voice.md:396-397`; D-717)."""
+    for row in await studio_workspaces():
+        try:
+            with in_workspace(row.workspace_id):
+                state = await engine.own_key_state()
+        except ProblemError as exc:
+            log.warning("studio_listing_workspace_unreadable", extra={"reason": exc.code})
+            continue
+        if own_voice_key_ready(state):
+            return row.workspace_id
+    return None
+
+
 async def _studio_listing(engine: HostsVoices) -> HostedVoiceListing | None:
-    """Our own-key voices, or None when the workspace is not on our Cartesia voice key: by its
-    own report (`GET /byok`), or by the `409` the voice list answers then
-    (list-byok-voices.md:7). A set-up state, not an outage."""
-    if not own_voice_key_ready(await engine.own_key_state()):
+    """Our own-key voices as a Studio client workspace lists them, or None when none is
+    ready (a set-up state, not an outage, so the hourly job does not alarm on it)."""
+    workspace = await studio_listing_workspace(engine)
+    if workspace is None:
         return None
     try:
-        return await engine.list_own_key_voices()
+        with in_workspace(workspace):
+            return await engine.list_own_key_voices()
     except EngineRejectedError as exc:
         if exc.vendor_status != 409:
             raise
@@ -492,12 +519,13 @@ async def _studio_listing(engine: HostsVoices) -> HostedVoiceListing | None:
 async def sync_hosted_voices(
     session: AsyncSession, engine: HostsVoices, *, engine_name: str, now: datetime | None = None
 ) -> HostedSyncResult:
-    """Read the engine's own voices, and our own-key voices while our voice key is on, into
-    `platform_voice_catalog`. IDEMPOTENT; the caller commits.
+    """Read the engine's own voices, and our own-key voices from a Studio client workspace,
+    into `platform_voice_catalog`. IDEMPOTENT; the caller commits.
 
-    Our voice key being off is a stated skip that withdraws the own-key voices (so the Studio
-    rung reads as not ready everywhere), not a failure, so the hourly job does not alarm on a
-    deployment that has not switched Studio on.
+    No Studio workspace ready is a stated skip that KEEPS the Studio rows last listed: not
+    being able to read the list is not the list being empty, and every Studio workspace
+    holds the same key, so the voices it reaches are the same. A per-workspace fault is the
+    hourly Studio check's alarm (`workers/studio_voice_key.sweep_studio_workspaces`).
 
     Every band the engine lists is cached. A listing with voices but none in the band sold as
     Clear is applied (it is the vendor's whole, true answer, and the ids it stops listing are
@@ -533,23 +561,6 @@ async def sync_hosted_voices(
     studio = await _studio_listing(engine)
     if studio is None:
         skipped = STUDIO_KEY_OFF_REASON
-        pruned += await withdraw_own_key_voices(session, now=stamp)
-        stranded = await live_studio_agents(session, engine=name)
-        if stranded:
-            # Somebody switched our voice key off on the platform (its console) while Studio
-            # agents are live. Not switched back on from here: that moves every agent not
-            # kept off onto Cartesia, which is the operator's act (`studio_voices`).
-            alert(
-                "CORE_LOGIC",
-                "studio_voice_key_off_with_agents",
-                detail=(
-                    f"{stranded} published agent(s) are on Studio voices, but our Cartesia "
-                    "voice key is no longer switched on in the voice platform workspace, so "
-                    "their calls speak the platform's default voice. Switch it back on from "
-                    "Voices, Studio voices, Enable."
-                ),
-                engine=name,
-            )
     else:
         seen += len(studio.voices)
         if studio.provider != STUDIO_VOICE_PROVIDER:
@@ -973,6 +984,7 @@ __all__ = [
     "set_hosted_curation",
     "sold_hosted_band",
     "source_rate_key",
+    "studio_listing_workspace",
     "studio_voices_ready",
     "sync_hosted_voices",
     "withdraw_hosted_voice",

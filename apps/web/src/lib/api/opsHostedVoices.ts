@@ -12,9 +12,9 @@
  *   DELETE /v1/ops/voices/clones                   delete one of our clones (step-up)
  *   POST   /v1/ops/voices/hosted/preview           upload a preview clip
  *   POST   /v1/ops/voices/hosted/preview/fetch     store the platform's own preview
- *   GET    /v1/ops/voices/studio-voices           whether our Cartesia key is on (D-688)
- *   POST   /v1/ops/voices/studio-voices/enable    switch it on, Clear agents kept off first
- *   POST   /v1/ops/voices/studio-voices/disable   switch it off (step-up)
+ *   GET    /v1/ops/voices/studio-voices           Studio readiness and its client workspaces
+ *   POST   /v1/ops/voices/studio-voices/enable    Studio ready: hold our key (step-up, D-717)
+ *   POST   /v1/ops/voices/studio-voices/disable   developer workspace off (step-up)
  *
  * The Voices page reads the hosted list FIRST and branches on `available`: the Pipecat
  * catalogue (`opsVoices.ts`) is what an engine that does not host voices is curated with,
@@ -210,9 +210,10 @@ export function useFetchPreview(): UseMutationResult<HostedVoiceWrite, Error, Fe
 }
 
 /**
- * Switch Studio voices on. The server keeps every published Clear agent off our key FIRST and
- * refuses (`studio_agents_not_kept_off`) if any cannot be confirmed; the Studio voices it then
- * reads change every picker, so the lists are invalidated too.
+ * Studio ready (D-717): the server holds our Cartesia key in the developer workspace with its
+ * switch off and, given `tenant_id`, switches Studio on in that client's own workspace (its
+ * Clear agents kept off first). The Studio voices it then reads change every picker, so the
+ * lists are invalidated too.
  */
 export function useEnableStudioVoices(): UseMutationResult<StudioVoices, Error, StudioEnableIn> {
   const client = useQueryClient();
@@ -231,17 +232,17 @@ export function useEnableStudioVoices(): UseMutationResult<StudioVoices, Error, 
   });
 }
 
-/** `confirm` is sent only after the server has named the Studio agents switching off moves. */
-export function useDisableStudioVoices(): UseMutationResult<
-  StudioVoices,
-  Error,
-  { confirm: boolean }
-> {
+/**
+ * Switch OUR developer workspace's own keys off: the last step of moving off the old
+ * developer-workspace switch. Refused (`studio_clients_not_moved`) while any Studio agent still
+ * depends on it.
+ */
+export function useDisableStudioVoices(): UseMutationResult<StudioVoices, Error, void> {
   const client = useQueryClient();
   const invalidate = useInvalidateVoices();
   return useMutation({
-    mutationFn: ({ confirm }) =>
-      apiRequest<StudioVoices>(adminSession(), `${OPS_STUDIO_DISABLE_PATH}?confirm=${confirm}`, {
+    mutationFn: () =>
+      apiRequest<StudioVoices>(adminSession(), OPS_STUDIO_DISABLE_PATH, {
         method: "POST",
         confirmAction: STUDIO_DISABLE_CONFIRMATION,
       }),
@@ -263,11 +264,12 @@ export const HOSTED_STATE_MEANING: Record<string, string> = {
 export const RUNG_LABEL: Record<string, string> = { clear: "Clear", studio: "Studio" };
 
 /**
- * The voice platform's own price band for one of its voices. Vendor words, on this admin
- * screen only: only the band the server names as `clear_band` can be added and sold as Clear.
+ * The voice platform's own price band for one of its voices. Vendor words, on admin screens
+ * only: only the band the server names as `clear_band` can be added and sold as Clear. Always
+ * "ThinnestAI … band", never a bare "Studio", which is OUR tier (D-717).
  */
 export const BAND_LABEL: Record<string, string> = {
-  standard: "Standard",
-  premium: "Premium",
-  studio: "Studio",
+  standard: "ThinnestAI Standard band",
+  premium: "ThinnestAI Premium band",
+  studio: "ThinnestAI Studio band",
 };

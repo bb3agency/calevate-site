@@ -264,7 +264,7 @@ def test_every_action_is_a_documented_shape_with_quoted_placeholders(
         assert all(p["name"] != "caller_number" for p in wire["parameters"])
         assert "enabled" not in wire and "headers" not in wire
     names = {d.name for d in definitions(ENGINE, "ag_x")}
-    assert names == set(ACTION_NAMES.values())
+    assert names == set(ACTION_NAMES.values()) - {ACTION_NAMES["handoff"]}
     # The vendor's reserved built-ins (agent/custom-api.md:87-88).
     assert not names & {"search_knowledge", "capture_lead", "escalate_to_human"}
 
@@ -281,21 +281,23 @@ def test_the_agent_body_switches_off_the_vendors_own_callback_and_escalation() -
 # --- lifecycle -----------------------------------------------------------------
 
 
-async def test_publish_registers_four_actions_off_then_on_with_our_sealed_header(
+async def test_publish_registers_three_actions_off_then_on_with_our_sealed_header(
     vendor: FakeThinnest,
 ) -> None:
     tenant_id, _agent, ref = await _route()
     result = await _ensure(tenant_id, ref)
-    assert (result.created, result.repaired, result.reenabled) == (4, 0, 0)
+    assert (result.created, result.repaired, result.reenabled) == (3, 0, 0)
     secret = await _held_secret(tenant_id, ref)
     assert secret and len(secret) >= 32
     held = vendor.actions[ref]
-    assert {a["name"] for a in held.values()} == set(ACTION_NAMES.values())
+    assert {a["name"] for a in held.values()} == set(ACTION_NAMES.values()) - {
+        ACTION_NAMES["handoff"]
+    }
     assert all(a["enabled"] is True for a in held.values())
     assert all(vendor.sealed[i] == {SECRET_HEADER: secret} for i in held)
     # Created off, enabled by PATCH: no POST body carried `enabled` (the fake refuses one).
     posts = [b for m, p, b in vendor.requests if m == "POST" and p.endswith("/actions")]
-    assert len(posts) == 4 and all("enabled" not in (b or {}) for b in posts)
+    assert len(posts) == 3 and all("enabled" not in (b or {}) for b in posts)
     # Sealed under PLATFORM_KEK, bound to this route: the AAD names the agent.
     assert action_secret_context(ENGINE, ref).endswith(ref)
 
@@ -307,7 +309,7 @@ async def test_republish_converges_without_duplicates_or_writes(vendor: FakeThin
     again = await _ensure(tenant_id, ref)
     assert (again.created, again.repaired, again.reenabled, again.rekeyed) == (0, 0, 0, False)
     assert vendor.writes() == before
-    assert len(vendor.actions[ref]) == 4
+    assert len(vendor.actions[ref]) == 3
 
 
 async def test_drift_is_repaired_and_reported(vendor: FakeThinnest) -> None:
@@ -355,7 +357,7 @@ async def test_a_lost_secret_is_replaced_on_every_action(vendor: FakeThinnest) -
     assert all(
         v == {SECRET_HEADER: new} for k, v in vendor.sealed.items() if k in vendor.actions[ref]
     )
-    assert len(vendor.actions[ref]) == 4
+    assert len(vendor.actions[ref]) == 3
 
 
 async def test_publish_refuses_without_a_public_actions_address(
@@ -397,7 +399,7 @@ async def test_unpublish_removes_ours_and_leaves_a_console_action(vendor: FakeTh
         "headerNames": [],
         "enabled": True,
     }
-    assert await retire_agent_actions(engine=ENGINE, engine_agent_ref=ref) == 4
+    assert await retire_agent_actions(engine=ENGINE, engine_agent_ref=ref) == 3
     assert list(vendor.actions[ref]) == ["act_theirs"]
 
 
@@ -709,22 +711,43 @@ async def test_pausing_an_agent_retires_its_actions(monkeypatch: pytest.MonkeyPa
 # --- live transfer (D-690) -------------------------------------------------------------
 
 
-async def test_an_agent_that_transfers_live_holds_no_handover_action_of_ours(
-    vendor: FakeThinnest,
-) -> None:
-    """With a destination on duty the platform's own `escalate_to_human` puts the caller
-    through, so our record-only hand-over action is removed rather than left to contradict
-    it; the drift sweep (`live_handover=None`) neither recreates nor removes it."""
+async def test_no_agent_holds_a_handover_action_of_ours(vendor: FakeThinnest) -> None:
+    """Founder decision 9 (10 Oct 2026): with nobody on duty there is no hand-over tool at
+    all, and with somebody on duty the platform's own `escalate_to_human` puts the caller
+    through. One held from before is removed by the publish and by the drift sweep."""
     tenant_id, _agent, ref = await _route()
-    await _ensure(tenant_id, ref)
     handoff = ACTION_NAMES["handoff"]
-    assert handoff in {a["name"] for a in vendor.actions[ref].values()}
-    async with tenant_session(tenant_id) as session:
-        await ensure_agent_actions(session, engine=ENGINE, engine_agent_ref=ref, live_handover=True)
+    vendor.actions.setdefault(ref, {})["act_handoff"] = {
+        "id": "act_handoff",
+        "agent": ref,
+        "name": handoff,
+        "description": "the old record-only hand-over",
+        "method": "POST",
+        "url": "https://api.calevate.tech/v1/worker/engine-actions/thinnest/handoff",
+        "parameters": [],
+        "bodyTemplate": None,
+        "headerNames": [],
+        "enabled": True,
+    }
+    result = await _ensure(tenant_id, ref)
     names = {a["name"] for a in vendor.actions[ref].values()}
-    assert handoff not in names and len(names) == 3
+    assert handoff not in names and len(names) == 3 and result.removed == 1
+    assert handoff not in {d.name for d in definitions(ENGINE, ref)}
+    vendor.actions[ref]["act_handoff_again"] = {
+        **vendor.actions[ref].get("act_handoff", {}),
+        "id": "act_handoff_again",
+        "agent": ref,
+        "name": handoff,
+        "description": "re-added in the console",
+        "method": "POST",
+        "url": "https://api.calevate.tech/v1/worker/engine-actions/thinnest/handoff",
+        "parameters": [],
+        "bodyTemplate": None,
+        "headerNames": [],
+        "enabled": True,
+    }
     verdict = await check_agent_actions(tenant_id=tenant_id, engine=ENGINE, engine_agent_ref=ref)
-    assert verdict == "in_sync"
+    assert verdict == "repaired"
     assert handoff not in {a["name"] for a in vendor.actions[ref].values()}
 
 

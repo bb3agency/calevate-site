@@ -47,7 +47,13 @@ from calevate_shared.engine import (
     owned_runtime_agent_ref,
 )
 from calevate_shared.events import TERMINAL_STATUSES
-from calevate_shared.extraction import ExtractionOutput, ExtractionSchemaSpec
+from calevate_shared.extraction import (
+    ExtractionOutput,
+    ExtractionSchemaSpec,
+    OutcomeTag,
+    clip_headline,
+)
+from calevate_shared.lead_fields import with_core
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,7 +81,7 @@ from apps.api.billing.engine_minutes import (
     engine_minute_cost,
 )
 from apps.api.billing.lots import CallDemand
-from apps.api.billing.models import ASSIST_FEATURE_CALL_EXTRACTION
+from apps.api.billing.models import ASSIST_FEATURE_CALL_EXTRACTION, ASSIST_FEATURE_CALL_LANGUAGE
 from apps.api.billing.plans import (
     OVERAGE_RATE_SECOND_SQL,
     ist_billing_month,
@@ -134,6 +140,8 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.observability import set_span_attributes, span, tracing_enabled
 from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
+from apps.api.core.settings import get_settings
+from apps.api.crm.outcomes import CallFacts, derive_outcome, hint_of
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
@@ -154,8 +162,9 @@ from apps.api.reliability.service import (
 )
 from apps.api.tenancy.engine_workspace import engine_has_workspaces
 from apps.api.worker.service import POSTCALL_DEDUPE_PREFIX, REMETER_DEDUPE_PREFIX
+from apps.workers import call_language, storage
 from apps.workers import extraction as extraction_module
-from apps.workers import storage
+from apps.workers.chat import TokenUsage
 from apps.workers.engine_charges import reconcile_call_charge
 from apps.workers.engine_delivery import execution_truth, post_call_truth, seal_listing
 from apps.workers.extraction import (
@@ -1346,11 +1355,16 @@ async def _post_call_stages(
             else None
         )
         reused = extraction is not None
+        # Which runner read this call, written to `call_extractions.model` so the row can
+        # say whether a model or the offline baseline produced it (first-call review F-4).
+        # None on a reuse: the stored name stands.
+        extraction_model: str | None = None
         if needs_extraction and extraction is None:
             # Through the module, so a test that substitutes `extraction.get_extractor`
             # substitutes the pass that is metered too.
             extractor = extraction_module.get_extractor()
             extraction = await extract_call(spec, transcript_text, extractor=extractor)
+            extraction_model = extractor.model_name
             await _meter_extraction(tenant_id, call_id, extractor)
         set_span_attributes(
             stage,
@@ -1392,6 +1406,7 @@ async def _post_call_stages(
                 extraction,
                 schema_version=schema_version,
                 moments=moments,
+                model=extraction_model,
             )
 
     # STEP 3c — knowledge gaps: the questions this agent could not answer (D-Knowledge-Gaps).
@@ -1416,6 +1431,23 @@ async def _post_call_stages(
             )
             set_span_attributes(stage, gap_count=gap_count)
 
+    # STEP 3d — what the call came to, in words: the English summary and the one in the
+    # call's language, the headline, the next step, and English for every turn (founder
+    # decisions 4, 5, 12). After extraction because the model's summary is one input; the
+    # engine's own summary is the other.
+    with span("pipeline.call_reading", call_id=str(call_id)) as stage:
+        reading = await _record_reading(tenant_id, call_id, snapshot, extraction)
+        set_span_attributes(
+            stage, summary_state=reading.state, translation_state=reading.translation_state
+        )
+
+    # STEP 3e — the outcome, DERIVED from facts (founder decision 6, `crm/outcomes`). After
+    # the hand-over settle (1d) and extraction (3), before the lead (4) whose status rules
+    # read it and the CRM fan-out (8) that publishes it.
+    with span("pipeline.outcome", call_id=str(call_id)) as stage:
+        call_outcome = await _record_outcome(tenant_id, call_id, snapshot)
+        set_span_attributes(stage, outcome=call_outcome or "unknown")
+
     # STEP 4 — lead upsert (+ repeat-caller flag on phone match).
     with span("pipeline.lead_upsert", call_id=str(call_id), agent_id=str(agent_id)) as stage:
         lead_id = await _upsert_lead(
@@ -1426,6 +1458,8 @@ async def _post_call_stages(
             direction=direction,
             data=extraction.data if extraction else {},
             schema_version=schema_version,
+            outcome=call_outcome,
+            reading=extraction if extraction is not None and model_answered(extraction) else None,
         )
         set_span_attributes(stage, lead_id=str(lead_id) if lead_id else "none")
 
@@ -1485,7 +1519,7 @@ async def _post_call_stages(
         # fate. Not `enqueue_outbox_once`: the fan-out writes one row PER SUBSCRIBED
         # ENDPOINT and those are not duplicates of each other.
         if snapshot.status == "completed" and not await _crm_already_notified(session, call_id):
-            call_outcome, call_sentiment = _call_reading(extraction)
+            _hint, call_sentiment = _call_reading(extraction)
             written = await integrations.enqueue_event(
                 session,
                 tenant_id=tenant_id,
@@ -1500,10 +1534,10 @@ async def _post_call_stages(
                     # The SUMMARY, never the transcript: a transcript is the most
                     # sensitive artefact we hold, and it does not leave on a webhook.
                     # Redacted on the way out, because the summary is DERIVED from the
-                    # transcript and the offline extractor's is a transcript line
-                    # verbatim — SEC-COMP §4 puts redaction before anything leaves, and
+                    # transcript — SEC-COMP §4 puts redaction before anything leaves, and
                     # the notification path already does this (`notifications._compose`).
-                    "summary": redact(extraction.summary).text if extraction else None,
+                    # The English summary STEP 3d settled, whoever wrote it.
+                    "summary": redact(reading.summary).text if reading.summary else None,
                 },
             )
             # Only when a row was actually written. A tenant with no subscribed endpoint
@@ -1865,7 +1899,8 @@ async def _settled_extraction(
             await session.execute(
                 text(
                     "SELECT ce.data, ce.valid, ce.errors, ce.needs_review, "
-                    "       c.summary, c.sentiment, c.outcome_tag "
+                    "       c.summary, c.sentiment, ce.outcome_hint, ce.out_of_scope, "
+                    "       c.callback_requested, c.headline, c.next_step "
                     "FROM call_extractions ce "
                     "JOIN calls c ON c.id = ce.call_id AND c.tenant_id = ce.tenant_id "
                     "WHERE ce.call_id = :cid AND ce.tenant_id = :tid "
@@ -1876,7 +1911,19 @@ async def _settled_extraction(
         ).first()
     if row is None:
         return None
-    data, valid, errors, needs_review, summary, sentiment, outcome_tag = row
+    (
+        data,
+        valid,
+        errors,
+        needs_review,
+        summary,
+        sentiment,
+        hint,
+        out_of_scope,
+        callback_requested,
+        headline,
+        next_step,
+    ) = row
     errors = errors if isinstance(errors, dict) else {}
     if MODEL_FAILURE in errors:
         return None
@@ -1885,12 +1932,12 @@ async def _settled_extraction(
     return ExtractionOutput(
         data=data if isinstance(data, dict) else {},
         summary=str(summary or ""),
+        headline=str(headline or ""),
+        next_step=str(next_step or ""),
         sentiment=sentiment if sentiment in ("positive", "neutral", "negative") else "neutral",
-        outcome_tag=(
-            outcome_tag
-            if outcome_tag in ("resolved", "needs_follow_up", "transferred", "dropped")
-            else "resolved"
-        ),
+        outcome_tag=hint_of(hint),
+        out_of_scope=bool(out_of_scope),
+        callback_requested=bool(callback_requested),
         valid=bool(valid),
         errors=errors,
         needs_review=needs_review if isinstance(needs_review, dict) else {},
@@ -1904,6 +1951,7 @@ async def _persist_extraction(
     *,
     schema_version: int,
     moments: list[dict[str, Any]] | None = None,
+    model: str | None = None,
 ) -> None:
     """One call has ONE extraction, however many times the pipeline runs.
 
@@ -1930,12 +1978,16 @@ async def _persist_extraction(
         await session.execute(
             text(
                 "INSERT INTO call_extractions (id, tenant_id, call_id, schema_version, data, "
-                "model, valid, errors, needs_review, moments, created_at, updated_at) VALUES "
+                "model, valid, errors, needs_review, moments, outcome_hint, out_of_scope, "
+                "created_at, updated_at) VALUES "
                 "(:id, :tid, :cid, :ver, CAST(:data AS jsonb), :model, :valid, "
                 "CAST(:errors AS jsonb), CAST(:needs_review AS jsonb), "
-                "CAST(:moments AS jsonb), now(), now()) "
+                "CAST(:moments AS jsonb), :hint, :out_of_scope, now(), now()) "
                 "ON CONFLICT (tenant_id, call_id) DO UPDATE SET "
                 "  schema_version = EXCLUDED.schema_version, "
+                "  model = COALESCE(EXCLUDED.model, call_extractions.model), "
+                "  outcome_hint = EXCLUDED.outcome_hint, "
+                "  out_of_scope = EXCLUDED.out_of_scope, "
                 "  data = EXCLUDED.data, "
                 "  valid = EXCLUDED.valid, "
                 "  errors = EXCLUDED.errors, "
@@ -1949,7 +2001,9 @@ async def _persist_extraction(
                 "cid": call_id,
                 "ver": schema_version,
                 "data": _json(extraction.data),
-                "model": None,
+                "model": model,
+                "hint": extraction.outcome_tag if model_answered(extraction) else None,
+                "out_of_scope": extraction.out_of_scope if model_answered(extraction) else None,
                 "valid": extraction.valid,
                 "errors": _json(extraction.errors) if extraction.errors else None,
                 # NULL when there is nothing to flag, matching `errors` and `moments`: an
@@ -1961,17 +2015,20 @@ async def _persist_extraction(
                 "moments": _json(moments) if moments is not None else None,
             },
         )
-        outcome, sentiment = _call_reading(extraction)
+        # The summary and the outcome are NOT written here: the summary has a second
+        # source (the engine's own, STEP 3d) and the outcome is derived from facts this
+        # pass does not hold (STEP 3e).
+        _hint, sentiment = _call_reading(extraction)
+        answered = model_answered(extraction)
         await session.execute(
             text(
-                "UPDATE calls SET summary = :summary, sentiment = :sentiment, "
-                "outcome_tag = :outcome, updated_at = now() "
+                "UPDATE calls SET sentiment = :sentiment, "
+                "callback_requested = :callback_requested, updated_at = now() "
                 "WHERE id = :id AND tenant_id = :tid"
             ),
             {
-                "summary": extraction.summary or None,
                 "sentiment": sentiment,
-                "outcome": outcome,
+                "callback_requested": extraction.callback_requested if answered else None,
                 "id": call_id,
                 "tid": tenant_id,
             },
@@ -1979,16 +2036,337 @@ async def _persist_extraction(
 
 
 def _call_reading(extraction: ExtractionOutput | None) -> tuple[str | None, str | None]:
-    """`(outcome_tag, sentiment)` as far as a model actually read the call, else NULLs.
+    """`(outcome hint, sentiment)` as far as a model actually read the call, else NULLs.
 
-    A provider failure comes back carrying the type's DEFAULTS (`resolved`, `neutral`), and
-    those are not a reading: `resolved` is what the default experiment conversion metric
-    counts and what the client's CRM is told on `call.completed`. Unknown is NULL, which the
-    `calls` CHECKs admit; the re-drive that repairs the extraction fills both in.
+    A provider failure comes back carrying the type's DEFAULT sentiment (`neutral`), which
+    is not a reading. Unknown is NULL, which the CHECKs admit; the re-drive that repairs
+    the extraction fills both in.
     """
     if extraction is None or not model_answered(extraction):
         return None, None
     return extraction.outcome_tag, extraction.sentiment
+
+
+@dataclass(frozen=True, slots=True)
+class _Reading:
+    """What STEP 3d settled. `summary` is the English summary as stored (raw prose)."""
+
+    summary: str | None
+    state: str
+    translation_state: str
+    headline: str | None
+
+
+def _first_sentence(text_value: str) -> str:
+    for mark in (". ", "? ", "! "):
+        head, sep, _ = text_value.partition(mark)
+        if sep:
+            return head + mark.strip()
+    return text_value
+
+
+def _settle_summaries(
+    *,
+    engine_summary: str,
+    model_summary: str,
+    stored_local: str,
+    language: str,
+) -> tuple[str, str, str | None]:
+    """`(english, local, source)` before any translation.
+
+    PRECEDENCE (founder decision 12): the engine's own summary first. Its language cannot be
+    chosen, so its SCRIPT decides which of the two it is: Latin letters make it the English
+    summary, an Indic script the call-language one. The extraction model's English summary
+    fills the English slot when the engine's is not English. A romanised Telugu summary
+    would read as English here; no engine has been seen to write one.
+    """
+    english, local, source = "", stored_local, None
+    if engine_summary and not call_language.has_indic_script(engine_summary):
+        english, source = engine_summary, "engine"
+    elif engine_summary:
+        local = engine_summary
+    if not english and model_summary:
+        english, source = model_summary, "extraction"
+    if call_language.is_english(language):
+        local = ""
+    return english, local, source
+
+
+async def _meter_language_pass(tenant_id: UUID, call_id: UUID, usage: TokenUsage) -> None:
+    """The language pass at OUR cost, on `_meter_extraction`'s terms (hard rule 7): the
+    attested Sarvam price or nothing, never a zero row."""
+    if not llm_price_is_billable(SARVAM_DEFAULT_LLM):
+        log.info(
+            "call_language_cost_unpriced",
+            extra={"call_id": str(call_id), "model": SARVAM_DEFAULT_LLM},
+        )
+        return
+    async with tenant_session(tenant_id) as session:
+        await record_ai_assist_usage(
+            session,
+            tenant_id=tenant_id,
+            ref=new_assist_ref(),
+            tokens_in=usage.prompt_tokens,
+            tokens_out=usage.output_tokens,
+            model=SARVAM_DEFAULT_LLM,
+            feature=ASSIST_FEATURE_CALL_LANGUAGE,
+            extra_meta={
+                "call_id": str(call_id),
+                "cached_prompt_tokens": str(usage.cached_prompt_tokens),
+            },
+        )
+
+
+async def _record_reading(
+    tenant_id: UUID,
+    call_id: UUID,
+    snapshot: ExecutionSnapshot,
+    extraction: ExtractionOutput | None,
+) -> _Reading:
+    """STEP 3d: the two summaries, the headline, the next step and the English turns.
+
+    `summary_state` is what lets the screen say "writing" (pending, before this runs),
+    "none" (empty: nothing was said, or only the offline runner read it), "could not be
+    written" (failed: the model failed and the engine wrote none) or show the summary.
+
+    The language pass reads REDACTED text only (`call_language`'s docstring). A re-drive
+    does not pay twice: turns that already carry `text_en` and a stored call-language
+    summary are not sent again.
+    """
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT a.language_primary, c.summary_local, c.translation_state "
+                    "FROM calls c JOIN agents a ON a.id = c.agent_id "
+                    "WHERE c.id = :cid AND c.tenant_id = :tid"
+                ),
+                {"cid": call_id, "tid": tenant_id},
+            )
+        ).first()
+        turns = (
+            await session.execute(
+                text(
+                    "SELECT idx, COALESCE(text_redacted, ''), text_en FROM transcript_turns "
+                    "WHERE call_id = :cid AND tenant_id = :tid ORDER BY idx"
+                ),
+                {"cid": call_id, "tid": tenant_id},
+            )
+        ).all()
+    if row is None:
+        raise RuntimeError(f"call {call_id} not found for the call reading")
+    agent_language = str(row[0] or "te-IN")
+    language = call_language.call_language([t[1] for t in turns], agent_language=agent_language)
+    answered = extraction is not None and model_answered(extraction)
+    model_failed = extraction is not None and not answered
+    english, local, source = _settle_summaries(
+        engine_summary=(snapshot.engine_summary or "").strip(),
+        model_summary=extraction.summary.strip() if extraction is not None and answered else "",
+        stored_local=str(row[1] or ""),
+        language=language,
+    )
+
+    pending_turns = [
+        (int(idx), body)
+        for idx, body, english_text in turns
+        if body.strip()
+        and english_text is None
+        and (call_language.has_indic_script(body) or not call_language.is_english(language))
+    ]
+    want_local = bool(english) and not local and not call_language.is_english(language)
+    want_english = not english and bool(local)
+    translation_state = str(row[2] or "pending")
+    if translation_state in ("pending", "unavailable", "failed"):
+        translation_state = "not_needed" if not pending_turns else translation_state
+    turns_en: dict[int, str] = {}
+    api_key = get_settings().sarvam_api_key
+    if pending_turns or want_local or want_english:
+        if api_key:
+            done = await call_language.run_language_pass(
+                api_key=api_key,
+                language=language,
+                turns=pending_turns,
+                summary_en=redact(english).text if english else "",
+                summary_local=redact(local).text if local else "",
+            )
+            if done.usage is not None:
+                await _meter_language_pass(tenant_id, call_id, done.usage)
+            originals = dict(pending_turns)
+            turns_en = {
+                idx: en
+                for idx, en in done.turns_en.items()
+                if call_language.differs(originals.get(idx, ""), en)
+            }
+            if want_local and done.summary_local:
+                local = done.summary_local
+            if want_english and done.summary_en:
+                english = done.summary_en
+            if pending_turns:
+                translation_state = "failed" if done.failed else "ready"
+        elif pending_turns:
+            # No provider on this deployment (the offline baseline): nothing translated.
+            translation_state = "failed"
+
+    # `ready` when either summary exists: a call summarised only in its own language still
+    # has a summary to read behind the toggle.
+    if english or local:
+        state = "ready"
+    elif model_failed and not snapshot.engine_summary:
+        state = "failed"
+    else:
+        state = "empty"
+    headline_source = (extraction.headline if extraction is not None and answered else "") or (
+        _first_sentence(english) if english else ""
+    )
+    headline = clip_headline(redact(headline_source).text) if headline_source else None
+    next_step_text = extraction.next_step if extraction is not None and answered else ""
+    next_step = redact(next_step_text).text[:300] if next_step_text else None
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET summary = :summary, summary_source = :source, "
+                "summary_local = :local, summary_language = :language, "
+                "summary_state = :state, headline = :headline, next_step = :next_step, "
+                "translation_state = :translation_state, updated_at = now() "
+                "WHERE id = :cid AND tenant_id = :tid"
+            ),
+            {
+                "summary": english or None,
+                "source": source if english else None,
+                "local": local or None,
+                "language": language if local else None,
+                "state": state,
+                "headline": headline or None,
+                "next_step": next_step,
+                "translation_state": translation_state,
+                "cid": call_id,
+                "tid": tenant_id,
+            },
+        )
+        for idx, english_text in turns_en.items():
+            await session.execute(
+                text(
+                    "UPDATE transcript_turns SET text_en = :en, updated_at = now() "
+                    "WHERE call_id = :cid AND tenant_id = :tid AND idx = :idx"
+                ),
+                {"en": english_text, "cid": call_id, "tid": tenant_id, "idx": idx},
+            )
+    return _Reading(
+        summary=english or None,
+        state=state,
+        translation_state=translation_state,
+        headline=headline or None,
+    )
+
+
+#: The facts STEP 3e reads, per call, in one statement. A call back counts when it was
+#: booked on this call (by the call row, or by the conversation's own id when it was booked
+#: before the row existed) and was not cancelled; the hand-over is the latest one.
+_OUTCOME_FACTS_SQL = (
+    "SELECT "
+    "  EXISTS (SELECT 1 FROM scheduled_callbacks s "
+    "          WHERE (s.source_call_id = c.id OR s.source_execution_id = c.engine_call_id) "
+    "            AND s.status <> 'cancelled'), "
+    "  (SELECT h.outcome FROM handoff_attempts h WHERE h.source_call_id = c.id "
+    "     ORDER BY h.started_at DESC LIMIT 1), "
+    "  ce.outcome_hint, ce.out_of_scope, c.callback_requested "
+    "FROM calls c "
+    "LEFT JOIN call_extractions ce ON ce.call_id = c.id AND ce.tenant_id = c.tenant_id "
+    "WHERE c.id = :cid AND c.tenant_id = :tid"
+)
+
+
+async def _record_outcome(
+    tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot
+) -> OutcomeTag | None:
+    """STEP 3e: derive `calls.outcome_tag` from facts (`crm/outcomes.derive_outcome`) and
+    write it. Never `resolved`, never a default: unknown stays NULL."""
+    caller_turns = sum(
+        1 for turn in snapshot.transcript or [] if turn.speaker == "caller" and turn.text.strip()
+    )
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(text(_OUTCOME_FACTS_SQL), {"cid": call_id, "tid": tenant_id})
+        ).first()
+        if row is None:
+            return None
+        booked, handoff_outcome, hint, out_of_scope, callback_requested = row
+        outcome = derive_outcome(
+            CallFacts(
+                status=snapshot.status,
+                duration_s=snapshot.duration_s,
+                caller_turns=caller_turns,
+                callback_booked=bool(booked),
+                handoff_outcome=str(handoff_outcome) if handoff_outcome else None,
+                hint=hint_of(hint),
+                callback_requested=bool(callback_requested),
+                out_of_scope=bool(out_of_scope),
+            )
+        )
+        await session.execute(
+            text(
+                "UPDATE calls SET outcome_tag = :outcome, updated_at = now() "
+                "WHERE id = :cid AND tenant_id = :tid"
+            ),
+            {"outcome": outcome, "cid": call_id, "tid": tenant_id},
+        )
+    return outcome
+
+
+#: The after-call status ladder (founder decision 8). A lead only ever moves UP it, only
+#: from a status the system set, and `won`/`lost` are a person's verdicts it never reaches.
+_LEAD_STATUS_RANK: Final[dict[str, int]] = {"new": 0, "contacted": 1, "interested": 2, "hot": 3}
+
+
+def after_call_status(
+    *,
+    outcome: OutcomeTag | None,
+    connected: bool,
+    callback_requested: bool,
+    sentiment: str | None,
+) -> str | None:
+    """Where one call moves its lead: `interested` on a booked or requested call back or a
+    caller who sounded keen; `contacted` on any call that reached somebody; else nowhere."""
+    if outcome == "call_back_booked" or callback_requested:
+        return "interested"
+    if sentiment == "positive" and outcome in ("answered", "needs_you", "transferred"):
+        return "interested"
+    return "contacted" if connected else None
+
+
+async def _advance_lead_status(session: AsyncSession, lead_id: UUID, target: str) -> bool:
+    """Move the lead up to `target` when the rules allow. True when it moved.
+
+    CAS in the WHERE clause (BACKEND-PATTERNS §5): only a status BELOW `target` on the
+    ladder, and only one the system set. A person's choice (`status_set_by = 'person'`) is
+    never overwritten, and a lead is never moved backwards.
+    """
+    below = [
+        status for status, rank in _LEAD_STATUS_RANK.items() if rank < _LEAD_STATUS_RANK[target]
+    ]
+    moved = rowcount_of(
+        await session.execute(
+            text(
+                "UPDATE leads SET status = :target, status_set_by = 'system', "
+                "status_set_at = now(), updated_at = now() "
+                "WHERE id = :lid AND deleted_at IS NULL AND status_set_by = 'system' "
+                "AND status = ANY(:below)"
+            ),
+            {"lid": lead_id, "target": target, "below": below},
+        )
+    )
+    if moved:
+        await session.execute(
+            text(
+                "INSERT INTO lead_events (id, tenant_id, lead_id, type, payload, actor, "
+                "created_at, updated_at) SELECT :id, l.tenant_id, l.id, 'status_change', "
+                "jsonb_build_object('status', CAST(:target AS text), 'by', 'after_call_rules'), "
+                "'system', now(), now() FROM leads l WHERE l.id = :lid"
+            ),
+            {"id": uuid7(), "lid": lead_id, "target": target},
+        )
+    return bool(moved)
 
 
 async def _load_call_context(
@@ -2053,10 +2431,9 @@ async def _load_call_context(
     agent_id, direction, version, fields = row[0], str(row[1]), row[2], row[3]
     disclosure_line = str(row[4] or "")
     recording_notice_line = str(row[5] or "")
-    if not fields:
-        empty = ExtractionSchemaSpec(version=version or 1, fields=[])
-        return empty, version or 1, agent_id, direction, disclosure_line, recording_notice_line
-    spec = ExtractionSchemaSpec.model_validate({"version": version or 1, "fields": fields})
+    # The core every business captures, then this agent's own fields
+    # (`calevate_shared.lead_fields`). An agent with no schema still captures the core.
+    spec = ExtractionSchemaSpec(version=version or 1, fields=with_core(fields))
     return spec, spec.version, agent_id, direction, disclosure_line, recording_notice_line
 
 
@@ -2200,6 +2577,8 @@ async def _upsert_lead(
     direction: str,
     data: dict[str, Any],
     schema_version: int,
+    outcome: OutcomeTag | None = None,
+    reading: ExtractionOutput | None = None,
 ) -> UUID | None:
     """One lead per (tenant, phone, agent). A second call from the same number updates
     the lead and flips `is_repeat_caller` — that flag is what makes the repeat-caller
@@ -2228,6 +2607,20 @@ async def _upsert_lead(
         return None
     lead_id = uuid7()
     async with tenant_session(tenant_id) as session:
+        call_row = (
+            await session.execute(
+                text(
+                    "SELECT trial_call, campaign_id FROM calls WHERE id = :cid AND tenant_id = :tid"
+                ),
+                {"cid": call_id, "tid": tenant_id},
+            )
+        ).first()
+        trial = bool(call_row[0]) if call_row else False
+        source = _lead_source(
+            direction=direction,
+            trial=trial,
+            campaign=call_row is not None and call_row[1] is not None,
+        )
         row = (
             await session.execute(
                 text(
@@ -2249,8 +2642,18 @@ async def _upsert_lead(
                     f"  first_call_id = CASE WHEN {_LEAD_CALL_IS_EARLIEST} "
                     "    THEN EXCLUDED.first_call_id ELSE leads.first_call_id END, "
                     f"  call_count = leads.call_count + (NOT {_LEAD_CALL_FILED})::int, "
-                    "  is_repeat_caller = leads.is_repeat_caller OR (leads.call_count > 0 "
-                    f"    AND NOT {_LEAD_CALL_FILED}), "
+                    # A TEST CALL NEVER MAKES A REPEAT CALLER (founder decision 7), in
+                    # either position: a test call is not a return, and a real call after
+                    # test calls is the caller's first real one. Counted from the lead's
+                    # own non-test calls rather than `call_count`, which counts both.
+                    "  is_repeat_caller = leads.is_repeat_caller OR (NOT :trial "
+                    f"    AND NOT {_LEAD_CALL_FILED} AND EXISTS (SELECT 1 FROM calls pc "
+                    "    WHERE pc.lead_id = leads.id AND NOT pc.trial_call AND pc.id <> :cid)), "
+                    # A lead first met on a test call takes its real source from its first
+                    # real call; any other source is how the lead came and never changes.
+                    "  source = CASE WHEN leads.source = 'test_call' "
+                    "    AND EXCLUDED.source <> 'test_call' THEN EXCLUDED.source "
+                    "    ELSE leads.source END, "
                     "  updated_at = now() "
                     "RETURNING id"
                 ),
@@ -2260,7 +2663,8 @@ async def _upsert_lead(
                     "aid": agent_id,
                     "phone": caller,
                     "name": data.get("name") or data.get("caller_name"),
-                    "source": "inbound_call" if direction == "inbound" else "campaign",
+                    "source": source,
+                    "trial": trial,
                     "data": _json(data),
                     "ver": schema_version,
                     "cid": call_id,
@@ -2293,7 +2697,37 @@ async def _upsert_lead(
                     "payload": _json({"call_id": str(call_id), "status": snapshot.status}),
                 },
             )
+            # The call back booked on this call belongs to this lead (F-7). Booked during
+            # the call, before the lead existed, so it was written without one.
+            await session.execute(
+                text(
+                    "UPDATE scheduled_callbacks SET lead_id = :lid, updated_at = now() "
+                    "WHERE lead_id IS NULL AND source_call_id = :cid"
+                ),
+                {"lid": resolved_id, "cid": call_id},
+            )
+            target = after_call_status(
+                outcome=outcome,
+                connected=snapshot.status == "completed",
+                callback_requested=reading.callback_requested if reading else False,
+                sentiment=reading.sentiment if reading else None,
+            )
+            if target is not None:
+                await _advance_lead_status(session, resolved_id, target)
     return resolved_id
+
+
+def _lead_source(*, direction: str, trial: bool, campaign: bool) -> str:
+    """How a lead came to us, from the call that created it (`crm/models.LEAD_SOURCES`).
+
+    `test_call` for a free-trial test call (founder decision 7), `campaign` only for a
+    campaign dial, `outbound_call` for any other call we placed (a call back, the "call
+    this lead" button). It used to be `campaign` for every outbound call (F-7)."""
+    if trial:
+        return "test_call"
+    if direction == "inbound":
+        return "inbound_call"
+    return "campaign" if campaign else "outbound_call"
 
 
 def _unit_price(leg_inr: Decimal | None, qty: Decimal) -> Decimal | None:
@@ -3740,8 +4174,11 @@ async def _maybe_notify_hot_lead(
         await lock_call_writes(session, call_id)
         await session.execute(
             text(
-                "UPDATE leads SET status = 'hot', updated_at = now() "
-                "WHERE id = :lid AND tenant_id = :tid AND status = 'new'"
+                "UPDATE leads SET status = 'hot', status_set_by = 'system', "
+                "status_set_at = now(), updated_at = now() "
+                "WHERE id = :lid AND tenant_id = :tid "
+                "AND status IN ('new', 'contacted', 'interested') "
+                "AND status_set_by = 'system'"
             ),
             {"lid": lead_id, "tid": tenant_id},
         )

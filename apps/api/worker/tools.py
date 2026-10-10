@@ -81,6 +81,11 @@ from apps.api.agents.transfer_providers import (
 from apps.api.callbacks import service as callbacks
 from apps.api.compliance.consent import record_callback_request_consent
 from apps.api.compliance.optout import DETECTED_IN_CALL, record_call_optout
+from apps.api.compliance.trial_access import (
+    TRIAL_CALLBACK_RULE,
+    TRIAL_CALLBACK_SAY,
+    restricting_trial,
+)
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -325,7 +330,19 @@ async def book_callback_for(
 
     `engine_call_id` is the engine's handle for the conversation, which keys the promise
     (`source_execution_id`) so two bookings in one conversation resolve against each other.
+
+    A FREE-TRIAL ACCOUNT BOOKS NOTHING (founder decision 1): nothing can ring a caller back
+    until the account pays, so the agent is told to say the business will follow up rather
+    than promise a call that would never come (first-call review F-5). Asked first, before
+    the time is parsed, so the agent does not read a time back for a promise it cannot make.
     """
+    async with tenant_session(tenant_id) as session:
+        on_trial = await restricting_trial(session, tenant_id=tenant_id) is not None
+    if on_trial:
+        log.info("worker_tool_callback_trial", extra={"tenant_id": str(tenant_id)})
+        return CallbackToolOut(
+            status="not_booked", reason=TRIAL_CALLBACK_RULE, say=TRIAL_CALLBACK_SAY
+        )
     slot = resolve_slot(request.callback_date, request.callback_time, now=datetime.now(UTC))
     if isinstance(slot, SlotRefusal):
         return CallbackToolOut(

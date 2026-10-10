@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Pencil } from "lucide-react";
 
 import type { Lead } from "@/lib/api/leads";
+import { calledTimes, leadTitle } from "@/lib/leadLabels";
 
 /**
  * The lead's name: a link to its screen, and — for anyone who may write — an inline edit.
@@ -112,14 +113,11 @@ export function InlineName({
         {/* The lead's own screen, where the timeline lives. The href carries the lead ID
             and never the number — a URL reaches browser history, referrers and access
             logs, so hard rule 6 is stricter for a link than for text. */}
-        <Link href={href} className="hover:underline">
-          {lead.name ?? <span className="font-normal text-ink-faint">No name</span>}
+        {/* The number stands in for a name nobody has given yet; "No name" told the
+            owner nothing they could act on. */}
+        <Link href={href} className={`hover:underline ${lead.name?.trim() ? "" : "whitespace-nowrap tabular-nums"}`}>
+          {leadTitle(lead)}
         </Link>
-        {lead.is_repeat_caller && (
-          <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[10px] font-semibold text-brand-strong">
-            repeat
-          </span>
-        )}
         {canEdit && (
           <button
             type="button"
@@ -135,6 +133,9 @@ export function InlineName({
           </button>
         )}
       </span>
+      {lead.is_repeat_caller && calledTimes(lead.call_count) && (
+        <span className="block text-meta font-normal text-ink-faint">{calledTimes(lead.call_count)}</span>
+      )}
       {saving && (
         <span className="mt-0.5 block text-meta font-normal text-ink-faint">Saving…</span>
       )}

@@ -1346,10 +1346,14 @@ export function FilterChip({
   label,
   active,
   onClick,
+  capitalize = true,
 }: {
   label: string;
   active: boolean;
   onClick: () => void;
+  /** Off for a label already written in sentence case ("Call back booked"), which
+   *  `capitalize` would turn into title case. */
+  capitalize?: boolean;
 }) {
   return (
     <button
@@ -1357,7 +1361,8 @@ export function FilterChip({
       onClick={onClick}
       aria-pressed={active}
       className={clsx(
-        "press rounded-full px-3 py-1.5 text-xs capitalize touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2",
+        "press rounded-full px-3 py-1.5 text-xs touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2",
+        capitalize && "capitalize",
         active
           ? "border border-ink bg-ink/[0.06] font-medium text-ink"
           : "border border-line bg-surface font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5",

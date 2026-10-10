@@ -206,6 +206,14 @@ class EngineAgentRoute(Base):
     action_secret_dek_wrapped: Mapped[bytes | None] = mapped_column(LargeBinary)
     action_secret_dek_nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
     action_secret_kek_version: Mapped[int | None] = mapped_column(Integer)
+    #: The secret the vendor signs this agent's caller lookups with (migration a9c4e2f7d138,
+    #: D-716). The vendor mints it and shows it once, so we hold the only copy we can read;
+    #: sealed under `PLATFORM_KEK`, all five set or all NULL (CHECK).
+    call_start_secret_ciphertext: Mapped[bytes | None] = mapped_column(LargeBinary)
+    call_start_secret_nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
+    call_start_secret_dek_wrapped: Mapped[bytes | None] = mapped_column(LargeBinary)
+    call_start_secret_dek_nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
+    call_start_secret_kek_version: Mapped[int | None] = mapped_column(Integer)
 
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

@@ -102,6 +102,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.catalogue import HostsVoices
 from apps.api.reliability.engine_actions import check_agent_actions
+from apps.api.reliability.engine_lookups import check_call_start
 
 log = get_logger(__name__)
 
@@ -366,6 +367,25 @@ async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | N
                 f"engine={engine_name}: the voice platform's test call to this live agent's "
                 "in-call actions did not reach our API, so callers cannot opt out or book a "
                 "call-back mid-call. Check ENGINE_ACTIONS_BASE_URL and the /v1/worker/ route"
+            ),
+            agent_id=str(candidate.agent_id),
+            tenant_id=str(candidate.tenant_id),
+        )
+
+    # THE CALLER LOOKUP (D-716): `voice.callStartUrl` read back and pointed at our endpoint
+    # again, with a fresh secret when we hold none we can read.
+    lookup = await check_call_start(
+        tenant_id=candidate.tenant_id,
+        engine=engine_name,
+        engine_agent_ref=candidate.engine_agent_ref,
+    )
+    if lookup == "repaired":
+        alert(
+            "WORKER_STALL",
+            "engine_caller_lookup_repaired",
+            detail=(
+                f"engine={engine_name}: this live agent's caller lookup was missing, pointed "
+                "elsewhere or had no signing secret we could read, and is ours again"
             ),
             agent_id=str(candidate.agent_id),
             tenant_id=str(candidate.tenant_id),

@@ -1,3 +1,4 @@
+import { leadNextStep, sourceLabel } from "@/lib/leadLabels";
 import { lookup } from "@/lib/lookup";
 import { type Lead, type LeadColumn, type LeadLens } from "@/lib/api/leads";
 
@@ -113,7 +114,9 @@ export function cellValue(lead: Lead, key: string): string {
 export function cellClass(column: LeadColumn): string {
   switch (column.key) {
     case "name":
-      return "whitespace-nowrap font-semibold text-ink";
+      // Wraps rather than nowrap: it is pinned on a phone, and a long name must not take
+      // the whole screen.
+      return "min-w-[8rem] max-w-[12rem] font-semibold text-ink";
     case "phone":
       return "whitespace-nowrap tabular-nums text-ink-muted";
     case "calls":
@@ -121,6 +124,9 @@ export function cellClass(column: LeadColumn): string {
     case "created_at":
     case "updated_at":
       return "whitespace-nowrap text-xs text-ink-faint";
+    case "next_step":
+    case "last_call":
+      return "min-w-[10rem] max-w-xs text-ink-muted";
     default:
       return "text-ink-muted";
   }
@@ -143,7 +149,11 @@ export function sortFor(
     case "owner":
       return { value: (lead) => lead.assigned_to_name, kind: "text" };
     case "source":
-      return { value: (lead) => lead.source, kind: "text" };
+      return { value: (lead) => sourceLabel(lead.source), kind: "text" };
+    case "next_step":
+      return { value: (lead) => leadNextStep(lead), kind: "text" };
+    case "last_call":
+      return { value: (lead) => lead.last_call_headline, kind: "text" };
     case "calls":
       return { value: (lead) => lead.call_count, kind: "number", first: "desc" };
     case "created_at":

@@ -1090,6 +1090,9 @@ class TestRedactionExposure:
             "transcript_text",
             "summary",
             "call_summary",
+            "summary_local",
+            "last_call_headline",
+            "text_en",
             "recording_url",
         }
         assert not (
@@ -1123,6 +1126,13 @@ class TestRedactionExposure:
             "TranscriptTurnOut.text",
             "CallSummaryOut.summary",
             "CallDetailOut.summary",
+            # The after-call prose (first-call review, 10 Oct 2026): the English turn is
+            # translated FROM the redacted text, the call-language summary goes out
+            # through the same pass as `summary`, the lead's headline is stored redacted.
+            "TranscriptTurnOut.text_en",
+            "CallDetailOut.summary_local",
+            "LeadOut.last_call_headline",
+            "SubjectExportCallOut.summary_local",
             # The assistant's re-summarise (D-127). It is the ONE entry in this registry
             # whose value cannot contain unredacted transcript text by CONSTRUCTION
             # rather than by a pass applied on the way out: the model is handed

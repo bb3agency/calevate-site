@@ -33,6 +33,7 @@ import {
   BookOpen,
   Bot,
   BrainCircuit,
+  ClipboardList,
   FileSignature,
   FileText,
   GitMerge,
@@ -133,7 +134,9 @@ export function clientNavigation(slug: string): NavGroup[] {
         { href: `/c/${slug}/verification`, label: "Verification", icon: ShieldCheck },
         { href: `/c/${slug}/do-not-call`, label: "Do not call", icon: PhoneOff },
         { href: `/c/${slug}/messaging-consent`, label: "Messaging consent", icon: MessageSquare },
-        { href: `/c/${slug}/lead-sources`, label: "Lead sources", icon: GitMerge },
+        // One screen per client (D-716): how new leads are called, the after-hours queue
+        // and the sources they come from.
+        { href: `/c/${slug}/lead-sources`, label: "Leads & hours", icon: GitMerge },
         { href: `/c/${slug}/data-rights`, label: "Data rights", icon: ScrollText },
         { href: `/c/${slug}/caller-notice`, label: "Your privacy notice", icon: BookLock },
       ],
@@ -145,6 +148,9 @@ export function clientNavigation(slug: string): NavGroup[] {
         // the group because an agent cannot take calls without them. The setup is the
         // same facts asked one at a time, and is where the dashboard checklist resumes.
         { href: `/c/${slug}/settings/business`, label: "Business profile", icon: Store },
+        // What every call writes down for a lead (founder decision 15): beside the profile
+        // because a custom business's own details are drafted from it.
+        { href: `/c/${slug}/settings/lead-details`, label: "Lead details", icon: ClipboardList },
         { href: `/c/${slug}/setup`, label: "Business setup", icon: ListChecks },
         { href: `/c/${slug}/settings/team`, label: "Team", icon: UserCog },
         // The one screen where the owner can agree to be messaged about their own

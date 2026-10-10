@@ -276,7 +276,7 @@ def render_digest(insights: AgentInsights, *, agent_name: str, limit: int = 5) -
 
     gaps = [p for p in insights.patterns if p.kind == "not_captured"][:limit]
     asked = [p for p in insights.patterns if p.kind == "asked_about"][:limit]
-    follow_up = next((p for p in insights.patterns if p.token == "outcome:needs_follow_up"), None)
+    follow_up = next((p for p in insights.patterns if p.token == "outcome:needs_you"), None)
 
     lines = [
         f"What your callers asked {agent_name} this week",

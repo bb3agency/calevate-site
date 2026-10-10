@@ -106,7 +106,9 @@ Method & evidence:
 11c. **`runbooks/`** — incident and first-time procedures; `alarm-index.md` maps every
     alarm code to its runbook, and `first-deploy.md` and `vobiz-first-live-call.md` are the
     two checklists that turn the build into a running service. `thinnest-first-live-call.md`
-    is the first-call checklist for a deployment switched to `ENGINE=thinnest` (D-678).
+    is the first-call checklist for a deployment switched to `ENGINE=thinnest` (D-678), and
+    `thinnest-studio-voices.md` turns Studio on per client and moves production off the old
+    developer-workspace switch (D-717).
 
 Engineering companions:
 12. **CLAUDE.md** — operating manual for Claude Code in the repo (hard rules, commands,

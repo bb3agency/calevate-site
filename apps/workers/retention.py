@@ -282,7 +282,11 @@ _MAX_ERASURE_BATCHES = 10_000
 #                                     is true of a table and false of a bucket.
 DERIVED_COPIES: Mapping[str, tuple[str, ...]] = {
     "transcript": (
-        "calls.summary",
+        # The English summary, the one in the call's language, the headline and the next
+        # step are all model prose about the conversation, and `transcript_turns.text_en`
+        # is the conversation itself in English: the transcript's clock, every one.
+        "calls.summary+summary_local+headline+next_step",
+        "transcript_turns.text_en",
         # The gap quotes are transcript text by another name: the detector copies the
         # caller's question and the agent's deflection out of `transcript_turns.
         # text_redacted`. They belong to the transcript's clock, not to a clock of their
@@ -1077,7 +1081,8 @@ DELETE FROM transcript_turns WHERE id IN (
 # Anonymize keeps the SHAPE of the conversation (turn count, speakers, timings) for
 # analytics while removing every word that was said.
 _TRANSCRIPT_ANONYMIZE_SQL = f"""
-UPDATE transcript_turns SET text = :mark, text_redacted = :mark, updated_at = now()
+UPDATE transcript_turns SET text = :mark, text_redacted = :mark, text_en = NULL,
+  updated_at = now()
 WHERE id IN (
   SELECT t.id FROM transcript_turns t JOIN calls c ON c.id = t.call_id
   WHERE {_CLOCK} < :cutoff AND t.text <> :mark ORDER BY {_CLOCK} LIMIT :batch)
@@ -1087,8 +1092,10 @@ WHERE id IN (
 # `summary` is free prose with no shape worth keeping, and the DPDP erasure path
 # already treats it as personal data.
 _SUMMARY_SQL = f"""
-UPDATE calls SET summary = NULL, updated_at = now() WHERE id IN (
-  SELECT c.id FROM calls c WHERE c.summary IS NOT NULL AND {_CLOCK} < :cutoff
+UPDATE calls SET summary = NULL, summary_local = NULL, headline = NULL, next_step = NULL,
+  updated_at = now() WHERE id IN (
+  SELECT c.id FROM calls c WHERE (c.summary IS NOT NULL OR c.summary_local IS NOT NULL
+    OR c.headline IS NOT NULL OR c.next_step IS NOT NULL) AND {_CLOCK} < :cutoff
   ORDER BY {_CLOCK} LIMIT :batch)
 """
 
@@ -2622,7 +2629,7 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             result = await session.execute(
                 text(
                     "UPDATE transcript_turns SET text = :mark, text_redacted = :mark, "
-                    "updated_at = now() WHERE call_id = ANY(:ids)"
+                    "text_en = NULL, updated_at = now() WHERE call_id = ANY(:ids)"
                 ),
                 {"mark": REDACTED_MARK, "ids": list(calls)},
             )
@@ -2635,7 +2642,8 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                     # set would leave a key naming bytes that are gone, and the retention
                     # sweep would then try to delete them again.
                     "transfer_recording_url = NULL, "
-                    "summary = NULL, erased_subject_ref = :ref, updated_at = now() "
+                    "summary = NULL, summary_local = NULL, headline = NULL, next_step = NULL, "
+                    "erased_subject_ref = :ref, updated_at = now() "
                     "WHERE id = ANY(:ids)"
                 ),
                 {"ids": list(calls), "ref": subject_handle},
@@ -2678,6 +2686,12 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             # `_erase_handoff_briefs` for why "it is redacted on write" is not a defence
             # and why `destination_e164` is deliberately not touched.
             handoff_briefs_erased = await _erase_handoff_briefs(session, call_ids=list(calls))
+            # Test cases saved from these calls hold the caller's lines (`teach/test_cases`),
+            # a copy emptying the call does not reach.
+            await session.execute(
+                text("DELETE FROM agent_test_cases WHERE source_call_id = ANY(:ids)"),
+                {"ids": list(calls)},
+            )
         if leads:
             await session.execute(
                 text(
@@ -2686,6 +2700,12 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                     "WHERE id = ANY(:ids)"
                 ),
                 {"ids": list(leads), "anon": ANONYMIZED_PHONE[:9]},
+            )
+            # A hold is this person waiting to be called (D-716); releasing it after the
+            # certificate would book a call-back for someone who asked to be forgotten.
+            await session.execute(
+                text("DELETE FROM lead_call_holds WHERE lead_id = ANY(:ids)"),
+                {"ids": list(leads)},
             )
 
         # KEYED ON THE NUMBER, not on `calls` or `leads`, and that is the point. A
@@ -3251,7 +3271,7 @@ async def _erase_tenant_calls(
 
         result = await session.execute(
             text(
-                "UPDATE transcript_turns SET text = :mark, text_redacted = :mark, "
+                "UPDATE transcript_turns SET text = :mark, text_redacted = :mark, text_en = NULL, "
                 "updated_at = now() WHERE call_id = ANY(:ids) AND text <> :mark"
             ),
             {"mark": REDACTED_MARK, "ids": call_ids},
@@ -3264,7 +3284,8 @@ async def _erase_tenant_calls(
                 # The second recording's pointer, for the reason the tenant-erasure arm
                 # gives (D-533).
                 "transfer_recording_url = NULL, "
-                "summary = NULL, updated_at = now() WHERE id = ANY(:ids)"
+                "summary = NULL, summary_local = NULL, headline = NULL, next_step = NULL, "
+                "updated_at = now() WHERE id = ANY(:ids)"
             ),
             {"ids": call_ids},
         )
@@ -3463,6 +3484,15 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         counts["copilot_jobs_erased"] = int(rowcount_of(copilot_jobs) or 0)
         # The auto-healer's backup phone (D-701): a staff number, gone with the account.
         await session.execute(text("DELETE FROM heal_fallback_phones"))
+        # The teach box and the improvement loop: saved tests hold callers' redacted lines,
+        # and the facts, teachings and waiting rules are the business's own words.
+        await session.execute(text("DELETE FROM agent_test_cases"))
+        await session.execute(text("DELETE FROM agent_rule_proposals"))
+        await session.execute(text("DELETE FROM kb_facts"))
+        await session.execute(text("DELETE FROM kb_teachings"))
+        # Leads held after hours for release (D-716): a hold left behind could still be
+        # released into a call-back after the certificate said the account holds nothing.
+        await session.execute(text("DELETE FROM lead_call_holds"))
         # THE UPLOADED FILES, WHICH TWO COMMENTS ASSERTED THIS ARM ALREADY SWEPT AND WHICH
         # IT DID NOT (18 Sep 2026). `kb/uploads.py` said an orphaned object sat in the
         # tenant's own prefix "so an offboarding still sweeps it up" and `storage.py` said

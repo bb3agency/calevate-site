@@ -189,7 +189,7 @@ async def _call_with_transcript(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status, "
                 "from_e164, summary, sentiment, outcome_tag, started_at, created_at, updated_at) "
                 "VALUES (:id, :tid, :aid, :ecid, 'inbound', 'completed', :from_e, "
-                "'First pass.', 'neutral', 'resolved', now(), now(), now())"
+                "'First pass.', 'neutral', 'answered', now(), now(), now())"
             ),
             {
                 "id": call_id,
@@ -1003,17 +1003,20 @@ async def test_a_failure_after_the_provider_was_paid_does_not_let_the_same_key_p
     # never reached the model. (That is not hypothetical; it is what this test did first.)
     original_write_audit = crm_routes.write_audit
     crm_routes.write_audit = refuse_to_audit  # type: ignore[assignment]
-    # The 500 is not the subject; what the crashed request left behind is. `_client()`
-    # re-raises an unhandled server exception into the test, which would end it before
-    # the retry.
-    async with AsyncClient(
-        transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://api"
-    ) as http:
-        first = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
-    assert first.status_code >= 500, first.text
-    assert len(azure.requests) == 1, "the provider was paid once"
-
-    crm_routes.write_audit = original_write_audit  # type: ignore[assignment]
+    # Restored in `finally`: a failure in between would otherwise leave every later test
+    # in the session writing its audit rows through `refuse_to_audit`.
+    try:
+        # The 500 is not the subject; what the crashed request left behind is. `_client()`
+        # re-raises an unhandled server exception into the test, which would end it before
+        # the retry.
+        async with AsyncClient(
+            transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://api"
+        ) as http:
+            first = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
+        assert first.status_code >= 500, first.text
+        assert len(azure.requests) == 1, "the provider was paid once"
+    finally:
+        crm_routes.write_audit = original_write_audit  # type: ignore[assignment]
     async with _client() as http:
         second = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { lensKey, type LeadLens } from "@/lib/api/leads";
+import { DEFAULT_LEAD_COLUMNS } from "@/lib/leadLabels";
 
 import { anyFilterInForce, type LeadFilterKey } from "./leadFilters";
 import { PAGE_SIZE } from "./leadsTable";
@@ -16,7 +17,7 @@ import { PAGE_SIZE } from "./leadsTable";
  * Every filter here is SERVER-side. A page holds 100 rows, so a filter applied in the
  * browser would be a filter over whatever happened to load.
  */
-export function useLeadsLens() {
+export function useLeadsLens(needKey: string = "need") {
   const [status, setStatus] = useState<string | undefined>();
   const [search, setSearch] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -32,9 +33,9 @@ export function useLeadsLens() {
   /** Extraction-schema key → chosen values. */
   const [facetValues, setFacetValues] = useState<Record<string, string[]>>({});
   /**
-   * `undefined` means "nothing chosen", which the API answers with every column the
-   * agent has — deliberately not "all of today's columns", which would freeze out a
-   * column added tomorrow.
+   * `undefined` means "nothing chosen", and the table then asks for the usual five
+   * (`DEFAULT_LEAD_COLUMNS`, with the business's own "what they want" key). Every other
+   * column, the business's own fields included, is one tick away in the chooser.
    */
   const [chosenColumns, setChosenColumns] = useState<string[] | undefined>();
   const [activeViewId, setActiveViewId] = useState<string | undefined>();
@@ -53,7 +54,7 @@ export function useLeadsLens() {
     ask: askTerm || undefined,
     assigned_to: assignedTo,
     fields: facetValues,
-    columns: chosenColumns,
+    columns: chosenColumns ?? DEFAULT_LEAD_COLUMNS.map((key) => (key === "need" ? needKey : key)),
   };
 
   /**

@@ -1,9 +1,9 @@
 "use client";
 
-import { Download, Search, Sparkles } from "lucide-react";
+import { Download, Search } from "lucide-react";
 
 import { InfoTip } from "@/components/console/infoTip";
-import { FIELD_INLINE_ICON, SECONDARY_BUTTON } from "@/components/ui";
+import { FIELD_INLINE, FIELD_INLINE_ICON, SECONDARY_BUTTON } from "@/components/ui";
 
 import { type LeadLens, type LeadList, type useExportLeads } from "@/lib/api/leads";
 
@@ -92,7 +92,6 @@ export function LeadsToolbar({
             onAskSubmit();
           }}
         >
-          <Sparkles aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
           <input
             type="search"
             value={ask}
@@ -102,7 +101,7 @@ export function LeadsToolbar({
             maxLength={2000}
             aria-label="Find leads by what they asked for"
             placeholder={`What did they ask for? e.g. ${askExample}`}
-            className={`${FIELD_INLINE_ICON} w-full`}
+            className={`${FIELD_INLINE} w-full`}
           />
         </form>
 
@@ -159,7 +158,7 @@ export function LeadsToolbar({
             // permission answer is still coming.
             exportRefusal ??
             (mayExport
-              ? "Downloads the leads and the columns shown here, with full phone numbers."
+              ? "Downloads these leads: name and full phone number first, then the columns shown here."
               : "Checking whether you can export these leads…")
           }
           className={SECONDARY_BUTTON}

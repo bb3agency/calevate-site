@@ -210,13 +210,14 @@ async def test_the_csv_export_neutralises_a_dictated_formula(payload: str) -> No
             assert not cell.startswith(EXECUTABLE_LEADERS), cell
 
     header, lead = rows[0], rows[1]
-    assert header[:2] == ["Phone", "Name"]
+    # Name and Phone always lead the file (`crm.columns.for_export`).
+    assert header[:2] == ["Name", "Phone"]
     # The header carries the hostile extraction LABEL, disarmed like any other cell.
     assert header[-1] == f"\t{payload}", "the header cell was written raw"
     # And the guard actually FIRED on each column carrying the hostile value, rather
     # than the value having been dropped, truncated or renamed on the way out.
-    assert lead[0] == f"\t{payload}", "the phone cell was written raw"
-    assert lead[1] == f"\t{payload}", "the name cell was written raw"
+    assert lead[0] == f"\t{payload}", "the name cell was written raw"
+    assert lead[1] == f"\t{payload}", "the phone cell was written raw"
     assert lead[-1] == f"\t{payload}", "the extraction cell was written raw"
 
 

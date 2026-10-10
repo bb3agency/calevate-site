@@ -115,8 +115,11 @@ from calevate_shared.engine import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.models import CALL_CAP_DEFAULT_S, CALL_CAP_MAX_S, CALL_CAP_MIN_S
-from apps.api.agents.service import effective_call_cap, publish_agent
+from apps.api.agents.service import (
+    effective_call_cap,
+    publish_agent,
+    refuse_call_cap_out_of_range,
+)
 from apps.api.agents.verification import EngineDrift, PublishVerification, verify_publish
 from apps.api.agents.voice_offer import (
     VoiceReasonAudience,
@@ -759,11 +762,13 @@ def _pending_changes(row: _AgentRow) -> list[PendingChange]:
             staged_version=row.draft_version,
             live_version=row.live_version,
             staged_at=row.draft_at or datetime.min,
-            # Version numbers only. A prompt body carries a client's prices and staff
-            # names, and this string is destined for a banner and a log (rule 6).
+            # No prompt text: a prompt body carries a client's prices and staff names, and
+            # this string is destined for a banner and a log (rule 6). No version number
+            # either: owners see dates and notes, never versions (founder, 10 Oct 2026).
             headline=(
-                f"Script v{row.draft_version} is waiting to go live"
-                + (f" (callers currently hear v{row.live_version})." if row.live_version else ".")
+                "Script changes are waiting to go live."
+                if row.live_version
+                else "The script is waiting to go live."
             ),
             why=entry.why,
         )
@@ -1639,36 +1644,11 @@ async def set_call_cap(
 
     `None` clears the override and returns the agent to the platform default. It does
     NOT mean unlimited — see `effective_call_cap`. Values outside
-    [CALL_CAP_MIN_S, CALL_CAP_MAX_S] are refused here with a usable problem+json
+    [CALL_CAP_MIN_S, `service.call_cap_max_s()`] are refused here with a usable problem+json
     rather than left to surface as an IntegrityError 500 from the CHECK, which is the
     floor under every other writer.
     """
-    if max_call_duration_s is not None and not (
-        CALL_CAP_MIN_S <= max_call_duration_s <= CALL_CAP_MAX_S
-    ):
-        raise ProblemError(
-            kind="business_rule",
-            code="call_cap_out_of_range",
-            title="Call length cap out of range",
-            detail=(
-                f"A maximum call length must be between {CALL_CAP_MIN_S} and "
-                f"{CALL_CAP_MAX_S} seconds."
-            ),
-            remediation=(
-                "Send a value in that range, or null to use the platform default of "
-                f"{CALL_CAP_DEFAULT_S} seconds. Null is the default, never 'unlimited'."
-            ),
-            fields=[
-                {
-                    "field": "max_call_duration_s",
-                    "rule": "out_of_range",
-                    "message": (
-                        f"Must be {CALL_CAP_MIN_S}-{CALL_CAP_MAX_S} seconds, or null for "
-                        "the platform default."
-                    ),
-                }
-            ],
-        )
+    refuse_call_cap_out_of_range(max_call_duration_s)
 
     async with tenant_session(tenant_id) as session:
         result = await session.execute(

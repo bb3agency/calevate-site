@@ -11,6 +11,9 @@ import { useClientSession } from "@/lib/api/session";
 import { FactRow } from "./SubmittedList";
 import { UploadRow } from "./UploadList";
 
+/** `apps/api/teach/facts.FACTS_SOURCE_NAME`: the source the taught facts compile into. */
+const TAUGHT_FACTS_SOURCE = "Facts you taught";
+
 /**
  * EVERYTHING THIS ACCOUNT HAS TAUGHT ITS AGENTS, in one list: the files, photos and web
  * pages it sent, then the facts it typed — each row saying where it is. No row names an
@@ -37,7 +40,11 @@ export function SourcesList({
   const chunks = useKbChunks(session, previewing);
 
   const uploadRows = only === "files" ? uploads.data : [];
-  const facts = only === "facts" ? sources.data?.filter((source) => source.kind === "text") : [];
+  // The teach box's own facts compile into one source; they are listed one by one above it.
+  const facts =
+    only === "facts"
+      ? sources.data?.filter((source) => source.kind === "text" && source.name !== TAUGHT_FACTS_SOURCE)
+      : [];
   const loading = only === "files" ? uploads.isLoading : sources.isLoading;
   const count = (uploadRows?.length ?? 0) + (facts?.length ?? 0);
 
@@ -45,11 +52,11 @@ export function SourcesList({
     <section aria-labelledby="kb-sources-heading" className="space-y-2">
       <div className="flex items-baseline justify-between gap-3">
         <h2 id="kb-sources-heading" className="text-heading text-ink">
-          {only === "files" ? "Your files" : "Your facts"}
+          {only === "files" ? "Your files" : "Notes you wrote"}
         </h2>
         {uploadRows && facts && count > 0 && (
           <span className="text-meta text-ink-muted">
-            {formatCount(count)} {only === "files" ? (count === 1 ? "file" : "files") : count === 1 ? "fact" : "facts"}
+            {formatCount(count)} {only === "files" ? (count === 1 ? "file" : "files") : count === 1 ? "note" : "notes"}
           </span>
         )}
       </div>
@@ -80,7 +87,7 @@ export function SourcesList({
                 <span className="mt-1 block">
                   {only === "files"
                     ? "Send your price list, brochure or menu as a file or a photo."
-                    : "Add your opening hours, services and prices first — those are what callers ask about."}
+                    : "Longer notes you wrote before the teach box appear here."}
                 </span>
               </>
             }

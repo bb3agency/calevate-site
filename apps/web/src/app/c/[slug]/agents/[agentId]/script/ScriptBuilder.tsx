@@ -1,75 +1,131 @@
 "use client";
 
 /**
- * The structured call-script builder (client realm). Primary authoring model with a raw
- * escape hatch, plus the AI writing assist.
+ * THE SCRIPT BUILDER (client realm).
  *
- * WHAT A CLIENT DOES HERE, and where each write goes: edit the opening line, the ordered
- * steps (drag to reorder, keyboard up/down as the accessible equivalent), the FAQ and its
- * don't-know fallback, and the end-call rules; insert `{{ }}` merge fields; ask the AI to
- * draft the whole thing from a business description; view the exact compiled engine prompt;
- * Save (which STAGES on a live agent), then Apply to live or Undo. Every save routes through
- * `PUT /v1/agents/{id}/script` and stages — nothing reaches a live call until Apply, which
- * is how this honours D-21's regression concern while being the client-owned surface the
- * approved decision calls for.
+ * WHAT AN OWNER DOES HERE: lay out the call as numbered sections joined by "when … go to"
+ * ways out, write what the agent does in each, set the opening line, how it talks and how
+ * it ends, and put the result live. On a desktop the sections are a flow picture or a list;
+ * on a phone they are a list. Both are views of `script.stages` (`scriptModel.ts`).
  *
- * The one guarantee this screen cannot touch: the truthful-answer floor. "View compiled
- * prompt" shows it appended last by the server, so an author can watch the platform rules
- * ride underneath their own script and see that no field here removes them.
+ * HOW SAVING WORKS (founder decision, 10 Oct 2026): the working copy autosaves a moment
+ * after typing stops (`PUT .../script/draft`, carrying the `saved_at` it started from so a
+ * second window cannot be silently overwritten), and ONE "Put it live" turns the draft into
+ * a history entry and applies it. Nothing typed here reaches a caller before that. A draft
+ * the server would refuse (an empty section name, a branch to nowhere) is not sent; the
+ * save line says what to finish instead.
+ *
+ * The truthful-answer rules are not on this screen and nothing here can remove them; "What
+ * the agent reads" shows them added after the owner's script.
  */
 
+import { useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { LayoutList, Plus, Waypoints } from "lucide-react";
 
-import { NoticeBox, ProblemNotice, RestrictionNote, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import {
+  NoticeBox,
+  ProblemNotice,
+  RestrictionNote,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_SM,
+  Skeleton,
+} from "@/components/ui";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { Drawer } from "@/components/console/drawer";
-import { InfoTip } from "@/components/console/infoTip";
+import { TEXT_ACTION } from "@/components/console/section";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { applyByPaths } from "@/lib/copilot/paths";
+import { ApiProblem } from "@/lib/api/client";
 import { useClientSession } from "@/lib/api/session";
 import { isDeleted } from "@/lib/agentState";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { useAgent } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { usePendingChanges } from "@/lib/api/publishing";
 import {
   EMPTY_SCRIPT,
-  useApplyScript,
+  scriptKeys,
   usePreviewScript,
-  useSaveScript,
+  useSaveDraft,
   useScript,
-  useUndoScript,
+  withDraft,
   type CallScript,
+  type ScriptOut,
 } from "@/lib/api/script";
 
 import {
-  EndCallSection,
-  FaqSection,
+  EndingSection,
+  ExampleSection,
+  GoalSection,
+  IdentitySection,
+  ObjectionsSection,
   OpeningSection,
-  RawEditor,
-  StepsSection,
+  PoliciesSection,
+  StrictnessSection,
+  StyleSection,
   VariableBar,
   type Focusable,
 } from "./ScriptSections";
+import { TestConversationsPanel } from "./TestConversationsPanel";
 import { AssistPanel } from "./AssistPanel";
-import { CompiledPrompt, ModeToggle, ScriptToolbar } from "./ScriptToolbar";
+import { CompiledPrompt, ScriptToolbar } from "./ScriptToolbar";
 import { scriptCopilotFields } from "./scriptSurface";
-import { reconcileDraft, sameScript, type SavedCopy } from "./scriptDraft";
+import {
+  AUTOSAVE_DELAY_MS,
+  hasUnpublished,
+  reconcileDraft,
+  sameScript,
+  saveState,
+  workingCopy,
+  type SavedCopy,
+} from "./scriptDraft";
+import {
+  addSection,
+  connect,
+  limitsFrom,
+  moveSection,
+  pointersTo,
+  removeSection,
+  scriptAsText,
+  sectionsOf,
+  setPosition,
+  tidy,
+  updateSection,
+  validate,
+} from "./scriptModel";
+import { FlowCanvas } from "./FlowCanvas";
+import { SectionList } from "./SectionList";
+import { SectionEditor } from "./SectionEditor";
+import { HandWritten } from "./HandWritten";
+import { ScriptHistory } from "./ScriptHistory";
+import { PutLiveDialog, usePutLive } from "./PutLive";
+import { DESKTOP, useMedia } from "./useMedia";
+import { TaughtRules } from "./TaughtRules";
+import { voiceTierLine } from "../../panels/publishing";
 
+const PREVIEW_DELAY_MS = 1500;
 
-export function ScriptBuilder({ agentId, backHref }: { agentId: string; backHref: string }) {
+export function ScriptBuilder({
+  agentId,
+  backHref,
+  knowledgeHref,
+}: {
+  agentId: string;
+  backHref: string;
+  knowledgeHref: string;
+}) {
   const session = useClientSession();
   const startAssist = useSearchParams().get("assist") === "1";
   const loaded = useScript(session, agentId);
-  // Read for one question: is the agent deleted? This route is bookmarkable, and every
-  // save on a deleted agent is refused (`agent_archived`), so the editor is not offered.
+  // This route is bookmarkable and every write on a deleted agent is refused
+  // (`agent_archived`), so a deleted agent gets no editor.
   const agent = useAgent(session, agentId);
   const deleted = agent.data !== undefined && isDeleted(agent.data);
 
-  // The loading/failed/deleted screens, declared so the assistant stays present; `null`
-  // while `Editor` is up, because the innermost registration wins and `Editor` declares
-  // the script's own fields.
   useCopilotSurface(
     loaded.data && !deleted
       ? null
@@ -96,14 +152,13 @@ export function ScriptBuilder({ agentId, backHref }: { agentId: string; backHref
 
   if (deleted) {
     return (
-      <div className="rounded-md border border-warn-line bg-warn-soft px-4 py-3 text-sm text-ink">
-        <p className="font-semibold">This agent is deleted</p>
+      <NoticeBox tone="warn" title="This agent is deleted">
         <p className="mt-1">
-          Its script is kept exactly as it was, and it cannot be edited while the agent is
-          deleted. Bring the agent back from its own screen — it returns switched off — and
-          the builder opens again.
+          Its script is kept exactly as it was and cannot be edited while the agent is deleted.
+          Bring the agent back from its own screen; it returns switched off, and the builder
+          opens again.
         </p>
-      </div>
+      </NoticeBox>
     );
   }
 
@@ -115,13 +170,11 @@ export function ScriptBuilder({ agentId, backHref }: { agentId: string; backHref
       ) : loaded.data ? (
         <Editor
           agentId={agentId}
-          initial={loaded.data.script}
-          version={loaded.data.version}
-          isFreeform={loaded.data.is_freeform}
-          hasPending={loaded.data.has_pending}
-          standardVariables={loaded.data.standard_variables}
+          out={loaded.data}
           backHref={backHref}
+          knowledgeHref={knowledgeHref}
           agentName={agent.data?.name ?? "This agent"}
+          agentOn={agent.data ? agent.data.published && agent.data.status === "live" : false}
           startAssist={startAssist}
         />
       ) : null}
@@ -131,114 +184,160 @@ export function ScriptBuilder({ agentId, backHref }: { agentId: string; backHref
 
 function Editor({
   agentId,
-  initial,
-  version,
-  isFreeform,
-  hasPending,
-  standardVariables,
+  out,
   backHref,
+  knowledgeHref,
   agentName,
+  agentOn,
   startAssist,
 }: {
-  backHref: string;
-  agentName: string;
-  startAssist: boolean;
   agentId: string;
-  initial: CallScript;
-  version: number | null;
-  isFreeform: boolean;
-  hasPending: boolean;
-  standardVariables: { key: string; label: string }[];
+  out: ScriptOut;
+  backHref: string;
+  knowledgeHref: string;
+  agentName: string;
+  agentOn: boolean;
+  startAssist: boolean;
 }) {
   const session = useClientSession();
-  const incoming = useMemo<SavedCopy>(() => ({ script: initial, version }), [initial, version]);
-  const [script, setScript] = useState<CallScript>(initial);
-  const [raw, setRaw] = useState<boolean>(initial.raw_override !== null);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [assisting, setAssisting] = useState(startAssist);
-  const [switching, setSwitching] = useState<"raw" | "structured" | null>(null);
-  // The saved copy the draft on screen started from, and the read last reconciled against.
-  // The editor follows every new read through `reconcileDraft` (`scriptDraft.ts`) rather
-  // than copying `initial` once, which is what let it show and re-save a superseded script.
+  const queryClient = useQueryClient();
+  const desktop = useMedia(DESKTOP);
+  const context = out.context ?? null;
+  const limits = limitsFrom(context);
+
+  const incoming = useMemo(() => workingCopy(out), [out]);
+  const [script, setScript] = useState<CallScript>(incoming.script);
   const [base, setBase] = useState<SavedCopy>(incoming);
   const [seen, setSeen] = useState<SavedCopy>(incoming);
-  // What this editor's last save sent; `version` is null until the server answers.
   const [lastSave, setLastSave] = useState<SavedCopy | null>(null);
-  // Set when the saved script moved while the author had unsaved edits.
-  const [movedTo, setMovedTo] = useState<{ version: number | null } | null>(null);
+  const [conflict, setConflict] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+
+  const [selected, setSelected] = useState<string | null>(null);
+  const [view, setView] = useState<"flow" | "list">("flow");
+  const [helperOpen, setHelperOpen] = useState(startAssist);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [published, setPublished] = useState<{ live: boolean } | null>(null);
+  const [compiled, setCompiled] = useState<string | null>(null);
+  const [room, setRoom] = useState<{ used: number; limit: number } | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [toText, setToText] = useState(false);
+  const [undoTo, setUndoTo] = useState<CallScript | null>(null);
 
   const adopt = (copy: SavedCopy) => {
     setScript(copy.script);
-    setRaw(copy.script.raw_override !== null);
     setBase(copy);
-    setMovedTo(null);
+    setConflict(false);
   };
 
-  // Adjusting state while rendering, the documented alternative to an effect for "reset
-  // when a prop changes" (react.dev, "You Might Not Need an Effect").
+  // Follow every new read (adjusting state during render: react.dev, "You Might Not Need
+  // an Effect"), so the screen never shows or autosaves a copy that has been superseded.
   if (seen !== incoming) {
     setSeen(incoming);
     const next = reconcileDraft(script, base, incoming, lastSave);
     if (next.kind === "adopt") adopt(incoming);
-    else if (next.kind === "rebase") {
-      setBase(incoming);
-      setMovedTo(null);
-    } else if (next.kind === "conflict") setMovedTo({ version: next.version });
+    else if (next.kind === "rebase") setBase(incoming);
+    else if (next.kind === "conflict") setConflict(true);
   }
 
-  // Compared by CONTENT against the saved copy the draft started from.
-  const unsaved = useMemo(() => !sameScript(script, base.script), [script, base]);
-  useUnsavedGuard(unsaved);
-
-  const save = useSaveScript(session, agentId);
+  const write = useWriteAccess(session, "org:manage", "change this script");
+  const saveDraft = useSaveDraft(session, agentId);
   const previewMut = usePreviewScript(session, agentId);
-  const apply = useApplyScript(session, agentId);
-  const undo = useUndoScript(session, agentId);
-  // Reading and previewing are `agents:read`, so staff may draft and look at the compiled
-  // prompt; saving, applying and undoing are `org:manage`, which only the owner holds.
-  const write = useWriteAccess(session, "org:manage", "save or apply this script");
+  const putLive = usePutLive(session, agentId);
+  // Read for the voice tier the Put it live step names; the same cached read the agent page uses.
+  const pending = usePendingChanges(session, agentId);
 
-  // The field the "insert variable" buttons target: the last text control the author
-  // touched, so a variable lands where their cursor is rather than in a fixed field.
+  const raw = script.raw_override !== null;
+  const dirty = !sameScript(script, base.script);
+  const issues = useMemo(() => validate(script, limits), [script, limits]);
+  const sections = sectionsOf(script);
+  const unpublished = hasUnpublished(out, script);
+  useUnsavedGuard(dirty);
+
+  const edit = useCallback((next: CallScript | ((s: CallScript) => CallScript)) => {
+    setScript(next);
+    setSaveFailed(false);
+    setPublished(null);
+  }, []);
+
+  /** Store the draft. Without `base`, the save is unconditional ("Keep mine"). */
+  const store = useCallback(
+    (sent: CallScript, checked: boolean) => {
+      setLastSave({ script: sent, stamp: null, savedAt: null });
+      saveDraft.mutate(checked ? { script: sent, base_saved_at: base.savedAt } : { script: sent }, {
+        onSuccess: (r) => {
+          setLastSave({ script: sent, stamp: `d:${r.saved_at}`, savedAt: r.saved_at });
+          setConflict(false);
+          queryClient.setQueryData<ScriptOut>(scriptKeys.one(session.orgSlug, agentId), (old) =>
+            old ? withDraft(old, { script: sent, saved_at: r.saved_at }) : old,
+          );
+        },
+        onError: (error) => {
+          setLastSave(null);
+          if (error instanceof ApiProblem && error.code === "script_changed_elsewhere") setConflict(true);
+          else setSaveFailed(true);
+        },
+      });
+    },
+    [saveDraft, base.savedAt, queryClient, session.orgSlug, agentId],
+  );
+
+  // The autosave: a moment after the last change, when there is something the server
+  // will accept and nobody else's copy is in the way.
+  const pendingSave = saveDraft.isPending;
+  useEffect(() => {
+    if (!dirty || !write.allowed || conflict || saveFailed || issues.length > 0 || pendingSave || publishing) return;
+    const timer = setTimeout(() => store(script, true), AUTOSAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [script, dirty, write.allowed, conflict, saveFailed, issues.length, pendingSave, publishing, store]);
+
+  // The room-left meter, from the server's own count of the instructions it would send.
+  const previewMutate = previewMut.mutate;
+  useEffect(() => {
+    if (issues.length > 0) return;
+    const timer = setTimeout(
+      () =>
+        previewMutate(script, {
+          onSuccess: (r) =>
+            setRoom(
+              r.instructions_limit && r.instructions_chars !== undefined
+                ? { used: r.instructions_chars, limit: r.instructions_limit }
+                : null,
+            ),
+        }),
+      PREVIEW_DELAY_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [script, issues.length, previewMutate]);
+
+  // The merge-field buttons drop a field at the caret of the last text box the owner used.
   const lastFocused = useRef<Focusable | null>(null);
   const trackFocus = useCallback((el: Focusable | null) => {
     if (el) lastFocused.current = el;
   }, []);
-
   const insertVariable = useCallback((key: string) => {
     const el = lastFocused.current;
     if (!el) return;
     const token = `{{${key}}}`;
     const start = el.selectionStart ?? el.value.length;
     const end = el.selectionEnd ?? el.value.length;
-    // Native value setter + input event so React's controlled onChange fires and state
-    // updates — the standard way to inject text into a controlled field programmatically.
-    const proto =
-      el instanceof HTMLTextAreaElement
-        ? HTMLTextAreaElement.prototype
-        : HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-    setter?.call(el, el.value.slice(0, start) + token + el.value.slice(end));
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(el, el.value.slice(0, start) + token + el.value.slice(end));
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.focus();
-    const caret = start + token.length;
-    el.setSelectionRange(caret, caret);
+    el.setSelectionRange(start + token.length, start + token.length);
   }, []);
 
-  const setField = useCallback(<K extends keyof CallScript>(key: K, value: CallScript[K]) => {
-    setScript((s) => ({ ...s, [key]: value }));
-  }, []);
+  const setField = useCallback(
+    <K extends keyof CallScript>(key: K, value: CallScript[K]) => edit((s) => ({ ...s, [key]: value })),
+    [edit],
+  );
 
-  /* The script, declared to the assistant as one typed `CallScript` filled by PATH
-     (`lib/copilot/paths.ts`), never through the DOM: `insertVariable` above writes at the
-     author's caret, which is a DOM fact, while a fill names a field, which is a state fact.
-     `paths.ts` refuses an index the script does not have rather than growing a list. Raw
-     mode declares one field, because the server ignores the structured ones then. */
   useCopilotSurface({
     route: "/c/{slug}/agents/{id}/script",
-    title: raw ? "Call script (raw)" : "Call script",
+    title: raw ? "Call script (hand-written)" : "Call script",
     realm: "client",
-    // Pure and split out (`scriptSurface.ts`) so the model's view is testable alone.
     fields: scriptCopilotFields(script, raw),
     facts: script.variables.map((variable) => ({
       key: variable.key,
@@ -246,222 +345,426 @@ function Editor({
       value: variable.label,
     })),
     apply: (items) =>
-      setScript((current) =>
+      edit((current) =>
         applyByPaths(current, items, (id) =>
-          // `script-steps-2-instruction` -> `steps.2.instruction`, as `intakeFieldId` does.
           id.startsWith("script-") ? id.slice("script-".length).replace(/-/g, ".") : null,
         ),
       ),
   });
 
-  const compiledChars = useMemo(() => (preview ? preview.length : null), [preview]);
-
-  const toStructured = () => {
-    setRaw(false);
-    setScript((s) => ({ ...s, raw_override: null }));
+  const addOne = () => {
+    const made = addSection(script);
+    edit(made.script);
+    setSelected(made.id);
   };
-  const toRaw = () => {
-    setRaw(true);
-    // Seed raw mode with a blank body; the author can paste. Structured fields are cleared
-    // because the server refuses both modes at once.
-    setScript({ ...EMPTY_SCRIPT, raw_override: "" });
-  };
-  // Each switch empties the editor of the other mode's text, so it asks first whenever
-  // there is text to lose. An empty editor switches straight away.
-  const hasStructured =
-    script.opening_line.trim() !== "" || script.steps.length > 0 || script.faqs.length > 0;
-  const hasRaw = (script.raw_override ?? "").trim() !== "";
-  const askRaw = () => (hasStructured ? setSwitching("raw") : toRaw());
-  const askStructured = () => (hasRaw ? setSwitching("structured") : toStructured());
-
-  const onSave = () => {
-    const sent = script;
-    setLastSave({ script: sent, version: null });
-    save.mutate(
-      // The version the draft started from: the server refuses the save if it has moved,
-      // so an older copy can never be written over a newer one.
-      { script: sent, expected_version: base.version },
-      {
-        onSuccess: (r) => setLastSave({ script: sent, version: r.version }),
-        onError: () => setLastSave(null),
-      },
-    );
+  const keep = (next: CallScript) => {
+    setUndoTo(script);
+    edit(next);
+    setHelperOpen(false);
   };
 
-  const onPreview = () => {
-    previewMut.mutate(script, { onSuccess: (r) => setPreview(r.compiled) });
-  };
+  const save = saveState({
+    dirty,
+    saving: pendingSave,
+    canWrite: write.allowed,
+    conflict,
+    failed: saveFailed,
+    issueCount: issues.length,
+    savedAt: base.savedAt,
+  });
+
+  const selectedIndex = sections.findIndex((s) => s.id === selected);
+  const selectedSection = selectedIndex >= 0 ? sections[selectedIndex] : null;
+  const editor = selectedSection && (
+    <SectionEditor
+      key={selectedSection.id}
+      section={selectedSection}
+      index={selectedIndex}
+      sections={sections}
+      context={context}
+      limits={limits}
+      issues={issues}
+      readOnly={!write.allowed}
+      onChange={(patch) => edit((s) => updateSection(s, selectedSection.id, patch))}
+      onMove={(to) => edit((s) => moveSection(s, selectedIndex, to))}
+      onDelete={() => setDeleting(selectedSection.id)}
+    />
+  );
+  const showCanvas = desktop && view === "flow";
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <ScriptToolbar
         backHref={backHref}
         agentName={agentName}
-        version={base.version}
-        hasPending={hasPending}
-        unsaved={unsaved}
+        save={save}
+        room={raw ? null : room}
+        unpublished={unpublished}
         canWrite={write.allowed}
         writeReason={write.reason}
-        saving={save.isPending}
-        applying={apply.isPending}
-        onSave={onSave}
-        onApply={() => apply.mutate({ expected_version: base.version })}
-        onUndo={() => undo.mutate()}
-        onPreview={onPreview}
-        onAssist={() => setAssisting(true)}
+        publishing={putLive.pending}
+        helperOpen={helperOpen}
+        onPublish={() => setPublishing(true)}
+        onHistory={() => setHistoryOpen(true)}
+        onHelper={() => setHelperOpen((o) => !o)}
+        menu={[
+          {
+            id: "compiled",
+            label: "See what the agent reads",
+            onSelect: () => previewMut.mutate(script, { onSuccess: (r) => setCompiled(r.compiled) }),
+            disabled: issues.length > 0,
+            hint: issues.length > 0 ? "Finish the marked parts first." : undefined,
+          },
+          raw
+            ? { id: "sections", label: "Use sections instead", onSelect: () => setToText(true), disabled: !write.allowed }
+            : { id: "text", label: "Write it by hand instead", onSelect: () => setToText(true), disabled: !write.allowed },
+        ]}
       />
 
       <RestrictionNote reason={write.reason} />
-      {save.error && <ProblemNotice error={save.error} />}
-      {apply.error && <ProblemNotice error={apply.error} />}
-      {undo.error && <ProblemNotice error={undo.error} />}
-      {previewMut.error && <ProblemNotice error={previewMut.error} />}
-
-      {movedTo && (
-        <NoticeBox tone="warn" title="This script was changed somewhere else">
+      {conflict && (
+        <NoticeBox tone="warn" title="This draft was changed somewhere else">
           <p className="mt-1 text-meta">
-            {movedTo.version === null
-              ? "The saved script was removed after you started editing."
-              : `Version ${movedTo.version} was saved after you started editing.`}{" "}
-            Your edits are still on screen, but they cannot be saved over the newer version.
-            Load it to see what changed, then make your edit again.
+            Another window or another person saved a newer draft while you were editing. Your
+            edits are still on screen and have not been saved.
           </p>
-          <button
-            type="button"
-            className={`${SECONDARY_BUTTON_SM} mt-2`}
-            onClick={() => adopt(incoming)}
-          >
-            {movedTo.version === null ? "Load the saved script" : `Load version ${movedTo.version}`}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => adopt(incoming)}>
+              Load the newer draft
+            </button>
+            <button type="button" className={SECONDARY_BUTTON_SM} disabled={!write.allowed} onClick={() => store(script, false)}>
+              Keep mine
+            </button>
+          </div>
+        </NoticeBox>
+      )}
+      {saveFailed && (
+        <NoticeBox tone="warn" title="Your draft could not be saved">
+          <p className="mt-1 text-meta">Your edits are still on screen.</p>
+          <button type="button" className={`${SECONDARY_BUTTON_SM} mt-2`} onClick={() => store(script, true)}>
+            Try again
           </button>
         </NoticeBox>
       )}
+      {saveDraft.error && !conflict && saveFailed && <ProblemNotice error={saveDraft.error} />}
+      {previewMut.error && <ProblemNotice error={previewMut.error} />}
+      {published && (
+        <NoticeBox tone="ok" title={published.live ? "It is live" : "Saved as the agent's script"}>
+          <p className="mt-1 text-meta">
+            {published.live
+              ? "Callers hear it from their next call."
+              : "Callers hear it once the agent is switched on."}
+          </p>
+        </NoticeBox>
+      )}
+      {undoTo && (
+        <NoticeBox tone="neutral">
+          <span className="text-meta">The changes are in your draft. </span>
+          <button
+            type="button"
+            className={TEXT_ACTION}
+            onClick={() => {
+              edit(undoTo);
+              setUndoTo(null);
+            }}
+          >
+            Undo
+          </button>
+        </NoticeBox>
+      )}
+      {out.stored_schema_version === 1 && !raw && (
+        <p className="text-meta text-ink-muted">
+          This script was written in the older format and is shown in sections here. Callers
+          keep hearing the old one until you put it live.
+        </p>
+      )}
 
-      {/* Both pointers as data, because "the version on screen is the one callers hear" is
-          the one misreading the two-speed model must never allow. */}
-      {hasPending && (
-        <p className="text-sm text-ink">
-          A newer version of this script is saved but not yet applied to live calls. Apply it
-          when you are ready, or undo to go back to what callers hear now.
-        </p>
-      )}
-      {save.data && (
-        <p role="status" className="settings-enter text-sm text-ink-muted">
-          {save.data.staged
-            ? `Saved as v${save.data.version} — waiting to apply to live calls.`
-            : `Saved as v${save.data.version}.`}
-        </p>
-      )}
-      {isFreeform && (
-        <p className="flex items-center gap-1 text-sm text-ink-muted">
-          This script was written as free text.
-          <InfoTip label="Free-text script">
-            <p>
-              It is shown in the raw editor below so nothing is lost. Switch to the structured
-              builder when you are ready to rebuild it as steps and FAQs.
-            </p>
-          </InfoTip>
-        </p>
-      )}
-
-      <section aria-labelledby="script-editor-heading" className="mx-auto max-w-3xl space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 id="script-editor-heading" className="text-heading text-ink">
-            Its script
+      {raw ? (
+        <section aria-labelledby="hand-heading" className="max-w-3xl space-y-3">
+          <h3 id="hand-heading" className="text-heading text-ink">
+            Written by hand
           </h3>
-          <ModeToggle raw={raw} onStructured={askStructured} onRaw={askRaw} />
-        </div>
-        {raw ? (
-          <RawEditor
-            value={script.raw_override ?? ""}
-            onChange={(v) => setField("raw_override", v)}
-            trackFocus={trackFocus}
+          <HandWritten
+            agentId={agentId}
+            script={script}
+            readOnly={!write.allowed}
+            onChange={(text) => setField("raw_override", text)}
+            onConverted={keep}
           />
-        ) : (
-          <div className="space-y-8">
-            <VariableBar
-              standard={standardVariables}
-              custom={script.variables}
-              onInsert={insertVariable}
-            />
-            <OpeningSection
-              value={script.opening_line}
-              onChange={(v) => setField("opening_line", v)}
-              trackFocus={trackFocus}
-            />
-            <StepsSection
-              steps={script.steps}
-              onChange={(steps) => setField("steps", steps)}
-              trackFocus={trackFocus}
-            />
-            <FaqSection
-              faqs={script.faqs}
-              fallback={script.faq_fallback}
-              onFaqs={(faqs) => setField("faqs", faqs)}
-              onFallback={(v) => setField("faq_fallback", v)}
-              trackFocus={trackFocus}
-            />
-            <EndCallSection
-              rules={script.end_call_extra_rules}
-              onChange={(v) => setField("end_call_extra_rules", v)}
-              trackFocus={trackFocus}
-            />
+        </section>
+      ) : (
+        <>
+          <div className="max-w-3xl">
+            <TaughtRules agentId={agentId} script={script} canWrite={write.allowed} onChange={(next) => edit(next)} />
           </div>
-        )}
-      </section>
+          <fieldset disabled={!write.allowed} className="min-w-0 max-w-3xl space-y-3">
+            <legend className="sr-only">Opening line</legend>
+            <OpeningSection value={script.opening_line} onChange={(v) => setField("opening_line", v)} trackFocus={trackFocus} />
+            <VariableBar standard={out.standard_variables} custom={script.variables} onInsert={insertVariable} />
+          </fieldset>
+
+          <section id="stages" aria-labelledby="call-heading" className="scroll-mt-24 space-y-4 border-t border-line pt-6">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h3 id="call-heading" className="text-sm font-semibold text-ink">
+                  How the call goes
+                </h3>
+                <p className="mt-1 text-sm text-ink-muted">
+                  {sections.length} of {limits.maxSections} sections. Number 1 starts the call; each
+                  one says where the call goes next.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {desktop && (
+                  <div className="inline-flex rounded-md border border-line" role="group" aria-label="Show the sections as">
+                    <ViewButton on={view === "flow"} onClick={() => setView("flow")} icon={<Waypoints aria-hidden className="h-4 w-4" />} label="Flow" />
+                    <ViewButton on={view === "list"} onClick={() => setView("list")} icon={<LayoutList aria-hidden className="h-4 w-4" />} label="List" />
+                  </div>
+                )}
+                {showCanvas && sections.some((s) => s.position) && write.allowed && (
+                  <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => edit(tidy)}>
+                    Tidy up
+                  </button>
+                )}
+                {write.allowed && sections.length > 0 && sections.length < limits.maxSections && (
+                  <button type="button" className={SECONDARY_BUTTON_SM} onClick={addOne}>
+                    <Plus aria-hidden className="h-3.5 w-3.5" />
+                    Add a section
+                  </button>
+                )}
+              </div>
+            </div>
+            {issues.some((i) => i.field === "sections") && (
+              <p className="text-meta text-danger">{issues.find((i) => i.field === "sections")?.message}</p>
+            )}
+
+            {sections.length === 0 ? (
+              <div className="rounded-card border border-dashed border-line px-4 py-8 text-center">
+                <p className="text-body text-ink">No sections yet.</p>
+                <p className="mx-auto mt-1 max-w-md text-meta text-ink-muted">
+                  Most calls go: greet, find out what they need, answer or take the details, agree
+                  what happens next. Add a section for each, or let the AI helper draft them.
+                </p>
+                {write.allowed && (
+                  <div className="mt-4 flex flex-wrap justify-center gap-2">
+                    <button type="button" className={SECONDARY_BUTTON} onClick={addOne}>
+                      <Plus aria-hidden className="h-4 w-4" />
+                      Add a section
+                    </button>
+                    <button type="button" className={SECONDARY_BUTTON} onClick={() => setHelperOpen(true)}>
+                      Ask the AI helper
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className={desktop ? "grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]" : ""}>
+                <div className="min-w-0">
+                  {showCanvas ? (
+                    <FlowCanvas
+                      sections={sections}
+                      context={context}
+                      issues={issues}
+                      selected={selected}
+                      readOnly={!write.allowed}
+                      onSelect={setSelected}
+                      onPosition={(id, at) => edit((s) => setPosition(s, id, at))}
+                      onConnect={(from, to) => {
+                        edit((s) => connect(s, from, to, limits.maxBranches).script);
+                        setSelected(from);
+                      }}
+                    />
+                  ) : (
+                    <SectionList
+                      sections={sections}
+                      context={context}
+                      issues={issues}
+                      selected={selected}
+                      readOnly={!write.allowed}
+                      onOpen={setSelected}
+                      onMove={(from, to) => edit((s) => moveSection(s, from, to))}
+                    />
+                  )}
+                </div>
+                {desktop && (
+                  <aside aria-label="Edit the chosen section" className="min-w-0">
+                    {editor ?? (
+                      <p className="rounded-card border border-dashed border-line px-4 py-6 text-meta text-ink-muted">
+                        Choose a section to edit it here.
+                      </p>
+                    )}
+                  </aside>
+                )}
+              </div>
+            )}
+            {!desktop && selectedSection && (
+              <Drawer
+                open
+                onClose={() => setSelected(null)}
+                title={`${selectedIndex + 1}. ${selectedSection.name.trim() || "Untitled section"}`}
+                description="Changes save by themselves."
+              >
+                {editor}
+              </Drawer>
+            )}
+            <fieldset disabled={!write.allowed} className="min-w-0 max-w-3xl pt-2">
+              <StrictnessSection value={script.adherence ?? "flexible"} onChange={(v) => setField("adherence", v)} />
+            </fieldset>
+          </section>
+
+          <fieldset disabled={!write.allowed} className="min-w-0 max-w-3xl space-y-6 border-t border-line pt-6">
+            <legend className="sr-only">About the agent and the call</legend>
+            <IdentitySection script={script} set={setField} trackFocus={trackFocus} />
+            <GoalSection script={script} set={setField} direction={context?.direction ?? "inbound"} trackFocus={trackFocus} />
+            <StyleSection style={script.style} onChange={(v) => setField("style", v)} context={context} trackFocus={trackFocus} />
+            <ObjectionsSection objections={script.objections} onChange={(v) => setField("objections", v)} trackFocus={trackFocus} />
+            <PoliciesSection policies={script.policies} onChange={(v) => setField("policies", v)} context={context} />
+            <EndingSection value={script.ending} onChange={(v) => setField("ending", v)} trackFocus={trackFocus} />
+            <p className="text-sm text-ink-muted">
+              Quick facts, like prices and timings, live in{" "}
+              <Link href={knowledgeHref} className="font-medium text-ink underline underline-offset-2">
+                Knowledge
+              </Link>
+              , where all your agents share them.
+            </p>
+            <ExampleSection
+              lines={script.example_exchange}
+              needsReview={script.example_needs_review}
+              onChange={(lines, stillNeedsReview) =>
+                edit((s) => ({ ...s, example_exchange: lines, example_needs_review: stillNeedsReview }))
+              }
+              trackFocus={trackFocus}
+            />
+          </fieldset>
+        </>
+      )}
+
+      <div className="max-w-3xl border-t border-line pt-6">
+        <TestConversationsPanel agentId={agentId} />
+      </div>
 
       <Drawer
-        open={assisting}
-        onClose={() => setAssisting(false)}
-        title="Draft with AI"
-        description="Describe your business; review the draft before you save."
+        open={helperOpen}
+        onClose={() => setHelperOpen(false)}
+        title="AI helper"
+        description="Drafts or changes your script. You review every change."
         width="md"
       >
-        <AssistPanel
+        <AssistPanel agentId={agentId} script={script} onKeep={keep} />
+      </Drawer>
+
+      <Drawer open={historyOpen} onClose={() => setHistoryOpen(false)} title="History" description="Every time the script was put live.">
+        <ScriptHistory
           agentId={agentId}
-          // The draft fills what it writes (opening, steps, answers) and leaves the author's
-          // variables, end-call rules and fallback answer alone, since it never drafts them.
-          onDraft={(draft) =>
-            setScript((s) => ({
-              ...s,
-              opening_line: draft.opening_line,
-              steps: draft.steps,
-              faqs: draft.faqs,
-            }))
-          }
-          disabled={raw}
+          onRestored={(draft) => {
+            const copy = { script: draft.script, stamp: `d:${draft.saved_at}`, savedAt: draft.saved_at };
+            queryClient.setQueryData<ScriptOut>(scriptKeys.one(session.orgSlug, agentId), (old) =>
+              old ? withDraft(old, draft) : old,
+            );
+            adopt(copy);
+            setHistoryOpen(false);
+          }}
         />
       </Drawer>
 
-      {preview !== null && (
-        <CompiledPrompt
-          text={preview}
-          chars={compiledChars}
-          onClose={() => setPreview(null)}
+      {compiled !== null && <CompiledPrompt text={compiled} onClose={() => setCompiled(null)} />}
+
+      {publishing && (
+        <PutLiveDialog
+          live={out.script}
+          draft={script}
+          agentOn={agentOn}
+          voiceLine={voiceTierLine(pending.data)}
+          pending={putLive.pending}
+          error={putLive.error}
+          onCancel={() => {
+            setPublishing(false);
+            putLive.reset();
+          }}
+          onConfirm={(summary) =>
+            putLive.run(out, script, summary, (result) => {
+              setPublishing(false);
+              setPublished(result);
+              setLastSave(null);
+            })
+          }
         />
       )}
 
-      {switching && (
+      {deleting && (
         <ConfirmDialog
-          title={switching === "raw" ? "Start a blank text script?" : "Go back to the structured builder?"}
-          confirmLabel={switching === "raw" ? "Start blank text" : "Switch to structured"}
-          pendingLabel="Switching…"
-          cancelLabel="Keep editing"
+          title={`Delete ${sections.find((s) => s.id === deleting)?.name.trim() || "this section"}?`}
+          confirmLabel="Delete section"
+          pendingLabel="Deleting…"
+          cancelLabel="Keep it"
           pending={false}
           error={null}
-          onCancel={() => setSwitching(null)}
+          onCancel={() => setDeleting(null)}
           onConfirm={() => {
-            if (switching === "raw") toRaw();
-            else toStructured();
-            setSwitching(null);
+            const id = deleting;
+            setDeleting(null);
+            setSelected(null);
+            edit((s) => removeSection(s, id));
+          }}
+        >
+          <p>It comes out of your draft. Callers keep hearing the live script until you put it live.</p>
+          {pointersTo(sections, deleting).length > 0 && (
+            <p>
+              {pointersTo(sections, deleting).join(", ")} {pointersTo(sections, deleting).length === 1 ? "goes" : "go"} to
+              it now. Those ways out are removed too.
+            </p>
+          )}
+        </ConfirmDialog>
+      )}
+
+      {toText && (
+        <ConfirmDialog
+          title={raw ? "Start again with sections?" : "Write the script by hand?"}
+          confirmLabel={raw ? "Start with sections" : "Write it by hand"}
+          pendingLabel="Switching…"
+          cancelLabel="Stay as it is"
+          pending={false}
+          error={null}
+          onCancel={() => setToText(false)}
+          onConfirm={() => {
+            setToText(false);
+            setUndoTo(script);
+            edit(raw ? { ...EMPTY_SCRIPT } : { ...EMPTY_SCRIPT, raw_override: scriptAsText(script) });
           }}
         >
           <p>
-            {switching === "raw"
-              ? "The text editor starts empty. The steps and answers on screen are cleared from this draft; the saved version is not touched until you save."
-              : "The structured builder does not read free text, so the text on screen is cleared from this draft; the saved version is not touched until you save."}
+            {raw
+              ? "The text box is cleared from your draft and you start with empty sections. To keep your text, use “Turn this into sections” instead."
+              : "Everything you built is copied into one text box, so nothing is lost. The sections are cleared from your draft. Callers keep hearing the live script until you put it live."}
           </p>
         </ConfirmDialog>
       )}
     </div>
+  );
+}
+
+function ViewButton({
+  on,
+  onClick,
+  icon,
+  label,
+}: {
+  on: boolean;
+  onClick: () => void;
+  icon: ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium first:rounded-l-md last:rounded-r-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand touch:min-h-11 ${
+        on ? "bg-ink/[0.07] text-ink" : "text-ink-muted hover:bg-ink/[0.04]"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }

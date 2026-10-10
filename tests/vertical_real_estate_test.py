@@ -222,7 +222,7 @@ class _Fabricates:
 
     async def run(self, spec: ExtractionSchemaSpec, transcript: str) -> dict[str, Any]:
         return {f.key: self._INVENTED[f.key] for f in spec.fields} | {
-            "outcome_tag": "resolved",
+            "outcome_tag": "answered",
             "summary": "",
         }
 

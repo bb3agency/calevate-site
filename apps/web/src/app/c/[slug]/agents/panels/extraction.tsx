@@ -257,6 +257,11 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
         </InfoTip>
       </div>
       <p className="mt-1 text-sm text-ink-muted">These are the columns in your {leadsHref} table.</p>
+      <p className="mt-1 text-xs text-ink-muted">
+        Every call also writes down the caller&apos;s name, what they want, a preferred time,
+        another number, the language and any notes. Those are fixed and listed under Settings,
+        Lead details.
+      </p>
 
       <RestrictionNote reason={write.reason} />
       {save.error && (

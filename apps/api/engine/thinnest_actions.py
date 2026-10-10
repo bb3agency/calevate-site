@@ -47,9 +47,15 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import NO_CREDENTIALS_REASON, engine_not_configured
-from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL
+from apps.api.engine.thinnest import (
+    AUTH_HEADER,
+    AUTH_SCHEME,
+    BASE_URL,
+    DELIVERED_AT_HEADER,
+    SIGNATURE_HEADER,
+)
 from apps.api.engine.thinnest_workspace import workspace_headers
-from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, vendor_request
+from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, EngineRejectedError, vendor_request
 
 log = get_logger(__name__)
 
@@ -347,6 +353,38 @@ def _action(row: dict[str, Any]) -> VendorAction:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class CallStartLookup:
+    """A caller-lookup request in our terms (D-716): the vendor agent it names, whether it
+    is one we answer (an inbound phone or WhatsApp call about to be answered), and the
+    number the call claims to come from."""
+
+    agent_id: str | None
+    answerable: bool
+    caller: str | None
+
+
+def parse_call_start(raw: bytes) -> CallStartLookup | None:
+    """`{event: "call.started", callId, surface, agentId, from, to, direction, contact,
+    sentAt}` (docs.thinnest.ai channels/voice "Who-is-calling lookup", read 10 Oct 2026),
+    or None when the body is not a JSON object. `contact` is not read: what we answer comes
+    from our own records."""
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    caller = data.get("from")
+    return CallStartLookup(
+        agent_id=_str(data.get("agentId")),
+        answerable=data.get("event") == "call.started"
+        and data.get("direction") == "inbound"
+        and data.get("surface") in ("phone", "whatsapp"),
+        caller=caller if isinstance(caller, str) else None,
+    )
+
+
 class ThinnestActions:
     """`/agents/{id}/actions` CRUD plus the live-call list. Tests hand in a mock transport."""
 
@@ -519,6 +557,54 @@ class ThinnestActions:
             status=_str(row.get("status")),
         )
 
+    # --- caller lookup (`voice.callStartUrl`, D-716) ------------------------------------
+    #
+    # docs.thinnest.ai, read 10 Oct 2026 (live; the 8 Oct mirror predates the field):
+    # api-reference/agents/update-agent `AgentVoiceInput.callStartUrl` / `callStartSecret`
+    # and the 500/503 answers; channels/voice "Who-is-calling lookup". The vendor MINTS the
+    # secret and returns it once, as `voice.callStartSecret` on the response to the request
+    # that set a new address or sent `callStartSecret: "rotate"`; repeating the same address
+    # mints nothing. `503 signing_unavailable` saves nothing.
+
+    async def call_start_url(self, agent_ref: str) -> str | None:
+        """The lookup address the agent holds now (`voice.callStartUrl`), or None."""
+        agent = await self._request(
+            "GET", "/agents/{agent}", route="/agents/{id}", agent_ref=agent_ref
+        )
+        voice = agent.get("voice")
+        return _str(voice.get("callStartUrl")) if isinstance(voice, dict) else None
+
+    async def set_call_start(self, agent_ref: str, url: str, *, rotate: bool) -> str | None:
+        """Point the agent's lookup at `url` (and mint a new secret when `rotate`). Returns
+        the secret the response carries, or None when it carries none."""
+        voice: dict[str, Any] = {"callStartUrl": url}
+        if rotate:
+            voice["callStartSecret"] = "rotate"
+        try:
+            saved = await self._request(
+                "PATCH",
+                "/agents/{agent}",
+                route="/agents/{id}",
+                agent_ref=agent_ref,
+                json={"voice": voice},
+            )
+        except EngineRejectedError as exc:
+            if exc.vendor_code == "signing_unavailable":
+                raise ProblemError(
+                    kind="dependency",
+                    code="engine_call_start_signing_unavailable",
+                    title="The voice platform cannot sign caller lookups right now",
+                    detail="The caller lookup was not switched on; nothing was saved.",
+                    remediation="It is retried by the next settings check.",
+                ) from exc
+            raise
+        held = saved.get("voice")
+        if not isinstance(held, dict):
+            return None
+        if _str(held.get("callStartUrl")) != url:
+            raise _bad("the agent did not save the caller lookup address")
+        return _str(held.get("callStartSecret"))
+
 
 _DEFAULT: ThinnestActions | None = None
 
@@ -541,7 +627,9 @@ __all__ = [
     "CALL_ID_FIELD",
     "CALL_ID_HEADER",
     "CALL_ID_PLACEHOLDER",
+    "DELIVERED_AT_HEADER",
     "SECRET_HEADER",
+    "SIGNATURE_HEADER",
     "ActionDefinition",
     "ActionParam",
     "ActionTestResult",

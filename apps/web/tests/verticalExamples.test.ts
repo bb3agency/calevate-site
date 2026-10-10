@@ -16,7 +16,16 @@ import { examplesFor, type VerticalExamples } from "@/lib/verticalExamples";
  * the one here; what was here is a form that instructs forty times in the wrong trade.
  */
 
-const VERTICALS = ["clinic", "real_estate", "insurance", "education", "custom"] as const;
+const VERTICALS = [
+  "retail",
+  "local_services",
+  "automobile",
+  "clinic",
+  "real_estate",
+  "insurance",
+  "education",
+  "custom",
+] as const;
 
 /** Words that belong to a clinic and to nothing else we sell to. */
 const CLINICAL =

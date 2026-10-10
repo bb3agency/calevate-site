@@ -33,10 +33,11 @@ const TAB_ITEMS = [
 /**
  * The Voices page on an engine that HOSTS its voices (D-687, ENGINE=thinnest).
  *
- * Clear is ThinnestAI's voices in the band the server names (`clear_band`: Premium, or Studio
- * with our clones); Studio is Cartesia on our own key, switched on in the same workspace and
- * followed per agent (D-688). A client picks only from voices ADDED
- * and ENABLED here, and can play each one's preview first — so the screen's three jobs are
+ * Clear is ThinnestAI's voices in the band the server names (`clear_band`: its Premium band, or
+ * its Studio band with our clones); Studio is Cartesia on our own key, switched on in each
+ * Studio client's own workspace (D-717). ThinnestAI's bands are always labelled as theirs
+ * ("ThinnestAI Studio band"), so they never read as our Studio tier. A client picks only from
+ * voices ADDED and ENABLED here, and can play each one's preview first — so the screen's three jobs are
  * adding, enabling, and making sure every offered voice has a clip to play.
  *
  * `added` is the page's probe query (the parent read it to decide which screen to show), so
@@ -51,7 +52,7 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
 
   const byRung = (rung: "clear" | "studio") => added.voices.filter((voice) => voice.rung === rung);
   const studioCount = byRung("studio").length;
-  const soldBand = (added.clear_band && lookup(BAND_LABEL, added.clear_band)) ?? "Premium";
+  const soldBand = (added.clear_band && lookup(BAND_LABEL, added.clear_band)) ?? "ThinnestAI Premium band";
 
   return (
     <div className="max-w-4xl space-y-10 pb-12">
@@ -70,10 +71,11 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
                 {refresh.isPending ? "Reading the voice platform…" : "Refresh"}
               </button>
               <InfoTip label="Refresh">
-                Re-reads every voice ThinnestAI lists (Standard, Premium and Studio tiers), our clones
-                and, while Studio voices are on, the Cartesia voices of our key. Only voices of the
-                tier sold as Clear can be offered as Clear. ThinnestAI lists its Studio tier only on
-                its Pro plan and above, so a voice its console merely lets you preview is not read.
+                Re-reads every voice ThinnestAI lists (its Standard, Premium and Studio bands), our
+                clones and, once a client workspace runs Studio, the Cartesia voices of our key. Only
+                voices of the band sold as Clear can be offered as Clear. ThinnestAI lists its Studio
+                band only on its Pro plan and above, so a voice its console merely lets you preview is
+                not read.
                 A newly seen voice arrives not added; nothing here changes an agent or a call.
               </InfoTip>
             </div>
@@ -93,13 +95,13 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
       {refresh.error != null && <ProblemNotice error={refresh.error} />}
 
       {added.plan_note != null && (
-        <NoticeBox tone="warn" title={`No ${soldBand}-tier voices on the voice platform`}>
+        <NoticeBox tone="warn" title={`No ${soldBand} voices on the voice platform`}>
           <p className="mt-1">{added.plan_note}</p>
           <p className="mt-1">
-            Clear is sold on {soldBand}-tier voices only, so no Clear voice can be added until
-            they are listed.
+            Clear is sold on {soldBand} voices only, so no Clear voice can be added until they
+            are listed.
             {added.clear_band === "studio" &&
-              " The platform's Studio tier is not the Studio voices switch below: that switch is our Cartesia key and adds no voice to this tier."}
+              " ThinnestAI's Studio band is not our Studio tier below: that is our Cartesia key and adds no voice to this band."}
           </p>
         </NoticeBox>
       )}
@@ -146,8 +148,8 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
             if (value === "studio" && !added.studio_ready && studioCount === 0) {
               return (
                 <p className="text-body text-ink-muted">
-                  Studio voices are read from our Cartesia key, which is not switched on yet. Enable
-                  Studio voices above, then press Refresh.
+                  Studio voices are read through a client workspace that runs Studio, and none does
+                  yet. Run Studio ready above naming the first Studio client, then press Refresh.
                 </p>
               );
             }
@@ -156,7 +158,7 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
                 voices={byRung(value as "clear" | "studio")}
                 empty={
                   value === "clear"
-                    ? `No Clear voice is added yet. Add a ${soldBand}-tier voice from “Every voice on the platform”.`
+                    ? `No Clear voice is added yet. Add a ${soldBand} voice from “Every voice on the platform”.`
                     : "No Studio voice is added yet. Add one from “Every voice on the platform”."
                 }
               />
@@ -176,9 +178,9 @@ const BAND_ORDER = ["standard", "premium", "studio"] as const;
 function BandSummary({ bands, soldBand }: { bands: HostedVoices["bands"]; soldBand: string }) {
   return (
     <p className="text-body tabular-nums text-ink-muted">
-      {"Tiers on the platform: "}
+      {"Bands on the platform: "}
       {BAND_ORDER.map((band) => `${formatCount(bands[band] ?? 0)} ${lookup(BAND_LABEL, band) ?? band}`).join(" · ")}
-      {`. Only ${soldBand}-tier voices can be added as Clear.`}
+      {`. Only ${soldBand} voices can be added as Clear.`}
     </p>
   );
 }

@@ -14,6 +14,7 @@ import type { Lead, LeadLens, LeadList, Member } from "@/lib/api/leads";
 
 import { readInfoTip } from "./infoTip";
 import { lensOf, problem, renderClientPage, type ApiCall } from "./harness";
+import { LEAD_FIELDS_CORE_ONLY } from "./fixtures/sharedReads";
 
 /**
  * WHAT THE SCREEN IS ALLOWED TO SAY ABOUT AN ACCOUNT WITH FILTERS ON.
@@ -109,6 +110,7 @@ function routes(over: Record<string, unknown> = {}) {
     "POST /v1/leads/search": leadList([]),
     "/v1/leads/facets": { facets: [], omitted_field_count: 0 },
     "/v1/leads/views": { items: [] },
+    "/v1/lead-fields": LEAD_FIELDS_CORE_ONLY,
     ...over,
   };
 }

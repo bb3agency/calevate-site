@@ -55,7 +55,16 @@ log = get_logger("calevate.provider_health")
 #: The platform AI legs whose MAIN provider failing degrades the product. A closed set of
 #: our own words, because it becomes part of an alert fingerprint.
 AiLeg = Literal[
-    "copilot", "standby", "extraction", "embeddings", "memory", "kb_gloss", "ocr", "script"
+    "copilot",
+    "standby",
+    "extraction",
+    "embeddings",
+    "memory",
+    "kb_gloss",
+    "ocr",
+    "script",
+    "lead_fields",
+    "teach",
 ]
 
 ALARM_CODE: Final = "ai_provider_degraded"

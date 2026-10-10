@@ -37,7 +37,10 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
       out.push({
         id: "select",
         header: "Select",
-        className: "w-8",
+        // A fixed 3rem (a 24px touch checkbox and its padding), so the pinned Name
+        // column can sit exactly beside it.
+        pin: "left-0",
+        className: "w-12 min-w-12 max-w-12",
         renderHeader: () => (
           <input
             type="checkbox"
@@ -62,6 +65,8 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
         id: column.key,
         header: column.label,
         className: cellClass(column),
+        // Who the row is stays in view while a phone scrolls the rest sideways.
+        pin: column.key === "name" ? (maySelect ? "left-12" : "left-0") : undefined,
         sort: sortFor(column),
         cell: (lead) => (
           <>

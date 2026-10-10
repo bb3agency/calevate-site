@@ -32,7 +32,10 @@ export function FacetPanel({
   selected,
   onChange,
   onRetry,
+  bare = false,
 }: {
+  /** Inside another disclosure ("More filters"): the groups alone, with no second fold. */
+  bare?: boolean;
   facets: LeadFacets | undefined;
   loading: boolean;
   error: unknown;
@@ -67,18 +70,7 @@ export function FacetPanel({
   const anySelected = Object.values(selected).some((v) => v.length);
   const selectedCount = Object.values(selected).reduce((n, v) => n + v.length, 0);
 
-  return (
-    /* DISCLOSED (UX-DOCTRINE §3): a filter used now and then, low consequence. Open by
-       itself whenever a value is chosen, so a filter in force is never out of sight, and
-       the closed state says how many fields it offers and how many are in use. */
-    <Disclosure
-      variant="inline"
-      title="Filter by what your agent captured"
-      subtitle={`${facets.facets.map((facet) => facet.label).join(", ")}${
-        anySelected ? ` · ${selectedCount} chosen` : ""
-      }`}
-      defaultOpen={anySelected}
-    >
+  const body = (
       <div className="space-y-3">
       {anySelected && (
         <button
@@ -139,6 +131,22 @@ export function FacetPanel({
         </p>
       )}
       </div>
+  );
+  if (bare) return body;
+
+  return (
+    /* DISCLOSED (UX-DOCTRINE §3): a filter used now and then, low consequence. Open by
+       itself whenever a value is chosen, so a filter in force is never out of sight, and
+       the closed state says how many fields it offers and how many are in use. */
+    <Disclosure
+      variant="inline"
+      title="Filter by what your agent captured"
+      subtitle={`${facets.facets.map((facet) => facet.label).join(", ")}${
+        anySelected ? ` · ${selectedCount} chosen` : ""
+      }`}
+      defaultOpen={anySelected}
+    >
+      {body}
     </Disclosure>
   );
 }

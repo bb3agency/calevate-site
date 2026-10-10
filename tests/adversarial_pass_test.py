@@ -229,6 +229,15 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
                 "'\\x00'::bytea, '\\x00'::bytea, '\\x00'::bytea, '\\x00'::bytea, 1)",
                 {},
             ),
+            # D-707: one month's platform fee. Opening its payment from a neighbour's
+            # session must meet RLS's zero rows before any Razorpay order is created.
+            (
+                "charge_id",
+                "monthly_fee_charges",
+                "(id, tenant_id, period, amount, issued_at, grace_ends_at) "
+                "VALUES (:i, :t, '2026-08', 999, now(), now() + interval '7 days')",
+                {},
+            ),
         )
         for key, table, clause, extra in rows:
             row_id = uuid.uuid4()
@@ -627,6 +636,9 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # The client's own business certificate, decrypted. RLS on `kyc_documents` must leave
     # a neighbour zero rows before the object store is touched.
     ("GET", "/v1/compliance/kyc/documents/{document_id}", {}, {}),
+    # Opening the payment for a neighbour's platform fee would put their fee's amount on a
+    # Razorpay order this caller pays; RLS must leave zero rows before any order exists.
+    ("POST", "/v1/billing/platform-fee/{charge_id}/order", {}, {}),
 )
 
 

@@ -27,6 +27,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 LeadStatus = Literal["new", "contacted", "interested", "hot", "won", "lost"]
+#: How a lead came to us. Stable machine words; plain labels are the screen's job.
+LeadSource = Literal["inbound_call", "webhook", "campaign", "manual", "test_call", "outbound_call"]
 
 
 class Strict(BaseModel):
@@ -38,9 +40,39 @@ class TranscriptTurnOut(Strict):
     speaker: Literal["agent", "caller"]
     # Redacted by default. The raw view is a separate, role-checked, audited endpoint.
     text: str
+    #: The turn in English for the "Show English" toggle, translated after the call from
+    #: the REDACTED text, so it is redacted on every view, the raw one included. NULL when
+    #: the turn was already English or has not been translated (`translation_state`).
+    text_en: str | None = None
     lang: str | None = None
     start_ms: int | None = None
     redacted: bool = True
+
+
+#: What a call came to, as the client reads it (`crm/outcomes`, founder decision 6).
+CallOutcome = Literal[
+    "call_back_booked", "needs_you", "answered", "transferred", "hung_up_early", "missed"
+]
+SummaryState = Literal["pending", "ready", "failed", "empty"]
+TranslationState = Literal["pending", "ready", "failed", "not_needed", "unavailable"]
+CallbackStatus = Literal[
+    "scheduled", "dialing", "completed", "cancelled", "refused", "missed", "failed"
+]
+
+
+class CallCallbackOut(Strict):
+    """The call back booked ON this call, if any (F-4/F-5): the newest one."""
+
+    id: UUID
+    #: The promised instant (timestamptz; the screen shows it in IST).
+    due_at: datetime
+    status: CallbackStatus
+    #: The client-facing sentence for why it was not placed (or has not been yet), when a
+    #: rule stopped it. NULL while nothing has stopped it.
+    blocked_reason: str | None = None
+    #: The rule's own name, for a screen that wants to branch
+    #: (`trial_live_outbound_unavailable`, `dnc`, ...).
+    blocked_rule: str | None = None
 
 
 class CallSummaryOut(Strict):
@@ -56,13 +88,27 @@ class CallSummaryOut(Strict):
     caller_e164: str | None = None
     started_at: datetime | None = None
     duration_s: int | None = None
-    outcome_tag: str | None = None
+    #: DERIVED from facts after the call (`crm/outcomes.derive_outcome`); NULL until the
+    #: pipeline has run or when nothing could be told. Never "resolved" any more.
+    outcome_tag: CallOutcome | None = None
     sentiment: str | None = None
-    # REDACTED prose, not the stored column: the summary is derived from the transcript
-    # (the offline extractor's is a transcript line verbatim), so it ships through the
-    # same pass as `text_redacted`. Raw only from the audited raw-transcript route.
+    # REDACTED prose, not the stored column: the summary is derived from the transcript,
+    # so it ships through the same pass as `text_redacted`. Raw only from the audited
+    # raw-transcript route. ENGLISH. NULL unless `summary_state` is `ready`.
     summary: str | None = None
+    #: `pending` (not written yet), `ready`, `failed` (could not be written), `empty`
+    #: (nothing to summarise). Lets the screen tell "writing" from "none".
+    summary_state: SummaryState
+    #: One line for the call list, English, at most 90 characters, redacted. NULL when none.
+    headline: str | None = None
+    #: The call back booked on this call, if one was.
+    callback: CallCallbackOut | None = None
+    #: This call was a free-trial test call (D-697).
+    test_call: bool
     lead_id: UUID | None = None
+    #: The name on this call's lead, when it has one. The client's own contact data, shown
+    #: in full like `caller_e164`.
+    lead_name: str | None = None
 
 
 class CallMomentOut(Strict):
@@ -86,6 +132,25 @@ class CallMomentOut(Strict):
     source: Literal["derived", "model"]
 
 
+class CapturedFieldOut(Strict):
+    """One captured detail under the name it was captured with (`crm/captured.py`).
+
+    `core` marks the details every business captures (`calevate_shared.lead_fields`);
+    `current` is False for a detail the agent no longer captures, whose value is still shown.
+    """
+
+    key: str
+    label: str
+    type: Literal["text", "number", "bool", "enum", "date"]
+    core: bool
+    current: bool
+    value: Any = None
+
+
+class CapturedFieldsOut(Strict):
+    fields: list[CapturedFieldOut]
+
+
 class CallDetailOut(CallSummaryOut):
     transcript: list[TranscriptTurnOut] = Field(default_factory=list)
     #: REQUIRED, with no default, and that is deliberate rather than an oversight.
@@ -104,6 +169,8 @@ class CallDetailOut(CallSummaryOut):
     #: NULL-versus-`[]` in the column, which is not a client's question.
     moments: list[CallMomentOut]
     extraction: dict[str, Any] = Field(default_factory=dict)
+    #: `extraction` with its labels, the core first. Required for `moments`' reason.
+    captured: list[CapturedFieldOut]
     extraction_valid: bool = True
     #: Captured fields a human should confirm before acting on — `{field_key: reason}`,
     #: PII-free (the value is in `extraction`). Empty when nothing was flagged. Today the
@@ -112,6 +179,23 @@ class CallDetailOut(CallSummaryOut):
     extraction_needs_review: dict[str, str] = Field(default_factory=dict)
     has_recording: bool = False
     disclosure_played: bool | None = None
+    #: The same summary in the call's language, for the "show in Telugu" toggle. Redacted
+    #: like `summary`. NULL for an English call or when none could be written.
+    summary_local: str | None = None
+    #: BCP-47 tag of `summary_local` (`te-IN`).
+    summary_language: str | None = None
+    #: Who wrote `summary`: the voice platform's own (`engine`) or our extraction model.
+    summary_source: Literal["engine", "extraction"] | None = None
+    #: What the business should do next, English, redacted. NULL when nothing.
+    next_step: str | None = None
+    #: The caller asked to be called back (booked or not). NULL when no model read the call.
+    callback_requested: bool | None = None
+    #: Whether `transcript[].text_en` is written: `pending`, `ready`, `failed`,
+    #: `not_needed` (an English call), `unavailable` (a call from before translation).
+    translation_state: TranslationState
+    #: Which runner produced the extraction (`call_extractions.model`): the Sarvam model id
+    #: or `offline-heuristic`. NULL for calls extracted before it was recorded.
+    extraction_model: str | None = None
 
 
 class RecordingLinkOut(Strict):
@@ -143,7 +227,10 @@ class LeadOut(Strict):
     phone_e164: str
     name: str | None = None
     status: LeadStatus
-    source: str
+    #: Who last moved `status`: `person` or `system` (the after-call rules, which never
+    #: overwrite a person's choice and never move a lead backwards).
+    status_set_by: Literal["system", "person"]
+    source: LeadSource
     data: dict[str, Any] = Field(default_factory=dict)
     schema_version: int | None = None
     call_count: int
@@ -164,6 +251,15 @@ class LeadOut(Strict):
     #: written before the column existed — and never a guess.
     first_call_id: UUID | None = None
     last_call_id: UUID | None = None
+    #: The last call's one-line headline ("what they want, how it ended"), English,
+    #: redacted. NULL when that call has none.
+    last_call_headline: str | None = None
+    #: The last call's outcome (`CallSummaryOut.outcome_tag`).
+    last_call_outcome: CallOutcome | None = None
+    #: What the business should do next, from the last call. NULL when nothing.
+    next_step: str | None = None
+    #: The soonest call back still to be placed for this lead. NULL when none is booked.
+    next_callback_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     # WHO OWNS THIS LEAD (ROADMAP M3). The id is what the assignee control writes back,

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { FilterChip, ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
+import { ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { SegmentedControl } from "@/components/interior/segmented-control";
@@ -22,16 +22,16 @@ import {
   type LeadColumn,
   type LeadStatus,
 } from "@/lib/api/leads";
+import { useLeadFields } from "@/lib/api/leadFields";
 import { lookup } from "@/lib/lookup";
 import { examplesFor } from "@/lib/verticalExamples";
 
 import { BulkActionBar, EMPTY_SELECTION, type BulkSelection } from "./BulkActionBar";
 import { DialerPicker } from "./DialerPicker";
-import { FacetPanel } from "./FacetPanel";
 import { LeadTable } from "./LeadTable";
 import { LeadsFooter } from "./LeadsFooter";
 import { LeadsToolbar } from "./LeadsToolbar";
-import { SavedViewBar } from "./SavedViewBar";
+import { MoreFilters } from "./MoreFilters";
 import { STATUSES } from "./StatusSelect";
 import { narrowedBeyondStatus } from "./leadFilters";
 import { PAGE_SIZE, exportRefusal, scopeLabel } from "./leadsTable";
@@ -43,6 +43,13 @@ import { useLeadsLens } from "./useLeadsLens";
  * The CRM table — every lead an agent captured, and the one place a client works them.
  *
  * PRIMARY JOB (UX-DOCTRINE §10): *work the queue* — find a lead, move its stage, ring it.
+ *
+ * Above the rows there is ONE toolbar (search, the question box, columns, export), the
+ * stage chips with their counts, and a closed "More filters" holding what is used now and
+ * then (owner, captured-answer filters, saved views). The table starts on five columns —
+ * who, what they want, what is next, the last call and the stage — and the business's own
+ * fields wait in the column chooser. On a phone the table scrolls sideways inside its own
+ * region with the Name column pinned, and the page itself never does (founder, 10 Oct 2026).
  *
  * Two properties belong to the SCREEN rather than to the components below:
  *
@@ -59,7 +66,10 @@ import { useLeadsLens } from "./useLeadsLens";
 export function LeadsScreen() {
   // `href` carries the D-22 operator marker forward on the links to each lead.
   const { session, href } = useClientRealm();
-  const f = useLeadsLens();
+  /** Which captured field is "what they want". A failed read falls back to the core key. */
+  const leadFields = useLeadFields(session);
+  const needKey = leadFields.data?.need_key ?? "need";
+  const f = useLeadsLens(needKey);
   const { lens } = f;
 
   const leads = useLeadsUnderLens(session, lens, { limit: PAGE_SIZE, offset: f.offset || undefined });
@@ -178,13 +188,17 @@ export function LeadsScreen() {
 
   const exportNote =
     exportTotal === null
-      ? "The CSV export contains the leads and columns shown here, with full phone numbers, and each download is recorded."
+      ? "The CSV export contains the leads shown here: name and full phone number first, then the columns shown here. Each download is recorded."
       : `The CSV export contains ${
           exportTotal === 1 ? "this 1 lead" : `these ${formatCount(exportTotal)} leads`
-        } and the columns shown here, with full phone numbers. Each download is recorded.`;
+}: name and full phone number first, then the columns shown here. Each download is recorded.`;
+
+  /** How many of the "More filters" are narrowing the rows, for its closed state. */
+  const moreInUse =
+    (f.assignedTo ? 1 : 0) + Object.values(f.facetValues).filter((values) => values.length > 0).length;
 
   return (
-    <div className="space-y-5 pb-12">
+    <div className="space-y-4 pb-12">
       <LeadsToolbar
         askExample={examplesFor(me.data?.organization?.vertical_template).leadSearch}
         search={f.search}
@@ -200,7 +214,9 @@ export function LeadsScreen() {
           f.setOffset(0);
         }}
         leads={leads}
-        chosenColumns={f.chosenColumns}
+        // What the table is SHOWING: the server's resolved list once it has answered, so a
+        // column the server dropped is not shown ticked.
+        chosenColumns={leads.data?.columns.map((c) => c.key) ?? lens.columns}
         onColumns={f.setChosenColumns}
         lens={lens}
         exportLeads={exportLeads}
@@ -213,8 +229,7 @@ export function LeadsScreen() {
       <RestrictionNote reason={exportRefused} />
 
       {/* STAGE, with the server's count for each beside it — the one filter a client
-          uses most, and the stage tally in the same place. A second axis (owner) sits
-          beside it as its own control. */}
+          uses most, and the stage tally in the same place. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <SegmentedControl
           label="Filter by status"
@@ -230,16 +245,7 @@ export function LeadsScreen() {
           ]}
           className="min-w-0"
         />
-        <div className="flex flex-wrap items-center gap-2">
-          {myUserId && (
-            <div role="group" aria-label="Filter by owner">
-              <FilterChip
-                label="Assigned to me"
-                active={f.assignedTo !== undefined}
-                onClick={() => f.setAssignedTo(f.assignedTo ? undefined : myUserId)}
-              />
-            </div>
-          )}
+        <div className="flex flex-wrap items-center gap-3">
           <AskAssistant
             prompt={
               selection.wholeQuery || selection.ids.length > 0
@@ -266,13 +272,37 @@ export function LeadsScreen() {
         </div>
       </div>
 
-      {/* An operator is a real person with a real id, so the chip works; it simply cannot
-          match, because leads are owned by the client's own team. */}
-      {myUserId && me.data?.impersonating && (
-        <p className="text-meta text-ink-muted">
-          You are viewing this account as Calevate operations, so no lead here is assigned to you.
-        </p>
-      )}
+      <MoreFilters
+        inUse={moreInUse}
+        myUserId={myUserId}
+        assignedToMe={f.assignedTo !== undefined}
+        onAssignedToMe={(on) => f.setAssignedTo(on ? myUserId : undefined)}
+        impersonating={me.data?.impersonating}
+        facets={facets}
+        facetValues={f.facetValues}
+        onFacetValues={f.setFacetValues}
+        views={savedViews}
+        activeViewId={f.activeViewId}
+        canSaveView={mayApplyView.allowed}
+        saveViewReason={mayApplyView.reason}
+        onApplyView={(view) => {
+          f.setActiveViewId(view?.id);
+          f.setStatus(view?.filters.status ?? undefined);
+          f.setFacetValues(view?.filters.fields ?? {});
+          f.setChosenColumns(view?.columns ?? undefined);
+          // The owner filter is a BOOLEAN on the server, resolved fresh against whoever
+          // is signed in — a stored id would dangle the day that colleague leaves.
+          f.setAssignedTo(view?.filters.assigned_to_me ? myUserId : undefined);
+        }}
+        currentView={{
+          filters: {
+            status: f.status ?? null,
+            assigned_to_me: Boolean(f.assignedTo),
+            fields: f.facetValues,
+          },
+          columns: f.chosenColumns ?? null,
+        }}
+      />
 
       {/* WHAT THE ROWS ARE when a question is in force: a ranked table looks exactly like
           a filtered one. `semantic_truncated` is the server's own "is this all of them". */}
@@ -287,48 +317,6 @@ export function LeadsScreen() {
           filters for those.
         </p>
       )}
-
-      <SavedViewBar
-        views={savedViews.data}
-        error={savedViews.error}
-        activeViewId={f.activeViewId}
-        canWrite={mayApplyView.allowed}
-        writeReason={mayApplyView.reason}
-        onApply={(view) => {
-          f.setActiveViewId(view?.id);
-          f.setStatus(view?.filters.status ?? undefined);
-          f.setFacetValues(view?.filters.fields ?? {});
-          f.setChosenColumns(view?.columns ?? undefined);
-          // The owner filter is a BOOLEAN on the server, resolved fresh against whoever
-          // is signed in — a stored id would dangle the day that colleague leaves.
-          f.setAssignedTo(view?.filters.assigned_to_me ? myUserId : undefined);
-        }}
-        currentBody={{
-          filters: {
-            status: f.status ?? null,
-            assigned_to_me: Boolean(f.assignedTo),
-            fields: f.facetValues,
-          },
-          columns: f.chosenColumns ?? null,
-        }}
-      />
-
-      <FacetPanel
-        facets={facets.data}
-        loading={facets.isLoading}
-        error={facets.error}
-        selected={f.facetValues}
-        onChange={f.setFacetValues}
-        onRetry={() => facets.refetch()}
-      />
-
-      <DialerPicker
-        unavailable={unavailable}
-        canCall={canCall}
-        dialers={dialers}
-        selectedAgentId={selectedAgentId}
-        onSelect={setAgentId}
-      />
 
       <RestrictionNote reason={mayEditLead.reason} />
 
@@ -386,6 +374,16 @@ export function LeadsScreen() {
           }
         />
       )}
+
+      {/* Which agent rings a lead from this table, and the checks every such call passes.
+          Under the rows it qualifies rather than above them, and never folded away. */}
+      <DialerPicker
+        unavailable={unavailable}
+        canCall={canCall}
+        dialers={dialers}
+        selectedAgentId={selectedAgentId}
+        onSelect={setAgentId}
+      />
 
       <LeadsFooter
         leads={leads}

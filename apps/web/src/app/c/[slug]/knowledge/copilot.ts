@@ -4,24 +4,17 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
 /*
- * THE "TEACH IT SOMETHING" FORM, DECLARED TO THE SCREEN ASSISTANT.
+ * THE TEACH BOX, DECLARED TO THE SCREEN ASSISTANT.
  *
- * Two loose `useState` scalars, so `apply` is two setter calls — no DOM, no draft object
- * to thread. There is no agent field: the knowledge is the business's and every agent
- * answers from it (D-689), so there is nothing for the assistant to choose.
- *
- * This is the screen where a fill is most obviously worth having: the body is a page of
- * prose about a business, and "write the cancellation policy from what is in the
- * intake sheet" is the whole job.
+ * One field: what the owner wants the agents to know. The assistant can draft it ("write
+ * our delivery areas from the profile"); the owner still presses Sort it and reviews every
+ * fact and rule before anything is saved. There is no agent field: facts are the business's
+ * and every agent answers from them (D-689); rules pick their agent in the review.
  */
 export function useKnowledgeCopilot({
-  name,
-  setName,
   body,
   setBody,
 }: {
-  name: string;
-  setName: (value: string) => void;
   body: string;
   setBody: (value: string) => void;
 }) {
@@ -31,24 +24,16 @@ export function useKnowledgeCopilot({
     realm: "client",
     fields: [
       {
-        id: "kb-title",
-        label: "Title",
-        type: "text",
-        value: name,
-        help: "What this note is about — shown in the list, not read to callers.",
-      },
-      {
-        id: "kb-body",
-        label: "What it should know",
+        id: "kb-teach",
+        label: "What should your agents know?",
         type: "textarea",
         value: body,
-        help: "Prose, in the language the agents answer in. It is shared by every agent on the account, and once it has reached them it becomes part of what each agent already knows when it picks up.",
+        help: "Plain words, in any language the agents speak. It is sorted into facts every agent gets and rules for one agent, and the owner checks each before it is saved.",
       },
     ],
     apply: (items) => {
       for (const item of items) {
-        if (item.field_id === "kb-title") setName(asText(item.value));
-        else if (item.field_id === "kb-body") setBody(asText(item.value));
+        if (item.field_id === "kb-teach") setBody(asText(item.value));
       }
     },
   });

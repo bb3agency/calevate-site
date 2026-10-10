@@ -136,7 +136,7 @@ async def _fixture(role: str = "owner") -> Fixture:
                 "INSERT INTO calls (id, tenant_id, agent_id, lead_id, engine_call_id, direction, "
                 "status, from_e164, summary, sentiment, outcome_tag, started_at, ended_at, "
                 "duration_s, created_at, updated_at) VALUES (:id, :tid, :aid, :lid, :ecid, "
-                "'inbound', 'completed', :from_e, :summary, 'positive', 'needs_follow_up', "
+                "'inbound', 'completed', :from_e, :summary, 'positive', 'needs_you', "
                 "now(), now(), 61, now(), now())"
             ),
             {
@@ -205,7 +205,7 @@ def _assert_clean(response: httpx.Response, *, must_contain: str) -> bytes:
 @pytest.mark.parametrize(
     ("path", "marker"),
     [
-        ("/v1/calls", "needs_follow_up"),
+        ("/v1/calls", "needs_you"),
         ("/v1/leads", "Ravi Kumar"),
         ("/v1/attention", "items"),
         ("/v1/lead-sources/activity", "items"),
@@ -236,7 +236,7 @@ async def test_the_call_list_and_detail_carry_the_callers_own_number_in_full() -
         listing = await http.get("/v1/calls", headers=fx.headers)
         detail = await http.get(f"/v1/calls/{fx.call_id}", headers=fx.headers)
 
-    _assert_clean(listing, must_contain="needs_follow_up")
+    _assert_clean(listing, must_contain="needs_you")
     _assert_clean(detail, must_contain="transcript")
     assert listing.json()[0]["caller_e164"] == LEAD_NUMBER
     assert detail.json()["caller_e164"] == LEAD_NUMBER
@@ -510,7 +510,7 @@ async def test_the_signed_crm_webhook_body_carries_no_transcript_and_no_raw_phon
                 "lead_id": str(fx.lead_id),
                 "direction": "inbound",
                 "duration_s": 61,
-                "outcome": "needs_follow_up",
+                "outcome": "needs_you",
                 "sentiment": "positive",
                 "summary": redact(RAW_SUMMARY).text,
             },
@@ -578,6 +578,21 @@ async def test_the_post_call_pipeline_redacts_the_summary_before_it_enters_the_o
             ("caller", f"Naa number {SPOKEN_IN_CALL}, malli call cheyandi."),
         ),
     )
+
+    # The offline extractor no longer copies a transcript line into the summary (F-6), so
+    # the number reaches `calls.summary` the way it does in production: in the voice
+    # platform's own summary, which is the summary of first resort (founder decision 12).
+    from apps.workers import pipeline as pipeline_module
+
+    original_truth = pipeline_module.post_call_truth
+
+    async def _truth_with_summary(*args: Any, **kwargs: Any) -> Any:
+        snapshot = await original_truth(*args, **kwargs)
+        return snapshot.model_copy(
+            update={"engine_summary": f"The caller gave {SPOKEN_IN_CALL} for a call back."}
+        )
+
+    monkeypatch.setattr(pipeline_module, "post_call_truth", _truth_with_summary)
 
     reset_engine_cache()
     engine = get_engine()
@@ -784,7 +799,7 @@ async def test_a_sheets_append_never_reaches_a_transport_carrying_a_spoken_numbe
                 "lead_id": "l-1",
                 "direction": "inbound",
                 "duration_s": 61,
-                "outcome": "needs_follow_up",
+                "outcome": "needs_you",
                 "sentiment": "positive",
                 "summary": redact(RAW_SUMMARY).text,
             },

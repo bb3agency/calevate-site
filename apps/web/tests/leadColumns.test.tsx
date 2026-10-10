@@ -13,6 +13,10 @@ import {
   stubDownloads,
   type ApiCall,
 } from "./harness";
+import { LEAD_FIELDS_CORE_ONLY } from "./fixtures/sharedReads";
+
+/** What the table asks for before anyone chooses (`lib/leadLabels.DEFAULT_LEAD_COLUMNS`). */
+const USUAL = "name,need,next_step,last_call,status";
 
 /**
  * The Leads table's LENS: which rows, which columns, and whether the CSV agrees.
@@ -113,6 +117,7 @@ const LEAD: Lead = {
   name: "Ramesh Kumar",
   phone_e164: "+919876543210",
   status: "new",
+  status_set_by: "system",
   source: "inbound_call",
   data: { budget_band: "over_50l" },
   schema_version: 1,
@@ -184,6 +189,7 @@ function routes(over: Record<string, unknown> = {}) {
     "POST /v1/leads/search": leadList(),
     "/v1/leads/facets": FACETS,
     "/v1/leads/views": { items: [] },
+    "/v1/lead-fields": LEAD_FIELDS_CORE_ONLY,
     ...over,
   };
 }
@@ -250,21 +256,18 @@ describe("the column chooser reaches the table AND the file", () => {
   it("sends a column choice to the list and the identical one to the export", async () => {
     const { calls } = await renderClientPage(
       <LeadsPage />,
-      routes({
-        "POST /v1/leads/search": leadList({
-          columns: COLUMNS.slice(0, 2),
-        }),
-      }),
+      routes(),
     );
 
-    // Untick the two columns that are not Name/Phone. The checkboxes carry the column's
-    // own visible label — axe cannot see a placeholder, and neither can a person.
+    // The chooser starts from what the table SHOWS (the server's resolved list) and
+    // unticks from there. The checkboxes carry the column's own visible label — axe
+    // cannot see a placeholder, and neither can a person.
+    await screen.findAllByRole("columnheader");
     fireEvent.click(await screen.findByLabelText("Budget band"));
-    fireEvent.click(await screen.findByLabelText("Updated"));
 
     expect(await lensSentTo(calls, "/v1/leads/search")).toEqual({
       limit: 100,
-      columns: "name,phone",
+      columns: "name,phone,updated_at",
     });
 
     fireEvent.click(
@@ -272,7 +275,7 @@ describe("the column chooser reaches the table AND the file", () => {
     );
     // THE MIRRORING, at the seam: the file's columns are the table's columns.
     expect(await lensSentTo(calls, "/v1/leads/export.csv")).toEqual({
-      columns: "name,phone",
+      columns: "name,phone,updated_at",
     });
   });
 
@@ -325,6 +328,7 @@ describe("the facet rail is the extraction schema, and its filters reach the fil
     expect(await lensSentTo(calls, "/v1/leads/search")).toEqual({
       limit: 100,
       f: ["budget_band:over_50l"],
+      columns: USUAL,
     });
     expect(await lensSentTo(calls, "/v1/leads/facets")).toEqual({
       f: ["budget_band:over_50l"],
@@ -335,6 +339,7 @@ describe("the facet rail is the extraction schema, and its filters reach the fil
     );
     expect(await lensSentTo(calls, "/v1/leads/export.csv")).toEqual({
       f: ["budget_band:over_50l"],
+      columns: USUAL,
     });
   });
 

@@ -3,3 +3,9 @@
 # endings on commit or checkout, which would break every hash without touching the content.
 vobiz-findings/mirror/** -text
 thinnest-findings/mirror/** -text
+bolna-findings/mirror/** -text
+
+# Shell scripts and the privileged host helpers run on Linux; a CRLF checkout (Git for
+# Windows defaults to core.autocrlf=true) makes bash fail on `$'\r'` before the first line.
+*.sh text eol=lf
+infra/privileged/sbin/* text eol=lf

@@ -13,9 +13,10 @@ key the agent's minutes are metered at:
   unattested is refused
   (hard rule 7, through `billing/engine_minutes.attested_rate_keys`).
 
-A PUBLISH also refuses an agent with no voice (`engine_voice_required`), the workspace on all
-three of its own keys (`engine_own_keys_not_on_sale`), and a Studio voice while the workspace
-is not on our own voice key.
+A PUBLISH also refuses an agent with no voice (`engine_voice_required`) and the workspace on
+all three of its own keys (`engine_own_keys_not_on_sale`). Whether our Cartesia key is on in
+the client's own workspace is not decided here: the publish switches it on there and reads it
+back (`agents/studio_voices.ensure_studio_workspace`, D-717).
 
 The refusals are in the CLIENT's audience: a publish refusal can reach a client's screen.
 """
@@ -34,7 +35,6 @@ from apps.api.agents.hosted_voices import (
     STUDIO_VOICE_PROVIDER,
     HostedVoiceRow,
     hosted_voice_unofferable_reason,
-    own_voice_key_ready,
     read_hosted_voice,
 )
 from apps.api.agents.voice_offer import tts_price_is_billable
@@ -42,6 +42,7 @@ from apps.api.billing.engine_minutes import BASE_RATE_KEY, EngineRateKey, attest
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from apps.api.engine import get_engine
 from apps.api.engine.catalogue import EngineCatalogue, HoldsCatalogue, HostsVoices, ReportsOwnKeys
 from apps.api.engine.hosted_platform import engine_platform_label
 
@@ -64,8 +65,11 @@ VOICE_REQUIRED: Final = "engine_voice_required"
 KEYS_NOT_ON_SALE: Final = "engine_own_keys_not_on_sale"
 #: The operator's `THINNEST_BYOK_ENABLED` and the vendor's `GET /byok` disagree.
 KEYS_MODE_MISMATCH: Final = "engine_byok_mismatch"
-#: The engine says the workspace is not speaking on our Cartesia voice key.
-STUDIO_KEY_NOT_READY: Final = "engine_studio_voice_key_not_ready"
+#: A free-trial account's agents live in our developer workspace, whose own-keys switch stays
+#: off (D-697, D-717), so they speak Clear voices only.
+STUDIO_AFTER_GO_LIVE: Final = "studio_after_go_live"
+#: What a trial account reads wherever Studio is held from it. No vendor name (D-679).
+STUDIO_AFTER_GO_LIVE_NOTE: Final = "Studio voices are available once you go live."
 
 #: The sentence the pickers lock on, and the refusal's detail. No vendor name: a client reads it.
 BYOK_CHOICE_NOTE: Final = (
@@ -206,6 +210,7 @@ def _check_model(
     attested: frozenset[str],
     platform: str,
     with_own_voice: bool,
+    voice_rate_key: str | None = None,
 ) -> None:
     model = next((m for m in catalogue.models if m.model_id == model_id), None)
     if model is None:
@@ -228,6 +233,15 @@ def _check_model(
             detail=reason,
             remediation="Choose another model, or clear the choice to use the default.",
         )
+    if model.surcharge == "premium" and voice_rate_key not in _AT_LEAST_PREMIUM:
+        # The model lifts the call to the Premium band; a voice sold below it would meter
+        # the minute at a lower rate than the engine charges.
+        raise _refusal(
+            MODEL_ABOVE_VOICE_RATE,
+            title="This language model costs more than this voice's rate",
+            detail="Calls on this model are charged at a higher rate than the chosen voice.",
+            remediation="Choose another model, or clear the choice to use the default.",
+        )
     if with_own_voice and not model.voice_only_byok:
         # A call speaking our own voice key runs only on the engine's low-cost models, and
         # setting another is refused with a 400 (snapshots/2026-10-07b/pages/api-reference/
@@ -240,27 +254,17 @@ def _check_model(
         )
 
 
-async def _require_studio_key_live(engine: HostsVoices) -> None:
-    """At publish, the engine's own word that the workspace speaks on our Cartesia key for the
-    voice, because the catalogue only says what the last sync saw."""
-    state = await engine.own_key_state()
-    if not own_voice_key_ready(state):
-        log.warning(
-            "studio_voice_key_not_ready",
-            extra={
-                "enabled": state.enabled,
-                "scope": state.scope,
-                "complete": state.complete,
-                "using": state.using,
-            },
-        )
-        raise _refusal(
-            STUDIO_KEY_NOT_READY,
-            title="Studio voices are not ready yet",
-            detail="Studio voices are not switched on on the voice platform yet, so this agent "
-            "cannot be published on a Studio voice.",
-            remediation="Choose a Clear voice, or contact us.",
-        )
+def refuse_studio_on_trial() -> ProblemError:
+    """The refusal a free-trial account gets for a Studio voice at publish."""
+    return _refusal(
+        STUDIO_AFTER_GO_LIVE,
+        title="Studio voices are available once you go live",
+        detail=(
+            "During the free trial your agents speak Clear voices. You can still play the "
+            "Studio voices to hear them."
+        ),
+        remediation="Choose a Clear voice for now, or add credit from Billing to go live.",
+    )
 
 
 async def require_engine_choice(
@@ -275,8 +279,7 @@ async def require_engine_choice(
 
     `for_publish` adds what only a publish needs: on an engine that hosts its voices an
     agent must name one (the platform default speaks a voice nobody priced), the developer
-    workspace must not be on all three of its own keys, and a Studio voice needs our voice key
-    live in the workspace. A draft save may leave the voice empty.
+    workspace must not be on all three of its own keys. A draft save may leave the voice empty.
     """
     caps = engine.capabilities
     refuse_choice_under_byok(engine, voice_id=voice_id, model_id=model_id)
@@ -318,8 +321,6 @@ async def require_engine_choice(
     choice: HostedChoice | None = None
     if voice_id is not None and hosting is not None:
         choice = await _check_voice(session, voice_id, attested=attested, platform=platform)
-        if for_publish and choice.speaks_own_key:
-            await _require_studio_key_live(hosting)
     if model_id is not None and holder is not None:
         _check_model(
             await holder.read_catalogue(),
@@ -327,8 +328,85 @@ async def require_engine_choice(
             attested=attested,
             platform=platform,
             with_own_voice=choice is not None and choice.speaks_own_key,
+            voice_rate_key=choice.rate_key if choice is not None else None,
         )
     return BASE_RATE_KEY if choice is None else choice.rate_key
+
+
+#: Refused when the in-call default setting names a model the engine would not run a call on.
+IN_CALL_DEFAULT_UNUSABLE: Final = "engine_in_call_default_unusable"
+#: A model that lifts the call to a dearer band than the chosen voice is sold at.
+MODEL_ABOVE_VOICE_RATE: Final = "engine_model_above_voice_rate"
+#: The voice rate keys a Premium-band model may run beside: the minute is metered at the
+#: voice's key, so it must be at least the band the model lifts the call to.
+_AT_LEAST_PREMIUM: Final = frozenset({"premium", "studio"})
+
+
+def in_call_default_model(engine: VoiceEngine, *, voice_id: str | None) -> str | None:
+    """The in-call model an agent that chose none is sent (`thinnest_in_call_default_model`).
+
+    Only on ThinnestAI and only while the workspace is not on all three of its own keys. A
+    Studio voice (our voice key) gets it too (D-717): a voice-only BYOK call runs only on the
+    vendor's `voiceOnlyByok` models, GPT-OSS 120B among them (`bring-your-own-keys.md:44-58`),
+    and `resolve_in_call_default` refuses a default outside that list, so the setting can
+    never make a Studio agent unpublishable. `None` (the setting unset, its default) keeps
+    the vendor default, Prana [Voice] (update-agent.md:539-545).
+    """
+    del voice_id  # Clear and Studio alike since D-717; kept so callers state the voice.
+    if engine.name != "thinnest" or byok_in_force(engine) or engine.capabilities.is_ours("llm"):
+        return None
+    return get_settings().thinnest_in_call_default_model
+
+
+async def resolve_in_call_default(value: str | None) -> str | None:
+    """The model id to store for the in-call default, or a refusal.
+
+    Accepts the model's id or its console name ("GPT-OSS 120B"), because ThinnestAI
+    documents names but not every id, and stores the id the live `GET /models` gives for it,
+    so publish, drift and the read-back all compare ids. Refuses a model the engine does not
+    list as call-capable on our plan, whose price band is not on record, or that a Studio
+    agent may not run (`voiceOnlyByok` false: setting it on a voice-only BYOK agent is a 400,
+    `bring-your-own-keys.md:60-63`), so the console cannot point any agent at a model the
+    vendor would refuse or bill unpriced. The stricter rule is deliberate (D-717): applying
+    the default to Clear only would leave Studio agents on Prana [Voice].
+    Off ThinnestAI there is nothing to check.
+    """
+    engine = get_engine()
+    if value is None or engine.name != "thinnest" or not isinstance(engine, HoldsCatalogue):
+        return value
+    catalogue = await engine.read_catalogue()
+    wanted = value.strip()
+    model = next((m for m in catalogue.models if m.model_id == wanted), None) or next(
+        (m for m in catalogue.models if m.label.casefold() == wanted.casefold()), None
+    )
+    clear_band = get_settings().thinnest_clear_voice_band
+    if (
+        model is not None
+        and model.call_capable
+        and model.plan_allows
+        and model.surcharge is not None
+        and (model.surcharge == "none" or clear_band in _AT_LEAST_PREMIUM)
+        and model.voice_only_byok
+    ):
+        return model.model_id
+    if model is None and not catalogue.complete:
+        raise _incomplete()
+    raise ProblemError(
+        kind="validation",
+        code=IN_CALL_DEFAULT_UNUSABLE,
+        title="That model cannot answer calls on this account",
+        detail=(
+            "The voice platform does not list this model as fast enough for calls, available "
+            "on the current plan and allowed with Studio voices, or its per-minute price is "
+            "not on record."
+            if model is not None
+            else "The voice platform lists no model with this id or name."
+        ),
+        remediation=(
+            "Choose a model the platform's list marks as usable for calls and with Studio "
+            "voices, such as GPT-OSS 120B."
+        ),
+    )
 
 
 async def engine_rate_key_for(
@@ -344,14 +422,17 @@ __all__ = [
     "BYOK_CHOICE_NOTE",
     "CATALOGUE_INCOMPLETE",
     "CHOICE_UNDER_BYOK",
+    "IN_CALL_DEFAULT_UNUSABLE",
     "KEYS_MODE_MISMATCH",
     "KEYS_NOT_ON_SALE",
+    "MODEL_ABOVE_VOICE_RATE",
     "MODEL_CHOICE_NOT_OFFERED",
     "MODEL_NOT_CALL_CAPABLE",
     "MODEL_NOT_IN_CATALOGUE",
     "MODEL_NOT_ON_PLAN",
     "MODEL_NOT_WITH_OWN_VOICE",
-    "STUDIO_KEY_NOT_READY",
+    "STUDIO_AFTER_GO_LIVE",
+    "STUDIO_AFTER_GO_LIVE_NOTE",
     "VOICE_CHOICE_NOT_OFFERED",
     "VOICE_NOT_IN_CATALOGUE",
     "VOICE_NOT_ON_OFFER",
@@ -360,6 +441,9 @@ __all__ = [
     "HostedChoice",
     "byok_in_force",
     "engine_rate_key_for",
+    "in_call_default_model",
     "refuse_choice_under_byok",
+    "refuse_studio_on_trial",
     "require_engine_choice",
+    "resolve_in_call_default",
 ]

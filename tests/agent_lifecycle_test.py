@@ -958,7 +958,7 @@ async def test_archiving_is_not_a_delete() -> None:
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
                 "status, started_at, ended_at, outcome_tag, created_at, updated_at) VALUES "
-                "(:id, :tid, :aid, :eid, 'inbound', 'completed', now(), now(), 'resolved', "
+                "(:id, :tid, :aid, :eid, 'inbound', 'completed', now(), now(), 'answered', "
                 "now(), now())"
             ),
             {"id": call_id, "tid": tenant_id, "aid": agent_id, "eid": f"eng_{call_id}"},
@@ -1061,8 +1061,8 @@ async def test_the_stats_route_counts_calls_outcomes_and_last_active() -> None:
     async with tenant_session(tenant_id) as session:
         for index, (direction, status, tag, ended) in enumerate(
             [
-                ("inbound", "completed", "resolved", latest - timedelta(hours=2)),
-                ("inbound", "completed", "needs_follow_up", latest),
+                ("inbound", "completed", "answered", latest - timedelta(hours=2)),
+                ("inbound", "completed", "needs_you", latest),
                 ("outbound", "no_answer", None, latest - timedelta(hours=3)),
             ]
         ):
@@ -1094,10 +1094,12 @@ async def test_the_stats_route_counts_calls_outcomes_and_last_active() -> None:
     assert stats["calls_outbound"] == 1
     assert stats["calls_connected"] == 2
     assert stats["outcomes"] == {
-        "resolved": 1,
-        "needs_follow_up": 1,
+        "call_back_booked": 0,
+        "needs_you": 1,
+        "answered": 1,
         "transferred": 0,
-        "dropped": 0,
+        "hung_up_early": 0,
+        "missed": 0,
     }, "an outcome key was missing, so a screen indexing it would throw"
     assert stats["last_call_at"] is not None
     assert stats["last_call_at"].startswith(latest.strftime("%Y-%m-%dT%H:%M"))
@@ -1113,10 +1115,12 @@ async def test_an_agent_that_never_took_a_call_is_a_row_of_zeroes() -> None:
     assert stats["calls_total"] == 0
     assert stats["last_call_at"] is None
     assert stats["outcomes"] == {
-        "resolved": 0,
-        "needs_follow_up": 0,
+        "call_back_booked": 0,
+        "needs_you": 0,
+        "answered": 0,
         "transferred": 0,
-        "dropped": 0,
+        "hung_up_early": 0,
+        "missed": 0,
     }
 
 

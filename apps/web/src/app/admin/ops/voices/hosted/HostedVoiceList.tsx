@@ -82,7 +82,7 @@ function VoiceCard({ voice, onDeleted }: { voice: HostedVoice; onDeleted: (said:
             </StatusPill>
           )}
           {voice.band != null && (
-            <StatusPill>{`${lookup(BAND_LABEL, voice.band) ?? voice.band} tier`}</StatusPill>
+            <StatusPill>{lookup(BAND_LABEL, voice.band) ?? voice.band}</StatusPill>
           )}
           {voice.is_custom && <StatusPill>Our clone</StatusPill>}
           {voice.source === "byok" && (
@@ -168,7 +168,7 @@ function VoiceCard({ voice, onDeleted }: { voice: HostedVoice; onDeleted: (said:
 
       {!voice.sold && (
         <p id={notSoldId} className="text-meta text-ink-muted">
-          {voice.not_sold_reason ?? "Only Studio-tier voices can be offered as Clear."}
+          {voice.not_sold_reason ?? "Only voices of the ThinnestAI band sold as Clear can be offered as Clear."}
         </p>
       )}
       {add.error != null && <ProblemNotice error={add.error} />}

@@ -176,7 +176,7 @@ async def _seed_billing(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> None:
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
                 "status, duration_s, outcome_tag, started_at, created_at, updated_at) VALUES "
-                "(:i, :t, :a, :e, 'outbound', '+919876500001', 'completed', 7200, 'resolved', "
+                "(:i, :t, :a, :e, 'outbound', '+919876500001', 'completed', 7200, 'answered', "
                 "now(), now(), now())"
             ),
             {"i": call_id, "t": tenant_id, "a": agent_id, "e": f"exec_{uuid.uuid4().hex[:12]}"},
@@ -379,7 +379,7 @@ async def test_the_performance_panel_answers_a_declared_model_with_calls_in_it()
     tenant_id, agent_id, headers = await _owner_tenant("perf")
     async with tenant_session(tenant_id) as session:
         for status, duration, outcome, direction, ist_hour in (
-            ("completed", 120, "resolved", "outbound", 11),
+            ("completed", 120, "answered", "outbound", 11),
             ("completed", 90, None, "inbound", 11),
             ("no_answer", None, None, "outbound", 19),
             # A voicemail has a perfectly real duration; it is a dial, not a
@@ -430,7 +430,7 @@ async def test_the_performance_panel_answers_a_declared_model_with_calls_in_it()
     assert panel.funnel.qualified == 1
     assert panel.connect_rate_pct == 50
     assert panel.inbound == 1 and panel.outbound == 3
-    assert panel.outcomes["resolved"] == 1
+    assert panel.outcomes["answered"] == 1
     assert panel.outcomes["no_answer"] == 1, "an untagged call reports its status honestly"
     assert len(panel.busiest_hours_ist) == 24, "all 24 buckets, even the silent ones"
     assert panel.busiest_hours_ist[11] == 2 and panel.busiest_hours_ist[5] == 0

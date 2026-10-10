@@ -74,6 +74,7 @@ export function CallAudioPlayer({
   fallbackDurationS,
   onTimeUpdate,
   onExpired,
+  marks = [],
   ref,
 }: {
   src: string;
@@ -89,6 +90,11 @@ export function CallAudioPlayer({
    * could not be minted — the player then shows a refusal instead of retrying.
    */
   onExpired?: () => Promise<string | null>;
+  /**
+   * Points worth jumping to, drawn as ticks on the seek bar. Decoration only: the same
+   * moments are listed as buttons beside the transcript, which is the accessible form.
+   */
+  marks?: readonly { atS: number; label: string }[];
   ref?: React.Ref<CallAudioPlayerHandle>;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -221,7 +227,7 @@ export function CallAudioPlayer({
       {failed && (
         <p
           role="alert"
-          className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200"
+          className="flex items-start gap-2 rounded-md bg-warn-soft px-3 py-2 text-xs text-warn"
         >
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           <span>
@@ -260,6 +266,18 @@ export function CallAudioPlayer({
                 style={{ width: `${pct}%` }}
               />
             </div>
+            {duration > 0 &&
+              marks
+                .filter((mark) => mark.atS >= 0 && mark.atS <= duration)
+                .map((mark, i) => (
+                  <span
+                    key={`${mark.atS}-${i}`}
+                    aria-hidden="true"
+                    title={mark.label}
+                    className="pointer-events-none absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-ink-muted"
+                    style={{ left: `${(mark.atS / duration) * 100}%` }}
+                  />
+                ))}
             <input
               id={sliderId}
               type="range"

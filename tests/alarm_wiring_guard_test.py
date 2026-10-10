@@ -67,6 +67,9 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
             "CLASSIFIED",
             {"thing_broke": "page", "host_thing": "page"},
         )
+        # The reminder registry is read the same way, and the real one names codes this
+        # miniature tree never raises.
+        monkeypatch.setattr(guard, "REPEATING", {})
 
     return _use
 

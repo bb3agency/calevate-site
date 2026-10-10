@@ -56,6 +56,7 @@ export const TENANT_SECTION_GROUPS: readonly TenantSectionGroup[] = [
     label: "Settings",
     items: [
       { path: "/profile", label: "Business details" },
+      { path: "/lead-details", label: "Lead details" },
       { path: "/feature-flags", label: "Feature flags" },
       { path: "/llm-model", label: "Language model" },
       { path: "/lifecycle", label: "Account state" },

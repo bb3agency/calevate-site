@@ -45,11 +45,11 @@ from collections import Counter
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Final, get_args
+from typing import Any, Final, Literal, get_args
 from urllib.parse import quote, urlsplit
 
 import httpx
-from calevate_shared.call_script import substitute_variables
+from calevate_shared.call_script import business_line_of, substitute_variables
 from calevate_shared.engine import (
     E164,
     AccountKBListing,
@@ -118,8 +118,10 @@ from apps.api.engine.catalogue import (
 from apps.api.engine.charges import EngineCharge, EngineChargeListing
 from apps.api.engine.document import engine_document
 from apps.api.engine.recording_source import EngineRecordingSource, RecordingFetchRules
+from apps.api.engine.test_chat import TEST_CHAT_UNAVAILABLE, TestChatTurn
 from apps.api.engine.text_split import split_for_text_cap
 from apps.api.engine.thinnest_workspace import (
+    refuse_developer_byok_on,
     trial_agent_allowed,
     workspace_headers,
     workspace_not_provisioned,
@@ -154,29 +156,66 @@ IDEMPOTENCY_HEADER: Final = "Idempotency-Key"
 _LISTING_PAGE_SIZE: Final = 100
 _LISTING_MAX_PAGES: Final = 20
 
-#: Our tier for each model id the engine lists (D-680), so a client is shown "Standard" and
-#: never the vendor's model name. The ordering is read from the engine's own catalogue
-#: (`thinnest-findings/mirror/pages/api-reference/voices-and-models.md:55-57`): its own
-#: voice-native model and `gpt-5-mini` are on the free plan, `gpt-4.1` only from `payg` up.
-#: A model missing here is still offered, as an unnamed additional model.
-_MODEL_TIERS: Final[dict[str, LlmTier]] = {
-    "prana-voice": "standard",
-    "gpt-5-mini": "plus",
-    "gpt-4.1": "pro",
+#: What ThinnestAI's own agent model dropdown shows for each model, keyed by the model's
+#: console name (`GET /models` `name` is "its name as the console shows it",
+#: list-models.md:483-485): the per-minute price tag, if any, and the reply latency.
+#: FOUNDER-RELAYED reading of the console, 10 Oct 2026. The API returns neither: `GET /models`
+#: carries id, name, voice, minPlan, available and voiceOnlyByok only (snapshots/2026-10-08/
+#: pages/api-reference/models/list-models.md:463-505, same on docs.thinnest.ai 10 Oct 2026),
+#: and the docs publish no per-model price. A model missing here has an UNKNOWN band and is
+#: never offered for calls (`agents/engine_catalogue_offer.py`); add it here once somebody
+#: has read its tag in the console.
+_MODEL_CONSOLE_READING: Final[dict[str, tuple[Literal["none", "premium"], int]]] = {
+    "Prana": ("none", 154),
+    "GPT-OSS 120B": ("none", 221),
+    "Prana [Voice]": ("none", 560),
+    "GPT-4.1 Nano": ("none", 578),
+    "GPT-5.4 Nano": ("none", 734),
+    # Tagged "premium ₹2.50/min voice calls" in the console: a call on it bills at the
+    # Premium band whatever the voice. Whether a dearer voice band and this tag combine
+    # as the higher of the two or as a sum is UNKNOWN; publish allows it only beside a
+    # voice whose own band is at least Premium (`agents/engine_choice._check_model`), and
+    # the hourly charge reconciliation compares every call's `costMicro`.
+    "GPT-5 Mini": ("premium", 823),
+    "GPT-5 Nano": ("none", 915),
+    "GPT-5.6 Luna": ("none", 1072),
 }
+
+#: Our tier word for a model's price band (D-680): no surcharge is Standard, Premium is Plus.
+_TIER_OF_SURCHARGE: Final[dict[str, LlmTier]] = {"none": "standard", "premium": "plus"}
+
+
+def _catalogue_model(model_id: str, label: str, row: dict[str, Any]) -> CatalogueModel:
+    surcharge, latency = _MODEL_CONSOLE_READING.get(label, (None, None))
+    return CatalogueModel(
+        model_id=model_id,
+        label=label,
+        call_capable=row.get("voice") is True,
+        plan_allows=row.get("available") is True,
+        tier=_TIER_OF_SURCHARGE.get(surcharge) if surcharge is not None else None,
+        voice_only_byok=row.get("voiceOnlyByok") is True,
+        surcharge=surcharge,
+        console_latency_ms=latency,
+    )
+
 
 # Field limits the vendor enforces with a 400 (agents.md:88-99, :161; place-call.md:70,
 # :96-100, :203-204; knowledge.md:52). Checked here so a publish is refused with a sentence
 # an operator can act on rather than a generic `engine_rejected`, and never truncated:
 # a truncated prompt loses its tail, which is where the truthful-answer rule sits.
-# `instructions` and `greeting` are from the 7 Oct snapshot
-# (`thinnest-findings/mirror/snapshots/2026-10-07/pages/api-reference/agents/
-# update-agent.md:426-436`, create-agent.md:434): 20,000 and 200 characters. The 6 Oct pages
-# said 8,000; the vendor raised it. The facts still go to knowledge (`agents/engine_facts.py`)
-# because `instructions` is "re-sent on every reply, so every character costs on every turn"
-# (update-agent.md:430-431). `purpose` is "under 300 characters" (snapshots/2026-10-07/pages/
+# `instructions`: 8,000 characters. The API reference says 20,000 (snapshots/2026-10-08/pages/
+# api-reference/agents/update-agent.md:519-524, and docs.thinnest.ai on 10 Oct 2026), but
+# ThinnestAI's own console showed our agent at "8249/8000 — re-sent on every reply" in red
+# (founder screenshot, 10 Oct 2026). The two VENDOR-PUBLISHED figures conflict; the lower one
+# is the one a published agent can break, so it is the ceiling until ThinnestAI says which
+# holds. The facts go to knowledge (`agents/engine_facts.py`) and the script's stages to the
+# native `steps` field (`_steps_body`), both outside this count. `greeting` 200
+# (create-agent.md:434); `purpose` "under 300 characters" (snapshots/2026-10-07/pages/
 # api-reference/calls/place-call.md:7).
-INSTRUCTIONS_MAX_CHARS: Final = 20_000
+INSTRUCTIONS_MAX_CHARS: Final = 8_000
+#: `businessDescription`, "One line about what the business is" (snapshots/2026-10-08/pages/
+#: api-reference/agents/update-agent.md:531-534).
+BUSINESS_DESCRIPTION_MAX_CHARS: Final = 200
 GREETING_MAX_CHARS: Final = 200
 PURPOSE_MAX_CHARS: Final = 300
 NAME_MAX_CHARS: Final = 60
@@ -187,6 +226,14 @@ KB_MAX_PARTS: Final = 10
 KB_TOTAL_MAX_CHARS: Final = KB_TEXT_MAX_CHARS * KB_MAX_PARTS
 CALL_SECONDS_MIN: Final = 60
 CALL_SECONDS_MAX: Final = 1200
+#: How long a call the agent places rings before it is given up: fixed at the vendor's own
+#: default (`voice.ringSeconds`, 10-60, default 30; docs.thinnest.ai api-reference/agents/
+#: update-agent, read 10 Oct 2026) and stated on every publish so a console edit is repaired.
+RING_SECONDS: Final = 30
+#: Where an agent answers (`voice.surfaces`, read-only, set in the vendor console). We
+#: sanction phone calls only; the website call button and WhatsApp calls are not offered
+#: (no consent, notice or billing path of ours covers them), so either one is drift.
+SANCTIONED_SURFACES: Final = frozenset({"phone"})
 CALL_VARIABLES_MAX: Final = 20
 #: `name` on a placed call (place-call.md:895-899).
 LEAD_NAME_MAX: Final = 120
@@ -718,11 +765,13 @@ _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "max_call_seconds": ("voice.maxCallSeconds",),
     "caller_memory": ("voice.pastConversations",),
     "machine_detection": ("voice.detectMachines",),
+    "ring_seconds": ("voice.ringSeconds",),
     "call_summaries": ("voice.summariseCalls",),
     "escalation": ("escalation",),
     "scheduled_callbacks": ("scheduleCallbacks",),
     "lead_capture": ("captureLeads",),
     "collected_fields": ("collectFields",),
+    "script_steps": ("steps",),
 }
 _LANGUAGE_KEYS: Final = frozenset({"language", "voice.language"})
 
@@ -748,6 +797,77 @@ def _field(body: dict[str, Any], key: str) -> tuple[bool, Any]:
     return key in body, body.get(key)
 
 
+#: ThinnestAI's step list (snapshots/2026-10-08/pages/api-reference/agents/update-agent.md:
+#: 588-595, AgentStepInput :865-905; read back as AgentStep, :1079-1110 and get-agent.md:
+#: 709-743): at most 12 steps, each a title (cut to 80), a detail (cut to 600), branches
+#: {when, action} and collect. Script v2 keeps every stage inside those limits
+#: (`call_script.MAX_SCRIPT_STAGES`, `STAGE_TITLE_MAX`, `STAGE_DETAIL_MAX`).
+STEPS_MAX: Final = 12
+
+
+def _steps_body(cfg: AgentConfig) -> list[dict[str, Any]]:
+    if len(cfg.script_steps) > STEPS_MAX:
+        raise _business_refusal(
+            "engine_too_many_steps",
+            title="This script has too many stages for this voice platform",
+            detail=(
+                f"The script has {len(cfg.script_steps)} stages and the voice platform holds "
+                f"at most {STEPS_MAX}."
+            ),
+            remediation=f"Combine stages until there are {STEPS_MAX} or fewer, then publish again.",
+        )
+    return [
+        {
+            "title": step.title.strip()[:80],
+            "detail": step.detail.strip()[:600],
+            "branches": [{"when": when, "action": action} for when, action in step.branches],
+            "collect": list(step.collect),
+        }
+        for step in cfg.script_steps
+    ]
+
+
+def _steps_held(value: Any) -> list[dict[str, Any]] | None:
+    """The step list as the vendor returned it, in `_steps_body`'s shape, or None when the
+    answer is not a list of steps."""
+    if not isinstance(value, list):
+        return None
+    out: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            return None
+        raw_branches, raw_collect = item.get("branches"), item.get("collect")
+        branches: list[Any] = raw_branches if isinstance(raw_branches, list) else []
+        collect: list[Any] = raw_collect if isinstance(raw_collect, list) else []
+        out.append(
+            {
+                "title": str(item.get("title") or "").strip(),
+                "detail": str(item.get("detail") or "").strip(),
+                "branches": [
+                    {"when": str(b.get("when") or ""), "action": str(b.get("action") or "")}
+                    for b in branches
+                    if isinstance(b, dict)
+                ],
+                "collect": [str(c) for c in collect],
+            }
+        )
+    return out
+
+
+def _refuse_unsaved_steps(wanted: dict[str, Any], saved: dict[str, Any]) -> None:
+    """The publish read-back of the steps: the agent `PATCH`/`POST` answers with the whole
+    agent (update-agent.md:7), and a step list that came back different from what was sent
+    is refused rather than left live with a script we did not write."""
+    if "steps" in saved and _steps_held(saved.get("steps")) != wanted["steps"]:
+        log.warning("thinnest_steps_not_saved")
+        raise _business_refusal(
+            "engine_steps_not_saved",
+            title="The voice platform did not save this script's stages",
+            detail="The stages read back from the voice platform differ from the ones sent.",
+            remediation="Publish again. If it keeps happening, contact us.",
+        )
+
+
 def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
     """The labels whose value in `held` (a `GET /agents/{id}` answer) is not `wanted`'s
     (an `_agent_body`). A setting `wanted` does not state is not ours to compare, and a
@@ -768,12 +888,27 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
                 )
             elif key == "collectFields":
                 same = isinstance(have, list) and have == want
+            elif key == "steps":
+                same = _steps_held(have) == want
             else:
                 same = present and have == want and type(have) is type(want)
             if not same:
                 drifted.append(label)
                 break
     return drifted
+
+
+#: The drift label for an agent answering anywhere but the phone (`SANCTIONED_SURFACES`).
+SURFACES_LABEL: Final = "answer_surfaces"
+
+
+def unsanctioned_surfaces(agent: dict[str, Any]) -> list[str]:
+    """The places a `GET /agents/{id}` answer says the agent answers that we do not offer."""
+    voice = agent.get("voice")
+    surfaces = voice.get("surfaces") if isinstance(voice, dict) else None
+    if not isinstance(surfaces, list):
+        return []
+    return sorted(str(s) for s in surfaces if isinstance(s, str) and s not in SANCTIONED_SURFACES)
 
 
 def _is_rupees(row: dict[str, Any]) -> bool:
@@ -1033,8 +1168,14 @@ class ThinnestEngine:
         # snapshots/2026-10-08/pages/api-reference/agents/update-agent.md:940-1016.
         # `answersCalls` true and `unavailableMessage` null on every publish: a publish is
         # what lifts a pause (`override_call_script`), so it must switch the line back on.
-        # `detectMachines` off (plan §2). `summariseCalls` off and `collectFields` empty: our
-        # own extraction pass is the record, and theirs is billed per call.
+        # `detectMachines` is the client's answering-machine switch (founder decision 14,
+        # default off) and `ringSeconds` is fixed at 30. `collectFields` empty: our own
+        # extraction pass is the record. `summariseCalls` on (founder decision 12, 10 Oct
+        # 2026): the vendor's summary is the call's summary of first resort
+        # (`workers/pipeline` decides the precedence); "a small charge per call"
+        # (create-agent.md:1024-1026), inside the `costMicro` we reconcile. Its language is
+        # not settable (no field for it, mirror 2026-10-08 and docs.thinnest.ai read 10 Oct
+        # 2026).
         # `pastConversations`: `recap` for an agent whose client switched caller memory on
         # (D-507's notice and gates are on OUR switch, `agents.publishing.set_caller_memory`),
         # `fresh` otherwise; never the vendor default `quiet`, which uses earlier
@@ -1046,8 +1187,9 @@ class ThinnestEngine:
             "language": call_language,
             "recordCalls": True,
             "maxCallSeconds": seconds,
-            "detectMachines": False,
-            "summariseCalls": False,
+            "detectMachines": cfg.detect_machines,
+            "ringSeconds": RING_SECONDS,
+            "summariseCalls": True,
             "pastConversations": "recap" if cfg.caller_memory_enabled else "fresh",
         }
         if cfg.engine_voice_id and cfg.engine_byok_voice_id:
@@ -1062,6 +1204,14 @@ class ThinnestEngine:
             "name": vendor_agent_name(cfg),
             "instructions": instructions,
             "greeting": greeting,
+            # One line about the business (update-agent.md:531-534, at most 200 characters),
+            # from the script's [BUSINESS] section; empty for a script without one.
+            "businessDescription": self._within(
+                business_line_of(cfg.system_prompt),
+                BUSINESS_DESCRIPTION_MAX_CHARS,
+                code="engine_business_line_too_long",
+                what="business line",
+            ),
             "language": language,
             "voice": voice,
             # Stated, not left to the defaults: the vendor's own call-back would ring the
@@ -1075,6 +1225,10 @@ class ThinnestEngine:
             "captureLeads": False,
             "escalation": {"onNoAnswer": False, "onRequest": cfg.handoff is not None},
             "collectFields": [],
+            # The script's stages as the agent's own step list (`_steps_body`); `[]` when
+            # the script has none to send, which removes any script held there
+            # (update-agent.md:588-595), so the outline is only ever in one place.
+            "steps": _steps_body(cfg),
         }
         # Ids from `GET /voices` and `GET /models`, checked against the catalogue before
         # publish (`agents/engine_choice.py`). A voice of our own voice key goes to
@@ -1228,7 +1382,7 @@ class ThinnestEngine:
         self.built_in_tools_body(cfg)
         raw = await self._find_agent(cfg, workspace)
         if raw is not None:
-            await self._request(
+            data = await self._request(
                 "PATCH", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace, json=body
             )
         else:
@@ -1238,6 +1392,7 @@ class ThinnestEngine:
             raw = _str(data.get("id"))
             if raw is None:
                 raise _bad_response("The voice platform did not return an agent id.")
+        _refuse_unsaved_steps(body, data)
         await self._apply_own_key_voice(raw, workspace, cfg)
         await self._apply_built_in_tools(raw, workspace, cfg)
         return scoped_handle(raw, workspace)
@@ -1246,9 +1401,10 @@ class ThinnestEngine:
         raw, workspace = self._at(ref)
         body = self._agent_body(cfg)
         self.built_in_tools_body(cfg)
-        await self._request(
+        saved = await self._request(
             "PATCH", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace, json=body
         )
+        _refuse_unsaved_steps(body, saved)
         await self._apply_own_key_voice(raw, workspace, cfg)
         await self._apply_built_in_tools(raw, workspace, cfg)
 
@@ -1424,6 +1580,8 @@ class ThinnestEngine:
             "GET", f"/agents/{raw}/tools", route="/agents/{ref}/tools", workspace=workspace
         )
         drifted = _settings_drift(self._agent_body(cfg), agent)
+        if unsanctioned_surfaces(agent):
+            drifted.append(SURFACES_LABEL)
         tool_drift = _tools_drift(self.built_in_tools_body(cfg), tools)
         if any(name.startswith("tools.") for name in tool_drift):
             drifted.append("built_in_tools")
@@ -1458,6 +1616,17 @@ class ThinnestEngine:
             )
         if {"built_in_tools", "hand_over"} & set(drifted):
             await self._apply_built_in_tools(raw, workspace, cfg)
+        if SURFACES_LABEL in drifted:
+            # Read-only on the API: a person must untick them in the vendor console. Raised
+            # after the other repairs so the sweep reports it as not put back.
+            raise _business_refusal(
+                "engine_surfaces_not_sanctioned",
+                title="This agent also answers on the website or WhatsApp",
+                detail="Only phone calls are offered; the other places it answers are set in "
+                "the voice platform's console and cannot be changed from here.",
+                remediation="Untick the website call button and WhatsApp calls on the agent's "
+                "Voice page in the voice platform's console.",
+            )
 
     async def delete_agent(self, ref: EngineAgentRef) -> None:
         """`DELETE /agents/{id}`, 204; it takes the agent's knowledge with it (agents.md:82)."""
@@ -1468,6 +1637,50 @@ class ThinnestEngine:
             route="/agents/{ref}",
             workspace=workspace,
             absent_is_success=True,
+        )
+
+    async def test_chat(
+        self, ref: EngineAgentRef, message: str, *, session: str | None = None
+    ) -> TestChatTurn:
+        """`POST /agents/{id}/test-chat` (snapshots/2026-10-08/pages/api-reference/agents/
+        test-chat.md:328-460): the real agent through its website chat, in a sandbox where
+        anything that would contact a person is switched off, billed like the console's
+        Playground (the rate is not published). Our own actions still run; with no call
+        behind them they find no call and change nothing. `409` is an agent whose website
+        chat is off or absent, which we report as not testable rather than as an error."""
+        raw, workspace = self._at(ref)
+        body: dict[str, Any] = {"message": message[:4000]}
+        if session:
+            body["session"] = session
+        try:
+            data = await self._request(
+                "POST",
+                f"/agents/{raw}/test-chat",
+                route="/agents/{ref}/test-chat",
+                workspace=workspace,
+                json=body,
+                extra_refused_statuses=frozenset({409}),
+            )
+        except EngineRejectedError as exc:
+            if exc.vendor_status != 409:
+                raise
+            raise _business_refusal(
+                TEST_CHAT_UNAVAILABLE,
+                title="This agent cannot be tested here",
+                detail="The voice platform has no chat channel switched on for this agent.",
+                remediation="Contact us to switch on test conversations for this agent.",
+            ) from exc
+        tools_raw = data.get("tools")
+        tools = tuple(
+            name
+            for item in (tools_raw if isinstance(tools_raw, list) else [])
+            if isinstance(item, dict) and (name := _str(item.get("name")))
+        )
+        return TestChatTurn(
+            session=_str(data.get("session")) or "",
+            reply=_str(data.get("reply")) or "",
+            tools=tools,
+            failed_part_way=data.get("error") is not None,
         )
 
     # --- calls ---------------------------------------------------------------
@@ -1507,7 +1720,8 @@ class ThinnestEngine:
 
         Not sent, deliberately: `retry` (our campaign ladder owns retries), `callingHours`
         (our compliance gate owns the window; their 09:00-21:00 check runs regardless,
-        place-call.md:103-113), `extract`/`summary` (our own extraction is the record).
+        place-call.md:103-113), `extract` (our own extraction is the record), `summary` (left
+        out so the call follows the agent's own `summariseCalls`, place-call.md:942-946).
         `ifOutsideHours: refuse` makes an out-of-hours request a 409 rather than a call
         queued for tomorrow behind our back (place-call.md:115-121).
         """
@@ -1910,8 +2124,11 @@ class ThinnestEngine:
         """`GET /byok/voices`: the voices our installed voice key reaches, with the
         provider's own sample when it hosts one. `409` when the workspace is not on its own
         keys (snapshots/2026-10-07b/pages/api-reference/bring-your-own-keys/
-        list-byok-voices.md:7, :344-379, :452-485)."""
-        data = await self._request("GET", "/byok/voices", route="/byok/voices", workspace=None)
+        list-byok-voices.md:7, :344-379, :452-485) — so it is read in a client workspace that
+        runs Studio, never in our developer workspace, whose switch stays off (D-717)."""
+        data = await self._request(
+            "GET", "/byok/voices", route="/byok/voices", workspace=workspace_of(None)
+        )
         provider = data.get("provider")
         voices = [
             HostedVoice(
@@ -1934,7 +2151,8 @@ class ThinnestEngine:
     ) -> PreviewAudio:
         """`POST /byok/voices/preview`: one spoken line as audio, charged by the provider per
         character, so `text` is capped at 200 (snapshots/2026-10-07b/pages/api-reference/
-        bring-your-own-keys/preview-byok-voice.md:7, :350-360, :442-470)."""
+        bring-your-own-keys/preview-byok-voice.md:7, :350-360, :442-470). `409` outside a
+        workspace on its own keys (:396-397), so it runs where `list_own_key_voices` does."""
         body: dict[str, Any] = {"voice": voice_id}
         if text:
             body["text"] = self._within(
@@ -1951,6 +2169,7 @@ class ThinnestEngine:
             "/byok/voices/preview",
             engine=self.name,
             route="/byok/voices/preview",
+            headers=workspace_headers("POST", "/byok/voices/preview", workspace_of(None)),
             json=body,
         )
         return PreviewAudio(data=audio, content_type=content_type)
@@ -2098,7 +2317,7 @@ class ThinnestEngine:
                 "PUT",
                 "/byok/credentials",
                 route="/byok/credentials",
-                workspace=None,
+                workspace=workspace_of(None),
                 json={"kind": "tts", "provider": provider, "credentials": credentials},
             )
         except EngineRejectedError as exc:
@@ -2115,13 +2334,16 @@ class ThinnestEngine:
     async def enable_own_voice_key(self) -> OwnVoiceKeyState:
         """`PATCH /byok {enabled: true, scope: "voice"}`, then the state as read back. `409`
         until the voice key is added, checked and has a model
-        (bring-your-own-keys.md:186-198)."""
+        (bring-your-own-keys.md:186-198). Only ever in a client's own workspace: our
+        developer workspace's switch stays off (D-717, `refuse_developer_byok_on`)."""
+        workspace = workspace_of(None)
+        refuse_developer_byok_on(workspace)
         try:
             await self._request(
                 "PATCH",
                 "/byok",
                 route="/byok",
-                workspace=None,
+                workspace=workspace,
                 json={"enabled": True, "scope": "voice"},
                 extra_refused_statuses=frozenset({409}),
             )
@@ -2142,7 +2364,11 @@ class ThinnestEngine:
         `byok: workspace` returns to the platform's own voices at their next call
         (bring-your-own-keys.md:186-198)."""
         await self._request(
-            "PATCH", "/byok", route="/byok", workspace=None, json={"enabled": False}
+            "PATCH",
+            "/byok",
+            route="/byok",
+            workspace=workspace_of(None),
+            json={"enabled": False},
         )
         return await self.own_key_state()
 
@@ -2216,14 +2442,7 @@ class ThinnestEngine:
         (`bring-your-own-keys.md:44-63`)."""
         model_rows, model_reason, _ = await self._walk("/models", route="/models", workspace=None)
         models = [
-            CatalogueModel(
-                model_id=model_id,
-                label=label,
-                call_capable=row.get("voice") is True,
-                plan_allows=row.get("available") is True,
-                tier=_MODEL_TIERS.get(model_id),
-                voice_only_byok=row.get("voiceOnlyByok") is True,
-            )
+            _catalogue_model(model_id, label, row)
             for row in model_rows
             if (model_id := _str(row.get("id"))) and (label := _str(row.get("name")))
         ]
@@ -2288,6 +2507,11 @@ class ThinnestEngine:
             cost=None,
             engine_charged_inr=_charged_inr(payload),
             engine_extracted=fields if isinstance(fields, dict) else {},
+            # "Two or three sentences about the call, when summarised" (get-call.md:766-770);
+            # final once `analysedAt` is set, so a summary on an unanalysed row is not read.
+            engine_summary=((_str(payload.get("summary")) or "").strip() or None)
+            if analysed
+            else None,
             engine=self.name,
         )
 

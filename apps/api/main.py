@@ -108,6 +108,8 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.extraction_routes import admin_router as extraction_admin_router
     from apps.api.agents.extraction_routes import router as extraction_router
     from apps.api.agents.handoff_routes import router as handoff_router
+    from apps.api.agents.lead_fields_routes import admin_router as lead_fields_admin_router
+    from apps.api.agents.lead_fields_routes import router as lead_fields_router
     from apps.api.agents.llm_routes import admin_router as llm_defaults_admin_router
     from apps.api.agents.llm_routes import router as llm_defaults_router
     from apps.api.agents.prompt_routes import router as prompt_admin_router
@@ -192,6 +194,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.healer.routes import ops_router as ops_healer_router
     from apps.api.healer.routes import public_router as public_status_router
     from apps.api.healer.routes import router as healer_router
+    from apps.api.ingest.policy_routes import router as lead_calling_router
     from apps.api.ingest.routes import router as ingest_router
     from apps.api.ingest.routes import sources_router as lead_sources_router
     from apps.api.insights.routes import router as knowledge_gaps_router
@@ -221,11 +224,13 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.quality.routes import router as quality_router
     from apps.api.quality.sampling_routes import router as qa_sampling_router
     from apps.api.security.routes import router as csp_report_router
+    from apps.api.teach.routes import router as teach_router
     from apps.api.tenancy.profile_routes import admin_router as business_profile_admin_router
     from apps.api.tenancy.profile_routes import router as business_profile_router
     from apps.api.tenancy.routes import router as tenancy_router
     from apps.api.tenancy.signup_routes import router as signup_router
     from apps.api.worker.engine_actions import router as engine_actions_router
+    from apps.api.worker.engine_lookups import router as engine_lookups_router
     from apps.api.worker.routes import router as worker_router
 
     application.include_router(tenancy_router)
@@ -317,6 +322,8 @@ def _mount_routers(application: FastAPI) -> None:
     # `/v1/admin/tenants/{tenant_id}`.
     application.include_router(extraction_router)
     application.include_router(extraction_admin_router)
+    application.include_router(lead_fields_router)
+    application.include_router(lead_fields_admin_router)
     application.include_router(campaigns_router)
     # `/v1/numbers` — its own prefix, so nothing above can swallow it. It lives in the
     # campaigns package because that module owns `phone_numbers`.
@@ -344,6 +351,8 @@ def _mount_routers(application: FastAPI) -> None:
     # The same in-call tools reached as a control-plane engine's custom actions (D-678
     # phase 2), authenticated per vendor agent rather than by the worker's token.
     application.include_router(engine_actions_router)
+    # The caller lookup the same engine asks before its agent answers (D-716).
+    application.include_router(engine_lookups_router)
     # The in-app AI copilot (`apps/api/copilot/`). Its own literal `/v1/copilot` prefix,
     # which collides with nothing above, so mount order is not load-bearing here — unlike
     # `voice_router`, whose literal segment lives under `/v1/agents/`.
@@ -362,8 +371,11 @@ def _mount_routers(application: FastAPI) -> None:
     # not load-bearing here.
     application.include_router(knowledge_gaps_router)
     application.include_router(kb_router)
+    application.include_router(teach_router)
     application.include_router(ingest_router)
     application.include_router(lead_sources_router)
+    # A client's plan for calling new leads, and its held-lead queue (D-716).
+    application.include_router(lead_calling_router)
     application.include_router(integrations_router)
     # ACTIONS feature: the engine-called in-call execution endpoint + the client-realm
     # Actions tab (credentials, tools, test harness, calendar OAuth).

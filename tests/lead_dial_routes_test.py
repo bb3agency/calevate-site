@@ -157,7 +157,7 @@ async def _finished_call(
     lead_id: uuid.UUID,
     phone: str,
     *,
-    outcome: str = "needs_follow_up",
+    outcome: str = "needs_you",
 ) -> uuid.UUID:
     """One ended call on a lead, in the state `plan_callback` says may be followed up."""
     call_id = uuid7()
@@ -402,7 +402,7 @@ async def test_callback_eligibility_explains_an_ineligible_call_instead_of_error
     browser as a 422. The screen renders the disabled button from this body."""
     tenant_id, agent_id, _slug, headers = await _dialable_tenant()
     lead_id, phone = await _lead(tenant_id, agent_id)
-    call_id = await _finished_call(tenant_id, agent_id, lead_id, phone, outcome="resolved")
+    call_id = await _finished_call(tenant_id, agent_id, lead_id, phone, outcome="answered")
 
     async with _client() as http:
         response = await http.get(f"/v1/calls/{call_id}/callback", headers=headers)

@@ -52,8 +52,8 @@ export const RAW_SCRIPT_COPILOT_HELP =
   "business name, its role, the language), then the call goal as a loose task flow — greet, " +
   "understand the need, answer or qualify, capture the details, read each value back to " +
   "confirm, agree the next step, wrap up — plus the specific things to collect and any " +
-  "business-specific rules or what to do when it does not know (offer a callback). Short " +
-  "directive sentences in Telugu or Tenglish, one idea per line. Do NOT write the platform's " +
+  "business-specific rules. Instructions in plain English, one idea per line; the words the " +
+  "agent says, in the callers' spoken language. Do NOT write the platform's " +
   "own rules here — the AI and recording notices, the speaking-style and brevity guidance, the " +
   "always-be-truthful rule and the general guardrails are added automatically around this " +
   "text, so repeating them only duplicates them. The agent's greeting goes on the line after " +
@@ -69,22 +69,28 @@ export const OPENING_LINE_COPILOT_HELP =
   "notice is switched on, that notice is said just before this line; when both are off, this is " +
   "the first thing the caller hears. Do not repeat the AI or recording notice here. Keep it a " +
   "short, warm spoken greeting that names the business and offers help — not a description " +
-  "of the company. The agent's identity, the task flow, the questions to ask and the rules go " +
-  "in the steps, FAQ and end-call sections below, not here.";
+  "of the company. The agent's identity, goal, stages, objections and quick facts go in " +
+  "their own sections, not here.";
+
+/** The agent's role: plain English instructions, not a brochure. */
+export const IDENTITY_COPILOT_HELP =
+  "Who the agent is and its job on the phone, in one or two plain English sentences " +
+  '("You answer the phone for the shop and take orders"). Not a description of the company ' +
+  "for customers, and nothing about being an AI or about recording: the platform adds those.";
 
 /**
  * One task-flow step. The steer keeps it a loose spoken instruction (PROMPT-GUIDE §2/§4:
  * "hints, not a rigid script") rather than a paragraph or a restated platform rule.
  */
 export const STEP_COPILOT_HELP =
-  "One step of the call's task flow — a short spoken instruction the agent follows in spirit, " +
+  "One stage of the call — a short plain-English instruction the agent follows in spirit, " +
   'like "ask what the caller needs" or "take their name and read it back to confirm". A hint, ' +
   "not a rigid line to read out and not a description of the company.";
 
 /**
  * The `<field>` list the copilot sees for this screen. Raw mode declares the one body box;
- * structured mode declares the opener, each existing step and FAQ row, the don't-know line
- * and each end-call rule. Ids are `script-<path-with-dots-as-dashes>`, the derivation
+ * structured mode declares the script v2 sections and each existing stage, push-back and
+ * quick-fact row. Ids are `script-<path-with-dots-as-dashes>`, the derivation
  * `ScriptBuilder`'s `apply` reverses (the same idea as `intakeFieldId`).
  */
 export function scriptCopilotFields(script: CallScript, raw: boolean): CopilotField[] {
@@ -100,46 +106,31 @@ export function scriptCopilotFields(script: CallScript, raw: boolean): CopilotFi
     ];
   }
 
+  const text = (id: string, label: string, value: string, help?: string): CopilotField => ({
+    id,
+    label,
+    type: "textarea",
+    value,
+    ...(help ? { help } : {}),
+  });
   return [
-    {
-      id: "script-opening_line",
-      label: "Opening line",
-      type: "textarea",
-      value: script.opening_line,
-      help: OPENING_LINE_COPILOT_HELP,
-    },
-    ...script.steps.map((step, index) => ({
-      id: `script-steps-${index}-instruction`,
-      label: `Step ${index + 1}`,
-      type: "textarea" as const,
-      value: step.instruction,
-      help: STEP_COPILOT_HELP,
-    })),
-    ...script.faqs.flatMap((faq, index) => [
-      {
-        id: `script-faqs-${index}-question`,
-        label: `FAQ ${index + 1} question`,
-        type: "text" as const,
-        value: faq.question,
-      },
-      {
-        id: `script-faqs-${index}-answer`,
-        label: `FAQ ${index + 1} answer`,
-        type: "textarea" as const,
-        value: faq.answer,
-      },
+    text("script-business_line", "Your business in one line", script.business_line),
+    text("script-identity", "The agent's role", script.identity, IDENTITY_COPILOT_HELP),
+    text("script-goal", "What a good call achieves", script.goal),
+    text("script-outbound_purpose", "Why you are calling", script.outbound_purpose),
+    text("script-opening_line", "Opening line", script.opening_line, OPENING_LINE_COPILOT_HELP),
+    ...script.stages.flatMap((stage, index) => [
+      text(`script-stages-${index}-instruction`, `Stage ${index + 1}`, stage.instruction, STEP_COPILOT_HELP),
+      text(`script-stages-${index}-sounds_like`, `How stage ${index + 1} sounds`, stage.sounds_like ?? ""),
     ]),
-    {
-      id: "script-faq_fallback",
-      label: "What it says when it does not know",
-      type: "textarea",
-      value: script.faq_fallback,
-    },
-    ...script.end_call_extra_rules.map((rule, index) => ({
-      id: `script-end_call_extra_rules-${index}`,
-      label: `End-of-call rule ${index + 1}`,
-      type: "text" as const,
-      value: rule,
-    })),
+    ...script.objections.flatMap((o, index) => [
+      text(`script-objections-${index}-objection`, `Push-back ${index + 1}`, o.objection),
+      text(`script-objections-${index}-response`, `Answer to push-back ${index + 1}`, o.response),
+    ]),
+    text("script-ending", "How the call ends", script.ending),
+    ...script.faqs.flatMap((faq, index) => [
+      text(`script-faqs-${index}-question`, `Quick fact ${index + 1} question`, faq.question),
+      text(`script-faqs-${index}-answer`, `Quick fact ${index + 1} answer`, faq.answer),
+    ]),
   ];
 }

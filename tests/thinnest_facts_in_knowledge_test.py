@@ -48,11 +48,12 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 
 # --- every other engine: byte-identical -------------------------------------------
 
-#: sha256 of `compose_engine_prompt` for the two configs below, taken from the composer
-#: BEFORE `facts_in_knowledge` existed. A change here is a change to every Pipecat prompt.
+#: sha256 of `compose_engine_prompt` for the two configs below. A change here is a change to
+#: every Pipecat prompt: re-pinned for D-714 (each platform rule said once, the spoken
+#: register, the cannot-help block), which changed every engine's platform layers on purpose.
 PINNED = (
-    "6375e0531296d45c580bcb689e5b632f7ef77f57316c6083f5a5e6cbdcd29e70",
-    "2488b22cd8c8f850afdee8a7fb9ef9065c13973d093f456e70e07ce1cc5692f6",
+    "949879d03172418513765172a090f1fa1e0c1aec5b261e707dd74f0551a46663",
+    "18bcc147631512d9ae5e6ad561964c6137f23bb4bc95e78b2e63b80b05f2d861",
 )
 
 
@@ -136,7 +137,7 @@ def test_a_long_facts_block_no_longer_costs_the_prompt_cap() -> None:
     script = f"[IDENTITY] Sunrise Clinic receptionist\n{facts}\n[TASK FLOW]\nGreet.\n"
     assert len(script) > 20_000
     cfg = _to_config(uuid.uuid4(), _row(prompt=script), engine=_thinnest())  # type: ignore[arg-type]
-    assert len(compose_engine_prompt(cfg)) <= 20_000
+    assert len(compose_engine_prompt(cfg)) <= 8_000
     refuse_over_engine_limits(_thinnest(), cfg)
 
 

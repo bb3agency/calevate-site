@@ -482,7 +482,13 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # an incident on the public status page, or posting one by hand, says something in
     # public that every client and caller can read. Resolving is bound to the incident;
     # the two status writes share `status_confirmation`, bound to the incident or to none.
-    assert sites == 51, f"found {sites} step-up call sites, expected 51; the census went stale"
+    # THE FIFTY-SECOND attests an INR price for a language model
+    # (`ops/model_price_routes.py`, `inr_llm_attest_confirmation`, bound to the model):
+    # an attested figure is what `unit_cost_paid` is struck at (hard rule 7).
+    # THE FIFTY-THIRD removes a stored platform secret (`ops/secret_routes.py::
+    # remove_secret_route`, `secret_removal_confirmation`, bound to the key): the leg that
+    # key serves stops working the moment it is gone.
+    assert sites == 53, f"found {sites} step-up call sites, expected 53; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

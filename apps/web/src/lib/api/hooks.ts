@@ -29,6 +29,7 @@ import { useRef } from "react";
 import type { components } from "./schema";
 
 import { unscopedClientSession } from "@/lib/authn/realmSessions";
+import { callStillFillingIn } from "@/lib/callReview";
 import { saveCsv } from "@/lib/csvDownload";
 
 import { aiQuotaKey } from "./aiQuota";
@@ -44,7 +45,6 @@ import {
 
 /** The post-call SLO is "lead visible within 2 minutes"; 20s leaves plenty of room. */
 const LIVE_INTERVAL_MS = 20_000;
-const SLOW_INTERVAL_MS = 60_000;
 
 export const queryKeys = {
   me: (org: string) => ["me", org] as const,
@@ -268,23 +268,42 @@ export function useCalls(
 /** The call log's server-side filters (`lib/callFilters` builds the window). */
 export interface CallsLogFilters {
   status?: string;
+  /** One agent's calls (the agent page links here with `?agent_id=`). */
+  agentId?: string;
   outcome?: string;
   direction?: string;
   since?: string;
   until?: string;
+  /** `false` leaves out free-trial test calls; anything else includes them. */
+  testCalls?: boolean;
+}
+
+/** The query string for the log and its export; one mapping, so the file is the table. */
+function callsLogQuery(filters: CallsLogFilters): Record<string, string | undefined> {
+  const { status, agentId, outcome, direction, since, until, testCalls } = filters;
+  return {
+    status,
+    agent_id: agentId,
+    outcome,
+    direction,
+    since,
+    until,
+    test_calls: testCalls === false ? "false" : undefined,
+  };
 }
 
 export function useCallsLog(
   session: Session,
   filters: CallsLogFilters & { pageSize: number },
 ): UseInfiniteQueryResult<InfiniteData<CallSummary[]>> {
-  const { status, outcome, direction, since, until, pageSize } = filters;
+  const { pageSize } = filters;
+  const params = callsLogQuery(filters);
   return useInfiniteQuery({
-    queryKey: ["calls-log", session.orgSlug, { status, outcome, direction, since, until, pageSize }],
+    queryKey: ["calls-log", session.orgSlug, { ...params, pageSize }],
     queryFn: ({ pageParam }) =>
       apiRequest<CallSummary[]>(
         session,
-        `/v1/calls${query({ status, outcome, direction, since, until, limit: pageSize, offset: pageParam || undefined })}`,
+        `/v1/calls${query({ ...params, limit: pageSize, offset: pageParam || undefined })}`,
       ),
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) =>
@@ -307,7 +326,7 @@ export function useCallsLog(
 export function useExportCalls(session: Session) {
   return useMutation({
     mutationFn: (filters: CallsLogFilters) =>
-      apiRequest<string>(session, `/v1/calls/export.csv${query({ ...filters })}`),
+      apiRequest<string>(session, `/v1/calls/export.csv${query(callsLogQuery(filters))}`),
     onSuccess: (csv) => saveCsv(csv, "calls"),
   });
 }
@@ -319,30 +338,19 @@ export function useCall(
   return useQuery({
     queryKey: queryKeys.call(session.orgSlug, callId),
     queryFn: () => apiRequest<CallDetail>(session, `/v1/calls/${callId}`),
-    // A call detail page opened while the pipeline is still running fills in as the
-    // extraction lands; once it has, there is nothing left to poll for.
-    refetchInterval: (q) => (callStillFillingIn(q.state.data) ? SLOW_INTERVAL_MS : false),
+    // A call opened while it is live, or while its summary and English turns are still
+    // being written, fills in as they land; once they have, there is nothing to poll for.
+    // Bounded by age, so a call whose summary was never written is not re-read forever.
+    refetchInterval: (q) => (callStillFillingIn(q.state.data) && recentCall(q.state.data) ? LIVE_INTERVAL_MS : false),
   });
 }
 
-/**
- * The terminal statuses that promise no transcript and so never get a summary
- * (`workers/pipeline.py`: only `completed` carries artefacts).
- */
-const ENDED_WITHOUT_A_CONVERSATION = new Set(["failed", "no_answer", "busy", "voicemail"]);
+/** Half an hour after it started, a call that is still "filling in" is not going to. */
+const FILL_IN_WINDOW_MS = 30 * 60_000;
 
-/**
- * Can the pipeline still add to this call?
- *
- * Not "is there a summary": an unanswered call never gets one, and a completed call with an
- * empty transcript is stored with a NULL summary beside `outcome_tag = 'dropped'`. Polling on
- * the summary alone re-read those every minute for as long as the tab stayed open.
- * `outcome_tag` is written with the extraction, so its presence means the reading is in.
- */
-function callStillFillingIn(call: CallDetail | undefined): boolean {
-  if (call === undefined) return true;
-  if (call.summary || call.outcome_tag !== null) return false;
-  return !ENDED_WITHOUT_A_CONVERSATION.has(call.status);
+function recentCall(call: CallDetail | undefined): boolean {
+  if (call === undefined || call.status === "in_progress" || !call.started_at) return true;
+  return Date.now() - Date.parse(call.started_at) < FILL_IN_WINDOW_MS;
 }
 
 /**

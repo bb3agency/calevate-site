@@ -119,24 +119,22 @@ you add here AND enable, and can play a preview of each. Paths are under
       ThinnestAI and is kept in our storage; a catalogue voice has no sample of its own, so
       upload a short clip for it if clients should hear one.
 - [ ] **Enable** the voices clients may choose. A voice added but not enabled is not offered.
-- [ ] **Clear band.** Check the ops console setting "Voice band sold as Clear"
+- [ ] **Clear band.** Check the ops console setting "ThinnestAI voice band sold as Clear"
       (`thinnest_clear_voice_band`): `premium` without Pro, `studio` once on Pro. Attest that
       band's per-minute rate, then add and enable voices of that band only.
-- [ ] **Studio voices (only if Studio is to be offered; gate T-12).** On Voices, press
-      "Enable Studio voices" (`POST /v1/ops/voices/studio-voices/enable`, step-up). It
-      first sets every published Clear agent to stay off our key and checks each, then
-      installs our Cartesia key unless the workspace already holds one, then switches on
-      voice-only BYOK. Check: the card reads On; BYOK status reads enabled, scope `voice`,
-      complete (`api-reference/bring-your-own-keys.md:115-147`); the Cartesia voices list;
-      one plays a preview. Then add and enable the Cartesia voices clients may choose. Until
-      this is done the rate card says Studio is not available. The switch is made in our
-      developer workspace and every client workspace inherits it
-      (`2026-10-08/pages/api-reference/bring-your-own-keys.md:129-133`); the result also
-      says how many client workspaces do NOT inherit, which must be 0. Clear agents are
-      kept `off` in every workspace first (D-693).
+- [ ] **Studio voices (only if Studio is to be offered; gates T-12, T-27).** Follow
+      `runbooks/thinnest-studio-voices.md` §1-§2: on Voices press "Studio ready" (step-up),
+      naming the test client, which holds our Cartesia key in our developer workspace with its
+      switch OFF and switches voice-only BYOK on in the test client's own workspace only, its
+      Clear agents kept `off` first (D-717). Check: the card reads Ready; that client's
+      `GET /byok` reads enabled, scope `voice`, complete, `using: own`; ours reads
+      `enabled: false`; the Cartesia voices list; one plays a preview. Then add and enable the
+      Cartesia voices clients may choose. Until this is done the rate card says Studio is not
+      available.
 - [ ] Note for Studio agents: on voice-only BYOK the call runs on ThinnestAI's low-cost
       models only (`bring-your-own-keys.md:44-63`), and if our Cartesia key fails the voice
-      does not speak (`:98-103`).
+      does not speak (`:98-103`). A Studio agent with no model of its own runs the in-call
+      default, which the console accepts only when it is one of those models (D-717).
 
 ## 3b. The test client's own workspace (admin console → the test client; D-693)
 
@@ -285,8 +283,8 @@ client every one of these must be TRUE, not merely recorded:
       With a Studio agent (`byok: workspace`) and a Clear agent (`byok: off`) both published
       for the test client: call each; the Studio one speaks the Cartesia voice you chose,
       the Clear one the Clear band; each call's `costMicro` matches its rate (Studio at the
-      voice-only BYOK rate, Clear at the band's); no `engine_workspace_byok_not_inherited`
-      alarm. Record the result on gate T-15. A fail stops Studio for every client.
+      voice-only BYOK rate, Clear at the band's); no `studio_workspace_drift` or
+      `studio_developer_switch_on` alarm. Record the result on gate T-15. A fail stops Studio for every client.
 
 ## 9. If something goes wrong
 

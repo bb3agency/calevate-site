@@ -104,7 +104,8 @@ async def test_compiled_preview_shows_the_platform_floor() -> None:
         )
     # The preview is the exact engine prompt: the floor rides underneath even a hostile
     # opening line, because it runs the real composer.
-    assert TRUTHFUL_ANSWER_MARKER in compiled
+    assert TRUTHFUL_ANSWER_MARKER in compiled.compiled
+    assert compiled.instructions_chars == len(compiled.compiled)
 
 
 async def test_a_second_tenant_cannot_read_or_write_structured_script() -> None:

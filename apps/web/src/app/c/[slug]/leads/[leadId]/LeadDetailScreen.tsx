@@ -22,17 +22,12 @@ import { useEditLead, useLead, useLeadTimeline, useMembers } from "@/lib/api/lea
 import { useClientRealm } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
+import { calledTimes, leadNextStep, leadTitle, sourceLabel, stageSetBy } from "@/lib/leadLabels";
 
 import { AssigneeSelect } from "../AssigneeSelect";
 import { STATUSES, StatusSelect } from "../StatusSelect";
+import { LeadCaptured } from "./LeadCaptured";
 import { LeadTimeline } from "./LeadTimeline";
-
-/** A captured value as text; an empty one is a dash, never a blank cell. */
-function shownValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  return String(value);
-}
 
 /** How many events one page of the history holds. The API caps this at 100. */
 const TIMELINE_LIMIT = 50;
@@ -196,15 +191,11 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
           {/* IN FULL (D-436) and as text, never an `href` (hard rule 6); the copy button
               copies the E.164 form. */}
           <PageHeader
-            title={lead.data.name ?? <span className="font-normal text-ink-faint">No name</span>}
+            title={leadTitle(lead.data)}
             status={
               <>
                 <StatusBadge value={lead.data.status} />
-                {lead.data.is_repeat_caller && (
-                  <span className="rounded-full bg-brand-soft px-2 py-0.5 text-meta font-medium text-brand-strong">
-                    Repeat caller
-                  </span>
-                )}
+                <span className="text-meta text-ink-muted">{stageSetBy(lead.data.status_set_by)}</span>
               </>
             }
             description={
@@ -214,9 +205,10 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
                   <CopyButton value={lead.data.phone_e164} label="Copy phone number" />
                 </span>
                 <span className="block text-meta text-ink-faint">
-                  {lead.data.source} · {formatCount(lead.data.call_count)}{" "}
-                  {lead.data.call_count === 1 ? "call" : "calls"} · updated{" "}
-                  {formatIST(lead.data.updated_at)}
+                  {sourceLabel(lead.data.source)} ·{" "}
+                  {calledTimes(lead.data.call_count) ??
+                    `${formatCount(lead.data.call_count)} ${lead.data.call_count === 1 ? "call" : "calls"}`}{" "}
+                  · updated {formatIST(lead.data.updated_at)}
                 </span>
               </>
             }
@@ -233,18 +225,27 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
             }
           />
 
-          {/* What the agent captured about this person — the same fields as the table's
-              extraction columns, read through `lookup` (they are client-named keys). */}
-          {Object.keys(lead.data.data ?? {}).length > 0 && (
-            <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-line pt-4 lg:grid-cols-4">
-              {Object.entries(lead.data.data ?? {}).map(([key, value]) => (
-                <div key={key} className="min-w-0">
-                  <dt className="text-meta capitalize text-ink-faint">{key.replace(/_/g, " ")}</dt>
-                  <dd className="break-words text-sm font-medium text-ink">{shownValue(value)}</dd>
+          {(leadNextStep(lead.data) || lead.data.last_call_headline) && (
+            <dl className="mt-4 max-w-2xl space-y-1 border-t border-line pt-4">
+              {leadNextStep(lead.data) && (
+                <div className="flex flex-wrap gap-x-3">
+                  <dt className="text-body text-ink-muted">Next step</dt>
+                  <dd className="text-body text-ink">{leadNextStep(lead.data)}</dd>
                 </div>
-              ))}
+              )}
+              {lead.data.last_call_headline && (
+                <div className="flex flex-wrap gap-x-3">
+                  <dt className="text-body text-ink-muted">Last call</dt>
+                  <dd className="text-body text-ink">{lead.data.last_call_headline}</dd>
+                </div>
+              )}
             </dl>
           )}
+
+          {/* What the agents captured about this person, under the business's own labels. */}
+          <div className="mt-4">
+            <LeadCaptured session={session} leadId={leadId} />
+          </div>
 
           {/* The stage and owner are CHANGEABLE here (ux-audit LD1): this page is where the
               decision is made, with the same shared selects and mutation as the table. */}

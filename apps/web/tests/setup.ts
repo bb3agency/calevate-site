@@ -36,6 +36,16 @@ afterEach(() => {
 });
 
 /**
+ * Put the address bar back between tests. `useSearchParams` below reads jsdom's real
+ * `location`, and a screen that records its state there (the billing hub writes `?tab=`
+ * with `history.replaceState`) would otherwise open the NEXT test in the same file on the
+ * view the previous one left — a failure that depends on test order.
+ */
+afterEach(() => {
+  window.history.replaceState(null, "", "/");
+});
+
+/**
  * Unmount between tests.
  *
  * React Testing Library auto-registers this when `globals: true`, which we do not use
@@ -59,7 +69,8 @@ afterEach(cleanup);
  * "invariant expected app router to be mounted" instead of its assertion.
  */
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams(),
+  // The address bar jsdom holds, so a test can arrive by link with `history.replaceState`.
+  useSearchParams: () => new URLSearchParams(window.location.search),
   usePathname: () => "/",
   useRouter: () => ({
     push: vi.fn(),

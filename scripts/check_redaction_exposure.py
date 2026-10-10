@@ -135,6 +135,16 @@ RAW_TRANSCRIPT_FIELDS: frozenset[str] = frozenset(
         # "a caller's own words could be in this".
         "summary",
         "call_summary",
+        # The rest of the after-call prose (first-call review, 10 Oct 2026): the summary in
+        # the call's language, the English turn, and the call's headline on the lead.
+        # Model writing about the conversation, so a caller's number could be in any.
+        # NOT bare `headline` / `next_step`: a dozen operator screens use those names for
+        # our own sentences, and a pattern that fires on them teaches exemptions rather
+        # than looking (the `notes` argument above). The call's own two are stored
+        # redacted (`workers/pipeline._record_reading`).
+        "summary_local",
+        "last_call_headline",
+        "text_en",
         # The engine's own recording URL is vendor-scoped and long-lived; clients get a
         # short-lived presigned link to OUR copy instead.
         "recording_url",
@@ -217,6 +227,31 @@ ALLOWED_ROUTES: dict[str, RawDisclosure] = {
 # NAMING exemption only — a static schema walk cannot see whether a value was redacted,
 # so each entry names the runtime test that can.
 KNOWN_SAFE_FIELDS: dict[str, str] = {
+    "FactOut.text": (
+        "a fact the BUSINESS wrote about itself (the teach box or the Knowledge screen, "
+        "`kb_facts`), never transcript text; tenant-scoped by RLS (tests/teach_loop_test.py)"
+    ),
+    "TeachItemIO.text": (
+        "one fact or rule sorted out of the owner's OWN words in the teach box "
+        "(`kb_teachings.items`), never a caller's; tenant-scoped by RLS"
+    ),
+    "RuleOut.text": (
+        "a rule the owner taught for one agent's script (`agent_rule_proposals`), the "
+        "business's own instruction, never transcript text"
+    ),
+    "ExampleLine.text": (
+        "a line of SAMPLE dialogue in the agent's script (`CallScript.example_exchange`, "
+        "D-714): typed by the owner, seeded from the `calevate_shared.spoken_style` table, "
+        "or drafted by `workers/script_assist` from the owner's own description, which is "
+        "given no transcript or caller data (D-127 G-2). The `caller` speaker is an "
+        "imagined caller, never a recorded one (tests/agent_intelligence_test.py)"
+    ),
+    "VersionOut.summary": (
+        "a script version's change note (`prompt_versions.notes`): the owner's own words "
+        "when they put it live (`PublishIn.summary`) or OUR sentence for a rollback, a "
+        "starter or a promoted experiment arm; nothing writes a caller's words there "
+        "(tests/agent_intelligence_test.py)"
+    ),
     "TranscriptTurnOut.text": (
         "holds `text_redacted` by default and carries a `redacted` flag saying which it "
         "is; raw only from the allowlisted route (tests/api_security_test.py)"
@@ -260,6 +295,24 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
         "holds `text_redacted` and never the raw column — the raw column is not even "
         "named in the query that builds it — and an unredacted turn ships as "
         "`export.REDACTION_PENDING` rather than falling back "
+        "(tests/subject_export_test.py)"
+    ),
+    "TranscriptTurnOut.text_en": (
+        "the turn in English, translated AFTER the call from `text_redacted` (the model is "
+        "never shown the raw text) and put through `redact()` again on the way in "
+        "(`workers/call_language._clean`), so it is the same on the raw and the default "
+        "view (tests/post_call_truth_test.py)"
+    ),
+    "CallDetailOut.summary_local": (
+        "the summary in the call's language, through `crm.service.redacted_summary` like "
+        "`summary`, raw only on the allowlisted raw-transcript route "
+        "(tests/post_call_truth_test.py)"
+    ),
+    "LeadOut.last_call_headline": (
+        "the last call's stored-redacted headline (tests/post_call_truth_test.py)"
+    ),
+    "SubjectExportCallOut.summary_local": (
+        "masked by `export.mask_foreign_numbers` exactly like `summary` "
         "(tests/subject_export_test.py)"
     ),
     "SubjectExportCallOut.summary": (

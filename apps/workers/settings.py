@@ -96,6 +96,8 @@ from apps.workers.account_closure import (
 )
 from apps.workers.account_closure import notify_account_closed, sweep_due_erasures
 from apps.workers.action_audit import record_action_invocation
+from apps.workers.agent_test_cases import run_agent_test_cases
+from apps.workers.agent_test_conversations import run_agent_test_conversations
 from apps.workers.alerts import sweep_alert_clears
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import FEE_SWEEP_MINUTE, issue_platform_fees
@@ -169,7 +171,9 @@ from apps.workers.kb_ingest import SWEEP_MINUTES as KB_UPLOAD_SWEEP_MINUTES
 from apps.workers.kb_ingest import ingest_kb_source, publish_kb_source, sweep_kb_uploads
 from apps.workers.kb_orphans import ORPHAN_SWEEP_HOUR, ORPHAN_SWEEP_MINUTE, sweep_kb_orphans
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
+from apps.workers.kb_teach import run_kb_teaching
 from apps.workers.kyc_owner_id_purge import PURGE_HOUR, PURGE_MINUTE, sweep_abandoned_owner_ids
+from apps.workers.lead_fields_draft import draft_lead_fields
 from apps.workers.maintenance import (
     TICK_SECONDS as MAINTENANCE_TICK_SECONDS,
 )
@@ -185,6 +189,7 @@ from apps.workers.number_rental import (
 )
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from apps.workers.pack_gc import PACK_GC_HOUR, PACK_GC_MINUTE, sweep_knowledge_packs
+from apps.workers.pinned_facts import recompile_pinned_facts
 from apps.workers.pipeline import (
     ingest_engine_event,
     reconcile_executions,
@@ -217,7 +222,11 @@ from apps.workers.retention import (
     execute_tenant_erasure,
     prune_reliability_tables,
 )
-from apps.workers.studio_voice_key import push_studio_voice_key
+from apps.workers.studio_voice_key import (
+    push_studio_voice_key,
+    push_studio_voice_key_to_workspace,
+    sweep_studio_workspaces,
+)
 from apps.workers.tls_expiry import check_tls_expiry
 from apps.workers.topup_settlement import SETTLEMENT_MINUTES, sweep_topup_settlement
 from apps.workers.trial_notices import (
@@ -256,6 +265,18 @@ FUNCTIONS: list[Any] = [
         push_engine_dnc,
         # An assistant background job (D-694), from the outbox (`copilot/jobs.create_job`).
         run_copilot_job,
+        # A custom business's one AI draft of its lead fields (founder decision 15), from
+        # the outbox (`agents/lead_fields.request_draft`).
+        draft_lead_fields,
+        # Pre-launch test conversations against the agent (founder decision 11), from the
+        # outbox (`agents/test_conversations.request_run`).
+        run_agent_test_conversations,
+        # The teach box (founder decision 9) and saved test cases made from real calls
+        # (founder decision 11), both from the outbox (`apps/api/teach/`).
+        run_kb_teaching,
+        run_agent_test_cases,
+        # Pinned facts re-spliced into every agent (founder decision 9).
+        recompile_pinned_facts,
         erase_engine_contact,
         # Each client's own voice platform workspace (D-693): made, its business details
         # sent, offboarded when the account closes, and the old copy of an agent recreated
@@ -352,10 +373,12 @@ FUNCTIONS: list[Any] = [
         # client list; the child sends one notice.
         fan_out_rate_card_notice,
         notify_rate_card_change,
-        # D-688. A rotated Cartesia key, pushed to the voice platform workspace that holds our
-        # copy for Studio voices. Published by `ops/secret_routes.set_secret_route` through the
-        # outbox; unregistered, the rotation would never reach the platform.
+        # D-688, D-717. A rotated Cartesia key, pushed to our developer workspace and fanned
+        # out to every Studio client workspace, one outbox job each. Published by
+        # `ops/secret_routes.set_secret_route`; unregistered, the rotation would never reach
+        # the platform.
         push_studio_voice_key,
+        push_studio_voice_key_to_workspace,
         # D-551. THE CREDIT CUTOVER ON THE INBOUND LEG. Published by
         # `billing.service.record_entry` on BOTH crossings of zero, in the same transaction
         # as the ledger row that earned them, and by the post-call meter as its backstop.
@@ -857,7 +880,17 @@ CRON_JOBS = [
         second={45},
         max_tries=WORKER_MAX_TRIES,
     ),
-    # And each client workspace read back: business details, our voice key, clone copies.
+    # D-717. Every Studio client workspace verified on our Cartesia key, repaired when not;
+    # our developer workspace's own-keys switch alarmed if found on. One directory read,
+    # then one GET per Studio workspace (at most the plan's customer cap).
+    _cron(
+        traced_job(sweep_studio_workspaces),
+        walk=bounded("one directory read, then one vendor GET per Studio workspace"),
+        minute={37},
+        second={20},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # And each client workspace read back: business details, clone copies.
     _cron(
         traced_job(healer_sweep(sweep_engine_workspaces)),
         walk=bounded("at most DEFAULT_WORKSPACE_BUDGET workspaces, resumed from a cursor"),

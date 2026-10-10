@@ -1,134 +1,119 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
 
-import { StatusBadge, formatDuration, formatIST, formatPhone } from "@/components/ui";
+import { formatDuration, formatIST, formatPhone } from "@/components/ui";
 import type { DataColumn } from "@/components/console/dataTable";
 import { LIVE_STATUS, LiveDot } from "@/components/console/liveCalls";
 import type { CallSummary } from "@/lib/api/client";
-import { lookup } from "@/lib/lookup";
+import { callResultWords, callRowLine, callTitle, callbackOverdue, needsAttention } from "@/lib/callReview";
 
-export function isLive(call: CallSummary): boolean {
+export function isLive(call: Pick<CallSummary, "status">): boolean {
   return call.status === LIVE_STATUS;
 }
 
-function Direction({ value }: { value: string }) {
-  const Icon = value === "outbound" ? ArrowUpRight : ArrowDownLeft;
-  return (
-    <span className="inline-flex items-center gap-1 capitalize">
-      <Icon aria-hidden className="h-3.5 w-3.5 text-ink-faint" />
-      {value}
-    </span>
-  );
-}
-
-/** Outcomes that ask the owner to do something wear the warning tone. */
-const OUTCOME_TONES: Record<string, string> = {
-  needs_follow_up: "bg-warn-soft text-warn",
-  transferred: "bg-ink/[0.05] text-ink-muted",
-  dropped: "bg-ink/[0.05] text-ink-muted",
-};
-
-export function OutcomeTag({ value }: { value: string | null | undefined }) {
-  if (!value) return null;
-  const words = value.replace(/_/g, " ");
-  return (
-    <span
-      className={`whitespace-nowrap rounded-full px-2 py-0.5 text-meta font-medium ${
-        lookup(OUTCOME_TONES, value) ?? "bg-brand-soft text-brand-strong"
-      }`}
-    >
-      {words.charAt(0).toUpperCase() + words.slice(1)}
-    </span>
-  );
-}
-
 /**
- * How a call ended, in one chip or two. A completed call is described by its outcome
- * ("Resolved"); any other status is itself the fact worth reading.
+ * How a call ended, as words. Plain ink for everything except the two things that ask
+ * the owner to act — "Needs you" and a call back that is late — which take the warning
+ * tone. No pill: in a list of calls the words are the fact, and a coloured chip on every
+ * row would make every row shout.
  */
-export function CallState({ call }: { call: Pick<CallSummary, "status" | "outcome_tag"> }) {
-  if (call.status === "completed" && call.outcome_tag) return <OutcomeTag value={call.outcome_tag} />;
+export function CallResult({
+  call,
+}: {
+  call: Pick<CallSummary, "status" | "outcome_tag" | "callback" | "summary_state">;
+}) {
+  const overdue = callbackOverdue(call.callback);
+  const warn = needsAttention(call);
   return (
-    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-      <StatusBadge value={call.status} kind="call" />
-      <OutcomeTag value={call.outcome_tag} />
+    <span className={`whitespace-nowrap text-meta ${warn ? "font-medium text-warn" : "text-ink-muted"}`}>
+      {overdue ? "Call back overdue" : callResultWords(call)}
     </span>
   );
 }
 
-/**
- * The columns of a call row, shared by the call log and the dashboard's latest calls so
- * the two read the same call the same way.
- *
- * The number is printed IN FULL (D-436) and is the row's one link, stretched over the
- * whole row; the URL carries the call id and never the number (hard rule 6). The summary
- * is the API's redacted text. Below `md` the status, agent and time fold under the
- * number, so a phone reads one row as two short lines rather than a scrolling table.
- */
+/** A free-trial test call, said once beside the caller so it is never mistaken for a lead. */
+export function TestCallTag() {
+  return (
+    <span className="shrink-0 whitespace-nowrap rounded-full bg-ink/[0.05] px-2 py-px text-meta text-ink-muted">
+      Test call
+    </span>
+  );
+}
+
 /** How the caller sounded, in a word; a dash until the call has been read. */
 export function sentimentWord(value: string | null | undefined): string {
   if (!value) return "—";
   return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
 }
 
+/**
+ * The columns of a call row, shared by the call log and the dashboard's latest calls so
+ * the two read a call the same way.
+ *
+ * The row says WHO (the lead's name, or the number when there is none), WHAT the call was
+ * about (the one-line headline written after the call, never the last thing said), how it
+ * ENDED, how LONG and WHEN. The number is printed in full (D-436) and is never in an
+ * `href`; the row's one link carries the call id. Below `md` the result, length and time
+ * fold under the headline, so a phone reads a row as three short lines and never scrolls
+ * sideways.
+ */
 export function callColumns({
   callHref,
   compact = false,
 }: {
   callHref: (id: string) => string;
-  /** The dashboard's short list: no agent or direction column, no sorting. */
+  /** The dashboard's short list: adds how the caller sounded, no sorting. */
   compact?: boolean;
 }): DataColumn<CallSummary>[] {
   const caller: DataColumn<CallSummary> = {
     id: "caller",
     header: "Caller",
     className: "max-w-0 w-full",
-    cell: (call) => (
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          {isLive(call) && <LiveDot />}
-          <Link
-            href={callHref(call.id)}
-            className="whitespace-nowrap rounded-sm font-medium tabular-nums text-ink after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"
+    cell: (call) => {
+      const line = callRowLine(call);
+      const named = Boolean(call.lead_name?.trim());
+      return (
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            {isLive(call) && <LiveDot />}
+            <Link
+              href={callHref(call.id)}
+              className="truncate rounded-sm font-medium text-ink after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"
+            >
+              {callTitle(call)}
+            </Link>
+            {named && call.caller_e164 && (
+              <span className="hidden whitespace-nowrap text-meta tabular-nums text-ink-faint sm:inline">
+                {formatPhone(call.caller_e164)}
+              </span>
+            )}
+            {call.test_call && <TestCallTag />}
+          </div>
+          <p
+            title={line.pending ? undefined : line.text}
+            className={`mt-0.5 truncate text-meta ${line.pending ? "italic text-ink-faint" : "text-ink-muted"}`}
           >
-            {call.caller_e164 ? formatPhone(call.caller_e164) : "Unknown number"}
-          </Link>
-          <span className="md:hidden">
-            <CallState call={call} />
-          </span>
+            {line.text}
+          </p>
+          <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-meta text-ink-faint md:hidden">
+            <CallResult call={call} />
+            <span aria-hidden>·</span>
+            <span className="tabular-nums">{formatDuration(call.duration_s)}</span>
+            <span aria-hidden>·</span>
+            <span className="tabular-nums">{formatIST(call.started_at)}</span>
+          </p>
         </div>
-        <p title={call.summary ?? undefined} className="mt-0.5 truncate text-meta text-ink-muted">
-          {call.summary ?? (isLive(call) ? "On the line now" : "No summary yet")}
-        </p>
-        <p className="mt-0.5 truncate text-meta text-ink-faint md:hidden">
-          {call.agent_name ?? "—"} · {formatDuration(call.duration_s)} · {formatIST(call.started_at)}
-        </p>
-      </div>
-    ),
+      );
+    },
   };
-  const status: DataColumn<CallSummary> = {
+  const result: DataColumn<CallSummary> = {
     id: "status",
     header: "Outcome",
     hideBelow: "md",
-    flash: (call) => `${call.status}|${call.outcome_tag ?? ""}`,
-    sort: compact ? undefined : { value: (call) => call.status },
-    cell: (call) => <CallState call={call} />,
-  };
-  const agent: DataColumn<CallSummary> = {
-    id: "agent",
-    header: "Agent",
-    hideBelow: "lg",
-    sort: { value: (call) => call.agent_name },
-    cell: (call) => (
-      <span className="whitespace-nowrap text-meta text-ink-muted">
-        {call.agent_name ?? "—"}
-        <span className="block text-meta text-ink-faint">
-          <Direction value={call.direction} />
-        </span>
-      </span>
-    ),
+    flash: (call) => `${call.status}|${call.outcome_tag ?? ""}|${call.callback?.status ?? ""}`,
+    sort: compact ? undefined : { value: (call) => callResultWords(call) },
+    cell: (call) => <CallResult call={call} />,
   };
   const duration: DataColumn<CallSummary> = {
     id: "duration",
@@ -163,7 +148,5 @@ export function callColumns({
       <span className="whitespace-nowrap text-meta text-ink-muted">{sentimentWord(call.sentiment)}</span>
     ),
   };
-  return compact
-    ? [caller, status, sentiment, duration, started]
-    : [caller, status, agent, duration, started];
+  return compact ? [caller, result, sentiment, duration, started] : [caller, result, duration, started];
 }

@@ -290,9 +290,10 @@ class TestTheDriverDoor:
     """`text()` is not the only way this tree executes a string. `core/alert_records.py`
     runs on the alert-delivery thread and talks to Postgres through psycopg directly —
     `cur.execute(_UPSERT, ...)`, `conn.execute(_MARK_EMAILED, ...)`,
-    `conn.execute("DELETE FROM platform_alerts")` — and a string handed to a driver's
-    `execute` is SQL exactly as a string handed to `text()` is. The check watched only the
-    SQLAlchemy doors, so an f-string there would have passed it."""
+    `cur.execute(_CLOSE_OPEN, ...)`, `conn.execute("DELETE FROM platform_alerts")` — and a
+    string handed to a driver's `execute` is SQL exactly as a string handed to `text()` is.
+    The check watched only the SQLAlchemy doors, so an f-string there would have passed
+    it."""
 
     ALERT_RECORDS = "apps/api/core/alert_records.py"
 
@@ -300,7 +301,7 @@ class TestTheDriverDoor:
         self, modules: list[guard.Module]
     ) -> None:
         records = next(m for m in modules if m.rel == self.ALERT_RECORDS)
-        assert len(guard.sql_sites(records)) == 3, [
+        assert len(guard.sql_sites(records)) == 4, [
             ast.unparse(call.args[0]) for call in guard.sql_sites(records)
         ]
 

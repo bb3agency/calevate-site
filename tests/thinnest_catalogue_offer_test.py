@@ -265,14 +265,17 @@ async def test_no_voices_yet_is_said_plainly(
     assert out.voices == [] and out.note == "No voices have been made available yet."
 
 
-def test_the_adapter_classifies_the_models_it_knows() -> None:
+def test_the_adapter_reads_price_band_and_latency_by_console_name() -> None:
+    """The band and latency come from the founder's reading of the console (10 Oct 2026),
+    keyed by the console name `GET /models` returns; an unread model has no band."""
     from apps.api.engine import thinnest
 
-    assert thinnest._MODEL_TIERS == {
-        "prana-voice": "standard",
-        "gpt-5-mini": "plus",
-        "gpt-4.1": "pro",
-    }
+    mini = thinnest._catalogue_model("gpt-5-mini", "GPT-5 Mini", {"voice": True, "available": True})
+    assert (mini.surcharge, mini.tier, mini.console_latency_ms) == ("premium", "plus", 823)
+    prana = thinnest._catalogue_model("prana-voice", "Prana [Voice]", {"voice": True})
+    assert (prana.surcharge, prana.tier) == ("none", "standard")
+    unread = thinnest._catalogue_model("qwen", "Qwen3.6 27B", {"voice": True, "available": True})
+    assert unread.surcharge is None and unread.tier is None
 
 
 # --- the preview route -------------------------------------------------------------

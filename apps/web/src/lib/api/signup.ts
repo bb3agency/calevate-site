@@ -28,6 +28,7 @@ import { useMutation } from "@tanstack/react-query";
 
 import { LANGUAGE_CHOICES } from "@/lib/agentState";
 import { clientRealmSession } from "@/lib/authn/realmSessions";
+import { BUSINESS_TYPES } from "@/lib/businessTypes";
 
 import { ApiProblem, apiRequest, type Session } from "./client";
 import type { components } from "./schema";
@@ -50,16 +51,9 @@ export function signupSession(): Session {
   return clientRealmSession("");
 }
 
-/** The four seeded verticals (`scripts/seed.py::VERTICAL_TEMPLATES`) — the API refuses
- * anything else with `unknown_vertical_template` rather than silently seating a
- * business on the clinic schema, so this list must stay a list and not a free text. */
-export const SIGNUP_VERTICALS = [
-  { value: "clinic", label: "Clinic or hospital" },
-  { value: "real_estate", label: "Real estate" },
-  { value: "insurance", label: "Insurance" },
-  { value: "education", label: "Education" },
-  { value: "custom", label: "Something else" },
-] as const;
+/** The business types (`lib/businessTypes.ts`, the one list). The API refuses anything else
+ * with `unknown_vertical_template`, so this stays a list and never a free text. */
+export const SIGNUP_VERTICALS = BUSINESS_TYPES;
 
 /** The languages a business may sign itself up in — the console's one table of language
  *  names (`lib/agentState.LANGUAGE_CHOICES`).

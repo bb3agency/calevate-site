@@ -3,9 +3,12 @@
 /**
  * THE CALL LOG: every call, newest first, filtered on the server (REDESIGN-2).
  *
- * Filters, as the founder set them: how the call ENDED (outcome chips), WHEN (today, 7
- * days, 30 days, or two dates, all on India-time days, `lib/callFilters`), and WHICH WAY
- * (incoming or outgoing). There is no agent filter. A STATUS filter (no answer, failed …)
+ * PRIMARY JOB: find the calls that need you and open one.
+ *
+ * ONE filter row: how the call ENDED (outcome chips, "Needs you" first), WHEN and WHICH
+ * WAY as two compact dropdowns (India-time days, `lib/callFilters`), and whether free-trial
+ * test calls are included. One agent's calls arrive by link from that agent's page
+ * (`?agent_id=`) and show as a chip that clears them. A STATUS filter (no answer, failed …)
  * still arrives by link, from the dashboard's "did not connect" row, and shows as a chip
  * that clears it. Every filter is a server query, never a slice of the loaded page, so a
  * filtered count is a fact about the business, not about our paging.
@@ -24,7 +27,6 @@ import { EmptyState } from "@/components/console/emptyState";
 import { TEXT_ACTION } from "@/components/console/section";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { LoadMore } from "@/components/interior/load-more";
-import { SegmentedControl } from "@/components/interior/segmented-control";
 import { FIELD, FilterChip, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatCount, istDateStamp } from "@/components/ui";
 import { useCallsLog, useExportCalls, useWriteAccess, type CallsLogFilters } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
@@ -68,22 +70,28 @@ export function CallsScreen({ slug }: { slug: string }) {
   const { session, href } = useClientRealm();
   const params = useSearchParams();
   const [status, setStatus] = useState<string | undefined>(() => initialStatus(params.get("status")));
+  const [agentId, setAgentId] = useState<string | undefined>(() => params.get("agent_id") || undefined);
   const [outcome, setOutcome] = useState<CallOutcome | undefined>();
   const [direction, setDirection] = useState<CallDirection | undefined>();
   const [range, setRange] = useState<CallRange>("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  // On by default: a trial account has only test calls, and a log that hid every one of
+  // them would read as "nobody has called". Each one carries a "Test call" tag.
+  const [testCalls, setTestCalls] = useState(true);
 
   const filters: CallsLogFilters = {
     status,
+    agentId,
     outcome,
     direction,
+    testCalls,
     ...callWindow(range, istDateStamp(), from, to),
   };
   const calls = useCallsLog(session, { ...filters, pageSize: CALLS_PAGE_SIZE });
   const exportCalls = useExportCalls(session);
   const exportAccess = useWriteAccess(session, "calls:read_raw", "export your calls");
-  const filtered = Boolean(status || outcome || direction || range !== "all");
+  const filtered = Boolean(status || agentId || outcome || direction || range !== "all" || !testCalls);
 
   // Flattened across the loaded pages, deduped by id: a call landing mid-read shifts
   // rows across an offset boundary, and a duplicate React key would crash the log.
@@ -91,6 +99,8 @@ export function CallsScreen({ slug }: { slug: string }) {
   const rows = (calls.data?.pages ?? [])
     .flatMap((page) => page)
     .filter((call) => (seen.has(call.id) ? false : (seen.add(call.id), true)));
+  /** Every row under the agent filter is that agent's, so the name comes with them. */
+  const agentName = agentId ? (rows.find((call) => call.agent_id === agentId)?.agent_name ?? undefined) : undefined;
 
   /*
    * THE CALL LOG, DECLARED TO THE ASSISTANT. The filters are the writable things on this
@@ -139,6 +149,8 @@ export function CallsScreen({ slug }: { slug: string }) {
             : "still loading",
       },
       { key: "status_link", label: "Status chosen by a link", value: status ? (lookup(STATUS_WORDS, status) ?? status) : "none" },
+      { key: "agent_link", label: "Agent chosen by a link", value: agentId ? (agentName ?? agentId) : "none" },
+      { key: "test_calls", label: "Are free-trial test calls included?", value: testCalls ? "yes" : "no" },
       { key: "rows_loaded", label: "Call rows loaded so far", value: String(rows.length) },
       {
         key: "more_pages",
@@ -173,36 +185,68 @@ export function CallsScreen({ slug }: { slug: string }) {
   );
   const clearAll = () => {
     setStatus(undefined);
+    setAgentId(undefined);
     setOutcome(undefined);
     setDirection(undefined);
     setRange("all");
+    setTestCalls(true);
   };
 
   return (
     <div className="space-y-5 pb-12">
       <div className="space-y-3">
-        <SegmentedControl
-          label="Show calls by how they ended"
-          value={outcome ?? ""}
-          onValueChange={(next) => setOutcome(OUTCOMES.find((o) => o.value === next)?.value)}
-          options={[{ value: "", label: "All" }, ...OUTCOMES]}
-          className="min-w-0"
-        />
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-          <SegmentedControl
-            label="When"
-            value={range}
-            onValueChange={(next) => setRange(RANGES.find((r) => r.value === next)?.value ?? "all")}
-            options={[...RANGES]}
-            className="min-w-0"
-          />
-          <SegmentedControl
-            label="Which way"
-            value={direction ?? ""}
-            onValueChange={(next) => setDirection(DIRECTIONS.find((d) => d.value === next)?.value)}
-            options={[{ value: "", label: "Both" }, ...DIRECTIONS]}
-            className="min-w-0"
-          />
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div role="group" aria-label="Show calls by how they ended" className="flex flex-wrap gap-1.5">
+            {OUTCOMES.map((o) => (
+              <FilterChip
+                key={o.value}
+                label={o.label}
+                active={outcome === o.value}
+                onClick={() => setOutcome(outcome === o.value ? undefined : o.value)}
+                capitalize={false}
+              />
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="block">
+              <span className="sr-only">When</span>
+              <select
+                value={range}
+                onChange={(e) => setRange(RANGES.find((r) => r.value === e.target.value)?.value ?? "all")}
+                className={`${FIELD} mt-0 w-auto`}
+              >
+                {RANGES.map((r) => (
+                  <option key={r.value} value={r.value}>
+                    {r.value === "custom" ? "Pick dates…" : r.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="sr-only">Which way</span>
+              <select
+                value={direction ?? ""}
+                onChange={(e) => setDirection(DIRECTIONS.find((d) => d.value === e.target.value)?.value)}
+                className={`${FIELD} mt-0 w-auto`}
+              >
+                <option value="">Both ways</option>
+                {DIRECTIONS.map((d) => (
+                  <option key={d.value} value={d.value}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="inline-flex cursor-pointer items-center gap-2 px-1 text-meta text-ink-muted touch:min-h-11">
+              <input
+                type="checkbox"
+                checked={testCalls}
+                onChange={(e) => setTestCalls(e.target.checked)}
+                className="h-4 w-4 accent-brand-strong"
+              />
+              Include test calls
+            </label>
+          </div>
         </div>
         {range === "custom" && (
           <div className="settings-enter flex flex-wrap items-end gap-3">
@@ -215,6 +259,17 @@ export function CallsScreen({ slug }: { slug: string }) {
               <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className={`${FIELD} w-auto`} />
             </label>
             <span className="pb-2 text-meta text-ink-muted">India time, both days included.</span>
+          </div>
+        )}
+        {agentId && (
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterChip
+              label={`Agent: ${agentName ?? "the chosen agent"}`}
+              capitalize={false}
+              active
+              onClick={() => setAgentId(undefined)}
+            />
+            <span className="text-meta text-ink-muted">Press it to show every agent&rsquo;s calls.</span>
           </div>
         )}
         {status && (

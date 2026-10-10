@@ -43,6 +43,7 @@ from typing import Annotated
 from uuid import UUID
 
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec
+from calevate_shared.lead_fields import CORE_LEAD_FIELDS, OUTPUT_KEYS, business_only
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
@@ -122,7 +123,11 @@ class ExtractionSchemaOut(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    #: This agent's own (business) fields, in order. The fixed core is NOT among them.
     fields: list[ExtractionField]
+    #: The details every agent captures whatever the business (`calevate_shared.
+    #: lead_fields`). Read-only: a field sent under one of these keys is ignored.
+    core_fields: list[ExtractionField]
     version: int
     changed: bool
 
@@ -136,7 +141,11 @@ def _validate_fields(fields: list[ExtractionField]) -> None:
     fixed Leads columns (`name`, `phone`, `status`, ...) would be SILENTLY DROPPED by
     `crm/columns.available` (a fixed column always wins), so the client would save a variable
     that never appears. Refuse it up front and name it, rather than let it vanish.
+
+    The fixed core is not the client's to send: a field under a core key is dropped before
+    any rule runs, so a list read back with the core still saves.
     """
+    fields = business_only(fields)
     # Runs `ExtractionSchemaSpec._unique_keys` and each field's `_enum_needs_values`; a
     # ValueError becomes a 422 the form can show against the offending input.
     try:
@@ -192,7 +201,7 @@ def _validate_fields(fields: list[ExtractionField]) -> None:
                 fields=[{"name": "fields", "reason": f"choices too large: {field.key}"}],
             )
 
-    reserved = sorted({f.key for f in fields} & FIXED_KEYS)
+    reserved = sorted({f.key for f in fields} & (FIXED_KEYS | OUTPUT_KEYS))
     if reserved:
         names = ", ".join(reserved)
         raise ProblemError(
@@ -255,12 +264,19 @@ async def _write_schema(
     tenant_id: UUID = agent[0]
     current_schema_id: UUID | None = agent[1]
 
+    # Only business fields are stored; the core is composed in on read.
+    fields = business_only(fields)
     current_version, current_fields = await _read_current(session, current_schema_id)
     desired = [f.model_dump() for f in fields]
     if desired == current_fields:
         # Re-asserting the list already on file touches nothing — a PUT states the whole
         # resource, so a repeat is idempotent by construction and must not spend a version.
-        return ExtractionSchemaOut(fields=fields, version=current_version, changed=False)
+        return ExtractionSchemaOut(
+            fields=fields,
+            core_fields=list(CORE_LEAD_FIELDS),
+            version=current_version,
+            changed=False,
+        )
 
     # `MAX(version)+1` over the agent's own rows, not `current_version + 1`: it is the value
     # the UNIQUE(agent_id, version) constraint will accept even if a prior version row was
@@ -295,7 +311,9 @@ async def _write_schema(
         text("UPDATE agents SET extraction_schema_id = :sid, updated_at = now() WHERE id = :aid"),
         {"sid": schema_id, "aid": str(agent_id)},
     )
-    return ExtractionSchemaOut(fields=fields, version=next_version, changed=True)
+    return ExtractionSchemaOut(
+        fields=fields, core_fields=list(CORE_LEAD_FIELDS), version=next_version, changed=True
+    )
 
 
 def _audit_summary(result: ExtractionSchemaOut) -> dict[str, object]:
@@ -354,7 +372,8 @@ async def get_extraction_schema(
         raise ProblemError.not_found("Agent")
     version, current = await _read_current(session, agent[0])
     return ExtractionSchemaOut(
-        fields=[ExtractionField.model_validate(f) for f in current],
+        fields=business_only(current),
+        core_fields=list(CORE_LEAD_FIELDS),
         version=version,
         changed=False,
     )

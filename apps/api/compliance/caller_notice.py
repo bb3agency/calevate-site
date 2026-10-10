@@ -67,6 +67,7 @@ from typing import Any
 from uuid import UUID
 
 from calevate_shared.extraction import ExtractionField
+from calevate_shared.lead_fields import CORE_KEYS
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -120,6 +121,20 @@ _INHERENT: tuple[tuple[str, str], ...] = (
     ("A transcript of the call", "what was said, in text"),
     ("A summary of the call", "a short written account of what the call was about"),
     ("When the call happened and how long it lasted", "call times, duration and outcome"),
+)
+
+#: The details every agent writes down whatever the business (`calevate_shared.lead_fields`),
+#: in the caller's words. They are not in any agent's stored field list, so without these
+#: lines the notice would under-disclose on every client.
+_CORE_ITEMS: tuple[tuple[str, str], ...] = (
+    ("Your name", "so the business knows who called"),
+    (
+        "What you asked for, when you want it and what was agreed next",
+        "so the business can follow up on your call",
+    ),
+    ("Another number you ask to be reached on", "so the business calls you where you asked"),
+    ("The language you spoke", "so the business can reply in it"),
+    ("A short note about the call", "anything else the business needs before calling back"),
 )
 
 #: WHAT CROSS-CALL MEMORY ADDS TO THE ITEMISATION (D-506), included only for a tenant that
@@ -313,10 +328,12 @@ def _collected(agents: list[dict[str, Any]]) -> list[CollectedItem]:
     sentence for a caller — but it is optional, and a blank purpose in a Rule 3 notice is
     the defect this whole module exists to avoid.
     """
-    items = [CollectedItem(what=what, why=why) for what, why in _INHERENT]
+    items = [CollectedItem(what=what, why=why) for what, why in (*_INHERENT, *_CORE_ITEMS)]
     if any(agent["caller_memory_enabled"] for agent in agents):
         items.append(CollectedItem(what=_MEMORY_ITEM[0], why=_MEMORY_ITEM[1]))
-    seen: set[str] = set()
+    # Core keys are itemised above; a stored copy of one (an older agent's `need`) is not
+    # a second collection.
+    seen: set[str] = set(CORE_KEYS)
     for agent in agents:
         for raw in agent["fields"]:
             if not isinstance(raw, dict):  # a schema row this API version cannot read

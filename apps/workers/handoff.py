@@ -24,6 +24,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.callbacks import service as callbacks
+from apps.api.compliance.trial_access import restricting_trial
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 
@@ -160,6 +161,9 @@ async def _book_callback_for(
     """
     phone = snapshot.from_e164 if snapshot.direction == "inbound" else snapshot.to_e164
     if not phone:
+        return False
+    # A free-trial account places no call backs (founder decision 1), so none is promised.
+    if await restricting_trial(session, tenant_id=tenant_id) is not None:
         return False
     existing = (
         await session.execute(

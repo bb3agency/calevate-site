@@ -45,7 +45,12 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
-from apps.api.db.migration_offline import emit_note, execute_data_statement, is_offline
+from apps.api.db.migration_offline import (
+    emit_note,
+    execute_data_statement,
+    is_offline,
+    probe_skipped_offline,
+)
 
 revision: str = "e5a1d706c3f2"
 down_revision: str | None = "c2b7e5a94d18"
@@ -303,21 +308,28 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    payments = bind.execute(sa.text(f"SELECT count(*) FROM {PAYMENTS}")).scalar_one()
-    if payments:
-        raise RuntimeError(
-            f"refusing to downgrade: {payments} platform fee payment(s) are recorded and "
-            f"dropping {PAYMENTS} would destroy a record of money received"
-        )
-    routes = bind.execute(
-        sa.text(f"SELECT count(*) FROM {ROUTES} WHERE purpose = 'platform_fee'")
-    ).scalar_one()
-    if routes:
-        raise RuntimeError(
-            f"refusing to downgrade: {routes} platform fee order(s) exist at the payment "
-            "provider and the older schema cannot route their payments"
-        )
+    if not probe_skipped_offline(
+        f"offline `--sql`: the pre-flights that refuse to drop {PAYMENTS} while a platform\n"
+        "fee payment is recorded, or while a platform fee order exists at the payment\n"
+        "provider, were NOT run, and nothing in this script re-checks them. Check first with:\n"
+        f"SELECT count(*) FROM {PAYMENTS};\n"
+        f"SELECT count(*) FROM {ROUTES} WHERE purpose = 'platform_fee';"
+    ):
+        bind = op.get_bind()
+        payments = bind.execute(sa.text(f"SELECT count(*) FROM {PAYMENTS}")).scalar_one()
+        if payments:
+            raise RuntimeError(
+                f"refusing to downgrade: {payments} platform fee payment(s) are recorded and "
+                f"dropping {PAYMENTS} would destroy a record of money received"
+            )
+        routes = bind.execute(
+            sa.text(f"SELECT count(*) FROM {ROUTES} WHERE purpose = 'platform_fee'")
+        ).scalar_one()
+        if routes:
+            raise RuntimeError(
+                f"refusing to downgrade: {routes} platform fee order(s) exist at the payment "
+                "provider and the older schema cannot route their payments"
+            )
     op.execute("SET LOCAL lock_timeout = '5s'")
     op.execute("ALTER TABLE plans NO FORCE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE organizations NO FORCE ROW LEVEL SECURITY")

@@ -28,6 +28,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.languages import Language
+from apps.api.agents.lead_fields import maybe_request_draft
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.kyc import read_kyc
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
@@ -203,6 +204,12 @@ async def patch_business_profile(
     steps, updated = await save_profile(
         session, tenant_id=tenant_id, patch=payload, user_id=principal.client_user_id
     )
+    if "services" in steps:
+        # A custom business's lead fields are drafted once, from these details, the first
+        # time it says what it sells (`agents/lead_fields`). Queued, never run here.
+        await maybe_request_draft(
+            session, tenant_id=tenant_id, requested_by=principal.client_user_id
+        )
     await write_audit(
         session,
         actor=principal,

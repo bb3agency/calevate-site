@@ -71,7 +71,7 @@ async def _call(
     *,
     status: str = "completed",
     duration_s: int | None = 90,
-    outcome: str | None = "resolved",
+    outcome: str | None = "answered",
 ) -> None:
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -123,7 +123,7 @@ async def test_business_snapshot_reports_the_same_funnel_the_performance_tab_doe
 
     assert "2 calls" in result
     assert "1 connected (50% of calls)" in result
-    assert "resolved 1" in result
+    assert "answered 1" in result
 
 
 async def test_leads_search_filters_by_status_and_names_the_lead() -> None:
@@ -265,13 +265,13 @@ async def test_calls_recent_can_be_narrowed_to_the_calls_that_did_not_connect() 
     FAILS AGAINST THE OLD BEHAVIOUR: the schema had no `status` argument, so this call
     returned the completed row too."""
     tenant_id, agent_id = await _tenant()
-    await _call(tenant_id, agent_id, status="completed", outcome="resolved")
+    await _call(tenant_id, agent_id, status="completed", outcome="answered")
     await _call(tenant_id, agent_id, status="no_answer", duration_s=None, outcome=None)
 
     missed = await _run("calls_recent", tenant_id, status="no_answer", limit=None)
 
     assert "no_answer" in missed
-    assert "resolved" not in missed
+    assert "answered" not in missed
     assert "1 calls with status no_answer" in missed
 
 
@@ -467,7 +467,7 @@ async def test_a_call_filter_that_matches_nothing_is_told_apart_from_an_empty_ac
     The account with a completed call is told its filter missed; the account with no calls
     at all is told it has no calls — and only the second is offered how to get started."""
     busy, agent_id = await _tenant()
-    await _call(busy, agent_id, status="completed", outcome="resolved")
+    await _call(busy, agent_id, status="completed", outcome="answered")
     empty, _ = await _tenant()
 
     missed_on_busy = await _run("calls_recent", busy, status="no_answer", limit=None)
@@ -707,7 +707,7 @@ async def test_a_tool_run_for_one_tenant_never_returns_another_tenants_rows(
     # CHECK-constrained enum (`ck_calls_outcome_enum`), so the two tenants take two of
     # its members rather than two invented strings.
     await _call(a_id, a_agent, outcome="transferred")
-    await _call(b_id, b_agent, outcome="dropped")
+    await _call(b_id, b_agent, outcome="hung_up_early")
 
     # The agent each account already has, renamed so a roster leak shows up as a NAME.
     # `create_organization` names both the same thing, and two identical strings could not
@@ -741,14 +741,14 @@ async def test_a_tool_run_for_one_tenant_never_returns_another_tenants_rows(
     for_a = await _run(tool_name, a_id)
     for_b = await _run(tool_name, b_id)
 
-    for foreign in ("BobOfB", "dropped", "CampaignOfB", "AgentOfB"):
+    for foreign in ("BobOfB", "hung_up_early", "CampaignOfB", "AgentOfB"):
         assert foreign not in for_a
     for foreign in ("AliceOfA", "transferred", "CampaignOfA", "AgentOfA"):
         assert foreign not in for_b
     # And each DID see its own — otherwise a tool that returned nothing at all would pass
     # the isolation half of this test while being broken.
     assert any(mine in for_a for mine in ("AliceOfA", "transferred", "CampaignOfA", "AgentOfA"))
-    assert any(mine in for_b for mine in ("BobOfB", "dropped", "CampaignOfB", "AgentOfB"))
+    assert any(mine in for_b for mine in ("BobOfB", "hung_up_early", "CampaignOfB", "AgentOfB"))
 
 
 async def test_the_snapshot_counts_only_this_tenants_calls() -> None:

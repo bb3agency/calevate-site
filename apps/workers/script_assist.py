@@ -1,9 +1,11 @@
 """Draft a call script from a plain-language business description — the AI writing assist.
 
-The founder's "draft/improve my script from a business description". A client types what
-their business does and how they want calls handled, and the assistant model returns a
-DRAFT opening line, ordered steps and FAQ pairs the builder pre-fills — never applied to a
-live call, always the author's to edit and then save through the ordinary staged path.
+The founder's "draft/improve my script from a business description". The owner answers five
+short questions; the builder adds the business type, the calling direction, the call
+language and its register, the details the agent collects and the knowledge titles
+(`ScriptBrief`), and the assistant model returns a DRAFT of every script v2 section
+(`calevate_shared.call_script`) — never applied to a live call, always the author's to edit
+and then save through the ordinary staged path.
 
 WHY IT LIVES IN `apps/workers` AND REUSES THE ASSIST LADDER. CLAUDE.md's Do-NOT rule keeps
 model calls out of request handlers; the dashboard-AI assist (`crm/assist.py` +
@@ -31,11 +33,33 @@ an Azure answer Azure counted, its `usage`; it charges nothing.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
+from typing import Any, Final
 
 import httpx
-from calevate_shared.call_script import CallScript, FaqEntry, ScriptStep
+from calevate_shared.call_script import (
+    END_OF_CALL,
+    MAX_EXAMPLE_TURNS,
+    MAX_PRONUNCIATIONS,
+    MAX_SAMPLE_PHRASES,
+    MAX_SCRIPT_FAQS,
+    MAX_SCRIPT_OBJECTIONS,
+    MAX_SCRIPT_STAGES,
+    SCRIPT_SCHEMA_VERSION,
+    STAGE_DETAIL_MAX,
+    CallScript,
+    ConversationStage,
+    ExampleLine,
+    FaqEntry,
+    Objection,
+    Pronunciation,
+    SpeakingStyle,
+    StageBranch,
+)
 from calevate_shared.engine import SARVAM_DEFAULT_LLM, azure_openai_base_url
+from pydantic import ValidationError
 
 from apps.api.core import provider_health
 from apps.api.core.logging import get_logger
@@ -57,68 +81,186 @@ from apps.workers.extraction import (
 
 log = get_logger(__name__)
 
-#: The instruction that turns a business description into a call script. Kept as a module
-#: constant, not an f-string at the call site, so `tests/script_assist_prompt_test.py` can
-#: assert its rules — Telugu-first, no invented facts, phone-appropriate brevity — the same
-#: way `extraction_prompt_test.py` pins the extraction prompt (the artefact CI can gate
-#: without a credential).
+#: The instruction that turns the owner's answers into a v2 call script (first live call
+#: review, 10 Oct 2026: founder decision 3). Instructions in English; only the words the
+#: agent SAYS (opening, sample phrases, example call) are in the call's language, spoken and
+#: code-mixed, because the in-call model follows English instructions best and the caller
+#: hears only the spoken lines. A module constant so `tests/script_assist_prompt_test.py`
+#: can pin its rules without a credential.
 _SYSTEM_INSTRUCTION = (
-    "You write scripts for AI voice agents that answer phone calls for small Indian "
-    "businesses. The primary language is Telugu; write natural, warm, conversational Telugu "
-    "(Tenglish code-switching is fine), in SHORT spoken sentences a phone agent can say out "
-    "loud — no markdown, no lists inside a sentence, one idea per line. "
-    "From the business description, produce: an opening line, the greeting the agent opens "
-    "every call with, which names the business and offers help (do not put an AI or "
-    "recording notice in it; those are separate settings said before it when switched on); "
-    "an ordered list of steps for handling a typical call (greet, "
-    "understand the need, answer or qualify, capture details, next step, wrap up); and a few "
-    "FAQ question/answer pairs for things callers commonly ask. "
-    "NEVER invent prices, addresses, phone numbers, hours or availability the description "
-    "does not state — leave those for the client to fill in, and where useful reference a "
-    "merge field like {{lead_name}} or {{product_interest}}. "
-    "Do not write any promise about being human or about recording; the platform adds those "
-    "rules itself. "
-    "Return ONLY JSON of the form "
-    '{"opening_line": str, "steps": [str], "faqs": [{"question": str, "answer": str}]}.'
+    "You write call scripts for AI phone agents of small Indian businesses. You are given "
+    "the business type, whether the agent answers or places calls, the call language and "
+    "its spoken register, the details the agent must collect, the titles of the business's "
+    "knowledge documents, and the owner's own short answers. Fill EVERY section.\n"
+    "Write instructions (identity, goal, stage instructions and exit conditions, "
+    "objections, ending) in plain English. Write the words the agent will SAY (opening_line, "
+    "sample_phrases, example_exchange) in the call language as people really speak it on "
+    "the phone in that register, with the English words they use (order, delivery, "
+    "booking, price), never formal written language, in the script that language is "
+    "normally written in. Keep every spoken line to one short sentence.\n"
+    "Rules: NEVER invent prices, stock, hours, addresses, phone numbers, offers or any fact "
+    "the owner did not give; facts live in the knowledge base, which the agent searches. "
+    "quick_facts only restates facts the owner wrote. The example_exchange shows style "
+    "only and contains no fact. Do not write anything about being an AI, about recording, "
+    "about call backs or transfers, or about do-not-call requests: the platform adds those "
+    "rules itself and knows what this account can do. The opening_line greets and names the "
+    "business; do not put an AI or recording notice in it. For an agent that places calls, "
+    "outbound_purpose is one sentence on why we are calling, and a stage confirms it is a "
+    "good time and that this is the right person ({{lead_name}} is the merge field for the "
+    "lead's name); for an agent that only answers calls leave outbound_purpose empty. "
+    "Stages are 3 to 6, each with a short name, an English instruction, exit_when, and "
+    "sounds_like: one short line in the call language showing how that stage sounds. Ask "
+    "only for "
+    "the listed details. 2 to 5 objections the business really meets. 3 to 6 sample "
+    "phrases. pronunciations only for names a voice might misread. code_mix is light, "
+    "natural or heavy. business_line is one line under 200 characters on what the business "
+    "is.\n"
+    "Return ONLY JSON matching the schema."
 )
 
-#: The ceiling on ONE draft answer, in tokens — `EXTRACTION_MAX_TOKENS`'s safety valve,
-#: on the one assist surface that had none. A draft is an opening line, a handful of steps
-#: and "a few" FAQ pairs, all bounded by `_script_from_model_json`'s truncation lengths;
-#: even a verbose Telugu draft (~2.1-2.3 tokens/word) sits far under this, so the valve can
-#: only fire on a runaway generation — which, uncapped, was bounded by nothing but the leg
-#: timeout, i.e. paid output tokens for as long as the model kept talking. A hit surfaces
-#: as `finish_reason == "length"` and the leg reports "no draft" rather than parsing JSON
-#: cut off mid-string (the `ExtractionTruncatedError` argument: a truncation must not read
-#: as a small answer). `max_tokens` is a verified body key on BOTH dialects used here
-#: (`workers/chat.py::_request_body` — standard OpenAI/Azure, and on Sarvam's own client's
-#: fourteen-key list).
+#: Converting a hand-written prompt into sections (founder, 10 Oct 2026): a proposal the
+#: owner reviews, never a replacement. Keeping the owner's own sentences is what lets
+#: `call_script.unplaced_lines` show anything that did not make it across.
+CONVERT_INSTRUCTION = (
+    "You convert a hand-written prompt for an AI phone agent into the sections of a call "
+    "script. Keep the owner's own sentences word for word wherever they fit; do not "
+    "summarise, drop or add facts. Put who the agent is in identity, the purpose in goal, "
+    "the greeting in opening_line, each step of the call in stages (at most 12, in call "
+    "order), push-back handling in objections, facts in quick_facts and the close in "
+    "ending. Leave a field empty when the prompt says nothing for it. Do not write about "
+    "being an AI, recording, call backs, transfers or do-not-call: the platform adds those. "
+    "Return ONLY JSON matching the schema."
+)
+
+#: Making one change the owner asked for to the current script.
+EDIT_INSTRUCTION = (
+    "You edit the call script of an AI phone agent. You are given the current script as "
+    "JSON and one change the owner wants. Return the WHOLE script as JSON in exactly the same "
+    "shape, with only that change made: keep every other field, every section and every "
+    "section id as it is, and give any new section a new short lowercase id. Instructions "
+    "stay in plain English; words the agent says stay in the call language, spoken, with "
+    "the English words people use. Never invent prices or facts. Do not write about being "
+    "an AI, recording, call backs, transfers or do-not-call. Return ONLY JSON."
+)
+
+Parser = Callable[[dict[str, Any]], "CallScript | None"]
+
+
+def _edited_script(raw: dict[str, Any], current: CallScript) -> CallScript | None:
+    """The model's edited script, validated like any save; None when it is not a valid
+    script (the edit is then reported as no draft rather than half applied)."""
+    fields = {k: v for k, v in raw.items() if k in CallScript.model_fields}
+    try:
+        edited = CallScript.model_validate({**current.model_dump(), **fields})
+    except ValidationError:
+        log.warning("script_assist_edit_unusable")
+        return None
+    return edited.model_copy(update={"raw_override": None, "schema_version": 2})
+
+
+#: The ceiling on ONE draft answer, in tokens: a safety valve on a runaway generation, which
+#: surfaces as `finish_reason == "length"` and is reported as "no draft" rather than parsed
+#: (a truncation must not read as a short answer). A full v2 draft with a code-mixed example
+#: call fits well under it.
 _DRAFT_MAX_TOKENS = 4096
 
-#: The strict JSON Schema for the draft, so Azure's Structured Outputs guarantees the shape
-#: (`build_azure_response_schema`'s argument, applied to this task). Sarvam gets
-#: `json_object` and `_first_json_object` as the belt, like every non-Azure JSON path here.
-_DRAFT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "opening_line": {"type": "string"},
-        "steps": {"type": "array", "items": {"type": "string"}},
-        "faqs": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "question": {"type": "string"},
-                    "answer": {"type": "string"},
-                },
-                "required": ["question", "answer"],
-                "additionalProperties": False,
-            },
+_STR: Final[dict[str, object]] = {"type": "string"}
+
+
+def _array_of(properties: dict[str, object]) -> dict[str, object]:
+    return {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": properties,
+            "required": list(properties),
+            "additionalProperties": False,
         },
-    },
-    "required": ["opening_line", "steps", "faqs"],
+    }
+
+
+_DRAFT_PROPERTIES: Final[dict[str, object]] = {
+    "business_line": _STR,
+    "identity": _STR,
+    "goal": _STR,
+    "outbound_purpose": _STR,
+    "opening_line": _STR,
+    "tone": _STR,
+    "address_form": _STR,
+    "code_mix": {"type": "string", "enum": ["light", "natural", "heavy"]},
+    "sample_phrases": {"type": "array", "items": _STR},
+    "pronunciations": _array_of({"word": _STR, "say_as": _STR}),
+    "stages": _array_of(
+        {"name": _STR, "instruction": _STR, "sounds_like": _STR, "exit_when": _STR}
+    ),
+    "objections": _array_of({"objection": _STR, "response": _STR}),
+    "ending": _STR,
+    "quick_facts": _array_of({"question": _STR, "answer": _STR}),
+    "example_exchange": _array_of(
+        {"speaker": {"type": "string", "enum": ["caller", "agent"]}, "text": _STR}
+    ),
+}
+
+#: The strict JSON Schema for a v2 draft, so Azure's Structured Outputs guarantees the shape.
+#: Sarvam gets `json_object` and `_first_json_object` as the belt.
+_DRAFT_SCHEMA: Final[dict[str, object]] = {
+    "type": "object",
+    "properties": _DRAFT_PROPERTIES,
+    "required": list(_DRAFT_PROPERTIES),
     "additionalProperties": False,
 }
+
+#: The five short questions the builder asks the owner. Keys are the wire's.
+OWNER_QUESTIONS: Final[dict[str, str]] = {
+    "what_you_offer": "What do you sell or do?",
+    "customers": "Who calls you, or who will the agent call?",
+    "good_outcome": "What should a good call end with?",
+    "common_questions": "What do callers ask most often?",
+    "never_say": "Anything the agent must never say or promise?",
+}
+
+_DIRECTION_SENTENCES: Final[dict[str, str]] = {
+    "inbound": "The agent answers calls.",
+    "outbound": "The agent places calls to leads.",
+    "both": "The agent answers calls and places calls to leads.",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ScriptBrief:
+    """Everything the draft is written from. Tenant-authored configuration only: no
+    transcript and no caller data (D-127 G-2), and never logged (hard rule 6)."""
+
+    description: str = ""
+    business_name: str = ""
+    business_type: str = "custom"
+    direction: str = "inbound"
+    language: str = "te-IN"
+    register: str = ""
+    collect: tuple[str, ...] = ()
+    knowledge_titles: tuple[str, ...] = ()
+    answers: tuple[tuple[str, str], ...] = ()
+
+    def user_message(self) -> str:
+        lines = [
+            f"Business name: {self.business_name or 'not given'}",
+            f"Business type: {self.business_type}",
+            _DIRECTION_SENTENCES.get(self.direction, _DIRECTION_SENTENCES["inbound"]),
+            f"Call language: {self.language}",
+        ]
+        if self.register:
+            lines.append(f"Spoken register: {self.register}")
+        if self.collect:
+            lines.append("Details to collect: " + "; ".join(self.collect))
+        if self.knowledge_titles:
+            lines.append("Knowledge documents: " + "; ".join(self.knowledge_titles))
+        for key, answer in self.answers:
+            question = OWNER_QUESTIONS.get(key)
+            if question and answer.strip():
+                lines.append(f"{question} {answer.strip()}")
+        if self.description.strip():
+            lines.append(f"In the owner's words: {self.description.strip()}")
+        return "\n".join(lines)
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,43 +292,97 @@ class _RawDraft:
     usage: TokenUsage | None = field(default=None)
 
 
-def _script_from_model_json(raw: dict[str, object]) -> CallScript:
-    """The model's `{opening_line, steps, faqs}` as a validated `CallScript`.
+def _text(raw: dict[str, Any], key: str, limit: int) -> str:
+    value = raw.get(key)
+    return value.strip()[:limit] if isinstance(value, str) else ""
 
-    Tolerant of the model omitting or malforming a piece — a draft is a starting point, not
-    a stored record — but every value that DOES arrive is run through the same `CallScript`
-    validators the builder enforces, so a draft can never carry a step or FAQ the editor
-    would reject. Empty pieces simply come back empty for the author to fill.
+
+def _rows(raw: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    value = raw.get(key)
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def _script_from_model_json(raw: dict[str, Any]) -> CallScript:
+    """The model's JSON as a validated v2 `CallScript`.
+
+    Tolerant: a missing or malformed piece comes back empty for the author to fill, and
+    every value that does arrive is cut to the builder's own limits and validated by the
+    same `CallScript` the builder saves, so a draft never carries what the editor would
+    refuse. A drafted example is marked as needing a native speaker's review.
     """
-    opening = raw.get("opening_line")
-    steps_raw = raw.get("steps")
-    faqs_raw = raw.get("faqs")
-
-    steps: list[ScriptStep] = []
-    if isinstance(steps_raw, list):
-        for item in steps_raw:
-            text = str(item).strip()
-            if text:
-                steps.append(ScriptStep(instruction=text[:1000]))
-
-    faqs: list[FaqEntry] = []
-    if isinstance(faqs_raw, list):
-        for item in faqs_raw:
-            if not isinstance(item, dict):
-                continue
-            question = str(item.get("question", "")).strip()
-            answer = str(item.get("answer", "")).strip()
-            if question and answer:
-                faqs.append(FaqEntry(question=question[:500], answer=answer[:2000]))
-
+    rows = [r for r in _rows(raw, "stages") if _text(r, "instruction", STAGE_DETAIL_MAX)]
+    rows = rows[:MAX_SCRIPT_STAGES]
+    stages: list[ConversationStage] = []
+    for i, row in enumerate(rows, 1):
+        # Instruction and "sounds like" share one 600-character step detail.
+        sounds_like = _text(row, "sounds_like", 200)
+        room = STAGE_DETAIL_MAX - (len(sounds_like) + 20 if sounds_like else 0)
+        exit_when = _text(row, "exit_when", 300)
+        target = f"s{i + 1}" if i < len(rows) else END_OF_CALL
+        stages.append(
+            ConversationStage(
+                id=f"s{i}",
+                name=_text(row, "name", 80) or f"Section {i}",
+                instruction=_text(row, "instruction", room),
+                sounds_like=sounds_like,
+                branches=[StageBranch(when=exit_when, target=target)] if exit_when else [],
+            )
+        )
+    objections = [
+        Objection(objection=_text(row, "objection", 300), response=_text(row, "response", 1000))
+        for row in _rows(raw, "objections")[:MAX_SCRIPT_OBJECTIONS]
+        if _text(row, "objection", 300) and _text(row, "response", 1000)
+    ]
+    facts = [
+        FaqEntry(question=_text(row, "question", 500), answer=_text(row, "answer", 2000))
+        for row in _rows(raw, "quick_facts")[:MAX_SCRIPT_FAQS]
+        if _text(row, "question", 500) and _text(row, "answer", 2000)
+    ]
+    example = [
+        ExampleLine(speaker=row["speaker"], text=_text(row, "text", 500))
+        for row in _rows(raw, "example_exchange")[:MAX_EXAMPLE_TURNS]
+        if row.get("speaker") in ("caller", "agent") and _text(row, "text", 500)
+    ]
+    phrases_raw = raw.get("sample_phrases")
+    phrases = (
+        [p for p in phrases_raw if isinstance(p, str) and p.strip()][:MAX_SAMPLE_PHRASES]
+        if isinstance(phrases_raw, list)
+        else []
+    )
+    pronunciations = [
+        Pronunciation(word=_text(row, "word", 80), say_as=_text(row, "say_as", 120))
+        for row in _rows(raw, "pronunciations")[:MAX_PRONUNCIATIONS]
+        if _text(row, "word", 80) and _text(row, "say_as", 120)
+    ]
+    code_mix = raw.get("code_mix")
     return CallScript(
-        opening_line=(str(opening).strip()[:1000] if isinstance(opening, str) else ""),
-        steps=steps,
-        faqs=faqs,
+        schema_version=SCRIPT_SCHEMA_VERSION,
+        business_line=_text(raw, "business_line", 200),
+        identity=_text(raw, "identity", 1000),
+        goal=_text(raw, "goal", 1000),
+        outbound_purpose=_text(raw, "outbound_purpose", 300),
+        opening_line=_text(raw, "opening_line", 1000),
+        style=SpeakingStyle(
+            tone=_text(raw, "tone", 300),
+            address_form=_text(raw, "address_form", 200),
+            code_mix=code_mix if code_mix in ("light", "natural", "heavy") else "natural",
+            sample_phrases=phrases,
+            pronunciations=pronunciations,
+        ),
+        stages=stages,
+        objections=objections,
+        ending=_text(raw, "ending", 1000),
+        faqs=facts,
+        example_exchange=example,
+        example_needs_review=bool(example),
     )
 
 
-async def _draft_via_azure(description: str) -> _RawDraft | None:
+async def _draft_via_azure(
+    description: str,
+    instruction: str = _SYSTEM_INSTRUCTION,
+    parse: Parser | None = None,
+) -> _RawDraft | None:
     """Ask Azure OpenAI for a draft, or None if it holds no credential or did not answer.
 
     The request goes through `workers/chat.py`, the ONE chat client — the v1 surface built
@@ -206,13 +402,23 @@ async def _draft_via_azure(description: str) -> _RawDraft | None:
         dialect="openai",
     )
     messages = [
-        {"role": "system", "content": _SYSTEM_INSTRUCTION},
+        {"role": "system", "content": instruction},
         {"role": "user", "content": description},
     ]
-    strict: dict[str, object] = {
-        "type": "json_schema",
-        "json_schema": {"name": "calevate_script_draft", "strict": True, "schema": _DRAFT_SCHEMA},
-    }
+    # An edit returns the whole current script, whose shape the strict draft schema does
+    # not describe, so it asks for plain JSON and is validated by `CallScript` instead.
+    strict: dict[str, object] = (
+        {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "calevate_script_draft",
+                "strict": True,
+                "schema": _DRAFT_SCHEMA,
+            },
+        }
+        if parse is None
+        else {"type": "json_object"}
+    )
     try:
         outcome = await chat.complete(
             leg,
@@ -274,10 +480,14 @@ async def _draft_via_azure(description: str) -> _RawDraft | None:
     raw = _first_json_object(outcome.content)
     if not raw:
         return _RawDraft(script=None, usage=outcome.usage)
-    return _RawDraft(script=_script_from_model_json(raw), usage=outcome.usage)
+    return _RawDraft(script=(parse or _script_from_model_json)(raw), usage=outcome.usage)
 
 
-async def _draft_via_sarvam(description: str) -> _RawDraft | None:
+async def _draft_via_sarvam(
+    description: str,
+    instruction: str = _SYSTEM_INSTRUCTION,
+    parse: Parser | None = None,
+) -> _RawDraft | None:
     """The disclosed fallback: Sarvam's OpenAI-compatible chat, `json_object` + the belt.
 
     No `usage` is returned — D-36 prices this leg at zero, so `ScriptDraft.usage` stays
@@ -295,7 +505,7 @@ async def _draft_via_sarvam(description: str) -> _RawDraft | None:
                 dialect="sarvam",
             ),
             [
-                {"role": "system", "content": _SYSTEM_INSTRUCTION},
+                {"role": "system", "content": instruction},
                 {"role": "user", "content": description},
             ],
             timeout_s=ASSIST_TIMEOUT_S,
@@ -317,16 +527,20 @@ async def _draft_via_sarvam(description: str) -> _RawDraft | None:
     raw = _first_json_object(outcome.content)
     if not raw:
         return None
-    return _RawDraft(script=_script_from_model_json(raw))
+    return _RawDraft(script=(parse or _script_from_model_json)(raw))
 
 
 async def draft_script(
-    description: str,
+    brief: ScriptBrief | str,
     *,
     tenant_leg: TenantModelLeg | None = None,
     quota_exhausted: bool = False,
+    instruction: str = _SYSTEM_INSTRUCTION,
+    edit_of: CallScript | None = None,
+    change: str = "",
 ) -> ScriptDraft:
-    """Draft a `CallScript` from a business description (the AI writing assist).
+    """Draft a `CallScript` from a business description (the AI writing assist), or, with
+    `CONVERT_INSTRUCTION`, propose sections for a hand-written prompt.
 
     Same control flow as `run_assist`: ask the ONE selector who serves, run Azure first,
     fall to the disclosed Sarvam leg if Azure cannot or does not answer, and refuse only
@@ -337,13 +551,27 @@ async def draft_script(
     capability = assist_capability(tenant_leg=tenant_leg, quota_exhausted=quota_exhausted)
     if not capability.available:
         raise assist_unavailable(capability)
+    # A bare string is the old one-box description; the builder now sends a full brief.
+    description = (
+        ScriptBrief(description=brief) if isinstance(brief, str) else brief
+    ).user_message()
+    parse: Parser | None = None
+    if edit_of is not None:
+        # The AI helper's "change this" (founder, 10 Oct 2026): the current script with one
+        # change made, section ids kept, so the builder can show it section by section.
+        instruction = EDIT_INSTRUCTION
+        description = (
+            f"{description}\nThe owner's change: {change.strip()}\nCurrent script (JSON):\n"
+            f"{edit_of.model_dump_json(exclude={'raw_override'})}"
+        )
+        parse = partial(_edited_script, current=edit_of)
 
     # What an Azure turn that produced no draft still cost — `run_assist`'s `spent`, for
     # its reason: billed as a request, refused as an answer, so it rides the fallback's
     # draft to the meter. The Sarvam leg itself adds nothing (D-36).
     spent: TokenUsage | None = None
     if capability.provider == AZURE_PROVIDER:
-        azure = await _draft_via_azure(description)
+        azure = await _draft_via_azure(description, instruction, parse)
         if azure is not None and azure.script is not None:
             return ScriptDraft(script=azure.script, capability=capability, usage=azure.usage)
         spent = azure.usage if azure is not None else None
@@ -355,7 +583,7 @@ async def draft_script(
         if not capability.available:
             raise assist_unavailable(capability)
 
-    drafted = await _draft_via_sarvam(description)
+    drafted = await _draft_via_sarvam(description, instruction, parse)
     if drafted is None or drafted.script is None:
         # Both legs silent: a refusal the author can act on, not an empty editor.
         raise assist_unavailable(
@@ -364,4 +592,11 @@ async def draft_script(
     return ScriptDraft(script=drafted.script, capability=capability, usage=spent)
 
 
-__all__ = ["ScriptDraft", "draft_script"]
+__all__ = [
+    "CONVERT_INSTRUCTION",
+    "EDIT_INSTRUCTION",
+    "OWNER_QUESTIONS",
+    "ScriptBrief",
+    "ScriptDraft",
+    "draft_script",
+]

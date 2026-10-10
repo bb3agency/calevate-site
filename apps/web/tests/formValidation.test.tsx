@@ -274,76 +274,46 @@ describe("no form in either realm leaves its refusals to the browser", () => {
 });
 
 /**
- * A rule with a number in it, and two refusals at once.
- *
- * The knowledge form asks for a title of at least two characters and an answer of at
- * least ten. Both were `minLength` with no `noValidate`, so a short answer produced
- * Chrome's "Please lengthen this text to 10 characters or more" — in Chrome's language,
- * beside a Submit button that had gone dead at nine characters for reasons the screen
- * never gave.
+ * The teach box refuses an empty or too-short entry in our words, beside the box, and
+ * sends nothing — never a dead button, never the browser's bubble.
  */
-describe("two answers missing at once", () => {
+describe("the teach box with too little in it", () => {
   const KB_ME: Me = {
     ...ME,
     permissions: ["org:read", "agents:read", "kb:write"],
-  };
-  const AGENT = {
-    id: "0192f0aa-5555-7000-8000-000000000001",
-    name: "Reception",
-    status: "live",
-    direction: "inbound",
-    language_primary: "te-IN",
-    extraction_fields: [],
   };
 
   async function renderKnowledge() {
     return await renderClientPage(<KnowledgePage />, {
       "/v1/me": KB_ME,
-      "/v1/agents": [AGENT],
+      "/v1/agents": [],
       "/v1/kb/sources": [],
       "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
-      // Routed so `KnowledgeDelivery` does not paint a `ProblemNotice` beside the form
-      // this file is about; an unrouted endpoint throws inside its `queryFn`.
+      "/v1/kb/knows": { facts: [], facts_state: "none", items: [] },
       "/v1/kb/delivery": { items: [], not_delivered_count: 0 },
       "/v1/kb/uploads": [],
-      "POST /v1/kb/sources": { id: "kb-1" },
     });
   }
 
-  it("names both, sends nothing, and puts focus on the first", async () => {
+  it("says what is missing, sends nothing, and puts focus on the box", async () => {
     const page = await renderKnowledge();
-    const title = (await screen.findByLabelText(
-      "What this knowledge is about",
-    )) as HTMLInputElement;
-    const body = screen.getByLabelText(
-      "What the agent should say",
-    ) as HTMLTextAreaElement;
-
-    fireEvent.click(screen.getByRole("button", { name: /Add to your knowledge/ }));
-
-    expect(await screen.findByText("Say what this is about.")).toBeTruthy();
-    expect(screen.getByText("Write what the agent should say.")).toBeTruthy();
-    expect(document.activeElement).toBe(title);
-    expect(page.calls.some((c) => c.method === "POST")).toBe(false);
-
-    // A title that is present but too short is the OTHER half of the rule, and it is
-    // this module's sentence rather than a per-form one — the count comes off the
-    // control, so the two cannot drift.
-    fireEvent.change(title, { target: { value: "A" } });
-    fireEvent.change(body, { target: { value: "Long enough to pass." } });
-    fireEvent.click(screen.getByRole("button", { name: /Add to your knowledge/ }));
-    expect(await screen.findByText("Use at least 2 characters.")).toBeTruthy();
-    expect(page.calls.some((c) => c.method === "POST")).toBe(false);
-
-    fireEvent.change(title, { target: { value: "Parking" } });
-    fireEvent.click(screen.getByRole("button", { name: /Add to your knowledge/ }));
+    const box = (await screen.findByLabelText(
+      "What should your agents know?",
+    )) as HTMLTextAreaElement;
     await waitFor(() =>
       expect(
-        page.calls.some(
-          (c) => c.method === "POST" && c.path === "/v1/kb/sources",
-        ),
-      ).toBe(true),
+        (screen.getByRole("button", { name: /^Sort it$/ }) as HTMLButtonElement).disabled,
+      ).toBe(false),
     );
+
+    fireEvent.click(screen.getByRole("button", { name: /^Sort it$/ }));
+    expect(await screen.findByText("Write what your agents should know.")).toBeTruthy();
+    expect(document.activeElement).toBe(box);
+
+    fireEvent.change(box, { target: { value: "ab" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Sort it$/ }));
+    expect(await screen.findByText("Use at least 3 characters.")).toBeTruthy();
+    expect(page.calls.some((c) => c.method === "POST")).toBe(false);
   });
 });
 

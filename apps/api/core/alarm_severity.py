@@ -371,7 +371,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_workspace_plan_limit": "attention",
     "engine_workspace_provisioning_failed": "attention",
     "engine_workspace_offboarding_failed": "attention",
-    "engine_workspace_byok_not_inherited": "attention",
     "engine_business_details_submit_failed": "attention",
     "engine_agent_retire_failed": "attention",
     "engine_action_workspace_mismatch": "attention",
@@ -412,6 +411,14 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # D-688: a live agent's own-voice-key switch did not match its rung and was put back.
     "engine_agent_voice_key_repaired": "attention",
     "engine_actions_unreachable": "page",
+    # D-716: a live agent's caller lookup was missing, moved or had no secret we hold, and
+    # was put back. Calls in the gap went ahead without the caller's name.
+    "engine_caller_lookup_repaired": "attention",
+    # D-716: the caller lookup could not be set this time (the vendor showed no secret, or
+    # could not sign). Never fails a publish; the drift sweep retries and raises the
+    # `engine_caller_lookup_repaired` alarm when it lands.
+    "engine_call_start_secret_missing": "record",
+    "engine_call_start_signing_unavailable": "record",
     # D-687: a live agent speaks a voice the platform no longer has (a deleted clone), so its
     # callers hear the platform's standard voice. The call works; the voice is wrong.
     "engine_agent_voice_withdrawn": "attention",
@@ -542,9 +549,19 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # D-687: the Studio workspace speaks on a voice key that is not our Cartesia one, so its
     # voices are not offered. Nobody's call fails; somebody must fix the key.
     "studio_voice_key_wrong_provider": "attention",
-    # D-688: our Cartesia key is no longer on in the workspace while Studio agents are live;
-    # their calls speak the platform's default voice. Calls connect, so not paged.
-    "studio_voice_key_off_with_agents": "attention",
+    # D-717: a Studio client workspace was found off our Cartesia key and switched back on
+    # by the hourly check. Nothing is broken now; somebody changed it.
+    "studio_workspace_repaired": "attention",
+    # D-717: a refused Studio switch-on is a refusal to one caller; the hourly check and
+    # `studio_workspace_drift` carry the alarm when it persists.
+    "studio_account_not_ready": "record",
+    "studio_workspace_not_ready": "record",
+    # D-717: a Studio client workspace is off our key and could not be switched back on, so
+    # its Studio calls speak the wrong voice at the wrong price, or none. Pages.
+    "studio_workspace_drift": "page",
+    # D-717: our developer workspace's own-keys switch is on, so every client without a key
+    # of its own inherits it. A legacy to migrate off, not an outage: attention.
+    "studio_developer_switch_on": "attention",
     # D-688: a rotated Cartesia key did not reach the voice platform. If the old key was
     # revoked, every Studio call stops speaking, with no fallback, so it pages.
     "studio_voice_key_push_failed": "page",
@@ -817,6 +834,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # A publish reached some of a client's agents and others kept the previous version
     # (D-689). The catch-up converges it without anyone acting; attention, never a page.
     "kb_fan_out_incomplete": "attention",
+    "pinned_facts_not_delivered": "attention",
     # An archived agent's vendor copy of the client's knowledge would not come down. It
     # stays claimed and the agent answers no calls, so it is billing and tidiness only.
     "kb_retired_agent_copy_left": "attention",

@@ -66,7 +66,9 @@ NOT_CLIENT_FACING: tuple[str, ...] = (
     "apps/api/admin/",
     "apps/api/ops/",
     "apps/api/engine/",
-    # Switching Studio voices on is an operator act (ops/hosted_voice_routes.py).
+    # Studio readiness and the developer switch are operator acts (ops/hosted_voice_routes.py).
+    # Its one client sentence, `studio_account_not_ready`, is held vendor-free by
+    # tests/thinnest_engine_seams_test.py.
     "apps/api/agents/studio_voices.py",
     # Deployment settings an operator sets; the remediation names the variable.
     "apps/api/reliability/engine_actions.py",

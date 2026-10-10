@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { formatCount, formatIST, formatPhone } from "@/components/ui";
@@ -20,6 +21,8 @@ import { InlineName } from "./InlineName";
 import { RowFailure } from "./RowFailure";
 import { StatusSelect } from "./StatusSelect";
 import { INLINE_EDIT, cellValue } from "./leadsTable";
+import { needsAttention, outcomeLabel } from "@/lib/callReview";
+import { leadNextStep, sourceLabel, stageSetBy } from "@/lib/leadLabels";
 import type { LeadRowKit } from "./leadRowKit";
 
 /**
@@ -120,6 +123,25 @@ export function useLeadRowKit({
   );
 
   /**
+   * What the last call came to, linked to that call. The headline when one was written;
+   * the outcome in words when not; the warning tone only when the call needs a person.
+   */
+  const lastCallCell = (lead: Lead) => {
+    const words = lead.last_call_headline ?? outcomeLabel(lead.last_call_outcome);
+    if (!words) return "—";
+    const warn = needsAttention({ outcome_tag: lead.last_call_outcome ?? null, callback: null });
+    if (!lead.last_call_id) return words;
+    return (
+      <Link
+        href={href(`/c/${session.orgSlug}/calls/${lead.last_call_id}`)}
+        className={`line-clamp-2 rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${warn ? "text-warn" : ""}`}
+      >
+        {words}
+      </Link>
+    );
+  };
+
+  /**
    * THE FAILURE, IN THE ROW IT BELONGS TO — once per row, in its FIRST cell.
    *
    * An inline edit that fails and reverts is a lie the user cannot see: the control snaps
@@ -169,21 +191,28 @@ export function useLeadRowKit({
         return <span className="tabular-nums">{formatPhone(lead.phone_e164)}</span>;
       case "status":
         return (
-          <StatusSelect
-            value={lead.status}
-            label={`Status for ${lead.name ?? lead.phone_e164}`}
-            disabled={rows.pendingFor(lead.id) || readOnly}
-            onChange={(next) => rows.edit(lead.id, { status: next })}
-            className={`${INLINE_EDIT} capitalize hover:border-line`}
-          />
+          <span className="block">
+            <StatusSelect
+              value={lead.status}
+              label={`Status for ${lead.name ?? lead.phone_e164}`}
+              disabled={rows.pendingFor(lead.id) || readOnly}
+              onChange={(next) => rows.edit(lead.id, { status: next })}
+              className={`${INLINE_EDIT} capitalize hover:border-line`}
+            />
+            <span className="block px-1 text-meta text-ink-faint">{stageSetBy(lead.status_set_by)}</span>
+          </span>
         );
+      case "next_step":
+        return leadNextStep(lead) ?? "—";
+      case "last_call":
+        return lastCallCell(lead);
       case "owner":
         return ownerCell(
           lead,
           `${INLINE_EDIT} hover:border-line`,
         );
       case "source":
-        return lead.source;
+        return sourceLabel(lead.source);
       case "calls":
         return formatCount(lead.call_count);
       case "created_at":

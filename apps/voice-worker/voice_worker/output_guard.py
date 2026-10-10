@@ -101,7 +101,15 @@ CLIENT_TURN_LIMIT: Final = 20
 #: Sections of a compiled script whose body is meant to be spoken (`call_script.py`,
 #: `agents/t0.py`). A section runs to the next line starting with `[`, the rule both T0
 #: splicers already use.
-_SPOKEN_SECTIONS: Final = ("[T0 FACTS]", "[OPENING]")
+_SPOKEN_SECTIONS: Final = (
+    "[T0 FACTS]",
+    "[OPENING]",
+    # Script v2 (`calevate_shared.call_script`): the business line, the sample phrases and
+    # the example call are words the agent is meant to say.
+    "[BUSINESS]",
+    "[SPEAKING STYLE]",
+    "[EXAMPLE CALL]",
+)
 
 #: FAQ lines that are spoken: an answer, and the header that carries the fallback sentence.
 _SPOKEN_LINE_PREFIXES: Final = ("A:", "[FAQ]")

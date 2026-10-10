@@ -585,6 +585,18 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="verify_agent_secret",
     ),
+    "POST /v1/worker/engine-lookups/{engine}": PublicRoute(
+        why=(
+            "The voice platform's caller lookup (D-716): before its agent answers an "
+            "inbound call it asks who is ringing. READ-ONLY. The credential is the "
+            "platform's v2 webhook signature over `<delivered-at>.<body>` under the secret "
+            "it minted for that agent, which we hold sealed on the agent's engine route; "
+            "compared in constant time with a five-minute freshness window, and the body's "
+            "agent must be the one the url names. Every failure is one 401. The answer is "
+            "a few short values from that route's tenant only, never a number or a note."
+        ),
+        credential="verify_lookup_signature",
+    ),
     "POST /v1/worker/engine-actions/{engine}/client/{name}": PublicRoute(
         why=(
             "A CLIENT's own in-call action (D-700: calendar, WhatsApp, payment link, sheet, "

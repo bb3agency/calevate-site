@@ -90,7 +90,15 @@ from typing import (
 )
 from uuid import UUID
 
-from calevate_shared.call_script import substitute_variables
+from calevate_shared.call_script import (
+    CallScript,
+    Capabilities,
+    NativeStep,
+    call_backs_withheld,
+    native_steps,
+    substitute_variables,
+    without_outline,
+)
 from calevate_shared.calling_window import IST
 from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER
 from calevate_shared.engine import (
@@ -116,13 +124,19 @@ from calevate_shared.engine import (
     truthful_answer_directive,
 )
 from calevate_shared.engine_scope import scope_of
+from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
 from apps.api.agents import handoff as handoff_module
-from apps.api.agents.engine_choice import byok_in_force, engine_rate_key_for
+from apps.api.agents.engine_choice import (
+    byok_in_force,
+    engine_rate_key_for,
+    in_call_default_model,
+    refuse_studio_on_trial,
+)
 from apps.api.agents.engine_facts import sync_business_facts
 from apps.api.agents.engine_limits import refuse_over_engine_limits, refuse_unpriced_engine
 from apps.api.agents.hosted_voices import parse_hosted_voice_id
@@ -139,6 +153,8 @@ from apps.api.agents.llm_tiers import client_model_label
 from apps.api.agents.models import (
     AGENT_DIRECTIONS,
     CALL_CAP_DEFAULT_S,
+    CALL_CAP_MAX_S,
+    CALL_CAP_MIN_S,
     AgentDirection,
     series_for_e164,
 )
@@ -149,6 +165,7 @@ from apps.api.agents.voices import get_voice, speech_for_voice_id, voice_id_of
 from apps.api.agents.write_guard import archived_refusal, assert_agent_writable
 from apps.api.billing.engine_minutes import (
     ATTESTED_MINUTE_ENGINES,
+    BYOK_VOICE_RATE_KEY,
     EngineRateKey,
     record_engine_rate_key,
 )
@@ -190,6 +207,7 @@ from apps.api.engine.carrier_pacing import (
     pacing_timed_out,
     start_dial_backoff,
 )
+from apps.api.engine.catalogue import HostsVoices
 from apps.api.engine.hosted_platform import hosted_agent_limits
 from apps.api.engine.thinnest_workspace import (
     trial_agent_in_developer_workspace,
@@ -201,6 +219,7 @@ from apps.api.engine.vendor_http import (
     EngineRateLimitedError,
     EngineRejectedError,
 )
+from apps.api.ingest.lead_policy import machine_detection_on
 from apps.api.legal.service import assert_agreements_accepted
 from apps.api.ops.maintenance import read_open_window
 from apps.api.reliability.engine_actions import (
@@ -208,6 +227,7 @@ from apps.api.reliability.engine_actions import (
     ensure_agent_actions,
     retire_agent_actions,
 )
+from apps.api.reliability.engine_lookups import ensure_call_start_quietly
 from apps.api.reliability.engine_webhooks import ensure_agent_webhook
 from apps.api.tenancy.business_profile import assert_ready_to_go_live
 from apps.api.tenancy.engine_workspace import engine_has_workspaces, resolve_workspace
@@ -370,6 +390,44 @@ def effective_call_cap(max_call_duration_s: int | None) -> int:
     return CALL_CAP_DEFAULT_S if max_call_duration_s is None else max_call_duration_s
 
 
+def call_cap_max_s(engine: VoiceEngine | None = None) -> int:
+    """The longest cap an agent may be given on the engine that will run it: our own
+    ceiling, lowered to the engine's where it has one (ThinnestAI runs at most 20 minutes,
+    so a longer cap could be saved and then refused at publish)."""
+    limit = hosted_agent_limits(engine or get_engine()).call_seconds_max
+    return CALL_CAP_MAX_S if limit is None else min(CALL_CAP_MAX_S, limit)
+
+
+def refuse_call_cap_out_of_range(max_call_duration_s: int | None) -> None:
+    """The cap's range check for every writer: the CHECK on the column is the floor, this
+    is the sentence (and the engine's lower ceiling, which no CHECK can know)."""
+    ceiling = call_cap_max_s()
+    if max_call_duration_s is None or CALL_CAP_MIN_S <= max_call_duration_s <= ceiling:
+        return
+    raise ProblemError(
+        kind="business_rule",
+        code="call_cap_out_of_range",
+        title="Call length cap out of range",
+        detail=(
+            f"A maximum call length must be between {CALL_CAP_MIN_S // 60} and "
+            f"{ceiling // 60} minutes."
+        ),
+        remediation=(
+            "Send a value in that range, or null to use the platform default of "
+            f"{CALL_CAP_DEFAULT_S} seconds. Null is the default, never 'unlimited'."
+        ),
+        fields=[
+            {
+                "field": "max_call_duration_s",
+                "rule": "out_of_range",
+                "message": (
+                    f"Must be {CALL_CAP_MIN_S}-{ceiling} seconds, or null for the platform default."
+                ),
+            }
+        ],
+    )
+
+
 class AgentRow(TypedDict):
     """The agent record as the config builders below need it — declared, not `object`.
 
@@ -453,6 +511,11 @@ class AgentRow(TypedDict):
     #: fetching it separately would let an hours edit land between the two reads — a
     #: publish whose destination and whose hours came from different moments.
     business_hours: dict[str, Any] | None
+    #: False while the account is a restricted free trial (`compliance/trial_access`).
+    callbacks_offered: NotRequired[bool]
+    detect_machines: NotRequired[bool]
+    #: The applied version's authored `CallScript`, or NULL for a freeform one.
+    structured_script: NotRequired[dict[str, Any] | None]
 
 
 def _is_agent_direction(value: object) -> TypeGuard[AgentDirection]:
@@ -509,7 +572,10 @@ async def _load_agent(
                 # fallback is decided from these two columns together, and two statements
                 # would let a concurrent change to the account default land between them —
                 # a published config whose two halves came from different moments.
-                "o.default_llm_model, bp.languages, a.engine_voice_id, a.engine_model_id "
+                "o.default_llm_model, bp.languages, a.engine_voice_id, a.engine_model_id, "
+                # The authored form of the applied version, for an engine that takes the
+                # script's stages as its own step list (`_steps_for`).
+                "pv.structured_script "
                 "FROM agents a LEFT JOIN prompt_versions pv "
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -577,6 +643,12 @@ async def _load_agent(
         "languages_extra": row[25],
         "engine_voice_id": row[26],
         "engine_model_id": row[27],
+        "structured_script": row[28],
+        # A restricted free trial never places a call back (D-697), so its agents must not
+        # offer one (founder decision 1, 10 Oct 2026).
+        "callbacks_offered": await restricting_trial(session, tenant_id=tenant_id) is None,
+        # The client's answering-machine switch (founder decision 14, D-716).
+        "detect_machines": await machine_detection_on(session),
     }
 
 
@@ -1074,6 +1146,9 @@ def _to_config(
 ) -> AgentConfig:
     settings = get_settings()
     hosted = _engine_voice_fields(agent, engine=engine)
+    steps, body = _steps_for(
+        engine, agent, _script_for(engine, _assert_has_a_script(agent)), handoff=handoff
+    )
     return AgentConfig(
         tenant_id=str(tenant_id),
         agent_id=str(agent["id"]),
@@ -1088,8 +1163,15 @@ def _to_config(
         languages_extra=published_extra_languages(
             str(agent["language_primary"]), agent["languages_extra"]
         ),
-        system_prompt=_script_for(engine, _assert_has_a_script(agent)),
+        system_prompt=body,
+        script_steps=steps,
         facts_in_knowledge=hosted_agent_limits(engine).facts_in_knowledge,
+        knowledge_tool=hosted_agent_limits(engine).knowledge_tool,
+        # The account must be able to keep a call back (a restricted trial cannot) and the
+        # script must not withhold them. `.get`: test fixtures build partial rows.
+        callbacks_offered=bool(agent.get("callbacks_offered", True))
+        and not call_backs_withheld(agent.get("prompt")),
+        detect_machines=bool(agent.get("detect_machines", False)),
         # THE NOTICES THE AGENT VOLUNTEERS BEFORE ITS OPENING LINE, composed from this
         # agent's two toggles by the one composer (D-163). The opening line itself (the
         # greeting) stays in the script and is never replaced by these (D-708). Empty is a
@@ -1304,21 +1386,23 @@ async def _ensure_in_call_actions(
     agent_id: UUID,
     ref: str,
     created: bool,
-    live_handover: bool,
 ) -> None:
     """Register (or converge) the vendor agent's in-call actions — opt-out, call-back,
-    call-back cancel, handoff — on an engine that reaches our tools that way
+    call-back cancel — on an engine that reaches our tools that way
     (`reliability/engine_actions.py`). A no-op elsewhere. A failure fails the publish,
     reclaiming a vendor agent this publish created, for `_reclaim_orphan`'s reason: an agent
     live without its opt-out tool is one a caller cannot be removed from mid-call."""
     try:
-        await ensure_agent_actions(
-            session, engine=engine.name, engine_agent_ref=ref, live_handover=live_handover
-        )
+        await ensure_agent_actions(session, engine=engine.name, engine_agent_ref=ref)
     except Exception:
         if created:
             await _reclaim_orphan(engine, agent_id, ref, "in_call_actions_not_registered")
         raise
+    # The caller lookup (D-716). Never fails the publish: without it a call still goes
+    # ahead, only without the caller's name; the drift sweep converges it.
+    await ensure_call_start_quietly(
+        session, engine=engine.name, engine_agent_ref=ref, agent_id=agent_id
+    )
 
 
 async def _publish_business_facts(
@@ -2475,6 +2559,33 @@ async def _in_client_workspace(
     return config.model_copy(update=update)
 
 
+async def _studio_in_client_workspace(
+    session: AsyncSession,
+    engine: VoiceEngine,
+    *,
+    tenant_id: UUID,
+    rate_key: str,
+    config: AgentConfig,
+    trial: bool,
+) -> None:
+    """A Studio voice speaks on our Cartesia key, which is switched on only in the client's
+    own workspace (D-717). Done before the vendor write, because `PUT /agents/{id}/byok-voice`
+    answers `409` in a workspace not on its own keys, and idempotent, so every Studio publish
+    also re-reads that workspace's switch live. A free-trial agent lives in our developer
+    workspace, whose switch stays off, so it is Clear only (D-697)."""
+    if rate_key != BYOK_VOICE_RATE_KEY or not isinstance(engine, HostsVoices):
+        return
+    if trial:
+        raise refuse_studio_on_trial()
+    if config.engine_workspace is None:
+        raise workspace_not_provisioned()
+    from apps.api.agents.studio_voices import ensure_studio_in
+
+    await ensure_studio_in(
+        session, engine, tenant_id=tenant_id, workspace=config.engine_workspace
+    )
+
+
 def _moves_workspace(existing_ref: str | None, config: AgentConfig) -> bool:
     """Does the vendor agent behind `existing_ref` live outside the workspace `config` is for?
     An agent cannot move between workspaces, so it is recreated in the right one."""
@@ -2823,6 +2934,9 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     config = await _in_client_workspace(
         session, engine, tenant_id=tenant_id, agent=agent, config=config, trial=trial_account
     )
+    await _studio_in_client_workspace(
+        session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config, trial=trial_account
+    )
     existing_ref = agent["engine_agent_ref"]
     # AN AGENT MADE IN OUR DEVELOPER WORKSPACE BEFORE D-693 is recreated in its client's own
     # workspace on this publish, under a new vendor id. The old one keeps answering until
@@ -2952,7 +3066,6 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
         agent_id=agent_id,
         ref=ref,
         created=created,
-        live_handover=handoff is not None,
     )
     if moved_from is not None:
         await _resync_agent_numbers(session, agent_id=agent_id)
@@ -3014,6 +3127,32 @@ _VARIANT_CONFIG_SQL = (
 )
 
 
+def _steps_for(
+    engine: VoiceEngine, agent: AgentRow, body: str, *, handoff: HandoffSpec | None
+) -> tuple[tuple[NativeStep, ...], str]:
+    """The script's stages as the engine's own steps, and the body without the same outline.
+
+    Only on an engine with a native step list (ThinnestAI, `HostedAgentLimits.native_steps`)
+    and only for a structured script whose stages fit it; anything else keeps its outline in
+    the instructions and sends no steps, so the model never reads the outline twice.
+    """
+    structured = agent.get("structured_script")
+    if not hosted_agent_limits(engine).native_steps or not structured:
+        return (), body
+    try:
+        script = CallScript.model_validate(structured)
+    except ValidationError:
+        log.warning("structured_script_unreadable", extra={"agent_id": str(agent["id"])})
+        return (), body
+    # A "hand over" or "call back" branch becomes what this account can do right now.
+    can = Capabilities(
+        call_backs=bool(agent.get("callbacks_offered", True)) and not call_backs_withheld(body),
+        hand_over=handoff is not None,
+    )
+    steps = native_steps(script, can=can)
+    return (steps, without_outline(body)) if steps else ((), body)
+
+
 def _script_for(engine: VoiceEngine, body: str) -> str:
     """The script as `engine` holds it: without the [T0 FACTS] block where the engine keeps
     the business facts in its knowledge base (`agents/engine_facts.py`), unchanged otherwise."""
@@ -3060,6 +3199,11 @@ def _engine_voice_fields(agent: AgentRow, *, engine: VoiceEngine) -> _EngineVoic
     refuses it first (`engine_choice.require_engine_choice`).
     """
     voice, model = _engine_choice(agent, engine=engine)
+    # An agent that chose no model is sent the console's in-call default, so a change of
+    # default reaches each agent at its next publish and never mid-call. Checked when the
+    # setting is written (`engine_choice.assert_in_call_default_usable`), not here: the
+    # per-agent price ground does not apply to a model included in the voice band's minute.
+    model = model or in_call_default_model(engine, voice_id=voice)
     ref = parse_hosted_voice_id(voice)
     states_key = not (byok_in_force(engine) or engine.capabilities.is_ours("tts"))
     own_voice_key = (ref is not None and ref.source == "byok") if states_key else None
@@ -3107,6 +3251,8 @@ def _variant_config(
             "agent_id": str(variant_id),
             "name": f"{agent['name']} [variant {label}]",
             "system_prompt": _script_for(engine, body),
+            # The arm's body keeps its own outline; the agent's steps are not the arm's.
+            "script_steps": (),
             # THE ARM'S OWN AI SENTENCE, THROUGH THE AGENT'S OWN TOGGLES (D-163). A
             # variant carries its own `disclosure_line` (NOT NULL, non-empty) because an
             # A/B test of a script legitimately tests its opening; the arm's opening line
@@ -3188,6 +3334,9 @@ async def publish_variant(
     )
     config = await _in_client_workspace(
         session, engine, tenant_id=tenant_id, agent=agent, config=config
+    )
+    await _studio_in_client_workspace(
+        session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config, trial=False
     )
     # An arm made in our developer workspace is recreated in the client's own, as its agent
     # is (D-693); the old arm is deleted after this transaction commits.
@@ -3275,7 +3424,6 @@ async def publish_variant(
         agent_id=agent_id,
         ref=ref,
         created=not existing_ref,
-        live_handover=handoff is not None,
     )
     log.info(
         "agent_variant_published",

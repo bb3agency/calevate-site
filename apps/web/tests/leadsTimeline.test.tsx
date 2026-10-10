@@ -62,6 +62,7 @@ const LEAD: Lead = {
   name: "Ramesh Kumar",
   phone_e164: PHONE,
   status: "hot",
+  status_set_by: "system",
   source: "inbound_call",
   data: {},
   schema_version: 1,
@@ -101,6 +102,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/members": MEMBERS,
     "/v1/leads/lead-a": LEAD,
     "/v1/leads/lead-a/timeline?limit=50": timeline([event()]),
+    "/v1/leads/lead-a/captured": { fields: [] },
     ...over,
   };
 }

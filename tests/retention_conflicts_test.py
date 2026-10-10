@@ -531,7 +531,8 @@ def test_the_derived_copy_map_still_names_a_category_the_schema_allows() -> None
     (and someone else's territory), not a constant in this module."""
     assert retention.DERIVED_COPIES == {
         "transcript": (
-            "calls.summary",
+            "calls.summary+summary_local+headline+next_step",
+            "transcript_turns.text_en",
             # The knowledge-gap quote columns are transcript text under another name:
             # the detector copies the caller's question and the agent's deflection out of
             # `transcript_turns.text_redacted`. They were in NO category, which is why

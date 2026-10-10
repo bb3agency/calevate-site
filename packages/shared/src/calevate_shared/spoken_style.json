@@ -1,0 +1,779 @@
+{
+  "about": "Spoken-register guidance and example exchanges for voice agents, per call language and business type. AI-drafted on 10 Oct 2026 (founder decision 3, docs/evidence/first-call-review-2026-10-10.md). EVERY entry is review: needs_native_review until a native speaker has read it; set review to native_reviewed with the reviewer's name in reviewed_by when that happens. Openings are a starter's greeting in that language. The register line and the word swaps (the formal or written form on the left, what people actually say on the right) go into every agent's prompt in that language (calevate_shared.spoken_style.register_guidance); the example exchanges seed new scripts (starters, the script assistant) and stay editable by the client. Example lines show HOW to speak, never facts: they name no price, time, address or stock level, so an agent cannot repeat a made-up fact from them.",
+  "languages": {
+    "te-IN": {
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "register_name": "Neutral spoken Telugu",
+      "register": "Everyday spoken Telugu as people talk on the phone, neutral and understood in both Telangana and Andhra, in Telugu script, with the English words people use (order, price, delivery, call back). Polite with అండి and గారు, never stiff.",
+      "examples": {
+        "_default": [
+          [
+            "caller",
+            "హలో, మీ దగ్గర ఇది దొరుకుతుందా అండి?"
+          ],
+          [
+            "agent",
+            "ఒక్క నిమిషం అండి, చూసి చెప్తాను."
+          ],
+          [
+            "agent",
+            "ఉందండి. మీకు ఎంత కావాలి?"
+          ],
+          [
+            "caller",
+            "తర్వాత చెప్తాను, ఇప్పుడు కొంచెం busy."
+          ],
+          [
+            "agent",
+            "సరే అండి, no problem. మీకు వీలైనప్పుడు call చేయండి."
+          ]
+        ],
+        "retail": [
+          [
+            "caller",
+            "మీ దగ్గర ఎండు మిర్చి ఉందా అండి?"
+          ],
+          [
+            "agent",
+            "ఒక్క నిమిషం అండి, చూసి చెప్తాను."
+          ],
+          [
+            "agent",
+            "ఉందండి. మీకు ఎంత quantity కావాలి?"
+          ],
+          [
+            "caller",
+            "ఒక కిలో. Home delivery ఉంటుందా?"
+          ],
+          [
+            "agent",
+            "Delivery గురించి నా దగ్గర details లేవండి. మీ area ఏదో చెప్తారా?"
+          ]
+        ],
+        "clinic": [
+          [
+            "caller",
+            "Doctor గారిని చూపించుకోవాలి, appointment దొరుకుతుందా?"
+          ],
+          [
+            "agent",
+            "తప్పకుండా అండి. ఏ problem తో రావాలనుకుంటున్నారు?"
+          ],
+          [
+            "caller",
+            "రెండు రోజుల నుంచి జ్వరం."
+          ],
+          [
+            "agent",
+            "అర్థమైంది అండి. మీకు ఏ రోజు, ఏ time వీలవుతుంది?"
+          ]
+        ],
+        "real_estate": [
+          [
+            "caller",
+            "మీ project లో 2 BHK flats ఉన్నాయా?"
+          ],
+          [
+            "agent",
+            "ఒక్క నిమిషం అండి, చూసి చెప్తాను."
+          ],
+          [
+            "agent",
+            "ఉన్నాయండి. మీ budget ఎంతలో చూస్తున్నారు?"
+          ],
+          [
+            "caller",
+            "ముందు site చూడాలి."
+          ],
+          [
+            "agent",
+            "మంచిది అండి. Site visit కి ఏ రోజు రాగలరు?"
+          ]
+        ],
+        "insurance": [
+          [
+            "caller",
+            "నా policy renewal date ఎప్పుడు?"
+          ],
+          [
+            "agent",
+            "మీ policy details నా దగ్గర లేవండి. మీరు ఏ policy తీసుకున్నారో చెప్తారా?"
+          ],
+          [
+            "caller",
+            "Health policy అండి."
+          ],
+          [
+            "agent",
+            "సరే అండి. మీ పేరు, policy number చెప్తే note చేసుకుంటాను."
+          ]
+        ],
+        "education": [
+          [
+            "caller",
+            "Spoken English course కి admission ఉందా?"
+          ],
+          [
+            "agent",
+            "ఉందండి. Student ఏ class చదువుతున్నారు?"
+          ],
+          [
+            "caller",
+            "Inter second year."
+          ],
+          [
+            "agent",
+            "సరే అండి. ముందు ఒక demo class చూస్తారా?"
+          ]
+        ],
+        "local_services": [
+          [
+            "caller",
+            "రేపు haircut కి slot ఉందా?"
+          ],
+          [
+            "agent",
+            "ఒక్క నిమిషం అండి, చూసి చెప్తాను."
+          ],
+          [
+            "agent",
+            "రేపు ఏ time మీకు వీలవుతుంది అండి?"
+          ],
+          [
+            "caller",
+            "సాయంత్రం ఐదు తర్వాత."
+          ],
+          [
+            "agent",
+            "సరే అండి, మీ పేరు చెప్తారా?"
+          ]
+        ],
+        "automobile": [
+          [
+            "caller",
+            "Bike service కి ఇవ్వాలి, ఎప్పుడు రావొచ్చు?"
+          ],
+          [
+            "agent",
+            "మీ bike ఏ model అండి?"
+          ],
+          [
+            "caller",
+            "Splendor."
+          ],
+          [
+            "agent",
+            "సరే అండి. ఏ రోజు తీసుకురాగలరు?"
+          ]
+        ]
+      },
+      "word_swaps": [
+        [
+          "క్షమించండి",
+          "sorry అండి"
+        ],
+        [
+          "దయచేసి",
+          "(leave it out)"
+        ],
+        [
+          "తెలియజేయండి",
+          "చెప్పండి"
+        ],
+        [
+          "వివరాలు",
+          "details"
+        ],
+        [
+          "ధన్యవాదాలు",
+          "thanks అండి"
+        ],
+        [
+          "ధర",
+          "price"
+        ],
+        [
+          "అందుబాటులో ఉంది",
+          "ఉంది"
+        ],
+        [
+          "తిరిగి కాల్ చేస్తాము",
+          "మళ్ళీ call చేస్తాం"
+        ]
+      ],
+      "openings": {
+        "inbound": "నమస్కారం అండి, {business} కి call చేసినందుకు thanks. చెప్పండి, ఏం కావాలి?",
+        "outbound": "నమస్కారం అండి, {business} నుంచి call చేస్తున్నాను. ఇప్పుడు రెండు నిమిషాలు మాట్లాడొచ్చా?"
+      }
+    },
+    "hi-IN": {
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "register_name": "Everyday spoken Hindi (Hindustani)",
+      "register": "Everyday spoken Hindi in Devanagari, with the English words people use (order, price, delivery, call back). Polite with जी and आप; prefer 'we' forms (बताते हैं) so no gender is assumed.",
+      "examples": {
+        "_default": [
+          [
+            "caller",
+            "हैलो, आपके पास ये मिलेगा क्या?"
+          ],
+          [
+            "agent",
+            "एक minute जी, देख कर बताते हैं।"
+          ],
+          [
+            "agent",
+            "हाँ जी, है। आपको कितना चाहिए?"
+          ],
+          [
+            "caller",
+            "बाद में बताता हूँ, अभी थोड़ा busy हूँ।"
+          ],
+          [
+            "agent",
+            "ठीक है जी, कोई बात नहीं। जब time हो तब call कीजिए।"
+          ]
+        ],
+        "retail": [
+          [
+            "caller",
+            "आपके पास लाल मिर्च है क्या?"
+          ],
+          [
+            "agent",
+            "एक minute जी, देख कर बताते हैं।"
+          ],
+          [
+            "agent",
+            "हाँ जी, है। कितनी quantity चाहिए आपको?"
+          ],
+          [
+            "caller",
+            "एक किलो। Home delivery होती है?"
+          ],
+          [
+            "agent",
+            "Delivery की details अभी हमारे पास नहीं हैं जी। आपका area कौन सा है?"
+          ]
+        ],
+        "clinic": [
+          [
+            "caller",
+            "Doctor साहब को दिखाना है, appointment मिलेगा?"
+          ],
+          [
+            "agent",
+            "ज़रूर जी। किस problem के लिए आना है?"
+          ],
+          [
+            "caller",
+            "दो दिन से बुखार है।"
+          ],
+          [
+            "agent",
+            "समझ गए जी। आपको कौन सा दिन और time ठीक रहेगा?"
+          ]
+        ],
+        "real_estate": [
+          [
+            "caller",
+            "आपके project में 2 BHK flat हैं?"
+          ],
+          [
+            "agent",
+            "एक minute जी, देख कर बताते हैं।"
+          ],
+          [
+            "agent",
+            "हाँ जी, हैं। आपका budget कितना है?"
+          ],
+          [
+            "caller",
+            "पहले site देखनी है।"
+          ],
+          [
+            "agent",
+            "बिल्कुल जी। Site visit के लिए कौन सा दिन ठीक रहेगा?"
+          ]
+        ],
+        "insurance": [
+          [
+            "caller",
+            "मेरी policy का renewal कब है?"
+          ],
+          [
+            "agent",
+            "आपकी policy की details हमारे पास नहीं हैं जी। कौन सी policy है आपकी?"
+          ],
+          [
+            "caller",
+            "Health policy."
+          ],
+          [
+            "agent",
+            "ठीक है जी। अपना नाम और policy number बता दीजिए, हम note कर लेते हैं।"
+          ]
+        ],
+        "education": [
+          [
+            "caller",
+            "Spoken English course में admission चल रहा है?"
+          ],
+          [
+            "agent",
+            "हाँ जी। Student कौन सी class में है?"
+          ],
+          [
+            "caller",
+            "बारहवीं में।"
+          ],
+          [
+            "agent",
+            "ठीक है जी। पहले एक demo class देखना चाहेंगे?"
+          ]
+        ],
+        "local_services": [
+          [
+            "caller",
+            "कल haircut के लिए slot मिलेगा?"
+          ],
+          [
+            "agent",
+            "एक minute जी, देख कर बताते हैं।"
+          ],
+          [
+            "agent",
+            "कल आपको कौन सा time ठीक रहेगा?"
+          ],
+          [
+            "caller",
+            "शाम पाँच के बाद।"
+          ],
+          [
+            "agent",
+            "ठीक है जी, आपका नाम बता दीजिए।"
+          ]
+        ],
+        "automobile": [
+          [
+            "caller",
+            "Bike की service करवानी है, कब ला सकता हूँ?"
+          ],
+          [
+            "agent",
+            "आपकी bike कौन सा model है जी?"
+          ],
+          [
+            "caller",
+            "Splendor."
+          ],
+          [
+            "agent",
+            "ठीक है जी। कौन से दिन ला सकते हैं?"
+          ]
+        ]
+      },
+      "word_swaps": [
+        [
+          "कृपया",
+          "(leave it out)"
+        ],
+        [
+          "क्षमा करें",
+          "sorry जी"
+        ],
+        [
+          "धन्यवाद",
+          "thank you जी"
+        ],
+        [
+          "उपलब्ध है",
+          "है"
+        ],
+        [
+          "मूल्य",
+          "price"
+        ],
+        [
+          "संपर्क करें",
+          "call कीजिए"
+        ],
+        [
+          "जानकारी",
+          "details"
+        ]
+      ],
+      "openings": {
+        "inbound": "नमस्ते जी, {business} में call करने के लिए thank you. बताइए, क्या चाहिए?",
+        "outbound": "नमस्ते जी, {business} की तरफ़ से call है। अभी दो minute बात हो सकती है?"
+      }
+    },
+    "en-IN": {
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "register_name": "Indian English, spoken",
+      "register": "Simple, warm Indian English as people speak on the phone. Sir or madam once, not every line. Mix in Hindi or Telugu words if the caller does.",
+      "examples": {
+        "_default": [
+          [
+            "caller",
+            "Hi, do you have this in stock?"
+          ],
+          [
+            "agent",
+            "One moment, let me check."
+          ],
+          [
+            "agent",
+            "Yes, we have it. How much would you need?"
+          ],
+          [
+            "caller",
+            "I'll tell you later, I'm a bit busy now."
+          ],
+          [
+            "agent",
+            "No problem at all. Call us whenever it suits you."
+          ]
+        ],
+        "retail": [
+          [
+            "caller",
+            "Do you have dry red chilli?"
+          ],
+          [
+            "agent",
+            "One moment, let me check."
+          ],
+          [
+            "agent",
+            "Yes, we do. How much do you need?"
+          ],
+          [
+            "caller",
+            "One kilo. Do you deliver?"
+          ],
+          [
+            "agent",
+            "I don't have the delivery details with me. Which area are you in?"
+          ]
+        ],
+        "clinic": [
+          [
+            "caller",
+            "I want to see the doctor. Can I get an appointment?"
+          ],
+          [
+            "agent",
+            "Sure. What would you like to see the doctor for?"
+          ],
+          [
+            "caller",
+            "I've had a fever for two days."
+          ],
+          [
+            "agent",
+            "Understood. Which day and time suits you?"
+          ]
+        ],
+        "real_estate": [
+          [
+            "caller",
+            "Do you have 2 BHK flats in the project?"
+          ],
+          [
+            "agent",
+            "One moment, let me check."
+          ],
+          [
+            "agent",
+            "Yes, we do. What budget are you looking at?"
+          ],
+          [
+            "caller",
+            "I'd like to see the site first."
+          ],
+          [
+            "agent",
+            "Of course. Which day can you come for a site visit?"
+          ]
+        ],
+        "insurance": [
+          [
+            "caller",
+            "When is my policy due for renewal?"
+          ],
+          [
+            "agent",
+            "I don't have your policy details with me. Which policy is it?"
+          ],
+          [
+            "caller",
+            "A health policy."
+          ],
+          [
+            "agent",
+            "Okay. Tell me your name and policy number and I'll note it down."
+          ]
+        ],
+        "education": [
+          [
+            "caller",
+            "Are admissions open for the spoken English course?"
+          ],
+          [
+            "agent",
+            "Yes, they are. Which class is the student in?"
+          ],
+          [
+            "caller",
+            "Twelfth."
+          ],
+          [
+            "agent",
+            "Okay. Would you like to attend a demo class first?"
+          ]
+        ],
+        "local_services": [
+          [
+            "caller",
+            "Is there a slot for a haircut tomorrow?"
+          ],
+          [
+            "agent",
+            "One moment, let me check."
+          ],
+          [
+            "agent",
+            "What time tomorrow suits you?"
+          ],
+          [
+            "caller",
+            "After five in the evening."
+          ],
+          [
+            "agent",
+            "Okay. May I have your name?"
+          ]
+        ],
+        "automobile": [
+          [
+            "caller",
+            "I need my bike serviced. When can I bring it?"
+          ],
+          [
+            "agent",
+            "Which model is your bike?"
+          ],
+          [
+            "caller",
+            "A Splendor."
+          ],
+          [
+            "agent",
+            "Okay. Which day can you bring it in?"
+          ]
+        ]
+      },
+      "word_swaps": [
+        [
+          "Kindly",
+          "(leave it out)"
+        ],
+        [
+          "revert",
+          "get back to you"
+        ],
+        [
+          "do the needful",
+          "(say what you will do)"
+        ]
+      ]
+    },
+    "ta-IN": {
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "register_name": "Everyday spoken Tamil",
+      "register": "Everyday spoken Tamil in its own script, as people talk on the phone, with the English words people use (order, price, delivery). Polite, never formal or written.",
+      "examples": {
+        "_default": [
+          [
+            "caller",
+            "ஹலோ, உங்ககிட்ட இது கிடைக்குமா?"
+          ],
+          [
+            "agent",
+            "ஒரு நிமிஷம்ங்க, பார்த்து சொல்றேன்."
+          ],
+          [
+            "agent",
+            "இருக்குங்க. உங்களுக்கு எவ்வளவு வேணும்?"
+          ]
+        ]
+      },
+      "word_swaps": []
+    },
+    "kn-IN": {
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "register_name": "Everyday spoken Kannada (Bengaluru)",
+      "register": "Everyday spoken Kannada in its own script, as people talk on the phone, with the English words people use (order, price, delivery). Polite, never formal or written.",
+      "examples": {
+        "_default": [
+          [
+            "caller",
+            "ಹಲೋ, ನಿಮ್ಮ ಹತ್ರ ಇದು ಸಿಗುತ್ತಾ?"
+          ],
+          [
+            "agent",
+            "ಒಂದು ನಿಮಿಷ ರೀ, ನೋಡಿ ಹೇಳ್ತೀನಿ."
+          ],
+          [
+            "agent",
+            "ಇದೆ ರೀ. ನಿಮಗೆ ಎಷ್ಟು ಬೇಕು?"
+          ]
+        ]
+      },
+      "word_swaps": []
+    },
+    "ml-IN": {
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "register_name": "Everyday spoken Malayalam",
+      "register": "Everyday spoken Malayalam in its own script, as people talk on the phone, with the English words people use (order, price, delivery). Polite, never formal or written.",
+      "examples": {
+        "_default": [
+          [
+            "caller",
+            "ഹലോ, നിങ്ങളുടെ അടുത്ത് ഇത് കിട്ടുമോ?"
+          ],
+          [
+            "agent",
+            "ഒരു മിനിറ്റ്, നോക്കിയിട്ട് പറയാം."
+          ],
+          [
+            "agent",
+            "ഉണ്ട്. നിങ്ങൾക്ക് എത്ര വേണം?"
+          ]
+        ]
+      },
+      "word_swaps": []
+    },
+    "mr-IN": {
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "register_name": "Everyday spoken Marathi",
+      "register": "Everyday spoken Marathi in its own script, as people talk on the phone, with the English words people use (order, price, delivery). Polite, never formal or written.",
+      "examples": {
+        "_default": [
+          [
+            "caller",
+            "हॅलो, तुमच्याकडे हे मिळेल का?"
+          ],
+          [
+            "agent",
+            "एक मिनिट, बघून सांगतो."
+          ],
+          [
+            "agent",
+            "हो, आहे. तुम्हाला किती पाहिजे?"
+          ]
+        ]
+      },
+      "word_swaps": []
+    },
+    "bn-IN": {
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "register_name": "Everyday spoken Bengali",
+      "register": "Everyday spoken Bengali in its own script, as people talk on the phone, with the English words people use (order, price, delivery). Polite, never formal or written.",
+      "examples": {
+        "_default": [
+          [
+            "caller",
+            "হ্যালো, আপনাদের কাছে এটা পাওয়া যাবে?"
+          ],
+          [
+            "agent",
+            "এক মিনিট, দেখে বলছি।"
+          ],
+          [
+            "agent",
+            "হ্যাঁ, আছে। আপনার কতটা লাগবে?"
+          ]
+        ]
+      },
+      "word_swaps": []
+    },
+    "gu-IN": {
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "register_name": "Everyday spoken Gujarati",
+      "register": "Everyday spoken Gujarati in its own script, as people talk on the phone, with the English words people use (order, price, delivery). Polite, never formal or written.",
+      "examples": {
+        "_default": [
+          [
+            "caller",
+            "હેલો, તમારી પાસે આ મળશે?"
+          ],
+          [
+            "agent",
+            "એક મિનિટ, જોઈને કહું છું."
+          ],
+          [
+            "agent",
+            "હા, છે. તમારે કેટલું જોઈએ?"
+          ]
+        ]
+      },
+      "word_swaps": []
+    },
+    "pa-IN": {
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "register_name": "Everyday spoken Punjabi",
+      "register": "Everyday spoken Punjabi in its own script, as people talk on the phone, with the English words people use (order, price, delivery). Polite, never formal or written.",
+      "examples": {
+        "_default": [
+          [
+            "caller",
+            "ਹੈਲੋ, ਤੁਹਾਡੇ ਕੋਲ ਇਹ ਮਿਲੇਗਾ?"
+          ],
+          [
+            "agent",
+            "ਇੱਕ ਮਿੰਟ ਜੀ, ਦੇਖ ਕੇ ਦੱਸਦੇ ਹਾਂ।"
+          ],
+          [
+            "agent",
+            "ਹਾਂ ਜੀ, ਹੈ। ਤੁਹਾਨੂੰ ਕਿੰਨਾ ਚਾਹੀਦਾ?"
+          ]
+        ]
+      },
+      "word_swaps": []
+    },
+    "or-IN": {
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "register_name": "Everyday spoken Odia",
+      "register": "Everyday spoken Odia in its own script, as people talk on the phone, with the English words people use (order, price, delivery). Polite, never formal or written.",
+      "examples": {
+        "_default": [
+          [
+            "caller",
+            "ହେଲୋ, ଆପଣଙ୍କ ପାଖରେ ଏହା ମିଳିବ କି?"
+          ],
+          [
+            "agent",
+            "ଗୋଟେ ମିନିଟ୍, ଦେଖି କହୁଛି।"
+          ],
+          [
+            "agent",
+            "ହଁ, ଅଛି। ଆପଣଙ୍କୁ କେତେ ଦରକାର?"
+          ]
+        ]
+      },
+      "word_swaps": []
+    }
+  }
+}

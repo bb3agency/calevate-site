@@ -328,7 +328,10 @@ def _request() -> Request:
     )
 
 
-FRESH = StepUp(present=True, verified_at=datetime.now(UTC))
+def _fresh() -> StepUp:
+    """A step-up proved now. Built per call: a module constant is stamped at collection
+    time, and on a full run the tests reach it long after the 30-minute window closed."""
+    return StepUp(present=True, verified_at=datetime.now(UTC))
 
 
 async def test_the_status_page_names_the_key_mode_and_only_payment_alarms(
@@ -489,20 +492,20 @@ async def test_accepting_needs_the_confirmation_names_the_dispute_and_is_audited
     assert confirm == f"dispute_accept:{dispute_id}"
 
     with pytest.raises(ProblemError) as unconfirmed:
-        await payment_admin_routes.accept(dispute_id, _request(), _admin(), FRESH, None)
+        await payment_admin_routes.accept(dispute_id, _request(), _admin(), _fresh(), None)
     assert unconfirmed.value.code == "step_up_required"
     with pytest.raises(ProblemError) as missing:
         await payment_admin_routes.accept(
             "disp_nobody",
             _request(),
             _admin(),
-            FRESH,
+            _fresh(),
             payment_admin_routes.dispute_confirmation("disp_nobody", "accept"),
         )
     assert missing.value.code == "not_found"
     assert fake.accepted == []
 
-    out = await payment_admin_routes.accept(dispute_id, _request(), _admin(), FRESH, confirm)
+    out = await payment_admin_routes.accept(dispute_id, _request(), _admin(), _fresh(), confirm)
     assert out.status == "lost", "an empty provider answer reads as the documented outcome"
     assert fake.accepted == [dispute_id]
     assert await _audits(tenant_id, "payment.dispute_accepted") == 1
@@ -523,7 +526,7 @@ async def _contest(
         dispute_id,
         _request(),
         _admin(),
-        FRESH,
+        _fresh(),
         summary="The customer used every minute they paid for.",
         evidence_kind="billing_proof",
         files=files,

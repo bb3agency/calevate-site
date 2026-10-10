@@ -85,7 +85,7 @@ def without_block(body: str) -> str:
 
 # Where a freshly compiled block is inserted when the prompt has no block yet — the
 # position PROMPT-GUIDE §2's template order puts it in.
-_INSERT_BEFORE = ("[TASK FLOW]", "[TOOLS]", "[GUARDRAILS]", "[WRAP]")
+_INSERT_BEFORE = ("[TASK FLOW]", "[CONVERSATION]", "[TOOLS]", "[GUARDRAILS]", "[WRAP]")
 
 
 def splice_t0_block(body: str | None, block: str, *, identity: str) -> str:

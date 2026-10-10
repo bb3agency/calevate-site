@@ -7,6 +7,7 @@ import type { Me } from "@/lib/api/client";
 import type { Lead, Member } from "@/lib/api/leads";
 
 import { problem, renderClientPage, type ApiCall } from "./harness";
+import { LEAD_FIELDS_CORE_ONLY } from "./fixtures/sharedReads";
 
 /**
  * Bulk actions and inline edit — slice AE, the half of the leads floor slice Z deferred.
@@ -113,6 +114,7 @@ function lead(
     name,
     phone_e164: `+91987654${id.slice(-4).padStart(4, "0")}`,
     status: "new",
+    status_set_by: "system",
     source: "inbound_call",
     data: {},
     schema_version: 1,
@@ -160,6 +162,7 @@ function routes(over: Record<string, unknown> = {}) {
     "POST /v1/leads/search": leadList([LEAD_A, LEAD_B], 2),
     "/v1/leads/facets": FACETS,
     "/v1/leads/views": { items: [] },
+    "/v1/lead-fields": LEAD_FIELDS_CORE_ONLY,
     ...over,
   };
 }

@@ -21,9 +21,11 @@ import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
 const STRUCTURED: CallScript = {
   ...EMPTY_SCRIPT,
   opening_line: "నమస్కారం!",
-  steps: [{ instruction: "ask what they need" }, { instruction: "take their name" }],
+  stages: [
+    { id: "s1", name: "Need", instruction: "ask what they need", sounds_like: "cheppandi" },
+    { id: "s2", name: "Name", instruction: "take their name", sounds_like: "" },
+  ],
   faqs: [{ question: "hours?", answer: "9 to 9" }],
-  end_call_extra_rules: ["no discounts over 10%"],
 };
 
 function helpFor(fields: ReturnType<typeof scriptCopilotFields>, id: string): string {
@@ -71,30 +73,41 @@ describe("the structured-mode steer", () => {
     expect(help.toLowerCase()).toContain("not a description of the company");
   });
 
-  it("carries the task-flow steer on every existing step row", () => {
+  it("carries the task-flow steer on every existing stage row", () => {
     const fields = scriptCopilotFields(STRUCTURED, false);
-    expect(helpFor(fields, "script-steps-0-instruction")).toBe(STEP_COPILOT_HELP);
-    expect(helpFor(fields, "script-steps-1-instruction")).toBe(STEP_COPILOT_HELP);
+    expect(helpFor(fields, "script-stages-0-instruction")).toBe(STEP_COPILOT_HELP);
+    expect(helpFor(fields, "script-stages-1-instruction")).toBe(STEP_COPILOT_HELP);
     expect(STEP_COPILOT_HELP.toLowerCase()).toContain("hint");
   });
 
-  it("declares the opener, each step and FAQ row, the don't-know line and each end rule", () => {
+  it("declares the sections, then each stage, push-back and quick-fact row", () => {
     const ids = scriptCopilotFields(STRUCTURED, false).map((f) => f.id);
     expect(ids).toEqual([
+      "script-business_line",
+      "script-identity",
+      "script-goal",
+      "script-outbound_purpose",
       "script-opening_line",
-      "script-steps-0-instruction",
-      "script-steps-1-instruction",
+      "script-stages-0-instruction",
+      "script-stages-0-sounds_like",
+      "script-stages-1-instruction",
+      "script-stages-1-sounds_like",
+      "script-ending",
       "script-faqs-0-question",
       "script-faqs-0-answer",
-      "script-faq_fallback",
-      "script-end_call_extra_rules-0",
     ]);
   });
 
-  it("declares no step or FAQ rows on a fresh script — the copilot cannot grow the lists", () => {
-    // paths.ts refuses a fill naming a row that does not exist, so an empty structured script
-    // exposes only its scalar fields; from-scratch authoring is the raw box's job.
+  it("declares no list rows on a fresh script — the copilot cannot grow the lists", () => {
+    // paths.ts refuses a fill naming a row that does not exist.
     const ids = scriptCopilotFields(EMPTY_SCRIPT, false).map((f) => f.id);
-    expect(ids).toEqual(["script-opening_line", "script-faq_fallback"]);
+    expect(ids).toEqual([
+      "script-business_line",
+      "script-identity",
+      "script-goal",
+      "script-outbound_purpose",
+      "script-opening_line",
+      "script-ending",
+    ]);
   });
 });

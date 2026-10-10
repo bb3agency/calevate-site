@@ -44,13 +44,20 @@ AGENT_SETTING_LABELS: Final[frozenset[str]] = frozenset(
         "max_call_seconds",
         "caller_memory",
         "machine_detection",
+        # Fixed at 30 seconds on every agent (D-716).
+        "ring_seconds",
         "call_summaries",
         "escalation",
         "scheduled_callbacks",
         "lead_capture",
         "collected_fields",
+        # The script's stages on an engine with its own step list (D-714).
+        "script_steps",
         "built_in_tools",
         "hand_over",
+        # The agent answers on a website call button or WhatsApp, which we do not offer
+        # (D-716). Reported, never repairable from here: set in the vendor console.
+        "answer_surfaces",
     }
 )
 

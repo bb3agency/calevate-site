@@ -1,73 +1,78 @@
 "use client";
 
 /**
- * THE BUILDER'S STICKY TOOLBAR — where the agent is, which version callers hear, and the
- * one action that matters right now.
+ * THE BUILDER'S TOP LINE — where the owner is, whether their work is saved, how much room
+ * the script has left, and the one action that matters: "Put it live", shown only while
+ * callers hear something different from the draft.
  *
- * One primary at any moment, chosen by state: **Save** while there are unsaved edits (or
- * nothing is waiting), **Apply to live calls** once a saved version is staged and the
- * editor is clean.
+ * There is no Save button. The draft saves itself; the line under the title says so in
+ * words, and says why when it cannot. No version numbers are shown anywhere: History lists
+ * entries by date and note.
  *
- * Also the builder's other chrome: the mode toggle and the compiled-prompt drawer. Apply is never offered over unsaved edits, because it would put live
- * the version on file rather than the one on screen.
+ * Also here: the "full instructions" drawer, the exact text the calling system reads.
  */
 
 import Link from "next/link";
-import { ArrowLeft, Sparkles } from "lucide-react";
+import { ArrowLeft, History, Sparkles } from "lucide-react";
 
-import { PRIMARY_BUTTON, SECONDARY_BUTTON, formatCount } from "@/components/ui";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON, formatCount, formatIST } from "@/components/ui";
 import { Drawer } from "@/components/console/drawer";
-import { RowMenu } from "@/components/console/rowMenu";
+import { RowMenu, type RowMenuItem } from "@/components/console/rowMenu";
 
-// Soft budget from PROMPT-GUIDE §1 (~2,500 tokens). Characters, because the client has no
-// tokenizer; guidance, not a hard stop.
-const CHAR_BUDGET = 9000;
+import type { SaveState } from "./scriptDraft";
+
+export function saveLine(state: SaveState): string {
+  switch (state.kind) {
+    case "clean":
+      return state.savedAt ? `Draft saved ${formatIST(state.savedAt)}` : "No changes";
+    case "waiting":
+    case "saving":
+      return "Saving…";
+    case "held":
+      return state.reason;
+    case "conflict":
+      return "Changed somewhere else";
+    case "failed":
+      return "Could not save. Check your connection.";
+    case "read-only":
+      return "View only";
+  }
+}
 
 export function ScriptToolbar({
   backHref,
   agentName,
-  version,
-  hasPending,
-  unsaved,
+  save,
+  room,
+  unpublished,
   canWrite,
   writeReason,
-  saving,
-  applying,
-  onSave,
-  onApply,
-  onUndo,
-  onPreview,
-  onAssist,
+  publishing,
+  helperOpen,
+  menu,
+  onPublish,
+  onHistory,
+  onHelper,
 }: {
   backHref: string;
   agentName: string;
-  version: number | null;
-  hasPending: boolean;
-  unsaved: boolean;
+  save: SaveState;
+  room: { used: number; limit: number } | null;
+  unpublished: boolean;
   canWrite: boolean;
   writeReason: string | null;
-  saving: boolean;
-  applying: boolean;
-  onSave: () => void;
-  onApply: () => void;
-  onUndo: () => void;
-  onPreview: () => void;
-  onAssist: () => void;
+  publishing: boolean;
+  helperOpen: boolean;
+  menu: RowMenuItem[];
+  onPublish: () => void;
+  onHistory: () => void;
+  onHelper: () => void;
 }) {
-  const state = unsaved
-    ? { label: "Unsaved changes", tone: "border-warn-line bg-warn-soft text-ink" }
-    : hasPending
-      ? { label: `v${version ?? "?"} waiting to apply`, tone: "border-warn-line bg-warn-soft text-ink" }
-      : version === null
-        ? { label: "No script yet", tone: "border-line bg-surface-muted text-ink-muted" }
-        : { label: `v${version} saved`, tone: "border-line bg-surface-muted text-ink-muted" };
-
-  const applyFirst = hasPending && !unsaved;
-
+  const warn = save.kind === "held" || save.kind === "conflict" || save.kind === "failed";
   return (
     <div className="sticky -top-4 z-20 -mx-4 -mt-4 border-b border-line bg-surface/95 px-4 py-3 backdrop-blur-sm lg:-top-6 lg:-mx-8 lg:-mt-6 lg:px-8">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex min-w-0 flex-1 basis-56 items-center gap-3">
+        <div className="flex min-w-0 flex-1 basis-60 items-center gap-3">
           <Link
             href={backHref}
             aria-label={`Back to ${agentName}`}
@@ -77,133 +82,95 @@ export function ScriptToolbar({
           </Link>
           <div className="min-w-0">
             <h2 className="truncate text-heading text-ink">Script</h2>
-            <p className="truncate text-xs text-ink-muted">{agentName}</p>
+            <p role="status" className={`truncate text-meta ${warn ? "text-warn" : "text-ink-muted"}`}>
+              {agentName} · {saveLine(save)}
+            </p>
           </div>
-          <span
-            role="status"
-            className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-medium ${state.tone}`}
-          >
-            {state.label}
-          </span>
         </div>
+        {room && <RoomLeft used={room.used} limit={room.limit} />}
         <div className="flex w-full items-center gap-2 sm:w-auto">
-          <button type="button" onClick={onAssist} className={`${SECONDARY_BUTTON} max-sm:flex-1`}>
+          <button
+            type="button"
+            onClick={onHelper}
+            aria-pressed={helperOpen}
+            className={`${SECONDARY_BUTTON} max-sm:flex-1`}
+          >
             <Sparkles aria-hidden className="h-4 w-4" />
-            Draft with AI
+            AI helper
           </button>
-          {applyFirst ? (
+          <button type="button" onClick={onHistory} className={`${SECONDARY_BUTTON} max-sm:flex-1`}>
+            <History aria-hidden className="h-4 w-4" />
+            History
+          </button>
+          {unpublished && (
             <button
               type="button"
               className={`${PRIMARY_BUTTON} max-sm:flex-1`}
-              disabled={!canWrite || applying}
-              title={writeReason ?? undefined}
-              onClick={onApply}
+              disabled={!canWrite || publishing || save.kind === "held" || save.kind === "conflict"}
+              title={
+                writeReason ??
+                (save.kind === "held" ? "Finish the marked parts first." : undefined)
+              }
+              onClick={onPublish}
             >
-              {applying ? "Applying…" : "Apply to live calls"}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className={`${PRIMARY_BUTTON} max-sm:flex-1`}
-              disabled={!canWrite || saving}
-              title={writeReason ?? undefined}
-              onClick={onSave}
-            >
-              {saving ? "Saving…" : "Save script"}
+              {publishing ? "Putting it live…" : "Put it live"}
             </button>
           )}
-          <RowMenu
-            label="this script"
-            items={[
-              { id: "preview", label: "View compiled prompt", onSelect: onPreview },
-              ...(hasPending
-                ? [
-                    {
-                      id: "undo",
-                      label: "Undo changes",
-                      onSelect: onUndo,
-                      disabled: !canWrite,
-                      hint: writeReason ?? undefined,
-                    },
-                  ]
-                : []),
-            ]}
-          />
+          {menu.length > 0 && <RowMenu label="this script" items={menu} />}
         </div>
       </div>
     </div>
   );
 }
 
-export function ModeToggle({
-  raw,
-  onStructured,
-  onRaw,
-}: {
-  raw: boolean;
-  onStructured: () => void;
-  onRaw: () => void;
-}) {
+/**
+ * How much of the calling system's instructions box the script leaves free. The number is
+ * the server's (`POST .../script/preview`), which counts the platform's own rules too.
+ */
+export function RoomLeft({ used, limit }: { used: number; limit: number }) {
+  const left = limit - used;
+  const share = Math.min(1, Math.max(0, used / limit));
+  const tone = left < 0 ? "bg-danger" : left < limit * 0.1 ? "bg-warn" : "bg-brand";
   return (
-    <div className="inline-flex rounded-md border border-line text-xs" role="group" aria-label="Editing mode">
-      <button
-        type="button"
-        aria-pressed={!raw}
-        onClick={onStructured}
-        className={`rounded-l-md px-3 py-1.5 font-medium transition-colors duration-(--duration-fast) ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset touch:min-h-11 ${!raw ? "bg-brand-strong text-white focus-visible:ring-white" : "text-ink-muted hover:bg-black/5 focus-visible:ring-brand"}`}
+    <div className="flex min-w-0 items-center gap-2 max-sm:w-full">
+      <div
+        role="meter"
+        aria-label="Room left in the instructions"
+        aria-valuemin={0}
+        aria-valuemax={limit}
+        aria-valuenow={Math.min(used, limit)}
+        aria-valuetext={left < 0 ? `${formatCount(-left)} letters over` : `${formatCount(left)} letters left`}
+        className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-ink/[0.08]"
       >
-        Structured
-      </button>
-      <button
-        type="button"
-        aria-pressed={raw}
-        onClick={onRaw}
-        className={`rounded-r-md px-3 py-1.5 font-medium transition-colors duration-(--duration-fast) ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset touch:min-h-11 ${raw ? "bg-brand-strong text-white focus-visible:ring-white" : "text-ink-muted hover:bg-black/5 focus-visible:ring-brand"}`}
-      >
-        Raw text
-      </button>
+        <div className={`h-full ${tone}`} style={{ width: `${share * 100}%` }} />
+      </div>
+      <span className={`text-meta tabular-nums ${left < 0 ? "text-danger" : "text-ink-muted"}`}>
+        {left < 0 ? `Cut ${formatCount(-left)} letters` : `${formatCount(left)} letters left`}
+      </span>
     </div>
   );
 }
 
-export function CompiledPrompt({
-  text,
-  chars,
-  onClose,
-}: {
-  text: string;
-  chars: number | null;
-  onClose: () => void;
-}) {
+export function CompiledPrompt({ text, onClose }: { text: string; onClose: () => void }) {
   return (
     <Drawer
       open
       onClose={onClose}
-      title="Compiled prompt"
-      description="Exactly what the calling system runs."
+      title="What the agent reads"
+      description="Your script with the rules every agent follows, exactly as sent."
       width="lg"
       initialFocus="container"
     >
-      <p className="mb-3 text-sm text-ink-muted">
-        This is exactly what the calling system runs — your opening, your script, and the
-        platform rules the agent must always follow, which you cannot remove.
-      </p>
       {/* Focusable because it scrolls vertically and no key scrolls a non-focusable element. */}
       <pre
         role="region"
-        aria-label="Compiled prompt"
+        aria-label="The full instructions"
         // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a region that scrolls must take focus, or no key can scroll it
         tabIndex={0}
         className="max-h-[60dvh] overflow-auto whitespace-pre-wrap rounded-md border border-line bg-ink/[0.03] p-3 text-xs text-ink"
       >
         {text}
       </pre>
-      {chars !== null && (
-        <p className={`mt-2 text-xs ${chars > CHAR_BUDGET ? "text-danger" : "text-ink-faint"}`}>
-          Compiled length {formatCount(chars)} characters
-          {chars > CHAR_BUDGET ? " — over the recommended budget" : ""}
-        </p>
-      )}
     </Drawer>
   );
 }

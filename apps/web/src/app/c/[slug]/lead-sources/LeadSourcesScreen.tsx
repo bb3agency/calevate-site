@@ -18,10 +18,19 @@ import {
   type LeadSource,
   type LeadSourceDryRun,
 } from "@/lib/api/leadSources";
+import {
+  useDropHeldLead,
+  useHeldLeads,
+  useLeadCalling,
+  useReleaseHeldLead,
+  useSaveLeadCalling,
+} from "@/lib/api/leadCalling";
 import { useClientSession } from "@/lib/api/session";
 
 import { AddSourceDrawer } from "./AddSourceDrawer";
+import { CallingPlan } from "./CallingPlan";
 import { DeliveryLog } from "./DeliveryLog";
+import { HeldLeads } from "./HeldLeads";
 import { MetaDrawer } from "./MetaDrawer";
 import { RotateDrawer } from "./RotateDrawer";
 import { SourcesList } from "./SourcesList";
@@ -30,14 +39,15 @@ import { useLeadSourcesCopilot } from "./copilot";
 import { sampleText } from "./testSample";
 
 /**
- * Lead sources: where incoming leads come from, and proof that they are arriving.
+ * Leads & hours: how new leads are called (one plan for the business, D-716), the leads held
+ * for release, where leads come from, and proof that they are arriving.
  *
  * PRIMARY JOB: connect a website form or Meta ads, and see that leads land. The sources
  * are rows; adding one, testing one and Meta's setup each open a drawer over the list, so
  * the list stays the screen. Every test, setup and provisioning route is `org:manage`, and
  * the screen says so once at the top rather than on each control.
  *
- * No `<h1>`: the shell prints "Lead sources".
+ * No `<h1>`: the shell prints "Leads & hours".
  */
 export function LeadSourcesScreen() {
   const session = useClientSession();
@@ -50,7 +60,16 @@ export function LeadSourcesScreen() {
   const test = useTestWebhook(session);
   const metaSetup = useMetaSetup(session);
   const redrive = useMetaRedrive(session);
-  const write = useWriteAccess(session, "org:manage", "test or set up a lead source");
+  const write = useWriteAccess(
+    session,
+    "org:manage",
+    "change how leads are called or set up a lead source",
+  );
+  const plan = useLeadCalling(session);
+  const savePlan = useSaveLeadCalling(session);
+  const held = useHeldLeads(session);
+  const release = useReleaseHeldLead(session);
+  const drop = useDropHeldLead(session);
 
   const [adding, setAdding] = useState(false);
   const [rotating, setRotating] = useState<LeadSource | null>(null);
@@ -125,7 +144,7 @@ export function LeadSourcesScreen() {
   return (
     <div className="space-y-5 pb-12">
       <PageHeader
-        description="Leads from your website forms and ads, with every delivery accounted for."
+        description="How new leads from your forms and ads are called, and every delivery accounted for."
         actions={
           <button
             type="button"
@@ -141,6 +160,30 @@ export function LeadSourcesScreen() {
       <RestrictionNote reason={write.reason} />
       {setActive.error != null && <ProblemNotice error={setActive.error} />}
 
+      <CallingPlan
+        plan={plan}
+        agents={agents.data}
+        canWrite={write.allowed}
+        refusal={write.reason}
+        saving={savePlan.isPending}
+        saveError={savePlan.error}
+        savedAgents={savePlan.data?.agents_updated ?? null}
+        onSave={(next) => savePlan.mutate(next)}
+      />
+
+      <HeldLeads
+        held={held}
+        holding={plan.data?.after_hours === "hold"}
+        canWrite={write.allowed}
+        busyId={
+          release.isPending ? (release.variables ?? null) : drop.isPending ? (drop.variables ?? null) : null
+        }
+        actionError={release.error ?? drop.error}
+        onRelease={(id) => release.mutate(id)}
+        onDrop={(id) => drop.mutate(id)}
+      />
+
+      <h2 className="pt-2 text-base font-semibold text-ink">Where leads come from</h2>
       <SourcesList
         sources={sources}
         agents={agents.data}

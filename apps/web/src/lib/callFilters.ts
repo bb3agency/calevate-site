@@ -8,11 +8,14 @@
  * React-free, so the arithmetic is tested without a render.
  */
 
+/** In the order an owner works them, what needs a person first (`lib/callReview`). */
 export const OUTCOMES = [
-  { value: "resolved", label: "Resolved" },
-  { value: "needs_follow_up", label: "Needs follow-up" },
+  { value: "needs_you", label: "Needs you" },
+  { value: "call_back_booked", label: "Call back booked" },
+  { value: "answered", label: "Answered" },
   { value: "transferred", label: "Transferred" },
-  { value: "dropped", label: "Dropped" },
+  { value: "hung_up_early", label: "Hung up early" },
+  { value: "missed", label: "Missed" },
 ] as const;
 export type CallOutcome = (typeof OUTCOMES)[number]["value"];
 
@@ -23,7 +26,7 @@ export const DIRECTIONS = [
 export type CallDirection = (typeof DIRECTIONS)[number]["value"];
 
 export const RANGES = [
-  { value: "all", label: "All time" },
+  { value: "all", label: "Any time" },
   { value: "today", label: "Today" },
   { value: "7d", label: "7 days" },
   { value: "30d", label: "30 days" },

@@ -1,8 +1,8 @@
 """Per-agent in-call actions: registered at publish, kept in shape, removed at unpublish.
 
-On `ENGINE=thinnest` the four in-call tools the Pipecat worker reaches over `/v1/worker/
-calls/{ref}/tools/*` (opt-out, call-back, call-back cancel, handoff) are ThinnestAI custom
-actions instead: HTTPS calls from their platform to `worker/engine_actions.py`, carrying a
+On `ENGINE=thinnest` three of the in-call tools the Pipecat worker reaches over `/v1/worker/
+calls/{ref}/tools/*` (opt-out, call-back, call-back cancel) are ThinnestAI custom actions
+instead: HTTPS calls from their platform to `worker/engine_actions.py`, carrying a
 header whose value is ours (`engine/thinnest_actions.py` cites the vendor shapes). One
 function answers "make this agent's actions exist, be ours and be switched on", and the
 publish path and the drift sweep both use it, as `engine_webhooks.ensure_agent_webhook`
@@ -21,7 +21,16 @@ the header against the secret this publish has not committed yet: on a first pub
 test would fail. The drift sweep, which runs on committed state, makes that probe instead
 (`check_agent_actions`).
 
-DESCRIPTIONS. Our four actions carry platform text only (hard rule 5, D-674): an action
+NO HAND-OVER ACTION OF OURS (founder decision 9, 10 Oct 2026). With a destination on duty the
+agent hands over through the vendor's built-in `escalate_to_human` (D-690). With nobody on
+duty it used to hold `connect_to_staff_member`, which could only answer "nobody can be put
+through, offer a call back": the model fired it for questions it could not answer, ahead of
+searching its knowledge (first live call, `docs/evidence/first-call-review-2026-10-10.md`
+F-2). So it is never registered, and one held from before is removed at the next publish or
+drift sweep. What the agent says when nobody is on duty is in its prompt
+(`calevate_shared.engine.compose_engine_prompt`).
+
+DESCRIPTIONS. Our actions carry platform text only (hard rule 5, D-674): an action
 description is a prompt the model obeys. A CLIENT's action (D-700, `client_definitions`)
 carries the description the client wrote for it — saying when to use their own system is
 the point of the feature — and every one ends with platform text that binds the model to
@@ -89,6 +98,9 @@ ACTION_NAMES: Final[dict[str, str]] = {
 LEGACY_ACTION_NAMES: Final = frozenset(
     {"record_do_not_call", "schedule_call_back", "cancel_call_back", "request_human_handoff"}
 )
+#: Names of ours an agent may still hold and must not: the pre-10 Oct set and the hand-over
+#: action no agent is given any more (module docstring).
+RETIRED_ACTION_NAMES: Final = LEGACY_ACTION_NAMES | {ACTION_NAMES[HANDOFF]}
 
 _OPT_OUT_DESCRIPTION = (
     "Call this the moment the caller asks not to be contacted again: 'stop calling me', "
@@ -112,17 +124,10 @@ _CALLBACK_CANCEL_DESCRIPTION = (
     "NOT stop other calls: if they asked never to be called again, use add_number_to_do_not_call "
     "instead. Do what the answer's 'say' tells you."
 )
-_HANDOFF_DESCRIPTION = (
-    "Call this when the caller needs a person, because they asked for one or your "
-    "instructions say to hand the call over. Call it BEFORE you say anything about "
-    "connecting, transferring or holding: whether anybody can be reached is not something "
-    "you can know. Never tell the caller they are being connected unless the answer says "
-    "so. Do what the answer's 'say' tells you."
-)
 
 
 def definitions(engine: str, engine_agent_ref: str) -> tuple[ActionDefinition, ...]:
-    """The four actions this vendor agent should hold, in a fixed order."""
+    """The actions this vendor agent should hold, in a fixed order."""
     base = (get_settings().engine_actions_base_url or "").strip().rstrip("/")
     query = urlencode({AGENT_QUERY_PARAM: engine_agent_ref})
 
@@ -182,20 +187,6 @@ def definitions(engine: str, engine_agent_ref: str) -> tuple[ActionDefinition, .
             url=url(CALLBACK_CANCEL),
             parameters=(),
         ),
-        ActionDefinition(
-            name=ACTION_NAMES[HANDOFF],
-            description=_HANDOFF_DESCRIPTION,
-            url=url(HANDOFF),
-            parameters=(
-                ActionParam("reason", "One short line on why a person is needed.", False),
-                ActionParam(
-                    "summary",
-                    "One or two lines on what the caller wants and what you have already "
-                    "told them.",
-                    False,
-                ),
-            ),
-        ),
     )
 
 
@@ -209,8 +200,8 @@ CLIENT_LEAF: Final = "client"
 #: How many of a client's during-call actions one agent may carry on ThinnestAI. The vendor
 #: says "Eight tools per agent" and that its calendar and spreadsheet switches "share one
 #: budget: eight on at once" (snapshots/2026-10-08/pages/agent/actions.md:55-57, :213); the
-#: pages do not say whether custom actions count toward it. Our four platform actions plus
-#: four of the client's is eight — UNKNOWN whether the built-in tools also count (OPERATIONS
+#: pages do not say whether custom actions count toward it. Our three platform actions plus
+#: four of the client's is seven — UNKNOWN whether the built-in tools also count (OPERATIONS
 #: gate A-6). Refused here by name rather than discovered as a vendor 400 at publish.
 THINNEST_CLIENT_ACTIONS_MAX: Final = 4
 
@@ -329,9 +320,7 @@ async def sync_client_actions_now(session: AsyncSession, *, agent_id: UUID) -> s
     if row is None or str(row[0]) not in ACTION_ENGINES:
         return "not_applicable"
     try:
-        await ensure_agent_actions(
-            session, engine=str(row[0]), engine_agent_ref=str(row[1]), live_handover=None
-        )
+        await ensure_agent_actions(session, engine=str(row[0]), engine_agent_ref=str(row[1]))
     except ProblemError as exc:
         if exc.code == "client_actions_over_limit":
             raise
@@ -481,6 +470,18 @@ class ActionsReconciliation:
         return bool(self.repaired or self.reenabled or self.removed)
 
 
+async def _call_backs_allowed(session: AsyncSession, agent_id: UUID | None) -> bool:
+    """Can this agent's account keep a call back? Not while it is a restricted trial."""
+    if agent_id is None:
+        return True
+    from apps.api.compliance.trial_access import restricting_trial
+
+    tenant_id = (
+        await session.execute(text("SELECT tenant_id FROM agents WHERE id = :a"), {"a": agent_id})
+    ).scalar()
+    return tenant_id is None or await restricting_trial(session, tenant_id=tenant_id) is None
+
+
 def _refuse_private_base() -> None:
     if not is_public_callback_base(get_settings().engine_actions_base_url):
         raise ProblemError(
@@ -504,7 +505,6 @@ async def ensure_agent_actions(
     engine: str,
     engine_agent_ref: str,
     client: ThinnestActions | None = None,
-    live_handover: bool | None = False,
 ) -> ActionsReconciliation:
     """Make this vendor agent's actions exist, carry our header, and be switched on.
 
@@ -513,12 +513,7 @@ async def ensure_agent_actions(
     publish path may call it for every engine. Converges by NAME, which the vendor keeps
     unique per agent (create-action.md:162-164), so a republish never makes a second one.
 
-    `live_handover` says whether the agent hands callers to a person itself (the vendor's
-    built-in `escalate_to_human`, D-690). Then our hand-over action is REMOVED: it can only
-    record a request and say nobody can be put through, and an agent holding both would be
-    told two contradicting things about the same caller. False keeps it (no destination is
-    on duty, so recording the request is all there is); None, the drift sweep's reading,
-    keeps whatever the last publish chose and repairs it if it is held.
+    A hand-over action of ours still held from before founder decision 9 is removed.
     """
     if engine not in ACTION_ENGINES:
         return ActionsReconciliation(outcome="not_applicable")
@@ -547,25 +542,28 @@ async def ensure_agent_actions(
     )
     held = {action.name: action for action in await actions.list_actions(engine_agent_ref)}
     created = repaired = reenabled = removed = 0
-    handoff_name = ACTION_NAMES[HANDOFF]
-    wanted_names = {d.name for d in clients} | set(ACTION_NAMES.values())
+    # A restricted free trial cannot place a call back (D-697), so its agents are not given
+    # the booking action at all (founder decision 1); the prompt says the same, and the tool
+    # refuses on a trial either way. Read here, so the drift sweep follows a first payment.
+    ours = [
+        d
+        for d in definitions(engine, engine_agent_ref)
+        if d.name != ACTION_NAMES[CALLBACK] or await _call_backs_allowed(session, agent_id)
+    ]
+    wanted_names = {d.name for d in (*ours, *clients)}
     for stale in held.values():
         # A client action we registered that is no longer live on the agent: switched
         # off, deleted, its connection removed, or the master switch turned off. Or one of
-        # ours under a name this module no longer uses.
-        if stale.name in LEGACY_ACTION_NAMES or (
-            is_client_action(engine, stale.url) and stale.name not in wanted_names
+        # ours under a name this module no longer uses, or one this account may not hold.
+        if (
+            stale.name in RETIRED_ACTION_NAMES
+            or (stale.name in ACTION_NAMES.values() and stale.name not in wanted_names)
+            or (is_client_action(engine, stale.url) and stale.name not in wanted_names)
         ):
             await actions.delete(engine_agent_ref, stale.action_id)
             removed += 1
-    for wanted in (*definitions(engine, engine_agent_ref), *clients):
+    for wanted in (*ours, *clients):
         current = held.get(wanted.name)
-        if wanted.name == handoff_name and (
-            live_handover or (live_handover is None and current is None)
-        ):
-            if live_handover and current is not None:
-                await actions.delete(engine_agent_ref, current.action_id)
-            continue
         if current is None:
             made = await actions.create(engine_agent_ref, wanted, secret=secret)
             await actions.update(engine_agent_ref, made.action_id, enabled=True)
@@ -612,7 +610,7 @@ async def retire_agent_actions(
     if engine not in ACTION_ENGINES or not engine_agent_ref:
         return 0
     actions = client or thinnest_actions()
-    ours = set(ACTION_NAMES.values()) | LEGACY_ACTION_NAMES
+    ours = set(ACTION_NAMES.values()) | RETIRED_ACTION_NAMES
     removed = 0
     for action in await actions.list_actions(engine_agent_ref):
         if action.name in ours or is_client_action(engine, action.url):
@@ -668,7 +666,6 @@ async def check_agent_actions(
                 engine=engine,
                 engine_agent_ref=engine_agent_ref,
                 client=client,
-                live_handover=None,
             )
         reachable = await probe_agent_actions(
             engine=engine, engine_agent_ref=engine_agent_ref, client=client
@@ -694,6 +691,7 @@ __all__ = [
     "CLIENT_LEAF",
     "HANDOFF",
     "OPT_OUT",
+    "RETIRED_ACTION_NAMES",
     "THINNEST_CLIENT_ACTIONS_MAX",
     "ActionsDrift",
     "ActionsReconciliation",

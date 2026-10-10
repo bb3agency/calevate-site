@@ -120,7 +120,7 @@ def test_an_agent_with_extras_is_told_which_languages_it_may_answer_in() -> None
     assert "in any language" in prompt
     assert "apply in every one of these languages" in prompt
     # The spoken-output rules are unchanged.
-    assert "Never use markdown, bullet points" in prompt
+    assert "No markdown, lists, asterisks or emoji" in prompt
 
 
 def test_one_extra_language_reads_as_one_name() -> None:

@@ -36,6 +36,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
+from apps.api.db.migration_offline import probe_skipped_offline
+
 revision: str = "c2b7e5a94d18"
 down_revision: str | None = "a6d2f9c41e85"
 branch_labels: str | Sequence[str] | None = None
@@ -94,15 +96,22 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '3s'")
-    tombstones = op.get_bind().execute(
-        sa.text("SELECT count(*) FROM platform_secrets WHERE removed")
-    ).scalar_one()
-    if tombstones:
-        raise RuntimeError(
-            f"platform_secrets holds {tombstones} removal version(s). Without the `removed` "
-            "column each would read as an installed empty credential. Install a real value "
-            "for those keys (or leave this revision in place) before downgrading."
-        )
+    if not probe_skipped_offline(
+        "offline `--sql`: the pre-flight that refuses to drop platform_secrets.removed while\n"
+        "a removal version is recorded was NOT run, and nothing in this script re-checks it:\n"
+        "each such row would read as an installed empty credential. Check first with:\n"
+        "SELECT count(*) FROM platform_secrets WHERE removed;"
+    ):
+        tombstones = op.get_bind().execute(
+            sa.text("SELECT count(*) FROM platform_secrets WHERE removed")
+        ).scalar_one()
+        if tombstones:
+            raise RuntimeError(
+                f"platform_secrets holds {tombstones} removal version(s). Without the "
+                "`removed` column each would read as an installed empty credential. Install a "
+                "real value for those keys (or leave this revision in place) before "
+                "downgrading."
+            )
     op.execute(_forbid_mutation(_IMMUTABLE_BEFORE))
     op.drop_constraint("removed_has_no_fragment", "platform_secrets", type_="check")
     op.drop_column("platform_secrets", "removed")

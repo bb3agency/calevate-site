@@ -7,7 +7,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 
-import { NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
+import { NoticeBox, ProblemNotice } from "@/components/ui";
 import { LiveCallPanel } from "@/components/console/liveCallPanel";
 import { LIVE_STATUS } from "@/components/console/liveCalls";
 import { useCallSpeaking } from "@/lib/api/callSpeaking";
@@ -19,16 +19,20 @@ import {
   useCallbackEligibility,
   useWriteAccess,
 } from "@/lib/api/hooks";
+import { MakeCallTest } from "@/components/improvement/MakeCallTest";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
 import { isLive } from "../callColumns";
 
 import { AssistCard } from "./AssistCard";
+import { CallDetailSkeleton } from "./CallDetailSkeleton";
 import { CallHeader } from "./CallHeader";
+import { CallVerdict } from "./CallVerdict";
+import { CapturedDetails } from "./CapturedDetails";
 import { DisclosureNotice } from "./DisclosureNotice";
+import { FollowUpAction } from "./FollowUpAction";
 import { KeyMomentsCard } from "./KeyMomentsCard";
-import { FollowUpCard } from "./FollowUpCard";
 import { RecordingCard } from "./RecordingCard";
 import { TranscriptCard } from "./TranscriptCard";
 import {
@@ -40,6 +44,11 @@ import {
 /**
  * One call, end to end — and the single most sensitive screen in the product, because
  * it is the only one that renders a TRANSCRIPT.
+ *
+ * PRIMARY JOB: know how the call ended and act on it. So the verdict (outcome, reason,
+ * summary, next step, the booked call back and the one action) is first; the recording
+ * sits directly above the transcript it plays; captured details, key moments and the
+ * assistant's second reading sit beside them on a wide screen and after them on a phone.
  *
  * What this screen must never do, in the order the damage runs:
  *
@@ -81,6 +90,7 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
    * session, so an operator now gets a working button and an audit row naming them.
    */
   const write = useWriteAccess(session, "leads:dispatch", "place a follow-up call");
+  const testWrite = useWriteAccess(session, "org:manage", "save a call as a test");
 
   const rawAccess = useRawTranscriptAccess(session);
   const [showRaw, setShowRaw] = useState(false);
@@ -209,7 +219,7 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
     apply: noFill,
   });
 
-  if (call.isLoading) return <Skeleton rows={8} />;
+  if (call.isLoading) return <CallDetailSkeleton />;
   if (call.error) return <ProblemNotice error={call.error} onRetry={() => void call.refetch()} />;
   if (!call.data) {
     // Not an empty state dressed as data: react-query only lands here when the query
@@ -231,21 +241,21 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
   const turns = rawTurns ?? detail.transcript ?? [];
   const showingRaw = rawTurns !== undefined;
 
+  const leadHref = detail.lead_id ? href(`/c/${slug}/leads/${detail.lead_id}`) : null;
+  const leadName = detail.lead_name?.trim();
+
   return (
-    <div className="space-y-8 pb-12">
+    <div className="max-w-5xl space-y-8 pb-12">
       {/* No <h1>: the app shell renders the page title from the nav list. */}
       <Link
         href={href(`/c/${slug}/calls`)}
         className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
       >
-        <ArrowLeft className="h-4 w-4" />
+        <ArrowLeft aria-hidden className="h-4 w-4" />
         Call logs
       </Link>
 
-      <CallHeader
-        detail={detail}
-        leadHref={detail.lead_id ? href(`/c/${slug}/leads/${detail.lead_id}`) : null}
-      />
+      <CallHeader detail={detail} />
 
       {isLive(detail) && (
         <LiveCallPanel
@@ -255,39 +265,33 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
         />
       )}
 
+      <CallVerdict
+        detail={detail}
+        action={
+          <FollowUpAction
+            eligibility={eligibility}
+            callback={callback}
+            write={write}
+            leadHref={leadHref}
+            leadLabel={leadName ? `Open ${leadName}'s lead` : "Open the lead"}
+          />
+        }
+      />
+
       <DisclosureNotice played={detail.disclosure_played} />
 
-      {callback.error && <ProblemNotice error={callback.error} />}
-
-      {/* Two columns from `lg`: the transcript is long-form reading and takes the width;
-          the short, actionable panels sit beside it. In the DOM the actions come first,
-          so on a phone they are above the transcript rather than after it. */}
-      <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-12">
-        <aside aria-label="Act on this call" className="space-y-8 lg:col-start-2 lg:row-start-1">
-          <FollowUpCard eligibility={eligibility} callback={callback} write={write} />
-          {detail.has_recording && (
-            <RecordingCard
-              recording={recording}
-              playerRef={playerRef}
-              onTimeUpdate={setPlayhead}
-              durationS={detail.duration_s ?? null}
-            />
-          )}
-          {detail.moments.length > 0 && (
-            <KeyMomentsCard
-              moments={detail.moments}
-              audioLoaded={audioLoaded}
-              playhead={playhead}
-              onSeek={seekToMs}
-            />
-          )}
-          {/* D-127: always offered, whatever the stored summary looks like; it carries
-              its own refusals and changes nothing already saved. */}
-          <AssistCard session={session} callId={callId} />
-        </aside>
+      {/* Two columns from `lg`: the conversation is long-form reading and takes the
+          width; captured details, key moments and the second reading sit beside it. In
+          the DOM the captured details come first, so a phone reads them before the
+          transcript, and the rest after it. */}
+      <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-12">
+        <div className="lg:col-start-2 lg:row-start-1">
+          <CapturedDetails detail={detail} />
+        </div>
 
         <TranscriptCard
-          className="lg:col-start-1 lg:row-start-1"
+          className="lg:col-start-1 lg:row-span-2 lg:row-start-1"
+          detail={detail}
           turns={turns}
           showingRaw={showingRaw}
           showRaw={showRaw}
@@ -296,10 +300,39 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
           onRetryRaw={() => raw.mutate()}
           rawAccess={rawAccess}
           onToggleRaw={toggleRaw}
+          player={
+            detail.has_recording ? (
+              <RecordingCard
+                recording={recording}
+                playerRef={playerRef}
+                onTimeUpdate={setPlayhead}
+                durationS={detail.duration_s ?? null}
+                moments={detail.moments}
+              />
+            ) : null
+          }
+          noRecording={!detail.has_recording && detail.status === "completed"}
           audioLoaded={audioLoaded}
           playhead={playhead}
           onSeek={seekToMs}
         />
+
+        <aside aria-label="More about this call" className="space-y-8 lg:col-start-2 lg:row-start-2">
+          {detail.moments.length > 0 && (
+            <KeyMomentsCard
+              moments={detail.moments}
+              audioLoaded={audioLoaded}
+              playhead={playhead}
+              onSeek={seekToMs}
+            />
+          )}
+          {detail.status === "completed" && turns.length > 0 && (
+            <MakeCallTest callId={callId} canWrite={testWrite.allowed} />
+          )}
+          {/* D-127: always offered, whatever the stored summary looks like; it carries
+              its own refusals and changes nothing already saved. */}
+          <AssistCard session={session} callId={callId} />
+        </aside>
       </div>
     </div>
   );

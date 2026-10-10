@@ -366,6 +366,10 @@ describe("every scroll container can be reached from a keyboard", () => {
       "does not model — it hardcodes `overflow-x-auto`. It carries the same `role=region` " +
       "+ `aria-label` + `tabIndex={0}` inline, and the assertion checks that rather than " +
       "waiving it. (The screen's delivery-log table IS a `ScrollRegion`.)",
+    "app/c/[slug]/agents/[agentId]/script/FlowCanvas.tsx":
+      "The flow canvas scrolls in BOTH directions (a plane of positioned sections), which " +
+      "`ScrollRegion` does not model — it hardcodes `overflow-x-auto`. It carries " +
+      "`role=region` + `aria-label` + `tabIndex={0}` inline, and the assertion checks that.",
     "app/c/[slug]/agents/[agentId]/script/ScriptToolbar.tsx":
       "The compiled-prompt `<pre>` (moved here from ScriptBuilder.tsx with the drawer that " +
       "holds it, D-657) scrolls VERTICALLY (`max-h-[60dvh]` + `whitespace-pre-" +
@@ -560,5 +564,34 @@ describe("the second mobile pass", () => {
       .map((file) => rel(file).replace(/^src\//, ""))
       .filter((key) => !Object.hasOwn(FILE_INPUT_OUTSIDE_KIT, key));
     expect(raw, "use <FileDrop> from components/fileDrop.tsx").toEqual([]);
+  });
+});
+
+/**
+ * THE LEADS TABLE ON A PHONE (founder, 10 Oct 2026): it stays a TABLE that scrolls sideways
+ * inside its own region, with the Name column pinned, and the page never scrolls. A
+ * phone-only list of rows was tried and withdrawn; this keeps it from coming back by a
+ * width switch, and keeps the pin on the column that says who the row is.
+ */
+describe("the leads table on a phone", () => {
+  const leads = join(SRC, "app", "c", "[slug]", "leads");
+  const source = (file: string) => blankComments(readFileSync(file, "utf8").split("\n")).join("\n");
+  const screenSource = source(join(leads, "LeadsScreen.tsx"));
+  const tableSource = source(join(leads, "LeadTable.tsx"));
+  const dataTable = source(join(SRC, "components", "console", "dataTable.tsx"));
+
+  it("renders the one table at every width, with no width switch to a list", () => {
+    expect(screenSource).toMatch(/<LeadTable\b/);
+    expect(screenSource).not.toMatch(/useMediaQuery|matchMedia|LeadList/);
+  });
+
+  it("scrolls inside its own named region, never the page", () => {
+    expect(dataTable).toMatch(/<ScrollRegion label=\{label\}/);
+  });
+
+  it("pins the Name column, beside a fixed-width select column when there is one", () => {
+    expect(tableSource).toMatch(/pin: column\.key === "name" \? \(maySelect \? "left-12" : "left-0"\)/);
+    expect(tableSource).toMatch(/className: "w-12 min-w-12 max-w-12"/);
+    expect(dataTable).toMatch(/"left-12": "sticky left-12 z-\[1\] bg-surface"/);
   });
 });

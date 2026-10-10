@@ -546,6 +546,14 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "an agent already published keeps billing at the band it was published on until it "
         "is re-published on a voice of the new band",
     ),
+    # The in-call model a Clear agent with no model of its own is sent at publish. The
+    # settings sweep (`agents/engine_settings.py`) also puts a live agent onto it, reporting
+    # each agent it moves, so no agent stays on the old model for long either way.
+    "thinnest_in_call_default_model": AppliesRule(
+        NEEDS_REPUBLISH,
+        "each agent is sent the model at its next publish; the half-hourly settings check "
+        "also moves live agents onto it and reports each one it moved",
+    ),
     # Read inside every ThinnestAI dial's intent transaction (`agents/service.dispatch_call`)
     # and once per dispatch tick for the outbound pool, like `carrier_concurrency`.
     "thinnest_max_concurrent_calls": AppliesRule(LIVE),

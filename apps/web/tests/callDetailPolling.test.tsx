@@ -16,6 +16,12 @@ import { stubApi, type ApiCall } from "./harness";
  * of its own sweep), and a completed call whose transcript was empty is stored with a
  * NULL summary and `outcome_tag = 'dropped'` — so for the commonest outbound result the
  * page re-read the call every minute for as long as the tab stayed open.
+ *
+ * The redesigned call detail reads the server's own `summary_state` and `translation_state`
+ * instead of inferring from `summary`/`outcome_tag`: it re-reads every 20 s while either is
+ * `pending`, and gives up 30 minutes after the call started. The fixture therefore carries
+ * both states and a call that started two minutes ago, so every "does not poll" case below
+ * is decided by the call's state and not, silently, by its age.
  */
 
 const SESSION: Session = { orgSlug: "acme" };
@@ -31,9 +37,11 @@ function detail(over: Record<string, unknown> = {}) {
     direction: "outbound",
     status: "completed",
     caller_e164: null,
-    started_at: "2026-09-26T04:00:00Z",
+    started_at: new Date(Date.now() - 2 * MINUTE).toISOString(),
     duration_s: 0,
     summary: null,
+    summary_state: "pending",
+    translation_state: "not_needed",
     sentiment: null,
     outcome_tag: null,
     lead_id: null,
@@ -89,17 +97,37 @@ describe("how long a call detail keeps polling", () => {
 
   it("does not poll a completed call the pipeline has already read", async () => {
     // An empty transcript: no summary, but the reading is in.
-    expect(await readsAfterThreeMinutes(detail({ outcome_tag: "dropped" }))).toBe(1);
+    expect(
+      await readsAfterThreeMinutes(detail({ outcome_tag: "dropped", summary_state: "empty" })),
+    ).toBe(1);
   });
 
   it("does not poll a call that has its summary", async () => {
     expect(
-      await readsAfterThreeMinutes(detail({ summary: "Booked a cleaning.", outcome_tag: "resolved" })),
+      await readsAfterThreeMinutes(
+        detail({ summary: "Booked a cleaning.", outcome_tag: "resolved", summary_state: "ready" }),
+      ),
     ).toBe(1);
   });
 
   it("keeps polling a completed call whose extraction has not landed", async () => {
     expect(await readsAfterThreeMinutes(detail())).toBeGreaterThan(1);
+  });
+
+  it("keeps polling a summarised call whose English lines are still being written", async () => {
+    expect(
+      await readsAfterThreeMinutes(
+        detail({ summary: "Booked a cleaning.", summary_state: "ready", translation_state: "pending" }),
+      ),
+    ).toBeGreaterThan(1);
+  });
+
+  it("stops polling a pending call half an hour after it started", async () => {
+    expect(
+      await readsAfterThreeMinutes(
+        detail({ started_at: new Date(Date.now() - 31 * MINUTE).toISOString() }),
+      ),
+    ).toBe(1);
   });
 
   it("keeps polling a call that is still in progress", async () => {

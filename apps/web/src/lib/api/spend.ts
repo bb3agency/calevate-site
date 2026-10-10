@@ -94,8 +94,13 @@ function monthQuery(month?: string): string {
  * `/v1/billing/invoice` apply, and the same one the page checks before rendering so a
  * staff member meets a sentence rather than a red 403 that reads like an outage.
  */
-export function useSpend(session: Session, month?: string): UseQueryResult<Spend> {
+export function useSpend(
+  session: Session,
+  month?: string,
+  options: { enabled?: boolean } = {},
+): UseQueryResult<Spend> {
   return useQuery({
+    enabled: options.enabled ?? true,
     queryKey: ["spend", session.orgSlug, month ?? "current"],
     queryFn: () => apiRequest<Spend>(session, `/v1/billing/spend${monthQuery(month)}`),
   });

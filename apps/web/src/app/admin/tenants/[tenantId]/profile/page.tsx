@@ -22,6 +22,7 @@ import {
   useTenantProfile,
   type EditTenantIn,
 } from "@/lib/api/tenantProfile";
+import { businessTypeLabel } from "@/lib/businessTypes";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
@@ -29,6 +30,7 @@ import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { useAdminAccess } from "@/app/admin/access";
 
 import { BusinessProfileSummary } from "./BusinessProfileSummary";
+import { BusinessTypeMoved } from "./BusinessTypeMoved";
 
 /**
  * Correcting a client's business record — everything about it except the slug (D-546).
@@ -302,7 +304,7 @@ function EditForm({
                 {profile.vertical_template == null && <option value="">Not set</option>}
                 {profile.verticals.map((choice) => (
                   <option key={choice} value={choice}>
-                    {choice.replace(/_/g, " ")}
+                    {businessTypeLabel(choice)}
                   </option>
                 ))}
               </select>
@@ -354,6 +356,12 @@ function EditForm({
               The previous address has been told that this account&apos;s notices now go
               elsewhere, and given a way to object.
             </p>
+          )}
+          {edit.data.changed.includes("vertical_template") && edit.variables?.vertical_template && (
+            <BusinessTypeMoved
+              tenantId={profile.tenant_id}
+              vertical={edit.variables.vertical_template}
+            />
           )}
           {edit.data.pending_notices_retargeted > 0 && (
             /* SAID, NOT SWALLOWED. The worker resolves a notice's recipients when it

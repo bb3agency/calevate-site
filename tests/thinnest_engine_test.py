@@ -150,7 +150,8 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
         "recordCalls": True,
         "maxCallSeconds": 600,
         "detectMachines": False,
-        "summariseCalls": False,
+        "ringSeconds": 30,
+        "summariseCalls": True,
         "pastConversations": "fresh",
     }
     assert body["collectFields"] == [] and body["captureLeads"] is False

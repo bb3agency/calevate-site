@@ -35,6 +35,23 @@ export interface EngineChoiceControl {
   onSave: (patch: EngineChoicePatch) => void;
 }
 
+/** What an operator reads under a model: its price band and reply speed, as the voice
+ * platform's console shows them. Null for a client, whose read carries neither. */
+function modelFacts(entry: {
+  price_band?: "none" | "premium" | null;
+  latency_ms?: number | null;
+}): string | undefined {
+  const facts = [
+    entry.price_band === "premium"
+      ? "Calls bill at the Premium rate"
+      : entry.price_band === "none"
+        ? "No extra per-minute charge"
+        : null,
+    entry.latency_ms ? `Replies in about ${entry.latency_ms} ms` : null,
+  ].filter((fact): fact is string => fact !== null);
+  return facts.length > 0 ? facts.join(" · ") : undefined;
+}
+
 /** The value a radio carries for "the platform's own default". Never a catalogue id: the
  *  server bounds ids to non-whitespace, and this has a space. */
 const DEFAULT = "platform default";
@@ -144,7 +161,9 @@ export function EngineCatalogueList({
               <p className="text-xs text-ink-muted">{rung.blurb}</p>
               {rung.value === "studio" && !data.studio_available ? (
                 <p className="mt-1 text-sm text-ink-muted">
-                  Studio voices are not available on this account yet.
+                  {/* The server's own reason: a trial account, or Studio not ready yet. */}
+                  {data.studio_note ??
+                    "Studio voices are not available on this account yet."}
                 </p>
               ) : voices.length === 0 ? (
                 <p className="mt-1 text-sm text-ink-muted">No {rung.label} voice is offered yet.</p>
@@ -200,7 +219,11 @@ export function EngineCatalogueList({
                 name="engine-model"
                 value={DEFAULT}
                 label="Platform default"
-                detail="The model the platform picks when none is chosen."
+                detail={
+                  data.default_model_label
+                    ? `${data.default_model_label} on Clear voices. Studio voices use the platform's standard model.`
+                    : "The model the platform picks when none is chosen."
+                }
                 checked={selectedModel === DEFAULT}
                 current={savedModel === DEFAULT}
                 disabled={locked}
@@ -218,6 +241,7 @@ export function EngineCatalogueList({
                   name="engine-model"
                   value={choice ? entry.model_id : null}
                   label={entry.label}
+                  detail={modelFacts(entry)}
                   reason={entry.offerable ? clash : entry.reason}
                   checked={selectedModel === entry.model_id}
                   current={savedModel === entry.model_id}

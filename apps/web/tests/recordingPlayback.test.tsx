@@ -72,7 +72,10 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     sentiment: "positive",
     started_at: "2026-08-16T05:30:00Z",
     duration_s: 1200,
-    outcome_tag: "appointment_booked",
+    outcome_tag: "call_back_booked",
+    summary_state: "ready",
+    test_call: false,
+    translation_state: "not_needed",
     summary: "Caller asked for a Tuesday slot.",
     lead_id: "l1",
     extraction: {},
@@ -80,6 +83,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     has_recording: true,
     disclosure_played: true,
     moments: [],
+    captured: [],
     transcript: [
       {
         idx: 0,
@@ -203,7 +207,8 @@ describe("the recording player", () => {
     // 1200 s. `<audio>.duration` is NaN until enough of the file has been fetched, and a
     // scrubber whose maximum arrives a second late is one people click through.
     expect(slider.getAttribute("max")).toBe("1200");
-    expect(screen.getByText("20:00")).toBeTruthy();
+    // On the player itself — the call's header prints the same length.
+    expect(slider.parentElement?.parentElement?.textContent).toContain("20:00");
   });
 
   it("cycles the playback speed rather than hiding it in a context menu", async () => {
@@ -313,7 +318,7 @@ describe("the recording player", () => {
   });
 });
 
-describe("key points in the call", () => {
+describe("key moments in the call", () => {
   const MOMENTS = [
     {
       at_ms: 8_000,
@@ -343,7 +348,7 @@ describe("key points in the call", () => {
       routes(detail({ moments: [] }), { [REC_PATH]: LINK }),
     );
     await screen.findByText("I need an appointment.");
-    expect(screen.queryByText(/key points in this call/i)).toBeNull();
+    expect(screen.queryByText(/^key moments$/i)).toBeNull();
   });
 
   it("lists each moment with its timestamp, in time order", async () => {
@@ -351,7 +356,7 @@ describe("key points in the call", () => {
       page,
       routes(detail({ moments: MOMENTS }), { [REC_PATH]: LINK }),
     );
-    await screen.findByText(/key points in this call/i);
+    await screen.findByText(/^key moments$/i);
     // Scoped to the panel's own rows: "0:08" also appears on the transcript turn at that
     // offset, which is the two halves agreeing rather than a duplicate to deduplicate.
     const rows = screen
@@ -360,7 +365,7 @@ describe("key points in the call", () => {
       .querySelectorAll("li");
     expect(Array.from(rows).map((li) => li.textContent)).toEqual([
       "0:08Appointment slot captured",
-      "0:21Caller asked about priceAI",
+      "0:21Caller asked about priceSuggested",
       "0:34Caller asked not to be called again",
     ]);
   });
@@ -374,8 +379,8 @@ describe("key points in the call", () => {
       page,
       routes(detail({ moments: MOMENTS }), { [REC_PATH]: LINK }),
     );
-    await screen.findByText(/key points in this call/i);
-    const badges = screen.getAllByText("AI");
+    await screen.findByText(/^key moments$/i);
+    const badges = screen.getAllByText("Suggested");
     expect(badges).toHaveLength(1);
     expect(badges[0].closest("li")?.textContent).toContain(
       "Caller asked about price",
@@ -396,14 +401,14 @@ describe("key points in the call", () => {
       page,
       routes(detail({ moments: MOMENTS }), { [REC_PATH]: LINK }),
     );
-    await screen.findByText(/key points in this call/i);
+    await screen.findByText(/^key moments$/i);
     expect(
       screen.queryByRole("button", { name: /play from 0:34/i }),
     ).toBeNull();
     expect(
       screen.getByText("Caller asked not to be called again"),
     ).toBeTruthy();
-    expect(screen.getByText(/open the recording above to jump/i)).toBeTruthy();
+    expect(screen.getByText(/open the recording to jump/i)).toBeTruthy();
   });
 });
 

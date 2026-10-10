@@ -42,6 +42,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import get_engine, tenant_session, untenanted_session
 from apps.api.main import app
 from calevate_shared.extraction import ExtractionField
+from calevate_shared.lead_fields import CORE_LEAD_FIELDS
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, text
 
@@ -223,7 +224,8 @@ async def test_the_export_header_is_the_screens_column_list() -> None:
     assert exported.status_code == 200, exported.text
     screen = [c["label"] for c in listed.json()["columns"]]
     assert screen == ["Name", "Budget band", "Phone"]
-    assert _rows(exported.text)[0] == screen
+    # Name and Phone lead the file whatever the order on screen; the rest follow, once.
+    assert _rows(exported.text)[0] == ["Name", "Phone", "Budget band"]
 
 
 async def test_with_no_chooser_the_two_surfaces_still_agree() -> None:
@@ -250,7 +252,7 @@ async def test_a_facet_filter_narrows_the_file_exactly_as_it_narrows_the_screen(
         exported = await http.get(f"/v1/leads/export.csv{query}", headers=t.headers)
 
     assert [lead["name"] for lead in listed.json()["items"]] == ["Hot One"]
-    assert _rows(exported.text)[1:] == [["Hot One"]]
+    assert [row[0] for row in _rows(exported.text)[1:]] == ["Hot One"]
 
 
 # --------------------------------------------------------- the injection guard
@@ -292,8 +294,9 @@ async def test_a_hostile_extraction_value_and_label_survive_the_chooser() -> Non
             f"/v1/leads/export.csv?agent_id={t.agent_id}&columns=note", headers=t.headers
         )
     rows = _rows(response.text)
-    assert rows[0][0].startswith("\t") and HOSTILE in rows[0][0]
-    assert rows[1][0].startswith("\t") and HOSTILE in rows[1][0]
+    # Name and Phone lead every file; the chosen column is the third.
+    assert rows[0][2].startswith("\t") and HOSTILE in rows[0][2]
+    assert rows[1][2].startswith("\t") and HOSTILE in rows[1][2]
 
 
 # ------------------------------------------------ staleness: drop vs refuse
@@ -314,7 +317,7 @@ async def test_an_unknown_column_narrows_the_table_and_says_so() -> None:
     body = listed.json()
     assert [c["key"] for c in body["columns"]] == ["name"]
     assert body["dropped_column_keys"] == ["vanished"]
-    assert _rows(exported.text)[0] == ["Name"], "the file drops it identically"
+    assert _rows(exported.text)[0] == ["Name", "Phone"], "the file drops it identically"
 
 
 async def test_an_unknown_filter_is_refused_rather_than_ignored() -> None:
@@ -658,7 +661,39 @@ async def test_with_no_agent_filter_the_columns_are_the_newest_schema_not_the_mo
         unfiltered = await lead_columns(session, None)
         only_a = await lead_columns(session, t.agent_id)
 
-    assert [f.key for f in unfiltered] == ["visit_date"], (
+    # The core every lead carries leads both lists (`calevate_shared.lead_fields`); what
+    # this test is about is which agent's own fields follow it.
+    assert [f.key for f in unfiltered[: len(CORE_LEAD_FIELDS)]] == [f.key for f in CORE_LEAD_FIELDS]
+    assert [f.key for f in unfiltered[len(CORE_LEAD_FIELDS) :]] == ["visit_date"], (
         "the unfiltered table took the most-edited agent's schema, not the newest one"
     )
-    assert [f.key for f in only_a] == ["locality"], "per agent, the latest version still wins"
+    assert [f.key for f in only_a[len(CORE_LEAD_FIELDS) :]] == ["locality"], (
+        "per agent, the latest version still wins"
+    )
+
+
+async def test_name_and_phone_always_lead_the_file_whatever_the_screen_shows() -> None:
+    """A hidden Phone column on screen must not take the numbers out of the file
+    (founder, 10 Oct 2026). They lead it, then the visible columns follow, once each."""
+    t = await _tenant()
+    await _lead(t, name="Lakshmi", data={"budget_band": "over_50l"})
+    async with _client() as http:
+        exported = await http.get(
+            f"/v1/leads/export.csv?agent_id={t.agent_id}&columns=budget_band,status,name",
+            headers=t.headers,
+        )
+    rows = _rows(exported.text)
+    assert rows[0] == ["Name", "Phone", "Budget band", "Status"]
+    assert rows[1][0] == "Lakshmi"
+    assert rows[1][1].strip().startswith("+")
+
+
+def test_for_export_puts_name_and_phone_first_once() -> None:
+    columns = registry.available([])
+    chosen = registry.resolve(columns, ["status", "phone", "source"]).columns
+    assert [c.key for c in registry.for_export(columns, chosen)] == [
+        "name",
+        "phone",
+        "status",
+        "source",
+    ]

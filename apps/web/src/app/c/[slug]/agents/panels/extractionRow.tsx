@@ -43,6 +43,8 @@ export function FieldEditorRow({
   onMoveDown,
   eg,
   validation,
+  noun = "variable",
+  showKey = true,
 }: {
   row: DraftRow;
   index: number;
@@ -70,8 +72,13 @@ export function FieldEditorRow({
    * reordered while it is open.
    */
   validation: FormValidation;
+  /** What one row is called on this screen: "variable" on the agent, "detail" on Lead details. */
+  noun?: string;
+  /** Show the storage id. The client's Lead details screen keeps it out of the way. */
+  showKey?: boolean;
 }) {
-  const named = row.label.trim() || "this variable";
+  const named = row.label.trim() || `this ${noun}`;
+  const Noun = noun.charAt(0).toUpperCase() + noun.slice(1);
   // A saved variable is a one-line row until somebody edits it; a new one opens ready to
   // fill. Five fully-open editors were most of this screen's length.
   const [open, setOpen] = useState(row.isNew);
@@ -116,8 +123,12 @@ export function FieldEditorRow({
           <span className="block text-xs text-ink-muted">
             {typeLabel}
             {row.required ? " · Required" : ""}
-            {" · "}
-            <span className="font-mono">{row.key}</span>
+            {showKey && (
+              <>
+                {" · "}
+                <span className="font-mono">{row.key}</span>
+              </>
+            )}
           </span>
         </span>
         <button
@@ -137,7 +148,9 @@ export function FieldEditorRow({
   return (
     <li className="settings-enter py-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-ink-muted">Variable {index + 1}</span>
+        <span className="text-xs font-medium text-ink-muted">
+          {Noun} {index + 1}
+        </span>
         <div className="flex items-center gap-1">
           {!row.isNew && (
             <button type="button" onClick={() => setOpen(false)} className={SECONDARY_BUTTON_SM}>
@@ -153,7 +166,7 @@ export function FieldEditorRow({
           <label className="block">
             <span className={FIELD_LABEL}>Name</span>
             <input
-              {...validation.field(`label-${row.uid}`, "Give this variable a name.")}
+              {...validation.field(`label-${row.uid}`, `Give this ${noun} a name.`)}
               required
               maxLength={80}
               value={row.label}
@@ -224,7 +237,7 @@ export function FieldEditorRow({
           onChange={(next) => onChange({ required: next })}
         />
 
-        {row.isNew ? (
+        {!showKey ? null : row.isNew ? (
           <label className="block min-w-0">
             <span className={FIELD_LABEL}>Column id</span>
             <input

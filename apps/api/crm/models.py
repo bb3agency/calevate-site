@@ -11,7 +11,12 @@ from uuid import UUID
 
 from calevate_shared.carrier import CARRIERS
 from calevate_shared.events import CallDirection, CallStatus, Speaker
-from calevate_shared.extraction import OutcomeTag, Sentiment
+from calevate_shared.extraction import (
+    LEGACY_OUTCOME_TAGS,
+    OUTCOME_HINTS,
+    OutcomeTag,
+    Sentiment,
+)
 from calevate_shared.worker_api import DEGRADED_KNOWLEDGE_STATES, KNOWLEDGE_STATES
 from sqlalchemy import (
     Boolean,
@@ -58,10 +63,30 @@ CALL_STATUSES: tuple[CallStatus, ...] = (
     "voicemail",
 )
 CONSENT_STATES = ("granted", "declined", "na")
-OUTCOME_TAGS: tuple[OutcomeTag, ...] = ("resolved", "needs_follow_up", "transferred", "dropped")
+OUTCOME_TAGS: tuple[OutcomeTag, ...] = (
+    "call_back_booked",
+    "needs_you",
+    "answered",
+    "transferred",
+    "hung_up_early",
+    "missed",
+)
+#: What the `calls` CHECK admits: the current words and, for one release, the words stored
+#: before 10 Oct 2026 (hard rule 8, migration c4e8a1f7d290). Nothing writes a legacy word.
+STORED_OUTCOME_TAGS: tuple[str, ...] = (
+    *LEGACY_OUTCOME_TAGS,
+    *(tag for tag in OUTCOME_TAGS if tag not in LEGACY_OUTCOME_TAGS),
+)
+SUMMARY_SOURCES = ("engine", "extraction")
+#: `pending` the pipeline has not written one yet; `ready` there is a summary; `failed` the
+#: model failed and the engine wrote none; `empty` the call had nothing to summarise.
+SUMMARY_STATES = ("pending", "ready", "failed", "empty")
+#: `unavailable` is a call from before turns were translated (migration c4e8a1f7d290).
+TRANSLATION_STATES = ("pending", "ready", "failed", "not_needed", "unavailable")
+LEAD_STATUS_SETTERS = ("system", "person")
 SENTIMENTS: tuple[Sentiment, ...] = ("positive", "neutral", "negative")
 SPEAKERS: tuple[Speaker, ...] = ("agent", "caller")
-LEAD_SOURCES = ("inbound_call", "webhook", "campaign", "manual")
+LEAD_SOURCES = ("inbound_call", "webhook", "campaign", "manual", "test_call", "outbound_call")
 LEAD_STATUSES: tuple[LeadStatus, ...] = (
     "new",
     "contacted",
@@ -92,8 +117,18 @@ class Call(PKMixin, TimestampMixin, Base):
             name="consent_enum",
         ),
         CheckConstraint(
-            f"outcome_tag IS NULL OR outcome_tag IN {OUTCOME_TAGS!r}", name="outcome_enum"
+            f"outcome_tag IS NULL OR outcome_tag IN {STORED_OUTCOME_TAGS!r}",
+            name="outcome_enum",
         ),
+        CheckConstraint(
+            f"summary_source IS NULL OR summary_source IN {SUMMARY_SOURCES!r}",
+            name="summary_source_enum",
+        ),
+        CheckConstraint(f"summary_state IN {SUMMARY_STATES!r}", name="summary_state_enum"),
+        CheckConstraint(
+            f"translation_state IN {TRANSLATION_STATES!r}", name="translation_state_enum"
+        ),
+        CheckConstraint("headline IS NULL OR char_length(headline) <= 90", name="headline_length"),
         CheckConstraint(f"sentiment IS NULL OR sentiment IN {SENTIMENTS!r}", name="sentiment_enum"),
         CheckConstraint(
             f"knowledge_state IS NULL OR knowledge_state IN {tuple(sorted(KNOWLEDGE_STATES))!r}",
@@ -246,9 +281,27 @@ class Call(PKMixin, TimestampMixin, Base):
     carrier_recording_deleted_at: Mapped[datetime | None]
     disclosure_played: Mapped[bool | None] = mapped_column(Boolean)
     consent_recording: Mapped[str | None] = mapped_column(String)
+    #: The client-facing outcome, DERIVED from facts by `crm/outcomes.derive_outcome`.
     outcome_tag: Mapped[str | None] = mapped_column(String)
     sentiment: Mapped[str | None] = mapped_column(String)
+    #: The English summary. Precedence (`workers/pipeline._summaries`): the engine's own
+    #: when it is written in Latin script, else the extraction model's.
     summary: Mapped[str | None] = mapped_column(Text)
+    #: The same summary in the call's language (`summary_language`, BCP-47), for the
+    #: "show in Telugu" toggle. NULL for an English call or when none could be written.
+    summary_local: Mapped[str | None] = mapped_column(Text)
+    summary_language: Mapped[str | None] = mapped_column(Text)
+    #: Who wrote `summary`: `engine` or `extraction`.
+    summary_source: Mapped[str | None] = mapped_column(Text)
+    summary_state: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    #: One line for the call list (at most 90 characters), and what the business should do
+    #: next. Model prose about the call, STORED REDACTED because the lead list shows it too.
+    headline: Mapped[str | None] = mapped_column(Text)
+    next_step: Mapped[str | None] = mapped_column(Text)
+    #: The caller asked to be called back (the extraction's reading), booked or not.
+    callback_requested: Mapped[bool | None] = mapped_column(Boolean)
+    #: Whether `transcript_turns.text_en` has been written for this call.
+    translation_state: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
     #: HAS THE CROSS-CALL MEMORY DISTILLER LOOKED AT THIS CALL, AND WHAT DID IT DECIDE?
     #: `pending` / `remembered` / `nothing` / `skipped` — `compliance.caller_memory.
     #: CALLER_MEMORY_STATES`, and the CHECK in migration `a1f6c30d92be`.
@@ -342,6 +395,10 @@ class TranscriptTurn(PKMixin, TimestampMixin, Base):
     speaker: Mapped[str] = mapped_column(String, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     text_redacted: Mapped[str | None] = mapped_column(Text)
+    #: The turn in English, translated after the call FROM `text_redacted`, so it is
+    #: redacted like it and served on the default view. NULL when the turn was already
+    #: English or nothing translated it. The original stays the record.
+    text_en: Mapped[str | None] = mapped_column(Text)
     lang: Mapped[str | None] = mapped_column(Text)
     start_ms: Mapped[int | None] = mapped_column(Integer)
     end_ms: Mapped[int | None] = mapped_column(Integer)
@@ -364,7 +421,13 @@ class CallExtraction(PKMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "call_extractions"
-    __table_args__ = (UniqueConstraint("tenant_id", "call_id"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "call_id"),
+        CheckConstraint(
+            f"outcome_hint IS NULL OR outcome_hint IN {OUTCOME_HINTS!r}",
+            name="outcome_hint_enum",
+        ),
+    )
 
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
@@ -376,6 +439,11 @@ class CallExtraction(PKMixin, TimestampMixin, Base):
     data: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     model: Mapped[str | None] = mapped_column(Text)
     prompt_version: Mapped[int | None] = mapped_column(Integer)
+    #: The model's own reading of the conversation (`OutcomeHint`) and whether the caller
+    #: asked for something the agent could not handle. Kept so a re-drive derives the same
+    #: `calls.outcome_tag` without paying for the model again.
+    outcome_hint: Mapped[str | None] = mapped_column(Text)
+    out_of_scope: Mapped[bool | None] = mapped_column(Boolean)
     valid: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     errors: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     #: Key moments — `[{at_ms, kind, label, label_redacted, source}]` (f8c1d47a90e3).
@@ -410,6 +478,7 @@ class Lead(PKMixin, TimestampMixin, Base):
         UniqueConstraint("tenant_id", "phone_e164", "agent_id"),
         CheckConstraint(f"source IN {LEAD_SOURCES!r}", name="source_enum"),
         CheckConstraint(f"status IN {LEAD_STATUSES!r}", name="status_enum"),
+        CheckConstraint(f"status_set_by IN {LEAD_STATUS_SETTERS!r}", name="status_set_by_enum"),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -422,6 +491,10 @@ class Lead(PKMixin, TimestampMixin, Base):
     name: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="new")
+    #: Who last moved `status`: `person` (a screen, the copilot, a bulk action) or `system`
+    #: (the after-call rules). The rules never move a status a person set.
+    status_set_by: Mapped[str] = mapped_column(Text, nullable=False, server_default="system")
+    status_set_at: Mapped[datetime | None]
     # keys per extraction schema version
     data: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     schema_version: Mapped[int | None] = mapped_column(Integer)

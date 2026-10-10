@@ -14,6 +14,10 @@ export type SettingsSection = {
   label: string;
   /** A small count or state beside the label ("2", a dot). Decorative text is fine. */
   badge?: ReactNode;
+  /** One line of state under the label in the column menu ("5 sections · changes waiting"). */
+  detail?: string;
+  /** A section that lives on its own page: the menu links there instead of `?section=`. */
+  href?: string;
 };
 
 /** The search param that holds the open section, unless a screen needs another name. */
@@ -85,7 +89,7 @@ export function SettingsLayout({
 }) {
   const pathname = usePathname();
   const params = useSearchParams();
-  const active = useActiveSection(sections, param);
+  const active = useActiveSection(sections.filter((s) => !s.href), param);
   const row = menu === "row";
   const router = useRouter();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -132,11 +136,12 @@ export function SettingsLayout({
               return (
                 <li key={section.id}>
                   <Link
-                    href={hrefFor(section.id)}
+                    href={section.href ?? hrefFor(section.id)}
                     scroll={false}
                     aria-current={on ? "true" : undefined}
+                    aria-describedby={section.detail && !row ? `${param}-${section.id}-detail` : undefined}
                     onClick={(event) => {
-                      if (on) return;
+                      if (on || section.href) return;
                       if (drafts.current.size > 0) {
                         event.preventDefault();
                         setPending(section.id);
@@ -144,7 +149,7 @@ export function SettingsLayout({
                       }
                       picked.current = true;
                     }}
-                    className={`press flex h-9 items-center gap-2 whitespace-nowrap rounded-full px-3.5 text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 ${row ? "" : "lg:justify-between lg:rounded-md lg:px-3 lg:text-[14px]"} ${
+                    className={`press flex min-h-9 items-center gap-2 whitespace-nowrap lg:py-1.5 rounded-full px-3.5 text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 ${row ? "" : "lg:justify-between lg:rounded-md lg:px-3 lg:text-[14px]"} ${
                       on
                         ? row
                           ? "bg-ink text-surface"
@@ -154,7 +159,19 @@ export function SettingsLayout({
                           : "text-ink-muted hover:bg-ink/[0.05] hover:text-ink lg:font-normal"
                     }`}
                   >
-                    <span className="truncate">{section.label}</span>
+                    <span className="min-w-0">
+                      <span className="block truncate">{section.label}</span>
+                      {section.detail && !row && (
+                        // Described, not named: the link's name stays the section's name.
+                        <span
+                          id={`${param}-${section.id}-detail`}
+                          aria-hidden
+                          className="hidden truncate text-[12px] font-normal text-ink-faint lg:block"
+                        >
+                          {section.detail}
+                        </span>
+                      )}
+                    </span>
                     {section.badge !== undefined && (
                       <span
                         className={`text-[12px] tabular-nums ${on ? (row ? "text-surface/80" : "text-surface/80 lg:text-ink-faint") : "text-ink-faint"}`}

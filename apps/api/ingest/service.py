@@ -67,6 +67,14 @@ from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.engine.carrier_pacing import LINES_BUSY_RULE, PACING_RULE
 from apps.api.engine.vendor_http import NUMBER_DAILY_LIMIT_CODE
+from apps.api.ingest.lead_policy import (
+    LEAD_INGEST_PREFIX,
+    align,
+    book_retry,
+    hold_lead,
+    load_plan,
+    when_to_call,
+)
 from apps.api.integrations import service as integrations
 
 log = get_logger(__name__)
@@ -86,7 +94,10 @@ WINDOW_REFUSALS: frozenset[str] = frozenset(
 
 #: `scheduled_callbacks.source_execution_id` of a call-back booked because ingest could not
 #: dial yet. Not an engine execution; namespaced so it can never collide with one.
-INGEST_CALLBACK_PREFIX = "lead-ingest:"
+INGEST_CALLBACK_PREFIX = LEAD_INGEST_PREFIX
+
+#: The lead arrived after hours on a "hold for me" plan and waits for the client (D-716).
+HELD_FOR_RELEASE_RULE = "held_for_release"
 
 # E.164-ish: our market is India, but a webhook may carry 10 digits with no prefix.
 _INDIA_PREFIX = "+91"
@@ -398,11 +409,16 @@ async def ingest_lead(
         )
     name = str(mapped.get("name") or "").strip() or None
 
-    if config.agent_id is None:
+    # WHICH AGENT CALLS: the client's choice for every new lead (D-716), else the agent the
+    # source was created with. A chosen agent that is no longer published falls back to the
+    # source's, so a plan edited around an archived agent does not lose leads.
+    plan = await load_plan(session)
+    candidates = [a for a in (plan.calling_agent_id, config.agent_id) if a is not None]
+    if not candidates:
         raise ProblemError.business_rule(
             "ingest_no_agent",
             "This lead source has no agent attached yet.",
-            remediation="Attach an agent to the webhook in the admin console.",
+            remediation="Choose which agent calls new leads under Leads & hours.",
         )
 
     # THE SAME REFUSAL `dispatch_call` ALREADY MAKES, MOVED IN FRONT OF THE INSERT.
@@ -429,12 +445,18 @@ async def ingest_lead(
     # they publish, every later lead both lands and expires on schedule. Keeping the lead
     # instead would mean the platform can hold personal data with no route to it, which
     # is the invariant the sweep is built on.
-    ref = (
-        await session.execute(
-            text("SELECT engine_agent_ref FROM agents WHERE id = :aid"),
-            {"aid": config.agent_id},
-        )
-    ).scalar()
+    agent_id = candidates[0]
+    ref = None
+    for candidate in dict.fromkeys(candidates):
+        ref = (
+            await session.execute(
+                text("SELECT engine_agent_ref FROM agents WHERE id = :aid AND deleted_at IS NULL"),
+                {"aid": candidate},
+            )
+        ).scalar()
+        if isinstance(ref, str) and ref:
+            agent_id = candidate
+            break
     if not isinstance(ref, str) or not ref:
         raise ProblemError.business_rule(
             "agent_not_published",
@@ -460,7 +482,7 @@ async def ingest_lead(
             {
                 "id": lead_id,
                 "tid": config.tenant_id,
-                "aid": config.agent_id,
+                "aid": agent_id,
                 "phone": phone,
                 "name": name,
                 "data": _json(
@@ -554,17 +576,51 @@ async def ingest_lead(
 
     # 3. The compliance gate — the same one every dispatch path calls (hard rule 5).
     decision = await check_dispatch(
-        session, tenant_id=config.tenant_id, agent_id=config.agent_id, phone_e164=phone
+        session, tenant_id=config.tenant_id, agent_id=agent_id, phone_e164=phone
     )
+    # 3b. The client's own plan (D-716): wait, calling hours and days, after-hours handling.
+    # It only ever narrows when a lawful call is placed; the gate above already decided
+    # whether one may be, and runs again when a later call falls due.
+    timing = when_to_call(plan, datetime.now(UTC))
+    person_refusal = not decision.allowed and decision.rule not in WINDOW_REFUSALS
+    if not person_refusal and timing.kind == "hold":
+        await hold_lead(
+            session,
+            tenant_id=config.tenant_id,
+            lead_id=resolved_lead,
+            agent_id=agent_id,
+            source=config.source,
+        )
+        await _timeline(
+            session, config.tenant_id, resolved_lead, "held", {"rule": HELD_FOR_RELEASE_RULE}
+        )
+        record_speed_to_lead(time.time() - received_at, outcome="held_for_release")
+        return {"lead_id": resolved_lead, "dispatched": False, "blocked": HELD_FOR_RELEASE_RULE}
+    if decision.allowed and timing.kind == "later" and timing.at is not None:
+        return await _defer_to_callback(
+            session,
+            config=config,
+            agent_id=agent_id,
+            lead_id=resolved_lead,
+            phone=phone,
+            rule=f"plan_{timing.reason}",
+            due=timing.at,
+            execution_key=f"{resolved_lead}:{timing.at.isoformat()}",
+            received_at=received_at,
+        )
     if not decision.allowed:
         window_rule = decision.rule if decision.rule in WINDOW_REFUSALS else None
         if window_rule is not None:
-            # The gate's own clock, so the slot is computed from the instant it refused on.
+            # The gate's own clock, so the slot is computed from the instant it refused on,
+            # then moved to the client's own next opening (never earlier).
             due = await next_allowed_dial(window_rule, now=compliance_service.ist_now() - IST)
+            if timing.at is not None and timing.at > due:
+                due = timing.at
+            due = align(plan, due) or due
             return await _defer_to_callback(
                 session,
                 config=config,
-                agent_id=config.agent_id,
+                agent_id=agent_id,
                 lead_id=resolved_lead,
                 phone=phone,
                 rule=window_rule,
@@ -587,7 +643,7 @@ async def ingest_lead(
         handle = await dispatch_call(
             session,
             tenant_id=config.tenant_id,
-            agent_id=config.agent_id,
+            agent_id=agent_id,
             lead_id=resolved_lead,
             phone_e164=phone,
             lead_name=name,
@@ -635,7 +691,7 @@ async def ingest_lead(
         return await _defer_to_callback(
             session,
             config=config,
-            agent_id=config.agent_id,
+            agent_id=agent_id,
             lead_id=resolved_lead,
             phone=phone,
             rule=refused.code,
@@ -646,6 +702,17 @@ async def ingest_lead(
             received_at=received_at,
         )
     await _timeline(session, config.tenant_id, resolved_lead, "call", {"engine_call_id": handle})
+    # The next try, in case nobody answers (D-716); checked again when it falls due.
+    await book_retry(
+        session,
+        tenant_id=config.tenant_id,
+        plan=plan,
+        lead_id=resolved_lead,
+        agent_id=agent_id,
+        phone_e164=phone,
+        attempt=0,
+        root=str(uuid7()),
+    )
     elapsed = time.time() - received_at
     record_speed_to_lead(elapsed, outcome="dispatched")
     log.info(

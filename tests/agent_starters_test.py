@@ -38,6 +38,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from calevate_shared.call_script import (
     STANDARD_VARIABLES,
     CallScript,
+    CollectField,
     compile_call_script,
     extract_variable_names,
 )
@@ -47,6 +48,7 @@ from calevate_shared.engine import (
     AgentConfig,
     compose_engine_prompt,
 )
+from calevate_shared.lead_fields import CORE_LEAD_FIELDS
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from scripts.seed import VERTICAL_TEMPLATES
@@ -96,12 +98,20 @@ def test_the_catalogue_covers_every_business_type_and_job() -> None:
 @pytest.mark.parametrize("key", sorted(starters.CATALOGUE))
 def test_every_starter_compiles_and_keeps_the_platform_floor(key: tuple[str, str]) -> None:
     starter = starters.CATALOGUE[key]  # type: ignore[index]
-    script = starter.call_script(business="Acme Traders")
+    script = starter.call_script(business="Acme Traders", language="en-IN")
+    # A Telugu agent greets in Telugu (`spoken_style.json` openings).
+    telugu = starter.call_script(business="Acme Traders").opening_line
+    assert "Acme Traders" in telugu and "అండి" in telugu
     assert CallScript.model_validate(script.model_dump(mode="json")) == script
     assert not script.is_raw
+    assert script.schema_version == 2
     body = compile_call_script(script)
     assert "[OPENING]\nHello" in body and "Acme Traders" in body
-    assert "[TASK FLOW]" in body and "[FAQ]" in body
+    assert "[IDENTITY]" in body and "[CONVERSATION]" in body and "[GOAL]" in body
+    # The example call is in the agent's language and waits for a native speaker.
+    assert "[EXAMPLE CALL]" in body and script.example_needs_review
+    # What to do when the agent cannot help is the platform's, true to the account.
+    assert "call back" not in body.lower() and "call-back" not in body.lower()
     assert "{business}" not in body
     assert set(extract_variable_names(body)) <= {key for key, _ in STANDARD_VARIABLES}
     engine_prompt = compose_engine_prompt(
@@ -116,6 +126,7 @@ def test_every_starter_compiles_and_keeps_the_platform_floor(key: tuple[str, str
         )
     )
     assert TRUTHFUL_ANSWER_MARKER in engine_prompt
+    assert "do-not-call tool" in engine_prompt
 
 
 @pytest.mark.parametrize("key", sorted(starters.CATALOGUE))
@@ -138,9 +149,10 @@ def test_starter_wording_rules(key: tuple[str, str]) -> None:
             for fragment in template.split("{business}"):
                 if len(fragment.strip()) > 10:
                     assert fragment.strip() not in authored
+    assert "call-back" not in authored and "call back from" not in authored
     if job == "call_leads":
-        assert "do-not-call tool" in authored
         assert "Do not push" in authored
+        assert starter.outbound_purpose
 
 
 def test_the_clinic_keeps_its_own_words_and_the_others_their_booking() -> None:
@@ -269,7 +281,16 @@ async def test_creating_with_a_starter_writes_a_draft_script_and_captured_detail
         business="Skyline Homes"
     )
     assert CallScript.model_validate(structured) == expected
-    assert stored_body == compile_call_script(expected)
+    collect = [
+        CollectField(
+            label=str(f["label"]),
+            reason=str(f.get("reason") or ""),
+            required=bool(f.get("required")),
+        )
+        for f in fields
+    ]
+    assert stored_body == compile_call_script(expected, collect=collect)
+    assert "[WHAT TO COLLECT]" in stored_body
     assert [f["key"] for f in fields] == [f["key"] for f in VERTICAL_TEMPLATES["real_estate"]]
 
 
@@ -281,9 +302,11 @@ async def test_call_my_leads_makes_an_outbound_agent_without_being_told() -> Non
     assert body["direction"] == "outbound"
     row = await _agent_rows(tenant_id, uuid.UUID(body["id"]))
     assert row is not None
-    assert "do-not-call tool" in row[4]
+    assert "[GOAL]" in row[4] and "{{lead_name}}" in row[4]
     assert not CLINIC_ONLY.search(row[4])
-    assert [f["key"] for f in row[7]] == ["need", "preferred_time"]
+    # A custom business starts with no business fields of its own: every lead still gets
+    # the core (`calevate_shared.lead_fields`), and its own fields are drafted once by AI.
+    assert not row[7]
 
     code, body = await _create(
         token, {"name": "Also fine", "starter": "call_leads", "direction": "outbound"}
@@ -332,7 +355,8 @@ async def test_the_preview_is_the_callers_own_business_type() -> None:
     assert "Skyline Homes" in receptionist["opening_line"]
     assert receptionist["step_titles"][3] == "Offer a site visit"
     assert receptionist["captured_details"] == [
-        f["label"] for f in VERTICAL_TEMPLATES["real_estate"]
+        *(f.label for f in CORE_LEAD_FIELDS),
+        *(f["label"] for f in VERTICAL_TEMPLATES["real_estate"]),
     ]
 
     code, one = await _starters(token, "?job=call_leads")

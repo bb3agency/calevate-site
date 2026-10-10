@@ -20,6 +20,7 @@ from uuid import UUID
 
 from calevate_shared.events import CallStatus
 from calevate_shared.extraction import ExtractionField, OutcomeTag
+from calevate_shared.lead_fields import with_core
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,9 +31,12 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm.attention import block_remedy
+from apps.api.crm.captured import captured_fields
+from apps.api.crm.outcomes import normalise as normalise_outcome
 from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import (
     MAX_BULK_LEADS,
+    CallCallbackOut,
     CallDetailOut,
     CallMomentOut,
     CallSummaryOut,
@@ -42,6 +46,7 @@ from apps.api.crm.schemas import (
     LeadStatus,
     LeadTimelineEventOut,
     LeadTimelineOut,
+    SummaryState,
     TranscriptTurnOut,
 )
 from apps.api.db.base import uuid7
@@ -196,6 +201,8 @@ class CallFilters:
     #: Half-open `[since, until)` on `started_at`; aware instants.
     since: datetime | None = None
     until: datetime | None = None
+    #: False leaves out free-trial test calls (`calls.trial_call`).
+    test_calls: bool = True
 
 
 def _call_where(filters: CallFilters) -> tuple[str, dict[str, Any]]:
@@ -219,6 +226,8 @@ def _call_where(filters: CallFilters) -> tuple[str, dict[str, Any]]:
     if filters.until:
         clauses.append("c.started_at < :until")
         params["until"] = filters.until
+    if not filters.test_calls:
+        clauses.append("c.trial_call IS NOT TRUE")
     return (f"WHERE {' AND '.join(clauses)}" if clauses else ""), params
 
 
@@ -239,8 +248,9 @@ async def list_calls(
             text(
                 "SELECT c.id, c.agent_id, a.name, c.direction, c.status, c.from_e164, "
                 "c.to_e164, c.started_at, c.duration_s, c.outcome_tag, c.sentiment, "
-                "c.summary, c.lead_id "
-                f"FROM calls c JOIN agents a ON a.id = c.agent_id {where} "
+                "c.summary, c.lead_id, c.summary_state, c.headline, c.trial_call, "
+                f"{_CALLBACK_COLUMNS}, {_LEAD_NAME_COLUMN} "
+                f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} {where} "
                 "ORDER BY c.started_at DESC NULLS LAST, c.id DESC LIMIT :limit OFFSET :offset"
             ),
             params,
@@ -256,15 +266,69 @@ async def list_calls(
             caller_e164=r[5] if r[3] == "inbound" else r[6],
             started_at=r[7],
             duration_s=r[8],
-            outcome_tag=r[9],
+            outcome_tag=normalise_outcome(r[9]),
             sentiment=r[10],
             # There is no raw variant of the LIST — no route, no permission, no audit
             # row — so this one is redacted unconditionally.
-            summary=redacted_summary(r[11]),
+            summary=redacted_summary(_shown_summary(r[11], r[13])),
             lead_id=r[12],
+            summary_state=_summary_state(r[11], r[13]),
+            headline=r[14],
+            test_call=bool(r[15]),
+            callback=_callback_out(r[16:21]),
+            lead_name=r[21],
         )
         for r in rows
     ]
+
+
+#: The newest call back booked ON a call, beside the call (F-4/F-5). LATERAL so it is one
+#: index read per row (`ix_scheduled_callbacks_source_call`), and the newest by
+#: `booked_at` because a conversation keeps one live promise and that is the one it holds.
+_CALLBACK_JOIN = (
+    "LEFT JOIN LATERAL (SELECT s.id, s.requested_at, s.status, s.last_refusal_reason, "
+    "s.last_refusal_rule FROM scheduled_callbacks s WHERE s.source_call_id = c.id "
+    "AND s.tenant_id = c.tenant_id ORDER BY s.booked_at DESC, s.id DESC LIMIT 1) cb ON true"
+)
+_CALLBACK_COLUMNS = (
+    "cb.id, cb.requested_at, cb.status, cb.last_refusal_reason, cb.last_refusal_rule"
+)
+#: The name on the call's lead, so a call row can say who rather than only a number. A
+#: scalar subquery rather than a join, for the reason `_LEAD_COLUMNS` gives.
+_LEAD_NAME_COLUMN = (
+    "(SELECT ln.name FROM leads ln WHERE ln.id = c.lead_id AND ln.deleted_at IS NULL) AS lead_name"
+)
+
+
+def _shown_summary(summary: str | None, state: str | None) -> str | None:
+    """The stored English summary, unless the pipeline marked it `empty`: the state a
+    transcript line stored as a summary before 10 Oct 2026 was given (migration
+    c4e8a1f7d290), which the call list must not show as one (F-6)."""
+    return None if state == "empty" else summary
+
+
+def _summary_state(summary: str | None, state: str | None) -> SummaryState:
+    """`ready` whenever a summary is shown, whatever wrote it; otherwise the stored state."""
+    if _shown_summary(summary, state) or state == "ready":
+        return "ready"
+    if state == "failed":
+        return "failed"
+    if state == "empty":
+        return "empty"
+    return "pending"
+
+
+def _callback_out(cells: Any) -> CallCallbackOut | None:
+    callback_id, due_at, status, reason, rule = cells
+    if callback_id is None:
+        return None
+    return CallCallbackOut(
+        id=callback_id,
+        due_at=due_at,
+        status=status,
+        blocked_reason=reason,
+        blocked_rule=rule,
+    )
 
 
 async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -> CallDetailOut:
@@ -283,8 +347,14 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
             text(
                 "SELECT c.id, c.agent_id, a.name, c.direction, c.status, c.from_e164, "
                 "c.to_e164, c.started_at, c.duration_s, c.outcome_tag, c.sentiment, "
-                "c.summary, c.lead_id, c.recording_url, c.disclosure_played "
-                "FROM calls c JOIN agents a ON a.id = c.agent_id WHERE c.id = :cid"
+                "c.summary, c.lead_id, c.recording_url, c.disclosure_played, "
+                "c.summary_state, c.headline, c.trial_call, "
+                f"{_CALLBACK_COLUMNS}, "
+                "c.summary_local, c.summary_language, c.summary_source, c.next_step, "
+                "c.callback_requested, c.translation_state, "
+                f"{_LEAD_NAME_COLUMN} "
+                f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} "
+                "WHERE c.id = :cid"
             ),
             {"cid": call_id},
         )
@@ -296,7 +366,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
     turns = (
         await session.execute(
             text(
-                f"SELECT idx, speaker, COALESCE({column}, ''), lang, start_ms "
+                f"SELECT idx, speaker, COALESCE({column}, ''), lang, start_ms, text_en "
                 "FROM transcript_turns WHERE call_id = :cid ORDER BY idx"
             ),
             {"cid": call_id},
@@ -305,13 +375,21 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
     extraction = (
         await session.execute(
             text(
-                "SELECT data, valid, moments, needs_review FROM call_extractions "
+                "SELECT data, valid, moments, needs_review, schema_version, model "
+                "FROM call_extractions "
                 "WHERE call_id = :cid ORDER BY created_at DESC LIMIT 1"
             ),
             {"cid": call_id},
         )
     ).first()
 
+    extraction_data: dict[str, Any] = (extraction[0] or {}) if extraction else {}
+    captured = await captured_fields(
+        session,
+        agent_id=row[1],
+        schema_version=extraction[4] if extraction else None,
+        data=extraction_data,
+    )
     return CallDetailOut(
         id=row[0],
         agent_id=row[1],
@@ -321,19 +399,43 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         caller_e164=row[5] if row[3] == "inbound" else row[6],
         started_at=row[7],
         duration_s=row[8],
-        outcome_tag=row[9],
+        outcome_tag=normalise_outcome(row[9]),
         sentiment=row[10],
-        summary=row[11] if raw else redacted_summary(row[11]),
+        summary=(
+            _shown_summary(row[11], row[15])
+            if raw
+            else redacted_summary(_shown_summary(row[11], row[15]))
+        ),
         lead_id=row[12],
         has_recording=bool(row[13]),
         disclosure_played=row[14],
+        summary_state=_summary_state(row[11], row[15]),
+        headline=row[16],
+        test_call=bool(row[17]),
+        callback=_callback_out(row[18:23]),
+        summary_local=row[23] if raw else redacted_summary(row[23]),
+        summary_language=row[24],
+        summary_source=row[25],
+        next_step=row[26],
+        callback_requested=row[27],
+        translation_state=row[28],
+        lead_name=row[29],
+        extraction_model=extraction[5] if extraction else None,
         transcript=[
             TranscriptTurnOut(
-                idx=t[0], speaker=t[1], text=t[2], lang=t[3], start_ms=t[4], redacted=not raw
+                idx=t[0],
+                speaker=t[1],
+                text=t[2],
+                lang=t[3],
+                start_ms=t[4],
+                # Translated from the redacted text, so it is the same on both views.
+                text_en=t[5],
+                redacted=not raw,
             )
             for t in turns
         ],
-        extraction=(extraction[0] or {}) if extraction else {},
+        extraction=extraction_data,
+        captured=captured,
         extraction_valid=bool(extraction[1]) if extraction else True,
         moments=_moments_out(extraction[2] if extraction else None, raw=raw),
         # Per-field "confirm before acting" advisories (P4). NOT on the redaction switch:
@@ -471,9 +573,10 @@ async def lead_columns(
     else:
         statement, params = _NEWEST_SCHEMA_SQL, {}
     row = (await session.execute(text(statement), params)).first()
-    if row is None or not row[0]:
-        return []
-    return [ExtractionField.model_validate(f) for f in row[0]]
+    # The core every lead carries, then the agent's own fields (`calevate_shared.
+    # lead_fields`). The core's `name` is the fixed Name column, which
+    # `crm/columns.available` keeps in its own place.
+    return with_core(row[0] if row is not None else None)
 
 
 # The lead row's columns, in `_lead_out`'s order, and the join that names its owner.
@@ -512,7 +615,19 @@ _LEAD_COLUMNS = (
     "l.id, l.phone_e164, l.name, l.status, l.source, l.data, l.schema_version, "
     "l.call_count, l.is_repeat_caller, l.first_call_id, l.last_call_id, "
     "l.created_at, l.updated_at, "
-    "l.assigned_to, owner.name AS assigned_to_name"
+    "l.assigned_to, owner.name AS assigned_to_name, "
+    # What the last call came to and what is next (F-7), read through the last call and the
+    # lead's live call backs rather than copied onto the lead, so they cannot drift. Scalar
+    # subqueries, not joins: a join here would bring a second `status` and `id` into scope
+    # for every filter written against this projection. Both are index reads
+    # (`calls_pkey`, `ix_scheduled_callbacks_lead_live`) on a page of at most 200 rows.
+    "l.status_set_by, "
+    "(SELECT lc.headline FROM calls lc WHERE lc.id = l.last_call_id) AS last_call_headline, "
+    "(SELECT lc.outcome_tag FROM calls lc WHERE lc.id = l.last_call_id) AS last_call_outcome, "
+    "(SELECT lc.next_step FROM calls lc WHERE lc.id = l.last_call_id) AS next_step, "
+    "(SELECT min(sc.requested_at) FROM scheduled_callbacks sc WHERE sc.lead_id = l.id "
+    " AND sc.tenant_id = l.tenant_id AND sc.status IN ('scheduled', 'dialing')) "
+    "AS next_callback_at"
 )
 _LEAD_OWNER_JOIN = (
     "LEFT JOIN memberships m ON m.user_id = l.assigned_to AND m.tenant_id = l.tenant_id "
@@ -961,6 +1076,11 @@ def _lead_out(r: Any) -> LeadOut:
         updated_at=r[12],
         assigned_to=r[13],
         assigned_to_name=r[14],
+        status_set_by=r[15],
+        last_call_headline=r[16],
+        last_call_outcome=normalise_outcome(r[17]),
+        next_step=r[18],
+        next_callback_at=r[19],
     )
 
 
@@ -977,6 +1097,17 @@ async def get_lead(session: AsyncSession, lead_id: UUID) -> LeadOut:
     if row is None:
         raise ProblemError.not_found("Lead")
     return _lead_out(row)
+
+
+async def lead_agent_id(session: AsyncSession, lead_id: UUID) -> UUID | None:
+    """The agent a lead belongs to; `None` for one no agent captured."""
+    value = (
+        await session.execute(
+            text("SELECT agent_id FROM leads WHERE id = :lid AND deleted_at IS NULL"),
+            {"lid": lead_id},
+        )
+    ).scalar()
+    return UUID(str(value)) if value is not None else None
 
 
 async def lead_phone(session: AsyncSession, lead_id: UUID) -> tuple[str, str | None]:
@@ -1125,6 +1256,9 @@ async def set_lead_status(session: AsyncSession, lead_id: UUID, *, status: str, 
         row_id=lead_id,
         to_status=status,
         from_statuses=_lead_from_statuses(status),
+        # A PERSON chose this status, so the after-call rules leave it alone from now on
+        # (founder decision 8, `workers/pipeline._advance_lead_status`).
+        extra_set="status_set_by = 'person', status_set_at = now()",
         visible_where=_LEAD_VISIBLE,
     )
     if moved:
@@ -1628,7 +1762,7 @@ async def export_calls_csv(session: AsyncSession, filters: CallFilters) -> CallE
         await session.execute(
             text(
                 "SELECT c.started_at, c.direction, c.from_e164, c.to_e164, a.name, "
-                "c.duration_s, c.status, c.outcome_tag, c.sentiment, c.summary "
+                "c.duration_s, c.status, c.outcome_tag, c.sentiment, c.summary, c.summary_state "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {where} "
                 "ORDER BY c.started_at DESC NULLS LAST, c.id DESC LIMIT :limit"
             ),
@@ -1658,9 +1792,9 @@ async def export_calls_csv(session: AsyncSession, filters: CallFilters) -> CallE
                     r[4],
                     r[5],
                     r[6],
-                    r[7],
+                    normalise_outcome(r[7]),
                     r[8],
-                    redacted_summary(r[9]),
+                    redacted_summary(_shown_summary(r[9], r[10])),
                 )
             ]
         )
@@ -1702,7 +1836,9 @@ async def export_leads_csv(
     one resolver rather than a coincidence between two lists. There is no fixed header
     constant here any more; the one that used to live above this function was the second
     of the two lists, and it is what let the file hold `source` and `created_at` while
-    the screen showed `owner` and `updated_at`.
+    the screen showed `owner` and `updated_at`. The one addition is
+    `crm.columns.for_export`: Name and Phone always lead the file, then the chosen
+    columns follow without repeating them.
 
     The row query therefore selects the SAME projection as the list (`_LEAD_COLUMNS`,
     owner join included) rather than a shorter one of its own: a column the registry can
@@ -1728,7 +1864,11 @@ async def export_leads_csv(
     the FILTERED rows, which is what makes the refusal's advice ("narrow it") reachable.
     """
     fields = await lead_columns(session, agent_id)
-    chosen = lead_column_registry.resolve(lead_column_registry.available(fields), columns).columns
+    available = lead_column_registry.available(fields)
+    # The file always opens with Name and Phone; the screen's choice follows them.
+    chosen = lead_column_registry.for_export(
+        available, lead_column_registry.resolve(available, columns).columns
+    )
     params: dict[str, Any] = {"limit": MAX_EXPORT_ROWS + 1}
     clauses = _lead_scope(
         params,
@@ -2387,9 +2527,10 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
 # follow-up's clothes.
 MAX_CALLBACK_DEPTH = 2
 CALLBACK_WINDOW_DAYS = 7
-# Outcomes a callback makes sense for. `resolved` is excluded on purpose: the whole
-# point of recording an outcome is that we then act differently on it.
-CALLBACK_OUTCOMES: tuple[OutcomeTag, ...] = ("needs_follow_up", "dropped")
+# Outcomes a follow-up makes sense for. `answered` is excluded on purpose: the whole
+# point of recording an outcome is that we then act differently on it. `call_back_booked`
+# is excluded because the call back IS the follow-up and `plan_callback` says when it is.
+CALLBACK_OUTCOMES: tuple[OutcomeTag, ...] = ("needs_you", "hung_up_early", "missed")
 CALLBACK_STATUSES: tuple[CallStatus, ...] = ("no_answer", "busy", "voicemail", "completed")
 
 
@@ -2453,6 +2594,9 @@ async def plan_callback(session: AsyncSession, call_id: UUID) -> CallbackPlan:
         direction,
     ) = row
 
+    # THE BOOKED CALL BACK IS READ FIRST (F-4): a call that ended with one is followed up
+    # by it, and the panel says so — when it is due, or why it could not be placed.
+    owed = await _refuse_when_call_back_booked(session, call_id)
     if lead_id is None or phone is None:
         raise ProblemError.business_rule(
             "callback_no_lead",
@@ -2464,10 +2608,16 @@ async def plan_callback(session: AsyncSession, call_id: UUID) -> CallbackPlan:
             "This call has not finished yet.",
             remediation="Wait for the call to end, then try again.",
         )
-    if status == "completed" and outcome not in CALLBACK_OUTCOMES:
+    current = normalise_outcome(outcome)
+    if (
+        status == "completed"
+        and not owed
+        and current is not None
+        and current not in CALLBACK_OUTCOMES
+    ):
         raise ProblemError.business_rule(
             "callback_not_needed",
-            f"This call was marked {outcome or 'resolved'}, so no follow-up is due.",
+            _NOT_NEEDED_REASON.get(current, "This call needs no follow-up."),
         )
     if direction == "inbound":
         # The agent that ANSWERS is not necessarily configured to place calls, and
@@ -2515,6 +2665,47 @@ async def plan_callback(session: AsyncSession, call_id: UUID) -> CallbackPlan:
         context_note=note,
         depth=depth,
     )
+
+
+#: Why a follow-up is not offered, per outcome, in the client's words.
+_NOT_NEEDED_REASON: dict[str, str] = {
+    "answered": "The agent dealt with this call, so no follow-up is due.",
+    "transferred": "This call was handed to a person on your team, so no follow-up is due.",
+}
+
+
+async def _refuse_when_call_back_booked(session: AsyncSession, call_id: UUID) -> bool:
+    """Refuse a second follow-up while a call back booked on this call is still to come or
+    was placed, naming its time in IST. True when one was booked and did NOT go out
+    (refused, missed, failed): the caller is still owed a call, so a follow-up is offered
+    whatever the outcome says."""
+    booked = (
+        await session.execute(
+            text(
+                "SELECT s.requested_at, s.status, s.last_refusal_reason FROM scheduled_callbacks s "
+                "WHERE s.source_call_id = :cid ORDER BY s.booked_at DESC, s.id DESC LIMIT 1"
+            ),
+            {"cid": call_id},
+        )
+    ).first()
+    if booked is None:
+        return False
+    due_at, cb_status, _reason = booked
+    when = (
+        due_at.astimezone(_EXPORT_IST).strftime("%d %b at %H:%M") if due_at else "the agreed time"
+    )
+    if cb_status in ("scheduled", "dialing"):
+        raise ProblemError.business_rule(
+            "callback_already_booked",
+            f"A call back is already booked for {when} (IST). It will be placed then.",
+            remediation="Cancel it on the Call backs page first if you want to call now.",
+        )
+    if cb_status == "completed":
+        raise ProblemError.business_rule(
+            "callback_already_placed",
+            f"The call back booked for {when} (IST) has been placed.",
+        )
+    return cb_status in ("refused", "missed", "failed")
 
 
 async def link_callback(session: AsyncSession, *, handle: str, parent_call_id: UUID) -> None:

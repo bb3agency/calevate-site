@@ -66,11 +66,19 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     caller_e164: "+919876543210",
     started_at: "2026-08-13T04:30:00Z",
     duration_s: 92,
-    outcome_tag: "appointment_booked",
+    outcome_tag: "call_back_booked",
+    summary_state: "ready",
+    test_call: false,
+    translation_state: "not_needed",
     sentiment: "positive",
     summary: "Caller asked for a Tuesday slot.",
     lead_id: "l1",
     extraction: { patient_name: "Ravi", slot: "Tuesday 5pm" },
+    captured: [
+      { key: "need", label: "What they want", type: "text", core: true, current: true, value: null },
+      { key: "patient_name", label: "Patient name", type: "text", core: false, current: true, value: "Ravi" },
+      { key: "slot", label: "Slot", type: "text", core: false, current: true, value: "Tuesday 5pm" },
+    ],
     extraction_valid: true,
     has_recording: false,
     disclosure_played: true,
@@ -134,6 +142,16 @@ describe("the call detail screen", () => {
       routes(
         detail({
           extraction: { callback_number: "1234567890" },
+          captured: [
+            {
+              key: "callback_number",
+              label: "Callback number",
+              type: "text",
+              core: false,
+              current: true,
+              value: "1234567890",
+            },
+          ],
           extraction_needs_review: {
             callback_number:
               "Callback number was captured but is not a standard Indian mobile number — check it before dialling.",
@@ -514,7 +532,7 @@ describe("the call detail screen", () => {
  * than hidden, so 'why can't I follow this up?' is answered on screen", which is exactly
  * what the missing branch stopped it doing.
  */
-describe("the follow-up card when the eligibility read did not answer", () => {
+describe("the follow-up action when the eligibility read did not answer", () => {
   it("refuses in place, rather than deleting itself, on a failed read", async () => {
     const { container } = await renderClientPage(
       page,
@@ -527,7 +545,6 @@ describe("the follow-up card when the eligibility read did not answer", () => {
     );
 
     // PRESENT, not merely "the button is gone" — an empty screen satisfies that too.
-    expect(await screen.findByText("Follow up")).toBeTruthy();
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Service unavailable");
     expect(container.textContent).toContain(
@@ -535,16 +552,17 @@ describe("the follow-up card when the eligibility read did not answer", () => {
     );
     // And the action is not offered on a check that never landed.
     expect(
-      screen.queryByRole("button", { name: /Call back with AI/ }),
+      screen.queryByRole("button", { name: /call back now/i }),
     ).toBeNull();
   });
 
-  it("still renders the card, with its reason, when the server answered", async () => {
-    // The premise: without this, the test above passes on a screen with no card at all.
+  it("states the server's reason in place of the action when it answered no", async () => {
+    // The premise: without this, the test above passes on a screen with no action at all.
     const { container } = await renderClientPage(page, routes(detail()));
 
-    expect(await screen.findByText("Follow up")).toBeTruthy();
-    expect(container.textContent).toContain("This call was answered.");
+    expect(await screen.findByText("This call was answered.")).toBeTruthy();
+    // A refusal by eligibility is a sentence, not a dead button under it.
+    expect(screen.queryByRole("button", { name: /call back now/i })).toBeNull();
     expect(container.textContent).not.toContain(
       "We could not check whether this call",
     );

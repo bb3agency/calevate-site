@@ -5,7 +5,8 @@ import { formatClock } from "@/components/callAudioPlayer";
 import type { CallDetail } from "@/lib/api/client";
 
 /**
- * "Key points in this call" — the reason somebody does not have to play it again.
+ * "Key moments" — the reason somebody does not have to play the call again. The same
+ * moments are ticks on the recording's seek bar; this list is their readable, clickable form.
  *
  * The panel is HIDDEN when there is nothing in it. An always-present "Key points"
  * heading over an empty box on every forty-second appointment booking is a heading
@@ -39,7 +40,7 @@ export function KeyMomentsCard({
   onSeek: (ms: number) => void;
 }) {
   return (
-    <Section title="Key points in this call">
+    <Section title="Key moments">
       <ol className="space-y-1">
         {moments.map((moment, i) => {
           const next = moments[i + 1]?.at_ms;
@@ -50,21 +51,21 @@ export function KeyMomentsCard({
           const suggested = moment.source === "model";
           const body = (
             <>
-              <span className="w-12 shrink-0 text-xs font-medium tabular-nums text-ink-muted">
+              <span className="w-12 shrink-0 text-meta tabular-nums text-ink-faint">
                 {formatClock(moment.at_ms / 1000)}
               </span>
-              <span className="min-w-0 flex-1 text-sm text-ink">{moment.label}</span>
+              <span className="min-w-0 flex-1 text-body text-ink">{moment.label}</span>
               {suggested && (
                 <span
-                  className="shrink-0 rounded-full bg-black/5 px-2 py-0.5 text-[10px] font-medium text-ink-faint dark:bg-white/10"
-                  title="Suggested by the assistant from the transcript — the time may be approximate."
+                  className="shrink-0 text-meta text-ink-faint"
+                  title="Suggested from the transcript. The time may be a few seconds out."
                 >
-                  AI
+                  Suggested
                 </span>
               )}
             </>
           );
-          const tone = active ? "bg-brand-strong/10 dark:bg-brand-bright/10" : "";
+          const tone = active ? "bg-brand-soft/60" : "";
           return (
             <li key={`${moment.at_ms}-${moment.kind}-${i}`}>
               {audioLoaded ? (
@@ -73,7 +74,7 @@ export function KeyMomentsCard({
                   onClick={() => onSeek(moment.at_ms)}
                   aria-label={`Play from ${formatClock(moment.at_ms / 1000)} — ${moment.label}`}
                   aria-current={active ? "true" : undefined}
-                  className={`flex w-full items-baseline gap-3 rounded-md px-2 py-1.5 text-left transition-colors duration-(--duration-fast) ease-out hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand dark:hover:bg-white/5 ${tone}`}
+                  className={`flex w-full items-baseline gap-3 rounded-md px-2 py-1.5 text-left transition-colors duration-(--duration-fast) ease-out hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand motion-reduce:transition-none ${tone}`}
                 >
                   {body}
                 </button>
@@ -87,8 +88,8 @@ export function KeyMomentsCard({
         })}
       </ol>
       {!audioLoaded && (
-        <p className="mt-2 text-xs text-ink-faint">
-          Open the recording above to jump to any of these.
+        <p className="mt-2 text-meta text-ink-faint">
+          Open the recording to jump to any of these.
         </p>
       )}
     </Section>

@@ -39,6 +39,7 @@ from apps.api.core.rbac import permission_meta
 from apps.api.crm import assist, lead_search, live_speaking, saved_views, service
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm.attention import attention_queue
+from apps.api.crm.captured import captured_fields
 from apps.api.crm.lead_dial import place_lead_call
 from apps.api.crm.performance import performance
 from apps.api.crm.schemas import (
@@ -50,6 +51,7 @@ from apps.api.crm.schemas import (
     CallLeadIn,
     CallLeadOut,
     CallSummaryOut,
+    CapturedFieldsOut,
     DashboardOut,
     LeadBulkFailureOut,
     LeadBulkIn,
@@ -114,9 +116,10 @@ async def get_calls(
     direction: service.CallDirection | None = None,
     since: datetime | None = Query(None, description="Calls started at or after this instant"),
     until: datetime | None = Query(None, description="Calls started before this instant"),
+    test_calls: bool = Query(True, description="False leaves out free-trial test calls"),
     _: Principal = Depends(requires("calls:read")),
 ) -> list[CallSummaryOut]:
-    filters = _call_filters(status, agent_id, outcome, direction, since, until)
+    filters = _call_filters(status, agent_id, outcome, direction, since, until, test_calls)
     return await service.list_calls(session, limit=limit, offset=offset, filters=filters)
 
 
@@ -127,6 +130,7 @@ def _call_filters(
     direction: service.CallDirection | None,
     since: datetime | None,
     until: datetime | None,
+    test_calls: bool = True,
 ) -> service.CallFilters:
     for instant in (since, until):
         if instant is not None and instant.tzinfo is None:
@@ -144,6 +148,7 @@ def _call_filters(
         direction=direction,
         since=since,
         until=until,
+        test_calls=test_calls,
     )
 
 
@@ -166,8 +171,9 @@ async def export_calls(
     direction: service.CallDirection | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
+    test_calls: bool = True,
 ) -> Response:
-    filters = _call_filters(status, agent_id, outcome, direction, since, until)
+    filters = _call_filters(status, agent_id, outcome, direction, since, until, test_calls)
     export = await service.export_calls_csv(session, filters)
     await write_audit(
         session,
@@ -1350,6 +1356,27 @@ async def get_lead(
     lead_id: UUID, session: Session, _: Principal = Depends(requires("leads:read"))
 ) -> LeadOut:
     return await service.get_lead(session, lead_id)
+
+
+@router.get(
+    "/leads/{lead_id}/captured",
+    response_model=CapturedFieldsOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="A lead's captured details, each under the name it was captured with",
+)
+async def get_lead_captured(
+    lead_id: UUID, session: Session, _: Principal = Depends(requires("leads:read"))
+) -> CapturedFieldsOut:
+    """The core every lead carries first (`calevate_shared.lead_fields`), then the
+    business fields of the version the lead was captured under, then any value from an
+    earlier version — so a business moved to new fields still reads its old answers."""
+    lead = await service.get_lead(session, lead_id)
+    agent_id = await service.lead_agent_id(session, lead_id)
+    return CapturedFieldsOut(
+        fields=await captured_fields(
+            session, agent_id=agent_id, schema_version=lead.schema_version, data=lead.data
+        )
+    )
 
 
 @router.patch(

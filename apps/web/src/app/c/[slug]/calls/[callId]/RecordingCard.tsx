@@ -1,26 +1,25 @@
 "use client";
 
-import { Section } from "@/components/console/section";
 import { AudioLines } from "lucide-react";
 
-import { ProblemNotice } from "@/components/ui";
+import { ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
 import {
   CallAudioPlayer,
   type CallAudioPlayerHandle,
 } from "@/components/callAudioPlayer";
+import type { CallDetail } from "@/lib/api/client";
 
 import type { useRecordingLink } from "./transcriptAccess";
 
 /**
- * A short-lived, presigned link to OUR copy of the audio — never the engine's URL.
+ * The recording, above the transcript it plays.
  *
- * Fetched on a click rather than with the page: the endpoint mints a signed URL with a
- * ticking expiry AND writes an `audit_log` row (crm/routes.py), so requesting one for
- * every visitor who never presses play would both burn the link and record a listen
- * that did not happen.
- *
- * Rendered into an `<audio>` element rather than an anchor. A signed URL in an `href`
- * is a URL a browser keeps in history and hands to the next page as a referrer, and the
+ * A short-lived, presigned link to OUR copy of the audio — never the engine's URL —
+ * fetched on the first press rather than with the page: the endpoint mints a signed URL
+ * with a ticking expiry AND writes an `audit_log` row (crm/routes.py), so requesting one
+ * for every visitor who never presses play would burn the link and record a listen that
+ * did not happen. It is rendered into an `<audio>` element rather than an anchor: a
+ * signed URL in an `href` is kept in history and handed on as a referrer, and the
  * signature is the credential.
  */
 export function RecordingCard({
@@ -28,54 +27,57 @@ export function RecordingCard({
   playerRef,
   onTimeUpdate,
   durationS,
+  moments,
 }: {
   recording: ReturnType<typeof useRecordingLink>;
   playerRef: React.Ref<CallAudioPlayerHandle>;
   onTimeUpdate: (seconds: number) => void;
   durationS: number | null;
+  moments: CallDetail["moments"];
 }) {
+  if (recording.data) {
+    return (
+      <div className="space-y-2">
+        <CallAudioPlayer
+          ref={playerRef}
+          src={recording.data.url}
+          fallbackDurationS={recording.data.duration_s ?? durationS}
+          onTimeUpdate={onTimeUpdate}
+          marks={moments.map((m) => ({ atS: m.at_ms / 1000, label: m.label }))}
+          onExpired={async () => {
+            // Mint a replacement rather than surfacing the browser's bare media error.
+            // `mutateAsync` rejects on failure, and the catch turns that into the
+            // player's own refusal instead of an unhandled rejection.
+            try {
+              const fresh = await recording.mutateAsync();
+              return fresh.url;
+            } catch {
+              return null;
+            }
+          }}
+        />
+        <p className="text-meta text-ink-faint">
+          Opening this recording was recorded in your audit log. The link is private to this
+          page and is refreshed automatically while you listen.
+        </p>
+      </div>
+    );
+  }
   return (
-    <Section title="Recording">
-      {recording.error && <ProblemNotice error={recording.error} />}
-      {recording.data ? (
-        <div className="space-y-2">
-          <CallAudioPlayer
-            ref={playerRef}
-            src={recording.data.url}
-            fallbackDurationS={recording.data.duration_s ?? durationS}
-            onTimeUpdate={onTimeUpdate}
-            onExpired={async () => {
-              // Mint a replacement rather than surfacing the browser's bare media error.
-              // `mutateAsync` REJECTS on failure, so the catch is what turns "we could
-              // not get you a new link" into the player's own refusal instead of an
-              // unhandled rejection in the console.
-              try {
-                const fresh = await recording.mutateAsync();
-                return fresh.url;
-              } catch {
-                return null;
-              }
-            }}
-          />
-          <p className="text-xs text-ink-faint">
-            Opening this recording was recorded in your audit log. The link is private to this
-            page and is refreshed automatically while you listen.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <button
-            type="button"
-            disabled={recording.isPending}
-            onClick={() => recording.mutate()}
-            className="press inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:enabled:hover:bg-white/5"
-          >
-            <AudioLines className="h-4 w-4" />
-            {recording.isPending ? "Preparing…" : "Listen to this call"}
-          </button>
-          <p className="text-xs text-ink-faint">Opening the recording is recorded in your audit log.</p>
-        </div>
-      )}
-    </Section>
+    <div className="space-y-2">
+      {recording.error != null && <ProblemNotice error={recording.error} />}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <button
+          type="button"
+          disabled={recording.isPending}
+          onClick={() => recording.mutate()}
+          className={SECONDARY_BUTTON}
+        >
+          <AudioLines aria-hidden className="h-4 w-4" />
+          {recording.isPending ? "Preparing…" : "Listen to this call"}
+        </button>
+        <span className="text-meta text-ink-faint">Opening the recording is recorded in your audit log.</span>
+      </div>
+    </div>
   );
 }

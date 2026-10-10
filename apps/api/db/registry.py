@@ -20,6 +20,7 @@ from apps.api.crm import models as crm_models
 from apps.api.db.base import Base
 from apps.api.flags import models as flags_models
 from apps.api.healer import models as healer_models
+from apps.api.ingest import models as ingest_models
 from apps.api.insights import models as insights_models
 from apps.api.integrations import models as integrations_models
 from apps.api.kb import models as kb_models
@@ -28,6 +29,7 @@ from apps.api.ops import models as ops_models
 from apps.api.quality import models as quality_models
 from apps.api.reliability import models as reliability_models
 from apps.api.retrieval import models as retrieval_models
+from apps.api.teach import models as teach_models
 from apps.api.tenancy import models as tenancy_models
 
 __all__ = [
@@ -48,6 +50,7 @@ __all__ = [
     "crm_models",
     "flags_models",
     "healer_models",
+    "ingest_models",
     "insights_models",
     "integrations_models",
     "kb_models",
@@ -56,6 +59,7 @@ __all__ = [
     "quality_models",
     "reliability_models",
     "retrieval_models",
+    "teach_models",
     "tenancy_models",
 ]
 
@@ -96,6 +100,23 @@ TENANT_TABLES = [
     "prompt_experiment_variants",
     "call_variant_assignments",
     "extraction_schemas",
+    # A custom business's one AI draft of its lead fields (founder decision 15, migration
+    # b4e8d2a61c90): the client's own business details turned into field definitions.
+    "lead_field_drafts",
+    # Pre-launch test conversations (founder decision 11, migration f7c3a9e15d26): what an
+    # agent said to scripted caller lines in the engine's sandbox.
+    "agent_test_runs",
+    # The teach box and the improvement loop (founder decisions 9 and 11, migration
+    # a8d3f6c1e924): taught facts, a teaching under review, rules waiting for an agent's
+    # script, and test cases saved from real calls.
+    "kb_teachings",
+    "kb_facts",
+    "agent_rule_proposals",
+    "agent_test_cases",
+    # A client's plan for calling new leads and the leads held for its release (D-716,
+    # migration a9c4e2f7d138).
+    "lead_call_policies",
+    "lead_call_holds",
     "phone_numbers",
     "outbound_sender_attestations",
     # Whose connection a bought number is: one identity per tenant, reused for every

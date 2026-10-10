@@ -154,6 +154,9 @@ class SubjectExportCallOut(Strict):
     # Model-written prose about the conversation, with every phone-shaped run that is NOT
     # the subject's own masked by `export.mask_foreign_numbers` before it ships.
     summary: str | None
+    summary_local: str | None = None
+    headline: str | None = None
+    next_step: str | None = None
     recording_available: bool
 
 

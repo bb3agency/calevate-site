@@ -85,6 +85,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from calevate_shared.extraction import ExtractionField
+from calevate_shared.lead_fields import with_core
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -158,9 +159,7 @@ async def _fields_for(
     session: AsyncSession, agent_id: UUID, version: int | None
 ) -> list[ExtractionField]:
     row = (await session.execute(text(_SCHEMA_SQL), {"aid": agent_id, "ver": version})).first()
-    if row is None or not row[0]:
-        return []
-    return [ExtractionField.model_validate(f) for f in row[0]]
+    return with_core(row[0] if row is not None else None)
 
 
 async def _project(

@@ -26,6 +26,7 @@ import TenantNumbersPage from "@/app/admin/tenants/[tenantId]/numbers/page";
 import LifecyclePage from "@/app/admin/tenants/[tenantId]/lifecycle/page";
 import TenantClosurePage from "@/app/admin/tenants/[tenantId]/closure/page";
 import TenantProfilePage from "@/app/admin/tenants/[tenantId]/profile/page";
+import TenantLeadDetailsPage from "@/app/admin/tenants/[tenantId]/lead-details/page";
 import TenantAgentsPage from "@/app/admin/tenants/[tenantId]/agents/page";
 import TenantMembersPage from "@/app/admin/tenants/[tenantId]/members/page";
 import HeldAccountsPage from "@/app/admin/holds/page";
@@ -84,6 +85,7 @@ import QaSampleReviewPage from "@/app/admin/qa-sampling/[sampleId]/page";
 import AlertsPage from "@/app/c/[slug]/settings/alerts/page";
 import LineProtectionPage from "@/app/c/[slug]/settings/line-protection/page";
 import BusinessProfilePage from "@/app/c/[slug]/settings/business/page";
+import LeadDetailsPage from "@/app/c/[slug]/settings/lead-details/page";
 import SetupPage from "@/app/c/[slug]/setup/page";
 import ClientLlmModelPage from "@/app/c/[slug]/settings/models/page";
 import TeamPage from "@/app/c/[slug]/settings/team/page";
@@ -123,6 +125,7 @@ import { workspaceRoutes } from "./copilotWorkspaceFixture";
 import { noReply, problem, renderClientPage, type Routes } from "./harness";
 import { adminBusinessProfileFixture, businessProfileFixture } from "./businessProfileFixture";
 import { RATE_CARD_ROUTES } from "./fixtures/rateCard";
+import { LEAD_CALLING_ROUTES } from "./fixtures/leadCalling";
 import {
   AUTODIALER_NOTICE_RECORDED,
   KB_ALL_DELIVERED,
@@ -136,6 +139,9 @@ import {
   OWN_NUMBERS_STATUS_PATH,
   clientLlmTiers,
   adminOverviewSummaryReads,
+  LEAD_FIELDS_CORE_ONLY,
+  settledPending,
+  AGENT_SPEND_PATH,
 } from "./fixtures/sharedReads";
 
 /**
@@ -280,6 +286,35 @@ const SENDER_STATEMENT =
   "requires promotional, service and transactional voice calls to be made only from a " +
   "registered 140 or 160 series voice header, that this number is not one, and that my " +
   "business accepts responsibility for calls made from it.";
+
+/** A shop with one agent on its standard details (founder decision 15). */
+const LEAD_FIELDS = {
+  business_type: "retail",
+  business_type_label: "Shop, food or produce",
+  core_fields: [
+    { key: "name", label: "Name", type: "text" as const, reason: "", required: false, enum_values: null },
+    { key: "need", label: "What they want", type: "text" as const, reason: "", required: false, enum_values: null },
+  ],
+  need_key: "need",
+  standard_fields: [
+    { key: "product", label: "Product", type: "text" as const, reason: "", required: true, enum_values: null },
+  ],
+  has_standard_set: true,
+  draft: null,
+  can_draft: false,
+  agents: [
+    {
+      id: "a1",
+      name: "Shop counter",
+      direction: "inbound",
+      status: "live",
+      version: 2,
+      business_fields: [
+      { key: "product", label: "Product", type: "text" as const, reason: "", required: true, enum_values: null },
+      ],
+    },
+  ],
+};
 
 const ME = {
   user_id: "u1",
@@ -646,7 +681,7 @@ const CALL = {
   caller_e164: "+919876543210",
   started_at: "2026-08-13T04:30:00Z",
   duration_s: 92,
-  outcome_tag: "appointment_booked",
+  outcome_tag: "call_back_booked" as const,
   sentiment: "positive",
   summary: "Caller asked for a Tuesday slot.",
   lead_id: "lead-a",
@@ -774,6 +809,51 @@ const SCRIPT = {
       { key: "consultation_fee", label: "Consultation fee", example: "₹500" },
     ],
     raw_override: null,
+    schema_version: 2,
+    business_line: "A family clinic in Guntur",
+    identity: "You answer the phone for the clinic and book appointments.",
+    goal: "Book an appointment or answer the caller's question.",
+    outbound_purpose: "",
+    style: {
+      tone: "Warm and calm",
+      address_form: "andi and garu",
+      code_mix: "natural",
+      sample_phrases: ["Cheppandi andi"],
+      pronunciations: [{ word: "Guntur", say_as: "Goon-toor" }],
+    },
+    stages: [
+      { id: "s1", name: "Need", instruction: "Ask what the caller needs.", sounds_like: "Cheppandi andi" },
+      {
+        id: "s2",
+        name: "Book",
+        mode: "say",
+        instruction: "Which day suits you?",
+        sounds_like: "",
+        branches: [{ when: "they want a person", target: "hand_over" }],
+        otherwise: "end",
+        collect: ["Preferred day"],
+        position: { x: 300, y: 40 },
+      },
+    ],
+    objections: [{ objection: "Too expensive.", response: "Explain what is included." }],
+    policies: { offer_call_backs: true, share_prices: true, take_bookings: true },
+    ending: "Thank them and say goodbye.",
+    example_exchange: [
+      { speaker: "caller", text: "Appointment dorukutunda?" },
+      { speaker: "agent", text: "Tappakunda andi." },
+    ],
+    example_needs_review: true,
+  },
+  stored_schema_version: 2,
+  context: {
+    collect: [{ label: "Name", reason: "", required: true }],
+    call_backs_available: false,
+    hand_over_enabled: false,
+    direction: "inbound",
+    language: "te-IN",
+    register_name: "Neutral spoken Telugu (Telangana and Andhra)",
+    register_needs_review: true,
+    business_type: "clinic",
   },
   version: 4,
   is_freeform: false,
@@ -1810,7 +1890,7 @@ const QA_SAMPLE = {
   started_at: "2026-08-05T06:30:00Z",
   duration_s: 154,
   direction: "inbound",
-  outcome_tag: "resolved",
+  outcome_tag: "answered",
   sentiment: "positive",
   disclosure_played: true,
   verdict: null,
@@ -2035,6 +2115,9 @@ const CLIENT_SCREENS: Screen[] = [
         has_recording: true,
         disclosure_played: true,
         extraction: { name: "Ramesh Kumar" },
+        captured: [
+          { key: "name", label: "Name", type: "text", core: true, current: true, value: "Ramesh Kumar" },
+        ],
         extraction_valid: true,
         moments: [
           {
@@ -2050,6 +2133,9 @@ const CLIENT_SCREENS: Screen[] = [
             source: "model",
           },
         ],
+        summary_state: "ready",
+        test_call: false,
+        translation_state: "not_needed",
       } satisfies CallDetail,
       "/v1/calls/c1/callback": { eligible: false, reason: "consent_missing" },
     },
@@ -2115,6 +2201,7 @@ const CLIENT_SCREENS: Screen[] = [
           },
         ],
       },
+      "/v1/lead-fields": LEAD_FIELDS_CORE_ONLY,
     },
   },
   {
@@ -2141,6 +2228,12 @@ const CLIENT_SCREENS: Screen[] = [
           },
         ],
         total: 1,
+      },
+      "/v1/leads/lead-a/captured": {
+        fields: [
+          { key: "need", label: "What they want", type: "text", core: true, current: true, value: "A Tuesday slot" },
+          { key: "notes", label: "Notes", type: "text", core: true, current: true, value: null },
+        ],
       },
     },
   },
@@ -2191,6 +2284,8 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/organization/llm-defaults": clientLlmTiers(),
       "/v1/agents/voices": voiceCatalogue("client"),
       "/v1/agents/lanes": LANES,
+      // The header's "₹X this month" line, with this agent charged, so its markup is swept.
+      [AGENT_SPEND_PATH]: SPEND,
       "/v1/me": ME,
       "/v1/agents/agent-1": AGENT,
       "/v1/calls?agent_id=agent-1&limit=5": [],
@@ -2287,7 +2382,7 @@ const CLIENT_SCREENS: Screen[] = [
             staged_version: 9,
             live_version: 4,
             staged_at: "2026-08-12T09:30:00Z",
-            headline: "Script v9 is waiting to go live.",
+            headline: "Script changes are waiting to go live.",
             why: "It waits for Apply.",
           },
         ],
@@ -2390,6 +2485,44 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/agents/agent-1": AGENT,
       "/v1/me": ME,
       "/v1/agents/agent-1/script": SCRIPT,
+      "/v1/agents/agent-1/pending": settledPending(),
+      "/v1/agents/agent-1/script/proposed-rules": [
+        {
+          id: "rule-1",
+          agent_id: "agent-1",
+          text: "Never promise delivery on Sundays.",
+          status: "pending",
+          created_at: "2026-10-10T09:00:00Z",
+        },
+      ],
+      "POST /v1/agents/agent-1/script/preview": {
+        compiled: "",
+        instructions_chars: 3100,
+        instructions_limit: 8000,
+        native_steps: 2,
+      },
+      "/v1/agents/agent-1/script/tests": {
+        available: true,
+        unavailable_reason: null,
+        cost_note: "Tests are not charged to your account.",
+        latest: {
+          status: "done",
+          prompt_version: 4,
+          is_current: true,
+          results: [
+            {
+              key: "asks_if_ai",
+              title: "Asks if it is talking to a person",
+              said: "Am I talking to a real person?",
+              reply: "I am an AI assistant for the clinic.",
+              verdict: "passed",
+              advice: null,
+            },
+          ],
+          created_at: "2026-10-10T10:00:00Z",
+          completed_at: "2026-10-10T10:00:30Z",
+        },
+      },
     },
   },
   {
@@ -2490,6 +2623,7 @@ const CLIENT_SCREENS: Screen[] = [
     realm: "client",
     element: () => <LeadSourcesPage />,
     routes: {
+      ...LEAD_CALLING_ROUTES,
       "/v1/me": ME,
       "/v1/agents": [AGENT],
       "/v1/lead-sources": {
@@ -2848,6 +2982,7 @@ const CLIENT_SCREENS: Screen[] = [
       // The owner's staff-curation switch (D-487). Without it `StaffCurationSwitch`
       // renders its ProblemNotice and the scan would cover an error panel.
       "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
+      "/v1/kb/knows": { facts: [], facts_state: "none", items: [] },
       // Documents and web pages (D-534). One row per state family, so the sweep covers
       // the populated list rather than its empty state: a live PDF, and a photograph
       // waiting for the client to confirm what was read off it.
@@ -2933,6 +3068,12 @@ const CLIENT_SCREENS: Screen[] = [
     realm: "client",
     element: () => <BusinessProfilePage />,
     routes: { "/v1/me": ME, "/v1/business-profile": businessProfileFixture() },
+  },
+  {
+    file: "c/[slug]/settings/lead-details/page.tsx",
+    realm: "client",
+    element: () => <LeadDetailsPage />,
+    routes: { "/v1/me": ME, "/v1/lead-fields": LEAD_FIELDS },
   },
   {
     file: "c/[slug]/setup/page.tsx",
@@ -4397,6 +4538,12 @@ const ADMIN_SCREENS: Screen[] = [
       "/v1/admin/tenants/t1/profile": TENANT_PROFILE,
       "/v1/admin/tenants/t1/business-profile": adminBusinessProfileFixture(),
     },
+  },
+  {
+    file: "admin/tenants/[tenantId]/lead-details/page.tsx",
+    realm: "admin",
+    element: () => <TenantLeadDetailsPage params={tenant} />,
+    routes: { ...TENANT_ROUTES, "/v1/admin/tenants/t1/lead-fields": LEAD_FIELDS },
   },
   {
     // The Agents section's index (D-661): one link row per agent.

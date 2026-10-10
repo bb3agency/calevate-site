@@ -120,29 +120,48 @@ function hosted(over: Partial<HostedVoices> = {}): HostedVoices {
 }
 
 const EXPLANATION =
-  "Switching it on would move every agent that is not set to stay on the platform's own voices onto Cartesia at the Studio rate, so every published Clear agent is set to stay off it first.";
+  "Studio voices are our Cartesia key, switched on for the voice only in the voice platform workspace of each client that publishes a Studio agent. Our developer workspace only holds the key with its switch off.";
 
 const STUDIO_ON: StudioVoices = {
   ready: true,
   cartesia_key_configured: true,
+  developer_holds_key: true,
+  developer_switch_on: false,
+  minute_attested: true,
+  synthesis_priced: true,
+  voices_listed: true,
+  missing: [],
+  workspaces: [
+    {
+      tenant_id: "7f0c2b1e-0000-4000-8000-000000000001",
+      tenant_name: "Sri Clinic",
+      enabled_at: "2026-10-10T10:00:00Z",
+      checked_at: "2026-10-10T11:00:00Z",
+      error_code: null,
+    },
+  ],
   live_studio_agents: 2,
   explanation: EXPLANATION,
-  note: "On: Studio agents speak on our Cartesia key; Clear agents stay off it.",
+  note: "Ready: Studio is on in 1 client workspace(s), and switches on in a client's workspace at its first Studio publish.",
   key: {
-    enabled: true,
-    scope: "voice",
+    enabled: false,
+    scope: null,
     complete: true,
-    using: "own",
+    using: "none",
     voice_provider: "cartesia",
-    speaks_on_own_voice: true,
+    speaks_on_own_voice: false,
   },
 };
 
 const STUDIO_OFF: StudioVoices = {
   ...STUDIO_ON,
   ready: false,
+  developer_holds_key: false,
+  voices_listed: false,
+  missing: ["Run Studio ready to hold the key in our developer workspace."],
+  workspaces: [],
   live_studio_agents: 0,
-  note: "Off: our Cartesia key is not installed in the workspace yet.",
+  note: "Not ready: Run Studio ready to hold the key in our developer workspace.",
   key: {
     enabled: false,
     scope: null,
@@ -151,6 +170,13 @@ const STUDIO_OFF: StudioVoices = {
     voice_provider: null,
     speaks_on_own_voice: false,
   },
+};
+
+const STUDIO_LEGACY: StudioVoices = {
+  ...STUDIO_ON,
+  developer_switch_on: true,
+  note: "Our developer workspace's own-keys switch is ON.",
+  key: { ...STUDIO_ON.key, enabled: true, scope: "voice", using: "own", speaks_on_own_voice: true },
 };
 
 function routes(over: Routes = {}): Routes {
@@ -311,7 +337,8 @@ describe("the hosted voices", () => {
       rung: null,
       band: "standard",
       sold: false,
-      not_sold_reason: "Only Premium-tier voices are sold as Clear on this platform, and Priya is in the Standard tier.",
+      not_sold_reason:
+        "Only ThinnestAI Premium band voices are sold as Clear on this platform, and Priya is in the ThinnestAI Standard band.",
       added: false,
       state: "disabled",
       offered: false,
@@ -323,22 +350,24 @@ describe("the hosted voices", () => {
 
     fireEvent.click(await screen.findByRole("tab", { name: "Every voice on the platform" }));
     const row = within(await screen.findByRole("listitem", { name: "Priya" }));
-    expect(row.getByText("Standard tier")).toBeTruthy();
+    expect(row.getByText("ThinnestAI Standard band")).toBeTruthy();
     expect(row.queryByText("Clear")).toBeNull();
     const add = row.getByRole("button", { name: "Add Priya" }) as HTMLButtonElement;
     expect(add.disabled).toBe(true);
-    expect(row.getByText(/Priya is in the Standard tier/)).toBeTruthy();
-    expect(within(card("Anjali")).getByText("Premium tier")).toBeTruthy();
+    expect(row.getByText(/Priya is in the ThinnestAI Standard band/)).toBeTruthy();
+    expect(within(card("Anjali")).getByText("ThinnestAI Premium band")).toBeTruthy();
     expect(
-      screen.getByText(/Tiers on the platform: 3 Standard · 1 Premium · 2 Studio/),
+      screen.getByText(
+        /Bands on the platform: 3 ThinnestAI Standard band · 1 ThinnestAI Premium band · 2 ThinnestAI Studio band/,
+      ),
     ).toBeTruthy();
     fireEvent.click(add);
     expect(calls.some((c) => c.method === "POST" && c.path === OPS_HOSTED_PATH)).toBe(false);
   });
 
-  it("explains plainly when the platform lists none of the tier sold as Clear", async () => {
+  it("explains plainly when the platform lists none of the band sold as Clear", async () => {
     const sentence =
-      "ThinnestAI listed 4 voice(s) but none in the Premium tier, the tier sold as Clear ('Voice band sold as Clear' in the ops console). Check the account on ThinnestAI, then refresh.";
+      "ThinnestAI listed 4 voice(s) but none in the ThinnestAI Premium band, the band sold as Clear ('ThinnestAI voice band sold as Clear' in the ops console). Check the account on ThinnestAI, then refresh.";
     renderAdminPage(
       <VoicesPage />,
       routes({
@@ -350,12 +379,12 @@ describe("the hosted voices", () => {
       }),
     );
 
-    expect(await screen.findByText("No Premium-tier voices on the voice platform")).toBeTruthy();
+    expect(await screen.findByText("No ThinnestAI Premium band voices on the voice platform")).toBeTruthy();
     expect(screen.getByText(sentence)).toBeTruthy();
-    expect(screen.queryByText(/not the Studio voices switch below/)).toBeNull();
+    expect(screen.queryByText(/is not our Studio tier below/)).toBeNull();
   });
 
-  it("on the Studio tier, says the Cartesia switch adds no voice to it", async () => {
+  it("on ThinnestAI's Studio band, says our Studio tier adds no voice to it", async () => {
     renderAdminPage(
       <VoicesPage />,
       routes({
@@ -363,13 +392,13 @@ describe("the hosted voices", () => {
           voices: [],
           clear_band: "studio",
           bands: { standard: 3, premium: 4 },
-          plan_note: "ThinnestAI listed 7 voice(s) but none in the Studio tier.",
+          plan_note: "ThinnestAI listed 7 voice(s) but none in the ThinnestAI Studio band.",
         }),
       }),
     );
 
-    expect(await screen.findByText("No Studio-tier voices on the voice platform")).toBeTruthy();
-    expect(screen.getByText(/not the Studio voices switch below: that switch is our Cartesia key/)).toBeTruthy();
+    expect(await screen.findByText("No ThinnestAI Studio band voices on the voice platform")).toBeTruthy();
+    expect(screen.getByText(/is not our Studio tier below: that is our Cartesia key/)).toBeTruthy();
   });
 
   it("prints the server's refresh sentence as written", async () => {
@@ -514,7 +543,7 @@ describe("deleting a clone", () => {
 });
 
 describe("the Studio voices card", () => {
-  it("says Studio voices are off and switches them on behind a step-up confirmation", async () => {
+  it("says what is missing and makes Studio ready behind a step-up confirmation", async () => {
     const { calls } = renderAdminPage(
       <VoicesPage />,
       routes({
@@ -523,17 +552,39 @@ describe("the Studio voices card", () => {
       }),
     );
 
-    expect(await screen.findByText(/Off — Studio voices cannot be offered/)).toBeTruthy();
+    expect(await screen.findByText(/Not ready — Studio voices cannot be offered/)).toBeTruthy();
     expect(screen.getByText(STUDIO_OFF.note)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Enable Studio voices" }));
-    const dialog = await screen.findByRole("dialog", { name: "Enable Studio voices?" });
+    fireEvent.click(screen.getByRole("button", { name: "Studio ready" }));
+    const dialog = await screen.findByRole("dialog", { name: "Make Studio ready?" });
     expect(within(dialog).getByText(EXPLANATION)).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Enable Studio voices" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Studio ready" }));
 
-    await screen.findByText(/On — Studio voices can be offered/);
+    await screen.findByText(/Ready — Studio voices can be offered/);
+    expect(screen.getByText(/Sri Clinic/)).toBeTruthy();
     const write = calls.find((c) => c.method === "POST" && c.path === OPS_STUDIO_ENABLE_PATH)!;
     expect(write.headers["X-Confirm-Action"]).toBe("enable_studio_voices");
     expect(JSON.parse(write.body!)).toEqual({});
+  });
+
+  it("names the first Studio client when one is typed", async () => {
+    const tenant = "7f0c2b1e-0000-4000-8000-000000000002";
+    const { calls } = renderAdminPage(
+      <VoicesPage />,
+      routes({
+        [`GET ${OPS_STUDIO_VOICES_PATH}`]: STUDIO_OFF,
+        [`POST ${OPS_STUDIO_ENABLE_PATH}`]: STUDIO_ON,
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Studio ready" }));
+    const dialog = await screen.findByRole("dialog", { name: "Make Studio ready?" });
+    fireEvent.change(within(dialog).getByLabelText(/First Studio client/), { target: { value: tenant } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Studio ready" }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "POST" && c.path === OPS_STUDIO_ENABLE_PATH)).toBe(true),
+    );
+    const write = calls.find((c) => c.method === "POST" && c.path === OPS_STUDIO_ENABLE_PATH)!;
+    expect(JSON.parse(write.body!)).toEqual({ tenant_id: tenant });
   });
 
   it("renders the server's refusal inside the dialog", async () => {
@@ -544,47 +595,48 @@ describe("the Studio voices card", () => {
         [`POST ${OPS_STUDIO_ENABLE_PATH}`]: problem(409, {
           type: "urn:calevate:conflict/studio_agents_not_kept_off",
           title: "Studio voices were not switched on",
-          detail: "1 published agent(s) could not be confirmed as staying on the voice platform's own voices.",
+          detail: "1 published agent(s) in this client's workspace could not be confirmed as staying on the voice platform's own voices.",
           kind: "conflict",
         }),
       }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Enable Studio voices" }));
-    const dialog = await screen.findByRole("dialog", { name: "Enable Studio voices?" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Enable Studio voices" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Studio ready" }));
+    const dialog = await screen.findByRole("dialog", { name: "Make Studio ready?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Studio ready" }));
     expect(await within(dialog).findByText(/could not be confirmed as staying/)).toBeTruthy();
   });
 
-  it("asks again with the server's words before switching off under live Studio agents", async () => {
-    const inUse = problem(409, {
-      type: "urn:calevate:conflict/studio_voices_in_use",
-      title: "Published agents are speaking Studio voices",
-      detail: "2 published agent(s) speak a Studio voice.",
+  it("offers switching our developer workspace off only while it is on, and shows a refusal", async () => {
+    const notMoved = problem(409, {
+      type: "urn:calevate:conflict/studio_clients_not_moved",
+      title: "Some Studio agents still depend on the developer workspace",
+      detail: "1 published Studio agent(s) would stop speaking their voice: agent lives in the developer workspace.",
       kind: "conflict",
     });
     const { calls } = renderAdminPage(
       <VoicesPage />,
       routes({
-        [`POST ${OPS_STUDIO_DISABLE_PATH}?confirm=false`]: inUse,
-        [`POST ${OPS_STUDIO_DISABLE_PATH}?confirm=true`]: STUDIO_OFF,
+        [`GET ${OPS_STUDIO_VOICES_PATH}`]: STUDIO_LEGACY,
+        [`POST ${OPS_STUDIO_DISABLE_PATH}`]: notMoved,
       }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Turn off Studio voices" }));
-    const dialog = await screen.findByRole("dialog", { name: "Turn off Studio voices?" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Turn off Studio voices" }));
-    expect(await within(dialog).findByText(/2 published agent\(s\) speak a Studio voice/)).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Turn off and move those agents" }));
-    await waitFor(() =>
-      expect(calls.filter((c) => c.method === "POST").map((c) => c.path)).toEqual([
-        `${OPS_STUDIO_DISABLE_PATH}?confirm=false`,
-        `${OPS_STUDIO_DISABLE_PATH}?confirm=true`,
-      ]),
-    );
-    expect(calls.find((c) => c.method === "POST")!.headers["X-Confirm-Action"]).toBe(
-      "disable_studio_voices",
-    );
+    expect(await screen.findByText("Our developer workspace's own keys are on")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Switch developer workspace off" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Switch our developer workspace's own keys off?",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Switch it off" }));
+    expect(await within(dialog).findByText(/would stop speaking their voice/)).toBeTruthy();
+    const write = calls.find((c) => c.method === "POST" && c.path === OPS_STUDIO_DISABLE_PATH)!;
+    expect(write.headers["X-Confirm-Action"]).toBe("disable_studio_voices");
+  });
+
+  it("never offers switching the developer workspace off while it is already off", async () => {
+    renderAdminPage(<VoicesPage />, routes({ [`GET ${OPS_STUDIO_VOICES_PATH}`]: STUDIO_ON }));
+    await screen.findByText(/Ready — Studio voices can be offered/);
+    expect(screen.queryByRole("button", { name: "Switch developer workspace off" })).toBeNull();
   });
 });
 
@@ -663,7 +715,7 @@ describe("accessibility", () => {
   it("has no axe violations on the hosted screen", async () => {
     const { container } = renderAdminPage(<VoicesPage />, routes());
     await screen.findByRole("listitem", { name: "Anjali" });
-    await screen.findByText(/On — Studio voices can be offered/);
+    await screen.findByText(/Ready — Studio voices can be offered/);
     await expectNoA11yViolations(container, "admin/ops/voices/page.tsx (hosted)");
   });
 });

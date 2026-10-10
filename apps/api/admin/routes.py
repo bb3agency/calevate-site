@@ -81,7 +81,18 @@ GlobalSession = Annotated[AsyncSession, Depends(global_db)]
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 TenantSession = Annotated[AsyncSession, Depends(db)]
 
-Vertical = Literal["clinic", "real_estate", "insurance", "education", "custom"]
+#: The business types (`scripts/seed.BUSINESS_TYPE_LABELS`, in picker order).
+#: `tests/lead_fields_test.py` holds this Literal to that dict's keys.
+Vertical = Literal[
+    "retail",
+    "local_services",
+    "automobile",
+    "clinic",
+    "real_estate",
+    "insurance",
+    "education",
+    "custom",
+]
 
 #: The two account columns the directory may be narrowed by, as the wire spells them.
 #:
@@ -246,7 +257,9 @@ class CreateOrgIn(BaseModel):
     # Optional: derived from the name when absent. IMMUTABLE once set (DB trigger),
     # because it lives in every client URL.
     slug: str | None = Field(default=None, max_length=40)
-    vertical_template: Vertical = "clinic"
+    #: No trade is anybody's default: an operator who does not choose gets the neutral
+    #: type, whose business fields are drafted from the business's own details.
+    vertical_template: Vertical = "custom"
     billing_email: EmailStr | None = None
     #: The new account's first agent speaks this. Imported, not respelled inline — see
     #: `agents/languages.py`; `OfferedLanguage` carries the same OpenAPI enum and refuses

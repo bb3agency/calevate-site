@@ -2226,6 +2226,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/lead-fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The lead details one client captures */
+        get: operations["admin_get_lead_fields_v1_admin_tenants__tenant_id__lead_fields_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/lead-fields/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Draft one client's lead details once, from its business details */
+        post: operations["admin_post_draft_v1_admin_tenants__tenant_id__lead_fields_draft_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/lead-fields/replace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace one client's agents' lead details with a standard set
+         * @description Each agent named (every agent when none is named) gets the set as a NEW version of its lead details; values already captured stay on their leads and calls, readable under their old names.
+         */
+        post: operations["admin_post_replace_v1_admin_tenants__tenant_id__lead_fields_replace_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/margin": {
         parameters: {
             query?: never;
@@ -3319,6 +3373,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/script/convert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Propose sections for a hand-written prompt (AI), with what could not be placed
+         * @description SUBJECT → GATE → RUN → METER, as the assist above, on the client's AI allowance.
+         */
+        post: operations["convert_script_v1_agents__agent_id__script_convert_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Autosave the working copy (no version, never reaches a call) */
+        put: operations["save_script_draft_v1_agents__agent_id__script_draft_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/script/preview": {
         parameters: {
             query?: never;
@@ -3336,6 +3427,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/script/proposed-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Rules the owner taught that are waiting to be added to this agent's script */
+        get: operations["list_proposed_rules_v1_agents__agent_id__script_proposed_rules_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/proposed-rules/{rule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark a waiting rule as added to the script, or dismiss it */
+        post: operations["resolve_proposed_rule_v1_agents__agent_id__script_proposed_rules__rule_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put it live: the draft becomes a version with a change summary and is applied
+         * @description One action in place of Save then Apply: a version with the owner's summary, applied
+         *     to live calls in the same request. Callers keep the old script until this succeeds.
+         */
+        post: operations["publish_script_v1_agents__agent_id__script_publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/tests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The agent's latest pre-launch test conversations */
+        get: operations["get_test_conversations_v1_agents__agent_id__script_tests_get"];
+        put?: never;
+        /** Run the pre-launch test conversations against the agent */
+        post: operations["run_test_conversations_v1_agents__agent_id__script_tests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/script/undo": {
         parameters: {
             query?: never;
@@ -3347,6 +3511,112 @@ export interface paths {
         put?: never;
         /** Discard the staged script; the draft returns to what callers hear */
         post: operations["undo_script_v1_agents__agent_id__script_undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The script's versions, newest first, and which one callers hear */
+        get: operations["script_versions_v1_agents__agent_id__script_versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/versions/{version}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Copy an earlier version into the draft (callers keep the live one) */
+        post: operations["restore_script_version_v1_agents__agent_id__script_versions__version__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/test-cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This agent's saved tests and their last answers */
+        get: operations["list_test_cases_v1_agents__agent_id__test_cases_get"];
+        put?: never;
+        /** Save a test written by hand */
+        post: operations["create_test_case_v1_agents__agent_id__test_cases_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/test-cases/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run every saved test against the live agent
+         * @description Runs in the background, a few seconds per caller line. Poll `GET /v1/agents/{agent_id}/test-cases` while any test is `queued` or `running`.
+         */
+        post: operations["run_test_cases_v1_agents__agent_id__test_cases_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/test-cases/{case_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a saved test */
+        delete: operations["delete_test_case_v1_agents__agent_id__test_cases__case_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/try-chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Chat with the live agent in text, as a caller would */
+        post: operations["try_chat_send_v1_agents__agent_id__try_chat_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4779,6 +5049,40 @@ export interface paths {
          *     choice and the store behind it.
          */
         get: operations["stream_call_speaking_v1_calls__call_id__speaking_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/calls/{call_id}/test-case": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make this call a test for its agent */
+        post: operations["make_call_a_test_v1_calls__call_id__test_case_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/calls/{call_id}/test-case-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Start a test from this call: its caller lines, redacted */
+        get: operations["draft_test_case_v1_calls__call_id__test_case_draft_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6563,6 +6867,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/kb/facts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add a fact by hand; a pinned one goes into every agent's instructions */
+        post: operations["add_fact_v1_kb_facts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/facts/pinned-order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put the pinned facts in order */
+        post: operations["order_pinned_facts_v1_kb_facts_pinned_order_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/facts/{fact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a fact from every agent */
+        delete: operations["remove_fact_v1_kb_facts__fact_id__delete"];
+        options?: never;
+        head?: never;
+        /** Change a fact's wording or question, or pin or unpin it */
+        patch: operations["edit_fact_v1_kb_facts__fact_id__patch"];
+        trace?: never;
+    };
+    "/v1/kb/knows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Everything the agents know: facts, documents, photos, pages and notes */
+        get: operations["what_it_knows_v1_kb_knows_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/kb/links": {
         parameters: {
             query?: never;
@@ -6636,6 +7009,134 @@ export interface paths {
          */
         put: operations["set_staff_curation_v1_kb_staff_curation_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/struggles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Where the agents struggled on real calls, found from the calls */
+        get: operations["where_it_struggled_v1_kb_struggles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/teach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Teach in words; the AI sorts them into facts and rules for review
+         * @description Sorting runs in the background and is counted against this month's AI help. Poll `GET /v1/kb/teach/{id}` until `status` is `ready`. When the AI help is used up the words come back unsorted for the owner to mark.
+         */
+        post: operations["teach_words_v1_kb_teach_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/teach/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Teach with a photo, a file or a voice note
+         * @description `kind` is `photo` (a picture of a price list or menu), `file` (.docx, .txt, .csv, .xlsx) or `voice` (a voice note under 30 seconds). A voice note stops at `heard` so the owner can check the words; confirm them with `POST .../words`.
+         */
+        post: operations["teach_upload_v1_kb_teach_upload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/teach/{teaching_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One teaching and where it is */
+        get: operations["read_teaching_v1_kb_teach__teaching_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/teach/{teaching_id}/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Throw a teaching away without saving anything */
+        post: operations["discard_teaching_v1_kb_teach__teaching_id__discard_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/teach/{teaching_id}/save": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Keep the reviewed facts and rules
+         * @description Facts join the business's knowledge and reach every agent without review. Rules wait in the chosen agent's script until the owner adds them and puts the script live.
+         */
+        post: operations["save_teaching_v1_kb_teach__teaching_id__save_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/teach/{teaching_id}/words": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm (or correct) the words heard in a voice note, then sort them */
+        post: operations["confirm_words_v1_kb_teach__teaching_id__words_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6769,6 +7270,136 @@ export interface paths {
         put?: never;
         /** Teach the missing answer — records it and seeds a KB draft for review */
         post: operations["teach_knowledge_gap_v1_knowledge_gaps__gap_id__teach_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-calling": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How new leads are called: agent, wait, hours, after hours, retries */
+        get: operations["get_lead_calling_v1_lead_calling_get"];
+        /**
+         * Save how new leads are called
+         * @description Its own tenant session rather than the request's, so the plan is committed before the
+         *     answering-machine switch is pushed to live agents (each in a session of its own).
+         */
+        put: operations["put_lead_calling_v1_lead_calling_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-calling/held": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** New leads held after hours for you to release */
+        get: operations["list_held_leads_v1_lead_calling_held_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-calling/held/{hold_id}/drop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Do not call a held lead; the lead itself is kept */
+        post: operations["drop_held_lead_v1_lead_calling_held__hold_id__drop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-calling/held/{hold_id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Call a held lead now (inside your hours and the platform window) */
+        post: operations["release_held_lead_v1_lead_calling_held__hold_id__release_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The lead details this business captures */
+        get: operations["get_lead_fields_v1_lead_fields_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-fields/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Draft this business's lead details once, from its business details
+         * @description For a business set up as 'Something else'. Queued; the screen polls `GET` for the result. Drafted once: a finished draft is never redrafted (409), and a failed one may be asked for again.
+         */
+        post: operations["post_draft_v1_lead_fields_draft_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lead-fields/replace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start agents again from this business type's standard lead details
+         * @description Each agent named (every agent when none is named) gets the set as a NEW version of its lead details; values already captured stay on their leads and calls, readable under their old names.
+         */
+        post: operations["post_replace_v1_lead_fields_replace_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7203,6 +7834,28 @@ export interface paths {
         put?: never;
         /** Dispatch one AI call to this lead (D-21) — compliance-gated, idempotent */
         post: operations["call_lead_v1_leads__lead_id__call_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/leads/{lead_id}/captured": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A lead's captured details, each under the name it was captured with
+         * @description The core every lead carries first (`calevate_shared.lead_fields`), then the
+         *     business fields of the version the lead was captured under, then any value from an
+         *     earlier version — so a business moved to new fields still reads its old answers.
+         */
+        get: operations["get_lead_captured_v1_leads__lead_id__captured_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -8799,7 +9452,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Whether Studio voices (our Cartesia key) are switched on in the workspace */
+        /** Whether Studio voices are ready, and which client workspaces run them */
         get: operations["studio_voices_v1_ops_voices_studio_voices_get"];
         put?: never;
         post?: never;
@@ -8819,8 +9472,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Switch Studio voices off (step-up confirmed, audited)
-         * @description Switches the workspace's own keys off and takes every Studio voice off offer. Agents on a Studio voice speak the platform's default voice from their next call, so this is refused with `studio_voices_in_use` while any is published, unless `confirm=true`. Requires `X-Confirm-Action: disable_studio_voices`.
+         * Switch the developer workspace's own keys off (step-up confirmed, audited)
+         * @description The last step of moving off the old developer-workspace switch: turns our developer workspace's own keys off, keeping the key held there. Refused with `studio_clients_not_moved` while any published Studio agent lives in the developer workspace or in a client workspace not on its own Cartesia key, because it would stop speaking its voice. Requires `X-Confirm-Action: disable_studio_voices`.
          */
         post: operations["disable_studio_v1_ops_voices_studio_voices_disable_post"];
         delete?: never;
@@ -8839,8 +9492,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Switch Studio voices on: Clear agents kept off first (step-up confirmed, audited)
-         * @description In order: sets every published agent that is not on a Studio voice to stay on the platform's own voices and reads each back, refusing with `studio_agents_not_kept_off` if any is not; installs our Cartesia key as the workspace's voice key unless one is already there; switches own keys on for the voice only; reads the state back and re-reads the Studio voices. Idempotent. Requires `X-Confirm-Action: enable_studio_voices`.
+         * Studio ready: hold our Cartesia key in the developer workspace (step-up, audited)
+         * @description Installs our Cartesia key in the developer workspace unless one is there, with its own-keys switch left OFF so no client inherits it. With `tenant_id`, also switches Studio on in that client's own workspace (its published Clear agents set to stay off first, then the key, the voice-only switch and a read-back), which is where Studio voices are listed from. Then re-reads the voices. Idempotent. Requires `X-Confirm-Action: enable_studio_voices`.
          */
         post: operations["enable_studio_v1_ops_voices_studio_voices_enable_post"];
         delete?: never;
@@ -9647,6 +10300,13 @@ export interface components {
             /** Released */
             released: boolean;
         };
+        /** AdminReplaceIn */
+        AdminReplaceIn: {
+            /** Agent Ids */
+            agent_ids?: string[] | null;
+            /** Business Type */
+            business_type?: ("retail" | "local_services" | "automobile" | "clinic" | "real_estate" | "insurance" | "education" | "custom") | null;
+        };
         /**
          * AgentChargeOut
          * @description What one agent added to this month's bill. No cost field, and there never is one.
@@ -10209,9 +10869,26 @@ export interface components {
             /** Unsupported */
             unsupported: number;
         };
-        /** AssistIn */
+        /**
+         * AssistIn
+         * @description The owner's words. Either the five short answers (keys of `OWNER_QUESTIONS`), a
+         *     free description, or both; at least ten characters in all.
+         */
         AssistIn: {
-            /** Description */
+            /** Answers */
+            answers?: {
+                [key: string]: string;
+            };
+            /**
+             * Change
+             * @default
+             */
+            change: string;
+            current?: components["schemas"]["CallScript"] | null;
+            /**
+             * Description
+             * @default
+             */
             description: string;
         };
         /** AssistOut */
@@ -10461,6 +11138,18 @@ export interface components {
             document_kind: "gst_certificate" | "certificate_of_incorporation" | "udyam_registration";
             /** Signed Application */
             signed_application?: string | null;
+        };
+        /** Body_teach_upload_v1_kb_teach_upload_post */
+        Body_teach_upload_v1_kb_teach_upload_post: {
+            /** File */
+            file: string;
+            /** Gap Id */
+            gap_id?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "photo" | "file" | "voice";
         };
         /** Body_upload_document_v1_compliance_kyc_documents_post */
         Body_upload_document_v1_compliance_kyc_documents_post: {
@@ -10762,6 +11451,31 @@ export interface components {
              */
             call_id: string;
         };
+        /**
+         * CallCallbackOut
+         * @description The call back booked ON this call, if any (F-4/F-5): the newest one.
+         */
+        CallCallbackOut: {
+            /** Blocked Reason */
+            blocked_reason?: string | null;
+            /** Blocked Rule */
+            blocked_rule?: string | null;
+            /**
+             * Due At
+             * Format: date-time
+             */
+            due_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "scheduled" | "dialing" | "completed" | "cancelled" | "refused" | "missed" | "failed";
+        };
         /** CallCapOut */
         CallCapOut: {
             /**
@@ -10828,8 +11542,13 @@ export interface components {
             agent_id: string;
             /** Agent Name */
             agent_name?: string | null;
+            callback?: components["schemas"]["CallCallbackOut"] | null;
+            /** Callback Requested */
+            callback_requested?: boolean | null;
             /** Caller E164 */
             caller_e164?: string | null;
+            /** Captured */
+            captured: components["schemas"]["CapturedFieldOut"][];
             /**
              * Direction
              * @enum {string}
@@ -10843,6 +11562,8 @@ export interface components {
             extraction?: {
                 [key: string]: unknown;
             };
+            /** Extraction Model */
+            extraction_model?: string | null;
             /** Extraction Needs Review */
             extraction_needs_review?: {
                 [key: string]: string;
@@ -10857,6 +11578,8 @@ export interface components {
              * @default false
              */
             has_recording: boolean;
+            /** Headline */
+            headline?: string | null;
             /**
              * Id
              * Format: uuid
@@ -10864,10 +11587,14 @@ export interface components {
             id: string;
             /** Lead Id */
             lead_id?: string | null;
+            /** Lead Name */
+            lead_name?: string | null;
             /** Moments */
             moments: components["schemas"]["CallMomentOut"][];
+            /** Next Step */
+            next_step?: string | null;
             /** Outcome Tag */
-            outcome_tag?: string | null;
+            outcome_tag?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;
             /** Sentiment */
             sentiment?: string | null;
             /** Started At */
@@ -10876,8 +11603,26 @@ export interface components {
             status: string;
             /** Summary */
             summary?: string | null;
+            /** Summary Language */
+            summary_language?: string | null;
+            /** Summary Local */
+            summary_local?: string | null;
+            /** Summary Source */
+            summary_source?: ("engine" | "extraction") | null;
+            /**
+             * Summary State
+             * @enum {string}
+             */
+            summary_state: "pending" | "ready" | "failed" | "empty";
+            /** Test Call */
+            test_call: boolean;
             /** Transcript */
             transcript?: components["schemas"]["TranscriptTurnOut"][];
+            /**
+             * Translation State
+             * @enum {string}
+             */
+            translation_state: "pending" | "ready" | "failed" | "not_needed" | "unavailable";
         };
         /**
          * CallLeadIn
@@ -10959,8 +11704,31 @@ export interface components {
          *     for an engine that speaks one greeting field.
          */
         CallScript: {
+            /**
+             * Adherence
+             * @default flexible
+             * @enum {string}
+             */
+            adherence: "flexible" | "strict";
+            /**
+             * Business Line
+             * @default
+             */
+            business_line: string;
             /** End Call Extra Rules */
             end_call_extra_rules?: string[];
+            /**
+             * Ending
+             * @default
+             */
+            ending: string;
+            /** Example Exchange */
+            example_exchange?: components["schemas"]["ExampleLine"][];
+            /**
+             * Example Needs Review
+             * @default false
+             */
+            example_needs_review: boolean;
             /**
              * Faq Fallback
              * @default నాకు ఆ వివరం ఖచ్చితంగా తెలియదు — మా టీమ్ మీకు తిరిగి కాల్ చేసి చెబుతుంది.
@@ -10969,14 +11737,41 @@ export interface components {
             /** Faqs */
             faqs?: components["schemas"]["FaqEntry"][];
             /**
+             * Goal
+             * @default
+             */
+            goal: string;
+            /**
+             * Identity
+             * @default
+             */
+            identity: string;
+            /** Objections */
+            objections?: components["schemas"]["Objection"][];
+            /**
              * Opening Line
              * @default
              */
             opening_line: string;
+            /**
+             * Outbound Purpose
+             * @default
+             */
+            outbound_purpose: string;
+            policies?: components["schemas"]["ScriptPolicies"];
             /** Raw Override */
             raw_override?: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @enum {integer}
+             */
+            schema_version: 1 | 2;
+            /** Stages */
+            stages?: components["schemas"]["ConversationStage"][];
             /** Steps */
             steps?: components["schemas"]["ScriptStep"][];
+            style?: components["schemas"]["SpeakingStyle"];
             /** Variables */
             variables?: components["schemas"]["ScriptVariable"][];
         };
@@ -11015,6 +11810,7 @@ export interface components {
             agent_id: string;
             /** Agent Name */
             agent_name?: string | null;
+            callback?: components["schemas"]["CallCallbackOut"] | null;
             /** Caller E164 */
             caller_e164?: string | null;
             /**
@@ -11024,6 +11820,8 @@ export interface components {
             direction: "inbound" | "outbound";
             /** Duration S */
             duration_s?: number | null;
+            /** Headline */
+            headline?: string | null;
             /**
              * Id
              * Format: uuid
@@ -11031,8 +11829,10 @@ export interface components {
             id: string;
             /** Lead Id */
             lead_id?: string | null;
+            /** Lead Name */
+            lead_name?: string | null;
             /** Outcome Tag */
-            outcome_tag?: string | null;
+            outcome_tag?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;
             /** Sentiment */
             sentiment?: string | null;
             /** Started At */
@@ -11041,6 +11841,13 @@ export interface components {
             status: string;
             /** Summary */
             summary?: string | null;
+            /**
+             * Summary State
+             * @enum {string}
+             */
+            summary_state: "pending" | "ready" | "failed" | "empty";
+            /** Test Call */
+            test_call: boolean;
         };
         /** CallbackEligibilityOut */
         CallbackEligibilityOut: {
@@ -11202,6 +12009,16 @@ export interface components {
             status: string;
         };
         /**
+         * CanvasPosition
+         * @description Where a section sits on the builder's canvas. Layout only: never compiled.
+         */
+        CanvasPosition: {
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /**
          * CapsIn
          * @description The whole client-side pair. `null` clears that side (see the module docstring).
          */
@@ -11240,6 +12057,35 @@ export interface components {
             plan_cap_spend_inr: string | null;
             /** Spend Used Inr */
             spend_used_inr: string;
+        };
+        /**
+         * CapturedFieldOut
+         * @description One captured detail under the name it was captured with (`crm/captured.py`).
+         *
+         *     `core` marks the details every business captures (`calevate_shared.lead_fields`);
+         *     `current` is False for a detail the agent no longer captures, whose value is still shown.
+         */
+        CapturedFieldOut: {
+            /** Core */
+            core: boolean;
+            /** Current */
+            current: boolean;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "text" | "number" | "bool" | "enum" | "date";
+            /** Value */
+            value?: unknown;
+        };
+        /** CapturedFieldsOut */
+        CapturedFieldsOut: {
+            /** Fields */
+            fields: components["schemas"]["CapturedFieldOut"][];
         };
         /**
          * CarrierApplicationOut
@@ -11410,6 +12256,25 @@ export interface components {
             plans: components["schemas"]["CartesiaPlanOut"][];
             /** Refusal Floor Inr Per Min */
             refusal_floor_inr_per_min: string;
+        };
+        /** CaseDraftOut */
+        CaseDraftOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string | null;
+            /**
+             * Call Id
+             * Format: uuid
+             */
+            call_id: string;
+            /** Caller Lines */
+            caller_lines: string[];
+            /** Title */
+            title: string;
         };
         /**
          * ChainBreakOut
@@ -11788,6 +12653,15 @@ export interface components {
              */
             tenant_id: string;
         };
+        /** CollectFieldOut */
+        CollectFieldOut: {
+            /** Label */
+            label: string;
+            /** Reason */
+            reason: string;
+            /** Required */
+            required: boolean;
+        };
         /** CollectedItemOut */
         CollectedItemOut: {
             /** What */
@@ -12165,6 +13039,61 @@ export interface components {
             name?: string | null;
             /** Phone */
             phone: string;
+        };
+        /**
+         * ConversationStage
+         * @description One section of the call, a node of the script's section graph.
+         *
+         *     The list order is the call order. `mode` "say" asks for `instruction` to be said as
+         *     written (best effort: only the opening line is guaranteed verbatim). `sounds_like` is an
+         *     optional line in the call's language showing how it sounds. `branches` are the ways out
+         *     on a condition, `otherwise` where to go when none holds (empty: the next section), and
+         *     `collect` what must be in hand first. `position` is the canvas layout and is never
+         *     compiled. Instruction and sounds-like share ThinnestAI's 600-character step detail.
+         */
+        ConversationStage: {
+            /** Branches */
+            branches?: components["schemas"]["StageBranch"][];
+            /** Collect */
+            collect?: string[];
+            /** Id */
+            id: string;
+            /** Instruction */
+            instruction: string;
+            /**
+             * Mode
+             * @default guide
+             * @enum {string}
+             */
+            mode: "guide" | "say";
+            /** Name */
+            name: string;
+            /**
+             * Otherwise
+             * @default
+             */
+            otherwise: string;
+            position?: components["schemas"]["CanvasPosition"] | null;
+            /**
+             * Sounds Like
+             * @default
+             */
+            sounds_like: string;
+        };
+        /** ConvertIn */
+        ConvertIn: {
+            /** Raw Text */
+            raw_text?: string | null;
+        };
+        /** ConvertOut */
+        ConvertOut: {
+            /** Disclosure */
+            disclosure: string | null;
+            /** Metered */
+            metered: boolean;
+            script: components["schemas"]["CallScript"];
+            /** Unplaced */
+            unplaced: string[];
         };
         /**
          * CopilotActionOut
@@ -12864,10 +13793,10 @@ export interface components {
             slug?: string | null;
             /**
              * Vertical Template
-             * @default clinic
+             * @default custom
              * @enum {string}
              */
-            vertical_template: "clinic" | "real_estate" | "insurance" | "education" | "custom";
+            vertical_template: "retail" | "local_services" | "automobile" | "clinic" | "real_estate" | "insurance" | "education" | "custom";
         };
         /** CreateOrgOut */
         CreateOrgOut: {
@@ -13731,6 +14660,27 @@ export interface components {
             /** Url */
             url: string;
         };
+        /** DraftOut */
+        DraftOut: {
+            /**
+             * Saved At
+             * Format: date-time
+             */
+            saved_at: string;
+            script: components["schemas"]["CallScript"];
+        };
+        /** DraftRequestOut */
+        DraftRequestOut: {
+            draft: components["schemas"]["LeadFieldsDraftOut"];
+        };
+        /** DraftSavedOut */
+        DraftSavedOut: {
+            /**
+             * Saved At
+             * Format: date-time
+             */
+            saved_at: string;
+        };
         /**
          * DrawdownOut
          * @description WHERE THE MONEY WENT, over the same window the runway was measured on.
@@ -13789,7 +14739,7 @@ export interface components {
             /** Name */
             name?: string | null;
             /** Vertical Template */
-            vertical_template?: ("clinic" | "real_estate" | "insurance" | "education" | "custom") | null;
+            vertical_template?: ("retail" | "local_services" | "automobile" | "clinic" | "real_estate" | "insurance" | "education" | "custom") | null;
         };
         /** EditTenantOut */
         EditTenantOut: {
@@ -13961,12 +14911,16 @@ export interface components {
             call_capable: boolean;
             /** Label */
             label: string;
+            /** Latency Ms */
+            latency_ms?: number | null;
             /** Model Id */
             model_id: string;
             /** Offerable */
             offerable: boolean;
             /** Plan Allows */
             plan_allows: boolean;
+            /** Price Band */
+            price_band?: ("none" | "premium") | null;
             /** Reason */
             reason: string | null;
             /** Usable With Studio Voice */
@@ -13985,6 +14939,8 @@ export interface components {
             choosable: boolean;
             /** Complete */
             complete: boolean;
+            /** Default Model Label */
+            default_model_label?: string | null;
             /** Models */
             models: components["schemas"]["EngineCatalogueModelOut"][];
             /** Note */
@@ -13994,6 +14950,8 @@ export interface components {
              * @default false
              */
             studio_available: boolean;
+            /** Studio Note */
+            studio_note?: string | null;
             /** Voices */
             voices: components["schemas"]["EngineCatalogueVoiceOut"][];
         };
@@ -14351,6 +15309,16 @@ export interface components {
             /** Transcript Turns Erased */
             transcript_turns_erased: number;
         };
+        /** ExampleLine */
+        ExampleLine: {
+            /**
+             * Speaker
+             * @enum {string}
+             */
+            speaker: "caller" | "agent";
+            /** Text */
+            text: string;
+        };
         /** ExperimentOut */
         ExperimentOut: {
             /**
@@ -14497,10 +15465,54 @@ export interface components {
         ExtractionSchemaOut: {
             /** Changed */
             changed: boolean;
+            /** Core Fields */
+            core_fields: components["schemas"]["ExtractionField"][];
             /** Fields */
             fields: components["schemas"]["ExtractionField"][];
             /** Version */
             version: number;
+        };
+        /** FactIn */
+        FactIn: {
+            /**
+             * Pinned
+             * @default false
+             */
+            pinned: boolean;
+            /** Question */
+            question?: string | null;
+            /** Text */
+            text: string;
+        };
+        /** FactOut */
+        FactOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Origin */
+            origin: string;
+            /** Pinned */
+            pinned: boolean;
+            /** Question */
+            question?: string | null;
+            /** Text */
+            text: string;
+        };
+        /** FactPatch */
+        FactPatch: {
+            /** Pinned */
+            pinned?: boolean | null;
+            /** Question */
+            question?: string | null;
+            /** Text */
+            text?: string | null;
         };
         /** FallbackPhoneIn */
         FallbackPhoneIn: {
@@ -15291,6 +16303,40 @@ export interface components {
              * @enum {string}
              */
             severity: "stop" | "warn";
+        };
+        /** HeldLeadOut */
+        HeldLeadOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string | null;
+            /**
+             * Held At
+             * Format: date-time
+             */
+            held_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Lead Id
+             * Format: uuid
+             */
+            lead_id: string;
+            /** Lead Name */
+            lead_name: string | null;
+            /** Source */
+            source: string;
+        };
+        /** HeldLeadsOut */
+        HeldLeadsOut: {
+            /** Items */
+            items: components["schemas"]["HeldLeadOut"][];
         };
         /**
          * HeldTenantOut
@@ -16145,6 +17191,33 @@ export interface components {
             /** Topic Label */
             topic_label: string;
         };
+        /** KnownItemOut */
+        KnownItemOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /** State */
+            state: string;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Url */
+            url?: string | null;
+        };
+        /** KnowsOut */
+        KnowsOut: {
+            /** Facts */
+            facts: components["schemas"]["FactOut"][];
+            /** Facts State */
+            facts_state: string;
+            /** Items */
+            items: components["schemas"]["KnownItemOut"][];
+        };
         /**
          * KycDocumentOut
          * @description One file on record. Metadata only; the bytes are never returned to the client.
@@ -16502,6 +17575,108 @@ export interface components {
             /** Unchanged */
             unchanged: number;
         };
+        /** LeadCallingIn */
+        LeadCallingIn: {
+            /**
+             * After Hours
+             * @default next_open
+             * @enum {string}
+             */
+            after_hours: "next_open" | "open_plus_3h" | "next_day" | "hold";
+            /** Calling Agent Id */
+            calling_agent_id?: string | null;
+            /** Days */
+            days?: ("mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun")[];
+            /**
+             * Detect Machines
+             * @default false
+             */
+            detect_machines: boolean;
+            /** Holidays */
+            holidays?: string[];
+            /**
+             * Hours End
+             * Format: time
+             * @default 21:00:00
+             */
+            hours_end: string;
+            /**
+             * Hours Start
+             * Format: time
+             * @default 09:00:00
+             */
+            hours_start: string;
+            /**
+             * Retry Attempts
+             * @default 0
+             */
+            retry_attempts: number;
+            /**
+             * Retry Interval Minutes
+             * @default 60
+             */
+            retry_interval_minutes: number;
+            /**
+             * Wait Seconds
+             * @default 0
+             */
+            wait_seconds: number;
+        };
+        /** LeadCallingOut */
+        LeadCallingOut: {
+            /**
+             * After Hours
+             * @enum {string}
+             */
+            after_hours: "next_open" | "open_plus_3h" | "next_day" | "hold";
+            /**
+             * Agents Updated
+             * @default 0
+             */
+            agents_updated: number;
+            /** Always Applied */
+            always_applied: string[];
+            /** Calling Agent Id */
+            calling_agent_id: string | null;
+            /** Days */
+            days: ("mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun")[];
+            /** Detect Machines */
+            detect_machines: boolean;
+            /** Held Count */
+            held_count: number;
+            /** Holidays */
+            holidays: string[];
+            /**
+             * Hours End
+             * Format: time
+             */
+            hours_end: string;
+            /**
+             * Hours Start
+             * Format: time
+             */
+            hours_start: string;
+            /** Retry Attempts */
+            retry_attempts: number;
+            /** Retry Interval Minutes */
+            retry_interval_minutes: number;
+            /** Trial Notice */
+            trial_notice: string | null;
+            /** Updated At */
+            updated_at: string | null;
+            /** Wait Seconds */
+            wait_seconds: number;
+            /**
+             * Window End
+             * Format: time
+             */
+            window_end: string;
+            /**
+             * Window Start
+             * Format: time
+             */
+            window_start: string;
+        };
         /**
          * LeadColumnOut
          * @description One selectable column of the Leads table — `crm.columns.LeadColumn` on the wire.
@@ -16559,6 +17734,66 @@ export interface components {
             facets: components["schemas"]["LeadFacetOut"][];
             /** Omitted Field Count */
             omitted_field_count: number;
+        };
+        /** LeadFieldsAgentOut */
+        LeadFieldsAgentOut: {
+            /** Business Fields */
+            business_fields: components["schemas"]["ExtractionField"][];
+            /** Direction */
+            direction: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Status */
+            status: string;
+            /** Version */
+            version: number;
+        };
+        /**
+         * LeadFieldsDraftOut
+         * @description The one AI draft of a custom business's fields.
+         */
+        LeadFieldsDraftOut: {
+            /** Completed At */
+            completed_at: string | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Fields */
+            fields: components["schemas"]["ExtractionField"][];
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "done" | "failed";
+        };
+        /** LeadFieldsOut */
+        LeadFieldsOut: {
+            /** Agents */
+            agents: components["schemas"]["LeadFieldsAgentOut"][];
+            /** Business Type */
+            business_type: string | null;
+            /** Business Type Label */
+            business_type_label: string;
+            /** Can Draft */
+            can_draft: boolean;
+            /** Core Fields */
+            core_fields: components["schemas"]["ExtractionField"][];
+            draft: components["schemas"]["LeadFieldsDraftOut"] | null;
+            /** Has Standard Set */
+            has_standard_set: boolean;
+            /** Need Key */
+            need_key: string;
+            /** Standard Fields */
+            standard_fields: components["schemas"]["ExtractionField"][];
         };
         /**
          * LeadLensIn
@@ -16651,21 +17886,37 @@ export interface components {
             id: string;
             /** Is Repeat Caller */
             is_repeat_caller: boolean;
+            /** Last Call Headline */
+            last_call_headline?: string | null;
             /** Last Call Id */
             last_call_id?: string | null;
+            /** Last Call Outcome */
+            last_call_outcome?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;
             /** Name */
             name?: string | null;
+            /** Next Callback At */
+            next_callback_at?: string | null;
+            /** Next Step */
+            next_step?: string | null;
             /** Phone E164 */
             phone_e164: string;
             /** Schema Version */
             schema_version?: number | null;
-            /** Source */
-            source: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "inbound_call" | "webhook" | "campaign" | "manual" | "test_call" | "outbound_call";
             /**
              * Status
              * @enum {string}
              */
             status: "new" | "contacted" | "interested" | "hot" | "won" | "lost";
+            /**
+             * Status Set By
+             * @enum {string}
+             */
+            status_set_by: "system" | "person";
             /**
              * Updated At
              * Format: date-time
@@ -17870,6 +19121,13 @@ export interface components {
             /** State */
             state: string;
         };
+        /** Objection */
+        Objection: {
+            /** Objection */
+            objection: string;
+            /** Response */
+            response: string;
+        };
         /**
          * OfferedNumberOut
          * @description One number a client could buy, at the price they would pay.
@@ -18499,6 +19757,11 @@ export interface components {
             /** Qualify Rate Pct */
             qualify_rate_pct: number | null;
         };
+        /** PinnedOrderIn */
+        PinnedOrderIn: {
+            /** Ids */
+            ids: string[];
+        };
         /**
          * PlanMarginOut
          * @description The gross margin of a committed-volume bundle's rates at our cost floor (D-469).
@@ -18708,6 +19971,18 @@ export interface components {
         PreviewOut: {
             /** Compiled */
             compiled: string;
+            /**
+             * Instructions Chars
+             * @default 0
+             */
+            instructions_chars: number;
+            /** Instructions Limit */
+            instructions_limit?: number | null;
+            /**
+             * Native Steps
+             * @default 0
+             */
+            native_steps: number;
         };
         /**
          * ProfileBlockerOut
@@ -18831,6 +20106,13 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** Pronunciation */
+        Pronunciation: {
+            /** Say As */
+            say_as: string;
+            /** Word */
+            word: string;
+        };
         /** ProposalOut */
         ProposalOut: {
             /** Action Label */
@@ -18906,6 +20188,14 @@ export interface components {
              * @enum {string}
              */
             series: "140" | "160" | "standard";
+        };
+        /** PublishIn */
+        PublishIn: {
+            /** Expected Version */
+            expected_version?: number | null;
+            script?: components["schemas"]["CallScript"] | null;
+            /** Summary */
+            summary: string;
         };
         /**
          * PurchaseIn
@@ -19662,6 +20952,19 @@ export interface components {
              */
             confirm: true;
         };
+        /** ReleasedOut */
+        ReleasedOut: {
+            /**
+             * Callback Id
+             * Format: uuid
+             */
+            callback_id: string;
+            /**
+             * Due At
+             * Format: date-time
+             */
+            due_at: string;
+        };
         /** ReleasedOwnNumberOut */
         ReleasedOwnNumberOut: {
             /**
@@ -19671,6 +20974,21 @@ export interface components {
             number_id: string;
             /** Released */
             released: boolean;
+        };
+        /**
+         * ReplaceIn
+         * @description Which agents get a fresh set of business fields. Omit `agent_ids` for all of them.
+         */
+        ReplaceIn: {
+            /** Agent Ids */
+            agent_ids?: string[] | null;
+        };
+        /** ReplaceOut */
+        ReplaceOut: {
+            /** Agents Changed */
+            agents_changed: number;
+            /** Agents Unchanged */
+            agents_unchanged: number;
         };
         /** ReplayOut */
         ReplayOut: {
@@ -19730,6 +21048,14 @@ export interface components {
              * Format: email
              */
             email: string;
+        };
+        /** ResolveRuleIn */
+        ResolveRuleIn: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "applied" | "dismissed";
         };
         /**
          * RestatementIn
@@ -19853,6 +21179,28 @@ export interface components {
             /** Secret Header */
             secret_header: string;
         };
+        /** RuleOut */
+        RuleOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
+            /** Text */
+            text: string;
+        };
         /**
          * RunwayOut
          * @description How long the balance lasts — and, when it may not be said, WHY not.
@@ -19885,6 +21233,19 @@ export interface components {
             /** Window Days */
             window_days: number;
         };
+        /** SaveDraftIn */
+        SaveDraftIn: {
+            /** Base Saved At */
+            base_saved_at?: string | null;
+            script: components["schemas"]["CallScript"];
+        };
+        /** SaveIn */
+        SaveIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /** Items */
+            items: components["schemas"]["TeachItemIO"][];
+        };
         /** SaveScriptIn */
         SaveScriptIn: {
             /** Expected Version */
@@ -19899,6 +21260,15 @@ export interface components {
             staged: boolean;
             /** Version */
             version: number;
+        };
+        /** SavedOut */
+        SavedOut: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Facts Added */
+            facts_added: number;
+            /** Rules Added */
+            rules_added: number;
         };
         /**
          * SavedViewFilters
@@ -20124,10 +21494,62 @@ export interface components {
             status: string;
         };
         /**
+         * ScriptContextOut
+         * @description What the builder shows beside the script and does not edit there.
+         */
+        ScriptContextOut: {
+            /** Business Type */
+            business_type: string;
+            /** Call Backs Available */
+            call_backs_available: boolean;
+            /** Collect */
+            collect: components["schemas"]["CollectFieldOut"][];
+            /** Direction */
+            direction: string;
+            /** Hand Over Enabled */
+            hand_over_enabled: boolean;
+            /** Language */
+            language: string;
+            limits: components["schemas"]["ScriptLimitsOut"];
+            /** Register Name */
+            register_name: string | null;
+            /** Register Needs Review */
+            register_needs_review: boolean;
+        };
+        /**
+         * ScriptLimitsOut
+         * @description The builder's limits on this deployment's engine (D-714).
+         */
+        ScriptLimitsOut: {
+            /** Instructions Limit */
+            instructions_limit: number | null;
+            /** Max Branches */
+            max_branches: number;
+            /** Max Collect */
+            max_collect: number;
+            /** Max Sections */
+            max_sections: number;
+            /** Native Steps */
+            native_steps: boolean;
+            /** Section Detail Max */
+            section_detail_max: number;
+            /** Section Title Max */
+            section_title_max: number;
+            /** Sounds Like Max */
+            sounds_like_max: number;
+            /** Special Targets */
+            special_targets: string[];
+        };
+        /**
          * ScriptOut
          * @description The draft script the builder edits, plus where it stands and the free merge fields.
+         *
+         *     `script` is always in the current sections: a script saved in the older format is shown
+         *     converted (`upgrade_to_v2`) and stays as it was stored until it is saved again.
          */
         ScriptOut: {
+            context?: components["schemas"]["ScriptContextOut"] | null;
+            draft?: components["schemas"]["DraftOut"] | null;
             /** Has Pending */
             has_pending: boolean;
             /** Is Freeform */
@@ -20135,8 +21557,32 @@ export interface components {
             script: components["schemas"]["CallScript"];
             /** Standard Variables */
             standard_variables: components["schemas"]["VariableSuggestion"][];
+            /** Stored Schema Version */
+            stored_schema_version?: number | null;
             /** Version */
             version: number | null;
+        };
+        /**
+         * ScriptPolicies
+         * @description What the business allows its agent to do. Call backs are also bounded by what the
+         *     account can do (a trial cannot, D-697), which the platform enforces after the script.
+         */
+        ScriptPolicies: {
+            /**
+             * Offer Call Backs
+             * @default true
+             */
+            offer_call_backs: boolean;
+            /**
+             * Share Prices
+             * @default true
+             */
+            share_prices: boolean;
+            /**
+             * Take Bookings
+             * @default true
+             */
+            take_bookings: boolean;
         };
         /**
          * ScriptStep
@@ -20625,6 +22071,33 @@ export interface components {
             tts_inr_per_minute: string;
         };
         /**
+         * SpeakingStyle
+         * @description How the agent sounds: tone, how it addresses callers, how much English it mixes in,
+         *     phrases it may use and how to say difficult words.
+         */
+        SpeakingStyle: {
+            /**
+             * Address Form
+             * @default
+             */
+            address_form: string;
+            /**
+             * Code Mix
+             * @default natural
+             * @enum {string}
+             */
+            code_mix: "light" | "natural" | "heavy";
+            /** Pronunciations */
+            pronunciations?: components["schemas"]["Pronunciation"][];
+            /** Sample Phrases */
+            sample_phrases?: string[];
+            /**
+             * Tone
+             * @default
+             */
+            tone: string;
+        };
+        /**
          * SpendCapRecomputeOut
          * @description What the flag was, what it is now, and the numbers that decided it.
          *
@@ -20769,6 +22242,16 @@ export interface components {
             pronunciation?: string | null;
             /** Role */
             role?: string | null;
+        };
+        /**
+         * StageBranch
+         * @description "When <condition>, go to <target>": a section id, or one of `SPECIAL_TARGETS`.
+         */
+        StageBranch: {
+            /** Target */
+            target: string;
+            /** When */
+            when: string;
         };
         /** StartExperimentIn */
         StartExperimentIn: {
@@ -20953,24 +22436,95 @@ export interface components {
             /** Title */
             title: string | null;
         };
+        /** StruggleOut */
+        StruggleOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string | null;
+            /** Answer */
+            answer: string | null;
+            /** Calls */
+            calls: number;
+            /** Gap Id */
+            gap_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Last Call Id */
+            last_call_id: string | null;
+            /**
+             * Last Seen At
+             * Format: date-time
+             */
+            last_seen_at: string;
+            /** Question */
+            question: string | null;
+            /** Times */
+            times: number;
+            /** Topic */
+            topic: string;
+        };
         /** StudioEnableIn */
         StudioEnableIn: {
             /** Model */
             model?: string | null;
+            /** Tenant Id */
+            tenant_id?: string | null;
         };
         /** StudioVoicesOut */
         StudioVoicesOut: {
             /** Cartesia Key Configured */
             cartesia_key_configured: boolean;
+            /** Developer Holds Key */
+            developer_holds_key: boolean;
+            /** Developer Switch On */
+            developer_switch_on: boolean;
             /** Explanation */
             explanation: string;
             key: components["schemas"]["OwnVoiceKeyOut"];
             /** Live Studio Agents */
             live_studio_agents: number;
+            /** Minute Attested */
+            minute_attested: boolean;
+            /** Missing */
+            missing: string[];
             /** Note */
             note: string;
             /** Ready */
             ready: boolean;
+            /** Synthesis Priced */
+            synthesis_priced: boolean;
+            /** Voices Listed */
+            voices_listed: boolean;
+            /** Workspaces */
+            workspaces: components["schemas"]["StudioWorkspaceOut"][];
+        };
+        /**
+         * StudioWorkspaceOut
+         * @description A client workspace where our Cartesia key was confirmed on (D-717).
+         */
+        StudioWorkspaceOut: {
+            /** Checked At */
+            checked_at: string | null;
+            /**
+             * Enabled At
+             * Format: date-time
+             */
+            enabled_at: string;
+            /** Error Code */
+            error_code: string | null;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Tenant Name */
+            tenant_name: string | null;
         };
         /**
          * SubjectExportCallOut
@@ -20987,6 +22541,10 @@ export interface components {
             direction: string | null;
             /** Duration S */
             duration_s: number | null;
+            /** Headline */
+            headline?: string | null;
+            /** Next Step */
+            next_step?: string | null;
             /** Outcome Tag */
             outcome_tag: string | null;
             /** Recording Available */
@@ -20995,6 +22553,8 @@ export interface components {
             started_at: string | null;
             /** Summary */
             summary: string | null;
+            /** Summary Local */
+            summary_local?: string | null;
         };
         /**
          * SubjectExportCampaignContactOut
@@ -21256,6 +22816,57 @@ export interface components {
             status: string;
             /** Version */
             version: number;
+        };
+        /** TeachIn */
+        TeachIn: {
+            /** Gap Id */
+            gap_id?: string | null;
+            /** Words */
+            words: string;
+        };
+        /** TeachItemIO */
+        TeachItemIO: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "fact" | "rule";
+            /**
+             * Pinned
+             * @default false
+             */
+            pinned: boolean;
+            /** Text */
+            text: string;
+        };
+        /** TeachingOut */
+        TeachingOut: {
+            /** Agent Id */
+            agent_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Error Code */
+            error_code: string | null;
+            /** Gap Id */
+            gap_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Input Kind */
+            input_kind: string;
+            /** Items */
+            items: components["schemas"]["TeachItemIO"][];
+            /** Note */
+            note: string | null;
+            /** Status */
+            status: string;
+            /** Words */
+            words: string | null;
         };
         /**
          * TeamMemberOut
@@ -21879,6 +23490,136 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** TestCaseIn */
+        TestCaseIn: {
+            /** Caller Lines */
+            caller_lines: string[];
+            /** Expected */
+            expected: string;
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+        };
+        /** TestCaseOut */
+        TestCaseOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Caller Lines */
+            caller_lines: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expected */
+            expected: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Error */
+            last_error: string | null;
+            /** Last Prompt Version */
+            last_prompt_version: number | null;
+            /** Last Result */
+            last_result: components["schemas"]["TestTurnOut"][] | null;
+            /** Last Run At */
+            last_run_at: string | null;
+            /** Source Call Id */
+            source_call_id: string | null;
+            /** Status */
+            status: string;
+            /** Title */
+            title: string;
+        };
+        /** TestCasesOut */
+        TestCasesOut: {
+            /** Available */
+            available: boolean;
+            /** Cases */
+            cases: components["schemas"]["TestCaseOut"][];
+            /** Cost Note */
+            cost_note: string;
+            /** Live Version */
+            live_version: number | null;
+            /** Unavailable Reason */
+            unavailable_reason: string | null;
+        };
+        /**
+         * TestConversationsOut
+         * @description Pre-launch test conversations (founder decision 11): advised, never required.
+         */
+        TestConversationsOut: {
+            /** Available */
+            available: boolean;
+            /** Cost Note */
+            cost_note: string;
+            latest: components["schemas"]["TestRunOut"] | null;
+            /** Unavailable Reason */
+            unavailable_reason: string | null;
+        };
+        /** TestResultOut */
+        TestResultOut: {
+            /** Advice */
+            advice: string | null;
+            /** Key */
+            key: string;
+            /** Reply */
+            reply: string;
+            /** Said */
+            said: string;
+            /** Title */
+            title: string;
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "passed" | "attention" | "failed" | "read";
+        };
+        /** TestRunOut */
+        TestRunOut: {
+            /** Completed At */
+            completed_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Is Current */
+            is_current: boolean;
+            /** Prompt Version */
+            prompt_version: number | null;
+            /** Results */
+            results: components["schemas"]["TestResultOut"][];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "done" | "failed";
+        };
+        /** TestTurnOut */
+        TestTurnOut: {
+            /**
+             * Cut Short
+             * @default false
+             */
+            cut_short: boolean;
+            /**
+             * Looked Up Knowledge
+             * @default false
+             */
+            looked_up_knowledge: boolean;
+            /** Reply */
+            reply: string;
+            /** Said */
+            said: string;
+        };
         /** TestWebhookIn */
         TestWebhookIn: {
             /** Payload */
@@ -22223,6 +23964,8 @@ export interface components {
             start_ms?: number | null;
             /** Text */
             text: string;
+            /** Text En */
+            text_en?: string | null;
         };
         /** TrialCallIn */
         TrialCallIn: {
@@ -22474,6 +24217,26 @@ export interface components {
              * Format: uuid
              */
             trial_id: string;
+        };
+        /** TryChatIn */
+        TryChatIn: {
+            /** Message */
+            message: string;
+            /** Session */
+            session?: string | null;
+        };
+        /** TryChatOut */
+        TryChatOut: {
+            /** Cost Note */
+            cost_note: string;
+            /** Cut Short */
+            cut_short: boolean;
+            /** Looked Up Knowledge */
+            looked_up_knowledge: boolean;
+            /** Reply */
+            reply: string;
+            /** Session */
+            session: string;
         };
         /**
          * TtsPlanFeeAttestIn
@@ -23044,6 +24807,20 @@ export interface components {
             /** Verified At */
             verified_at: string | null;
         };
+        /** VersionOut */
+        VersionOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Is Live */
+            is_live: boolean;
+            /** Summary */
+            summary: string | null;
+            /** Version */
+            version: number;
+        };
         /**
          * Voice
          * @description One selectable voice. Doubles as the API response model — the catalog IS the
@@ -23479,6 +25256,11 @@ export interface components {
              */
             status: "credited" | "refunded" | "duplicate" | "failed" | "ignored" | "authorized" | "refund_failed" | "mandate" | "dispute" | "fee_paid";
         };
+        /** WordsIn */
+        WordsIn: {
+            /** Words */
+            words: string;
+        };
         /** WorkspaceFailureOut */
         WorkspaceFailureOut: {
             /** Last Error Code */
@@ -23565,6 +25347,13 @@ export interface components {
             engine_agent_ref: string;
             /** Status */
             status: string;
+        };
+        /** PublishOut */
+        apps__api__agents__script_routes__PublishOut: {
+            /** Live */
+            live: boolean;
+            /** Version */
+            version: number;
         };
         /**
          * KycRecordOut
@@ -27463,6 +29252,103 @@ export interface operations {
             };
         };
     };
+    admin_get_lead_fields_v1_admin_tenants__tenant_id__lead_fields_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadFieldsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_post_draft_v1_admin_tenants__tenant_id__lead_fields_draft_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftRequestOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_post_replace_v1_admin_tenants__tenant_id__lead_fields_replace_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminReplaceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplaceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     tenant_margin_v1_admin_tenants__tenant_id__margin_get: {
         parameters: {
             query?: {
@@ -29419,6 +31305,76 @@ export interface operations {
             };
         };
     };
+    convert_script_v1_agents__agent_id__script_convert_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConvertIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConvertOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    save_script_draft_v1_agents__agent_id__script_draft_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveDraftIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftSavedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     preview_script_v1_agents__agent_id__script_preview_post: {
         parameters: {
             query?: never;
@@ -29454,6 +31410,172 @@ export interface operations {
             };
         };
     };
+    list_proposed_rules_v1_agents__agent_id__script_proposed_rules_get: {
+        parameters: {
+            query?: {
+                status?: "pending" | "applied" | "dismissed";
+            };
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    resolve_proposed_rule_v1_agents__agent_id__script_proposed_rules__rule_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveRuleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    publish_script_v1_agents__agent_id__script_publish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["apps__api__agents__script_routes__PublishOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_test_conversations_v1_agents__agent_id__script_tests_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestConversationsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    run_test_conversations_v1_agents__agent_id__script_tests_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestConversationsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     undo_script_v1_agents__agent_id__script_undo_post: {
         parameters: {
             query?: never;
@@ -29472,6 +31594,231 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UndoScriptOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    script_versions_v1_agents__agent_id__script_versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_script_version_v1_agents__agent_id__script_versions__version__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_test_cases_v1_agents__agent_id__test_cases_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestCasesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_test_case_v1_agents__agent_id__test_cases_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestCaseIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestCaseOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    run_test_cases_v1_agents__agent_id__test_cases_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestCasesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    delete_test_case_v1_agents__agent_id__test_cases__case_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                case_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    try_chat_send_v1_agents__agent_id__try_chat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TryChatIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TryChatOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -31573,12 +33920,14 @@ export interface operations {
                 offset?: number;
                 status?: string | null;
                 agent_id?: string | null;
-                outcome?: ("resolved" | "needs_follow_up" | "transferred" | "dropped") | null;
+                outcome?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;
                 direction?: ("inbound" | "outbound") | null;
                 /** @description Calls started at or after this instant */
                 since?: string | null;
                 /** @description Calls started before this instant */
                 until?: string | null;
+                /** @description False leaves out free-trial test calls */
+                test_calls?: boolean;
             };
             header?: never;
             path?: never;
@@ -31611,10 +33960,11 @@ export interface operations {
             query?: {
                 status?: string | null;
                 agent_id?: string | null;
-                outcome?: ("resolved" | "needs_follow_up" | "transferred" | "dropped") | null;
+                outcome?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;
                 direction?: ("inbound" | "outbound") | null;
                 since?: string | null;
                 until?: string | null;
+                test_calls?: boolean;
             };
             header?: never;
             path?: never;
@@ -31813,6 +34163,72 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    make_call_a_test_v1_calls__call_id__test_case_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestCaseIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestCaseOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    draft_test_case_v1_calls__call_id__test_case_draft_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaseDraftOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -34809,6 +37225,163 @@ export interface operations {
             };
         };
     };
+    add_fact_v1_kb_facts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FactIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    order_pinned_facts_v1_kb_facts_pinned_order_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinnedOrderIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    remove_fact_v1_kb_facts__fact_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    edit_fact_v1_kb_facts__fact_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FactPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    what_it_knows_v1_kb_knows_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     add_link_v1_kb_links_post: {
         parameters: {
             query?: never;
@@ -34987,6 +37560,235 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StaffCurationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    where_it_struggled_v1_kb_struggles_get: {
+        parameters: {
+            query?: {
+                agent_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StruggleOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    teach_words_v1_kb_teach_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeachIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeachingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    teach_upload_v1_kb_teach_upload_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_teach_upload_v1_kb_teach_upload_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeachingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_teaching_v1_kb_teach__teaching_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teaching_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeachingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    discard_teaching_v1_kb_teach__teaching_id__discard_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teaching_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeachingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    save_teaching_v1_kb_teach__teaching_id__save_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teaching_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    confirm_words_v1_kb_teach__teaching_id__words_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teaching_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WordsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeachingOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -35283,6 +38085,248 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KnowledgeGapOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_lead_calling_v1_lead_calling_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadCallingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_lead_calling_v1_lead_calling_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadCallingIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadCallingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_held_leads_v1_lead_calling_held_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeldLeadsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    drop_held_lead_v1_lead_calling_held__hold_id__drop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hold_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    release_held_lead_v1_lead_calling_held__hold_id__release_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hold_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleasedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_lead_fields_v1_lead_fields_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadFieldsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    post_draft_v1_lead_fields_draft_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftRequestOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    post_replace_v1_lead_fields_replace_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplaceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -36060,6 +39104,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallLeadOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_lead_captured_v1_leads__lead_id__captured_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapturedFieldsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -38900,9 +41975,7 @@ export interface operations {
     };
     disable_studio_v1_ops_voices_studio_voices_disable_post: {
         parameters: {
-            query?: {
-                confirm?: boolean;
-            };
+            query?: never;
             header?: {
                 "x-confirm-action"?: string | null;
             };

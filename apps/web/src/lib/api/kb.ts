@@ -38,25 +38,6 @@ export function useKbChunks(session: Session, sourceId: string | null) {
   });
 }
 
-export function useSubmitKnowledge(session: Session) {
-  const client = useQueryClient();
-  return useMutation({
-    // No agent id: knowledge belongs to the business and every agent answers from it
-    // (D-689). The server ignores one if sent, so sending it would only suggest otherwise.
-    mutationFn: ({ name, body }: { name: string; body: string }) =>
-      apiRequest<KbSubmitResult>(session, "/v1/kb/sources", {
-        method: "POST",
-        body: { name, body, kind: "text" },
-      }),
-    // A submission does not publish — it goes for review — so this does NOT invalidate the
-    // delivery answer. Refetching it here would ask the server a question whose answer
-    // cannot have changed, and putting the two invalidations side by side is how a reader
-    // comes to believe submitting reaches the phone. `invalidateKnowledge` (below) is the
-    // one that does, because the routes it serves include the confirm that publishes.
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["kb", session.orgSlug] }),
-  });
-}
-
 export type StaffCuration = Schemas["StaffCurationOut"];
 
 /**

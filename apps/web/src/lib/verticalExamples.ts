@@ -201,6 +201,95 @@ const EDUCATION: VerticalExamples = {
   bookingJobLine: "Your agent can check your Google Calendar and book counselling sessions for callers.",
 };
 
+const RETAIL: VerticalExamples = {
+  orgName: "Green Basket Organics",
+  orgSlug: "green-basket-organics",
+  branchLabel: "Main store",
+  serviceName: "Organic green chilli (1 kg)",
+  servicePrice: "120",
+  serviceNote: "Fresh stock on Tuesdays and Fridays",
+  askOnArrival: "depends on the day's stock",
+  faqQuestion: "Do you deliver to Kukatpally?",
+  staffName: "Ramesh Rao",
+  staffSpoken: "RAA-mesh RAO",
+  staffRole: "Owner",
+  staffWhyItMatters: "regular customers ask for the owner by name",
+  bookingRules:
+    "Orders before 6 pm are packed the same day. Home delivery within 5 km. Never promise stock without checking.",
+  contactName: "Store counter",
+  knowledgeTitle: "This week's price list",
+  knowledgeAnswer: "Free home delivery on orders above ₹500 within 5 km.",
+  extractionReason: "so we can pack the order before the customer arrives",
+  scriptBrief:
+    "We sell organic vegetables, fruits and groceries in Hyderabad. Callers ask what is in stock and the price, and place orders for pickup or delivery. Take the order and a call-back time.",
+  extractionLabel: "Product",
+  extractionOptions: "Pickup, Home delivery",
+  endCallRules:
+    "Never promise stock or a delivery time without checking.\nAlways offer a call-back if unsure.",
+  leadSearch: "green chilli for Saturday",
+  bookingJobTitle: "Take orders",
+  bookingJobLine: "Your agent can check your Google Calendar and book pickup times for callers.",
+};
+
+const LOCAL_SERVICES: VerticalExamples = {
+  orgName: "Glow Studio",
+  orgSlug: "glow-studio",
+  branchLabel: "Madhapur studio",
+  serviceName: "Haircut and styling",
+  servicePrice: "400",
+  serviceNote: "Home visits on weekends",
+  askOnArrival: "confirmed after a quick look",
+  faqQuestion: "Do you come home for bridal makeup?",
+  staffName: "Swathi Reddy",
+  staffSpoken: "SWAA-thee RED-dee",
+  staffRole: "Senior stylist",
+  staffWhyItMatters: "regular customers ask for their stylist by name",
+  bookingRules:
+    "Slots every 30 minutes, up to a week ahead. Never promise a stylist without checking.",
+  contactName: "Front desk",
+  knowledgeTitle: "Service menu",
+  knowledgeAnswer: "Bridal packages start at ₹8,000, including a trial session.",
+  extractionReason: "so we can send the right stylist",
+  scriptBrief:
+    "We are a salon in Madhapur. Callers ask about prices and book haircuts, facials and bridal makeup, at the studio or at home. Book a slot and take a call-back time.",
+  extractionLabel: "Service wanted",
+  extractionOptions: "At the shop, At home",
+  endCallRules: "Never promise a stylist or a slot without checking.\nAlways offer a call-back if unsure.",
+  leadSearch: "bridal makeup in December",
+  bookingJobTitle: "Book slots",
+  bookingJobLine: "Your agent can check your Google Calendar and book callers into a free slot.",
+};
+
+const AUTOMOBILE: VerticalExamples = {
+  orgName: "Sai Ram Motors",
+  orgSlug: "sai-ram-motors",
+  branchLabel: "Service centre",
+  serviceName: "General service (two-wheeler)",
+  servicePrice: "899",
+  serviceNote: "Same-day if dropped before 10 am",
+  askOnArrival: "quoted after inspection",
+  faqQuestion: "Do you pick up the bike from home?",
+  staffName: "Prakash",
+  staffSpoken: "pra-KAASH",
+  staffRole: "Service advisor",
+  staffWhyItMatters: "customers ask for the advisor who handled their last service",
+  bookingRules:
+    "Service slots from 9 am to 6 pm, Monday to Saturday. Never quote a repair cost before inspection.",
+  contactName: "Service desk",
+  knowledgeTitle: "Service price list",
+  knowledgeAnswer: "Pickup and drop is free within 5 km for a general service.",
+  extractionReason: "so the workshop can plan the day's jobs",
+  scriptBrief:
+    "We are a two-wheeler and car service centre in Kukatpally. Callers book services, ask about repair costs and spare parts, and ask for pickup. Book a service slot and take the vehicle details.",
+  extractionLabel: "Vehicle",
+  extractionOptions: "Two-wheeler, Car, Auto or commercial",
+  endCallRules:
+    "Never quote a repair cost before inspection.\nAlways offer a call-back if unsure.",
+  leadSearch: "Activa service on Monday",
+  bookingJobTitle: "Book service slots",
+  bookingJobLine: "Your agent can check your Google Calendar and book vehicles in.",
+};
+
 /**
  * `custom` is the "build the fields by hand" template, so its examples are deliberately
  * TRADE-NEUTRAL rather than borrowed from one of the four above. An operator who chose
@@ -237,7 +326,10 @@ const CUSTOM: VerticalExamples = {
   bookingJobLine: "Your agent can check your Google Calendar and book callers in.",
 };
 
-const BY_VERTICAL: Readonly<Record<Vertical, VerticalExamples>> = {
+const BY_VERTICAL: Readonly<Record<NonNullable<Vertical>, VerticalExamples>> = {
+  retail: RETAIL,
+  local_services: LOCAL_SERVICES,
+  automobile: AUTOMOBILE,
   clinic: CLINIC,
   real_estate: REAL_ESTATE,
   insurance: INSURANCE,

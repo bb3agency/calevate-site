@@ -288,6 +288,11 @@ class Agent(PKMixin, TimestampMixin, Base):
     # no value, and one column holding either would send one engine's id to the other.
     engine_voice_id: Mapped[str | None] = mapped_column(Text)
     engine_model_id: Mapped[str | None] = mapped_column(Text)
+    #: The builder's autosaved working copy of the script (a `CallScript` as JSON), saved
+    #: without a version on every pause in typing; "Put it live" turns it into a version and
+    #: clears it (D-714). NULL when there is nothing unpublished. Never reaches a call.
+    script_draft: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    script_draft_saved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # THE SENT VOICE: what `publish_agent` last handed the engine, as opposed to
     # `tts_voice`, which is what an operator CONFIGURED (migration c8b3f14e7a29). The
     # two are allowed to differ — `voice_routes.set_agent_voice` writes the row and
@@ -669,9 +674,11 @@ SPLIT_MIN_BP = 500
 # predicate cannot be stored, and the CHECK constraint in migration b3c8f27d41ae repeats
 # the same two names against the database.
 CONVERSION_METRICS: dict[str, str] = {
-    # The post-call pipeline's own verdict on the conversation (workers/extraction.py
-    # writes `calls.outcome_tag`).
-    "call_outcome_resolved": "c.outcome_tag = 'resolved'",
+    # The call was handled without the owner: the agent answered it or booked the call
+    # back the caller wanted (`crm/outcomes`). The key keeps its stored name, which the
+    # CHECK in migration b3c8f27d41ae pins; the legacy word is counted until the next
+    # release narrows `calls.outcome_tag` (hard rule 8).
+    "call_outcome_resolved": "c.outcome_tag IN ('answered', 'call_back_booked', 'resolved')",
     # The commercial outcome: the lead this call belongs to was eventually won. Lags the
     # call by however long the client's sales cycle takes, which is why it is not the
     # default — an experiment read too early on this metric shows two zeroes.
@@ -810,6 +817,81 @@ class ExtractionSchema(PKMixin, TimestampMixin, Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     fields: Mapped[list[object]] = mapped_column(JSONB, nullable=False)
     published_at: Mapped[datetime | None]
+
+
+#: Where a custom business's one AI draft of its lead fields stands.
+LEAD_FIELD_DRAFT_STATUSES = ("queued", "running", "done", "failed")
+
+
+class LeadFieldDraft(PKMixin, TimestampMixin, Base):
+    """The ONE AI draft of a custom business's lead fields (founder decision 15).
+
+    `UNIQUE(tenant_id)` is the "generated once, never again" rule: a second draft has no
+    row to live in. A `failed` draft produced nothing and may be asked for again, which
+    moves this same row back to `queued`. `fields` is what the model drafted, kept as the
+    record of what was generated; the client's later edits live in `extraction_schemas`
+    as ordinary versions and never touch it.
+    """
+
+    __tablename__ = "lead_field_drafts"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", name="uq_lead_field_drafts_tenant"),
+        CheckConstraint(f"status IN {LEAD_FIELD_DRAFT_STATUSES!r}", name="status_enum"),
+        CheckConstraint("fields IS NULL OR jsonb_typeof(fields) = 'array'", name="fields_is_array"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="queued")
+    fields: Mapped[list[Any] | None] = mapped_column(JSONB)
+    #: The model that drafted it (a setting name, never a deployment id).
+    model: Mapped[str | None] = mapped_column(Text)
+    #: A machine code when `failed`; never provider text.
+    error_code: Mapped[str | None] = mapped_column(Text)
+    #: The user or operator who asked; NULL when the platform asked on its own.
+    requested_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+AGENT_TEST_RUN_STATUSES = ("queued", "running", "done", "failed")
+
+
+class AgentTestRun(PKMixin, TimestampMixin, Base):
+    """One run of the pre-launch test conversations for an agent (founder decision 11).
+
+    Each scenario is one message sent to the agent as the engine holds it, through the
+    engine's own sandboxed test chat (`agents/test_conversations.py`). `results` keeps what
+    the agent said and which tools it used, so the owner can read it before switching on;
+    it holds no caller data, because no caller is involved. `prompt_version` is the live
+    version the engine held when the run started, so a later script change shows the run
+    as out of date.
+    """
+
+    __tablename__ = "agent_test_runs"
+    __table_args__ = (
+        CheckConstraint(f"status IN {AGENT_TEST_RUN_STATUSES!r}", name="status_enum"),
+        CheckConstraint(
+            "results IS NULL OR jsonb_typeof(results) = 'array'", name="results_is_array"
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    prompt_version: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="queued")
+    results: Mapped[list[Any] | None] = mapped_column(JSONB)
+    #: A machine code when `failed`; never vendor text.
+    error_code: Mapped[str | None] = mapped_column(Text)
+    requested_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class PhoneNumber(PKMixin, TimestampMixin, Base):

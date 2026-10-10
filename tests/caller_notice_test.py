@@ -44,7 +44,9 @@ FIELDS = [
         "required": True,
     },
     {
-        "key": "preferred_time",
+        # Not `preferred_time`: that key is in the core every lead carries
+        # (`calevate_shared.lead_fields`), itemised once in the caller's words.
+        "key": "preferred_slot",
         "label": "Preferred appointment time",
         "type": "text",
         "reason": "when you would like to come in",
@@ -504,7 +506,7 @@ def test_a_schema_row_this_version_cannot_read_is_skipped_rather_than_crashing()
     because they take different branches — a non-dict never reaches the model at all,
     while a dict missing a required field reaches it and is rejected by validation.
     """
-    from apps.api.compliance.caller_notice import _INHERENT, _collected
+    from apps.api.compliance.caller_notice import _CORE_ITEMS, _INHERENT, _collected
 
     agents = [
         {
@@ -528,7 +530,10 @@ def test_a_schema_row_this_version_cannot_read_is_skipped_rather_than_crashing()
     assert labels[: len(_INHERENT)] == [what for what, _ in _INHERENT], (
         "the inherent lines are what a call produces regardless of schema and must survive"
     )
-    assert labels[len(_INHERENT) :] == [FIELDS[0]["label"]], (
+    # Then the core every lead carries, which no stored schema can drop.
+    fixed = len(_INHERENT) + len(_CORE_ITEMS)
+    assert labels[len(_INHERENT) : fixed] == [what for what, _ in _CORE_ITEMS]
+    assert labels[fixed:] == [FIELDS[0]["label"]], (
         "exactly the readable row is listed — three unreadable siblings cost three lines, "
         "not the agent's whole schema"
     )

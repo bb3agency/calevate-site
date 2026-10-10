@@ -71,6 +71,7 @@ const CALL = {
   has_recording: false,
   disclosure_played: true,
   moments: [],
+  captured: [],
 };
 
 const ME: Me = {
@@ -143,7 +144,7 @@ function baseRoutes(me: Me = ME): Record<string, unknown> {
 
 async function pressAssist(): Promise<void> {
   const button = await screen.findByRole("button", {
-    name: /Re-summarise with AI/i,
+    name: /Write a second reading/i,
   });
   await act(async () => {
     fireEvent.click(button);
@@ -387,7 +388,7 @@ describe("the gate", () => {
     const { calls } = await renderClientPage(page(), baseRoutes(STAFF));
 
     const button = await screen.findByRole("button", {
-      name: /Re-summarise with AI/i,
+      name: /Write a second reading/i,
     });
     expect(button.hasAttribute("disabled")).toBe(true);
     expect(

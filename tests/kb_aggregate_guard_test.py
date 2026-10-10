@@ -98,7 +98,7 @@ def test_a_caller_utterance_never_becomes_a_token() -> None:
     outcome = CallOutcome.admit(
         call_id=uuid7(),
         vocabulary=vocabulary,
-        outcome_tag="resolved",
+        outcome_tag="answered",
         sentiment="positive",
         extraction={
             "reason_for_call": CALLER_WORDS,
@@ -110,7 +110,7 @@ def test_a_caller_utterance_never_becomes_a_token() -> None:
     assert CALLER_WORDS not in joined
     assert CALLER_NUMBER not in joined
     assert "after 6pm" not in joined
-    assert outcome.tokens == frozenset({outcome_token("resolved"), "sentiment:positive"})
+    assert outcome.tokens == frozenset({outcome_token("answered"), "sentiment:positive"})
 
 
 def test_a_declared_enum_member_is_admitted_and_a_free_text_value_never_is() -> None:
@@ -175,14 +175,14 @@ def test_an_enum_member_cannot_collide_with_our_own_outcome_vocabulary() -> None
                     "key": "state",
                     "label": "State",
                     "type": "enum",
-                    "enum_values": ["resolved", "open"],
+                    "enum_values": ["answered", "open"],
                 }
             ],
         }
     )
     vocabulary = Vocabulary.for_schema(spec)
-    assert answer_token("state", "resolved") != outcome_token("resolved")
-    assert {answer_token("state", "resolved"), outcome_token("resolved")} <= vocabulary.tokens
+    assert answer_token("state", "answered") != outcome_token("answered")
+    assert {answer_token("state", "answered"), outcome_token("answered")} <= vocabulary.tokens
 
 
 # --- net 2: the wall -----------------------------------------------------------------
@@ -232,14 +232,14 @@ def test_the_wall_refuses_a_kind_that_does_not_match_its_token() -> None:
     """`kind` selects the wording AND the arithmetic. A mismatch is a count taken over
     one population and rendered as another."""
     mislabelled = CallPattern(
-        kind="not_captured", token=outcome_token("resolved"), calls=9, of_calls=40
+        kind="not_captured", token=outcome_token("answered"), calls=9, of_calls=40
     )
     with pytest.raises(CallContentLeakError):
         assert_no_call_content([mislabelled], vocabulary=_vocabulary())
 
 
 def test_the_wall_refuses_a_count_larger_than_its_window() -> None:
-    impossible = CallPattern(kind="outcome", token=outcome_token("resolved"), calls=41, of_calls=40)
+    impossible = CallPattern(kind="outcome", token=outcome_token("answered"), calls=41, of_calls=40)
     with pytest.raises(CallContentLeakError):
         assert_no_call_content([impossible], vocabulary=_vocabulary())
 
@@ -362,7 +362,7 @@ def test_the_same_call_counted_twice_does_not_clear_the_floor() -> None:
     token = answer_token("reason_for_call", "fees")
     one_call = uuid7()
     duplicated = [CallOutcome(call_id=one_call, tokens=frozenset({token}))] * 40
-    padding = _outcomes(MIN_CALLS_PER_WINDOW, frozenset({outcome_token("resolved")}))
+    padding = _outcomes(MIN_CALLS_PER_WINDOW, frozenset({outcome_token("answered")}))
     published = {p.token for p in distil(duplicated + padding, vocabulary=vocabulary)}
     assert token not in published
 
@@ -430,7 +430,7 @@ def test_the_order_is_total_so_two_runs_agree() -> None:
     vocabulary = _vocabulary()
     outcomes = _outcomes(
         MIN_CALLS_PER_WINDOW,
-        frozenset({outcome_token("resolved"), answer_token("reason_for_call", "fees")}),
+        frozenset({outcome_token("answered"), answer_token("reason_for_call", "fees")}),
     )
     first = distil(outcomes, vocabulary=vocabulary)
     second = distil(list(reversed(outcomes)), vocabulary=vocabulary)
@@ -673,7 +673,7 @@ async def test_the_reader_publishes_counts_and_no_caller_content() -> None:
     number. Neither reaches the patterns, and neither reaches the digest."""
     calls = [
         {
-            "outcome_tag": "needs_follow_up",
+            "outcome_tag": "needs_you",
             "sentiment": "neutral",
             "data": '{"reason_for_call": "appointment"}',
         }
@@ -692,7 +692,7 @@ async def test_the_reader_publishes_counts_and_no_caller_content() -> None:
     tokens = {p.token for p in result.patterns}
     assert answer_token("reason_for_call", "appointment") in tokens
     assert field_token("preferred_slot") in tokens, "the required field was never captured"
-    assert outcome_token("needs_follow_up") in tokens
+    assert outcome_token("needs_you") in tokens
 
     body = insights_module.render_digest(result, agent_name="Reception")
     assert body is not None
@@ -711,11 +711,11 @@ async def test_one_agents_calls_never_reach_another_agents_aggregate() -> None:
     its own agent's callers.
     """
     reception = [
-        {"outcome_tag": "resolved", "data": '{"reason_for_call": "fees"}'}
+        {"outcome_tag": "answered", "data": '{"reason_for_call": "fees"}'}
         for _ in range(MIN_CALLS_PER_WINDOW + 2)
     ]
     collections = [
-        {"outcome_tag": "needs_follow_up", "data": '{"reason_for_call": "timings"}'}
+        {"outcome_tag": "needs_you", "data": '{"reason_for_call": "timings"}'}
         for _ in range(MIN_CALLS_PER_WINDOW + 2)
     ]
     tenant_id, first_agent = await _agent_with_calls(outcomes=reception)
@@ -738,7 +738,7 @@ async def test_one_agents_calls_never_reach_another_agents_aggregate() -> None:
 
 
 async def test_a_call_outside_the_window_is_not_counted() -> None:
-    calls = [{"outcome_tag": "resolved"} for _ in range(MIN_CALLS_PER_WINDOW + 2)]
+    calls = [{"outcome_tag": "answered"} for _ in range(MIN_CALLS_PER_WINDOW + 2)]
     tenant_id, agent_id = await _agent_with_calls(outcomes=calls)
     async with tenant_session(tenant_id) as session:
         result = await insights_module.insights_for_agent(
@@ -876,7 +876,7 @@ async def test_a_real_extractions_every_field_reaches_nothing_the_owner_can_read
 
     calls = [
         {
-            "outcome_tag": "needs_follow_up",
+            "outcome_tag": "needs_you",
             "sentiment": "negative",
             "data": json.dumps(TRANSCRIPT_DERIVED_ANSWERS),
         }
@@ -947,7 +947,7 @@ async def test_a_fanned_out_read_still_reports_one_call_per_call(
     assert "generate_series" in fanned_sql, "the reader's JOIN clause moved; re-point this test"
 
     calls = [
-        {"outcome_tag": "resolved", "sentiment": "positive", "data": '{"reason_for_call": "fees"}'}
+        {"outcome_tag": "answered", "sentiment": "positive", "data": '{"reason_for_call": "fees"}'}
         for _ in range(MIN_CALLS_PER_WINDOW + 5)
     ]
     tenant_id, agent_id = await _agent_with_calls(outcomes=calls)
@@ -1026,7 +1026,7 @@ async def test_an_erased_callers_calls_leave_the_aggregate() -> None:
     """
     captured = '{"reason_for_call": "appointment", "preferred_slot": "6pm Thursday"}'
     calls = [
-        {"outcome_tag": "resolved", "sentiment": "positive", "data": captured}
+        {"outcome_tag": "answered", "sentiment": "positive", "data": captured}
         for _ in range(MIN_CALLS_PER_WINDOW + 5)
     ]
     tenant_id, agent_id = await _agent_with_calls(outcomes=calls)
@@ -1060,7 +1060,7 @@ async def test_an_erased_callers_calls_leave_the_aggregate() -> None:
         "a fraction of a population that includes people whose data was destroyed"
     )
     by_token = {p.token: p for p in after.patterns}
-    for token in (outcome_token("resolved"), "sentiment:positive"):
+    for token in (outcome_token("answered"), "sentiment:positive"):
         pattern = by_token.get(token)
         assert pattern is not None and pattern.calls == after.calls, (
             f"{token} still counts the erased calls: the erasure NULLs the numbers and the "
@@ -1149,7 +1149,7 @@ async def test_the_sweep_mails_one_digest_per_agent_and_it_carries_no_call_conte
     """The whole loop, over rows whose transcript-derived columns are populated."""
     calls = [
         {
-            "outcome_tag": "needs_follow_up",
+            "outcome_tag": "needs_you",
             "sentiment": "negative",
             "data": '{"reason_for_call": "timings"}',
         }
@@ -1162,7 +1162,7 @@ async def test_the_sweep_mails_one_digest_per_agent_and_it_carries_no_call_conte
     # vocabulary declares, the wall refuses the batch, and the sweep raises here instead of
     # mailing a caller's words to a business owner.
     calls += [
-        {"outcome_tag": "resolved", "data": json.dumps({"reason_for_call": CALLER_WORDS})}
+        {"outcome_tag": "answered", "data": json.dumps({"reason_for_call": CALLER_WORDS})}
         for _ in range(MIN_CALLS_PER_PATTERN + 1)
     ]
     tenant_id, agent_id = await _agent_with_calls(outcomes=calls)
@@ -1201,7 +1201,7 @@ async def _live_agent_addressed(address: str) -> uuid.UUID:
     question these tests exist to ask.
     """
     calls = [
-        {"outcome_tag": "resolved", "sentiment": "positive", "data": '{"reason_for_call": "fees"}'}
+        {"outcome_tag": "answered", "sentiment": "positive", "data": '{"reason_for_call": "fees"}'}
         for _ in range(MIN_CALLS_PER_WINDOW + 2)
     ]
     tenant_id, agent_id = await _agent_with_calls(outcomes=calls)
@@ -1319,7 +1319,7 @@ async def test_another_tenants_agent_is_zero_rows_not_a_smaller_answer() -> None
     another tenant's agent id" is the ordinary case rather than the adversarial one.
     """
     calls = [
-        {"outcome_tag": "resolved", "sentiment": "positive", "data": '{"reason_for_call": "fees"}'}
+        {"outcome_tag": "answered", "sentiment": "positive", "data": '{"reason_for_call": "fees"}'}
         for _ in range(MIN_CALLS_PER_WINDOW + 5)
     ]
     owner_tenant, agent_id = await _agent_with_calls(outcomes=calls)
@@ -1361,7 +1361,7 @@ async def test_a_route_row_pointing_at_the_wrong_tenant_mails_nobody(
     to explain.
     """
     calls = [
-        {"outcome_tag": "resolved", "sentiment": "positive", "data": '{"reason_for_call": "fees"}'}
+        {"outcome_tag": "answered", "sentiment": "positive", "data": '{"reason_for_call": "fees"}'}
         for _ in range(MIN_CALLS_PER_WINDOW + 5)
     ]
     _, agent_id = await _agent_with_calls(outcomes=calls)
@@ -1442,7 +1442,7 @@ async def test_the_retention_scrub_records_that_it_scrubbed() -> None:
     not, because a marker that is always set is the same as no marker at all.
     """
     captured = '{"reason_for_call": "appointment", "preferred_slot": "6pm Thursday"}'
-    calls = [{"outcome_tag": "resolved", "data": captured} for _ in range(10)]
+    calls = [{"outcome_tag": "answered", "data": captured} for _ in range(10)]
     tenant_id, agent_id = await _agent_with_calls(outcomes=calls)
     scrubbed_ids = await _first_call_ids(tenant_id, agent_id, 4)
 
@@ -1491,7 +1491,7 @@ async def test_a_scrubbed_extraction_is_not_counted_as_a_missed_field() -> None:
     """
     captured = '{"reason_for_call": "appointment", "preferred_slot": "6pm Thursday"}'
     calls = [
-        {"outcome_tag": "resolved", "sentiment": "positive", "data": captured}
+        {"outcome_tag": "answered", "sentiment": "positive", "data": captured}
         for _ in range(MIN_CALLS_PER_WINDOW + 5)
     ]
     tenant_id, agent_id = await _agent_with_calls(outcomes=calls)
@@ -1519,7 +1519,7 @@ async def test_a_scrubbed_extraction_is_not_counted_as_a_missed_field() -> None:
     assert (asked.calls, asked.of_calls) == (result.calls_with_details, result.calls_with_details)
 
     # THE OTHER DIRECTION, and it is the one that is easy to get wrong quietly.
-    for token in (outcome_token("resolved"), "sentiment:positive"):
+    for token in (outcome_token("answered"), "sentiment:positive"):
         pattern = by_token[token]
         assert (pattern.calls, pattern.of_calls) == (result.calls, result.calls), (
             f"{token} lost the scrubbed calls. A retention scrub destroys the EXTRACTION; "
@@ -1544,19 +1544,19 @@ def test_a_scrubbed_call_keeps_its_outcome_and_loses_only_its_details() -> None:
     vocabulary = _vocabulary()
     answer = answer_token("reason_for_call", "fees")
     readable = [
-        CallOutcome(call_id=uuid7(), tokens=frozenset({answer, outcome_token("resolved")}))
+        CallOutcome(call_id=uuid7(), tokens=frozenset({answer, outcome_token("answered")}))
         for _ in range(MIN_CALLS_PER_WINDOW)
     ]
     scrubbed = [
         CallOutcome(
             call_id=uuid7(),
-            tokens=frozenset({outcome_token("resolved")}),
+            tokens=frozenset({outcome_token("answered")}),
             extraction_readable=False,
         )
         for _ in range(7)
     ]
     by_token = {p.token: p for p in distil(readable + scrubbed, vocabulary=vocabulary)}
-    assert by_token[outcome_token("resolved")].of_calls == len(readable) + len(scrubbed)
+    assert by_token[outcome_token("answered")].of_calls == len(readable) + len(scrubbed)
     assert by_token[answer].of_calls == len(readable)
     assert by_token[answer].calls == len(readable)
 
@@ -1574,13 +1574,13 @@ def test_an_extraction_family_below_the_floor_publishes_nothing_while_outcomes_s
     vocabulary = _vocabulary()
     answer = answer_token("reason_for_call", "fees")
     readable = [
-        CallOutcome(call_id=uuid7(), tokens=frozenset({answer, outcome_token("resolved")}))
+        CallOutcome(call_id=uuid7(), tokens=frozenset({answer, outcome_token("answered")}))
         for _ in range(MIN_CALLS_PER_PATTERN)
     ]
     scrubbed = [
         CallOutcome(
             call_id=uuid7(),
-            tokens=frozenset({outcome_token("resolved")}),
+            tokens=frozenset({outcome_token("answered")}),
             extraction_readable=False,
         )
         for _ in range(MIN_CALLS_PER_WINDOW)
@@ -1594,4 +1594,4 @@ def test_an_extraction_family_below_the_floor_publishes_nothing_while_outcomes_s
         "floor — k=5 was cleared on a denominator of five, which is the disclosure "
         "MIN_CALLS_PER_WINDOW exists to refuse"
     )
-    assert published[outcome_token("resolved")].of_calls == len(readable) + len(scrubbed)
+    assert published[outcome_token("answered")].of_calls == len(readable) + len(scrubbed)

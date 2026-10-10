@@ -42,6 +42,11 @@ export type DataColumn<T> = {
   align?: "left" | "right";
   /** Drop the column below this width; the first column can carry it instead. */
   hideBelow?: "sm" | "md" | "lg";
+  /**
+   * Keep this column in view while the table scrolls sideways, at this offset from the
+   * left edge: `left-0` for the first column, `left-12` for one after a 3rem column.
+   */
+  pin?: "left-0" | "left-12";
   className?: string;
   /**
    * The raw value this cell shows. When it differs from the previous render for the
@@ -54,6 +59,12 @@ const HIDE: Record<NonNullable<DataColumn<unknown>["hideBelow"]>, string> = {
   sm: "hidden sm:table-cell",
   md: "hidden md:table-cell",
   lg: "hidden lg:table-cell",
+};
+
+/** Opaque, so rows scrolled under a pinned column do not show through it. */
+const PIN: Record<NonNullable<DataColumn<unknown>["pin"]>, string> = {
+  "left-0": "sticky left-0 z-[1] bg-surface",
+  "left-12": "sticky left-12 z-[1] bg-surface",
 };
 
 const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
@@ -209,7 +220,7 @@ export function DataTable<T>({
                     aria-sort={active === "asc" ? "ascending" : active === "desc" ? "descending" : undefined}
                     className={`whitespace-nowrap px-3 py-2 text-[12px] font-medium text-ink-faint ${
                       column.align === "right" ? "text-right" : ""
-                    } ${column.hideBelow ? HIDE[column.hideBelow] : ""}`}
+                    } ${column.hideBelow ? HIDE[column.hideBelow] : ""} ${column.pin ? PIN[column.pin] : ""}`}
                   >
                     {column.renderHeader ? (
                       <>
@@ -253,7 +264,7 @@ export function DataTable<T>({
                       key={column.id}
                       className={`px-3 py-3 align-middle ${column.align === "right" ? "text-right" : ""} ${
                         column.hideBelow ? HIDE[column.hideBelow] : ""
-                      } ${column.className ?? ""}`}
+                      } ${column.pin ? PIN[column.pin] : ""} ${column.className ?? ""}`}
                     >
                       {column.flash ? (
                         <span

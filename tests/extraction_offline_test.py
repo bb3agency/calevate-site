@@ -191,4 +191,4 @@ async def test_a_silent_call_produces_no_fields_at_all() -> None:
     assert "name" not in result
     assert "intent" not in result
     assert "wants_callback" not in result
-    assert result["outcome_tag"] == "resolved"
+    assert result["outcome_tag"] == "hung_up_early"

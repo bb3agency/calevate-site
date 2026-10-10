@@ -194,10 +194,8 @@ one. Released numbers do not come back; the client buys new ones.
 
 ## Other alarms on this path
 
-- `engine_workspace_byok_not_inherited` — with Studio on, a client workspace does not run on
-  our voice key. Open that customer in the ThinnestAI console: its own-keys switch must be
-  off with no keys of its own (`api-reference/bring-your-own-keys.md:129-133`). Then re-run
-  **Enable Studio voices**, which reports how many workspaces inherit.
+- `studio_workspace_drift` / `studio_workspace_repaired` — a Studio client workspace was found
+  off our Cartesia key (D-717); see `runbooks/thinnest-studio-voices.md` §4.
 - `engine_action_workspace_mismatch` — an in-call action arrived naming another workspace
   than its agent's (`agent/custom-api.md:116-119`) and was refused. Republish the agent; if
   it recurs, look for a copy of the action on an agent that is not ours.

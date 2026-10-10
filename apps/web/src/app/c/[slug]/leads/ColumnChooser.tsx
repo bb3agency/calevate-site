@@ -21,11 +21,9 @@ import type { LeadColumn } from "@/lib/api/leads";
  * axe cannot see a placeholder or a title attribute, and neither can a person who has
  * turned the tooltip off.
  *
- * **`undefined` is not "none".** `chosen === undefined` means the client has expressed no
- * preference, which the API renders as every column this agent HAS — so a column added
- * to the capture list tomorrow appears rather than being silently excluded by a
- * selection frozen today. Clearing the last checkbox therefore returns to `undefined`
- * rather than sending an empty list.
+ * **`chosen` is what the table is showing**, which is the usual five until the client
+ * picks (`lib/leadLabels.DEFAULT_LEAD_COLUMNS`). Clearing the last checkbox, or "Back to
+ * the usual columns", returns to `undefined` — no choice — rather than an empty list.
  */
 export function ColumnChooser({
   available,
@@ -35,6 +33,7 @@ export function ColumnChooser({
 }: {
   /** `undefined` while the list request is in flight or has failed — see below. */
   available: LeadColumn[] | undefined;
+  /** The columns on screen right now: the client's choice, or the usual five. */
   chosen: string[] | undefined;
   onChange: (next: string[] | undefined) => void;
   unavailableReason: string | null;
@@ -105,15 +104,22 @@ export function ColumnChooser({
               </label>
             ))}
           </div>
-          {/* The escape hatch, and the one that restores "whatever this agent has"
-              rather than pinning today's list. */}
-          <button
-            type="button"
-            onClick={() => onChange(undefined)}
-            className="mt-2 rounded-sm text-xs font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:text-brand-bright"
-          >
-            Show every column
-          </button>
+          <div className="mt-2 flex flex-wrap gap-x-4">
+            <button
+              type="button"
+              onClick={() => onChange(available.map((c) => c.key))}
+              className="rounded-sm text-xs font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:text-brand-bright"
+            >
+              Show every column
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange(undefined)}
+              className="rounded-sm text-xs font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:text-brand-bright"
+            >
+              Back to the usual columns
+            </button>
+          </div>
         </fieldset>
       </div>
     </details>

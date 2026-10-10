@@ -23,12 +23,14 @@ from apps.api.engine.thinnest import (
     BYOK_PREVIEW_TEXT_MAX_CHARS,
     ThinnestEngine,
 )
+from apps.api.engine.thinnest_workspace import in_workspace
 from apps.api.engine.vendor_http import EngineRejectedError, vendor_audio_request
 from calevate_shared.engine import AgentConfig, CallContext
 
 Handler = Callable[[httpx.Request], httpx.Response]
-#: The customer-workspace header, which nothing on this engine sends any more (D-688).
+#: The customer-workspace header: since D-717 the BYOK switch is sent with a Studio client's.
 WORKSPACE_HEADER = "Thinnest-Workspace"
+_CLIENT_WS = "org_studio-client"
 Key = tuple[str, str, str | None]
 
 
@@ -346,14 +348,16 @@ async def test_our_voice_key_is_installed_and_switched_on_for_the_voice() -> Non
 
     vendor = _Vendor(
         {
-            ("PUT", "/byok/credentials", None): _record(_ok({"kind": "tts"})),
-            ("PATCH", "/byok", None): _record(_ok({"enabled": True})),
-            ("GET", "/byok", None): _ok(_STATUS),
+            ("PUT", "/byok/credentials", _CLIENT_WS): _record(_ok({"kind": "tts"})),
+            ("PATCH", "/byok", _CLIENT_WS): _record(_ok({"enabled": True})),
+            ("GET", "/byok", _CLIENT_WS): _ok(_STATUS),
         }
     )
     engine = _engine(vendor)
-    await engine.install_own_voice_key(provider="cartesia", api_key="sk_car", model="sonic-3")
-    state = await engine.enable_own_voice_key()
+    # Only ever in a Studio client's own workspace: ours stays off (D-717).
+    with in_workspace(_CLIENT_WS):
+        await engine.install_own_voice_key(provider="cartesia", api_key="sk_car", model="sonic-3")
+        state = await engine.enable_own_voice_key()
     assert bodies == [
         {
             "kind": "tts",
@@ -379,8 +383,8 @@ async def test_a_rejected_voice_key_is_said_in_our_words(status: int, code: str)
     ("status", "code"), [(409, "engine_voice_key_not_ready"), (500, "engine_rejected")]
 )
 async def test_switching_on_a_key_that_is_not_ready_is_said_plainly(status: int, code: str) -> None:
-    vendor = _Vendor({("PATCH", "/byok", None): _ok({"error": "x"}, status)})
-    with pytest.raises(ProblemError) as caught:
+    vendor = _Vendor({("PATCH", "/byok", _CLIENT_WS): _ok({"error": "x"}, status)})
+    with in_workspace(_CLIENT_WS), pytest.raises(ProblemError) as caught:
         await _engine(vendor).enable_own_voice_key()
     assert caught.value.code == code
 

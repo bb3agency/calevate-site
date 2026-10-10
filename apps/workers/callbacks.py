@@ -27,12 +27,19 @@ from apps.api.compliance.service import (
     DispatchDecision,
     check_dispatch,
 )
+from apps.api.compliance.trial_access import TRIAL_CALLBACK_REASON, TRIAL_DIAL_REFUSALS
 from apps.api.core.alerting import record_compliance_block
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
 from apps.api.engine.carrier_pacing import LINES_BUSY_RULE, PACING_RULE
+from apps.api.ingest.lead_policy import (
+    book_retry,
+    load_plan,
+    new_lead_attempt,
+    retry_still_wanted,
+)
 
 log = get_logger(__name__)
 
@@ -69,6 +76,12 @@ OPTED_OUT_REASON = "This number is marked as not to be called, so the call-back 
 #: each with the sentence the client reads on the deferred call-back.
 _LINE_REFUSALS = {PACING_RULE: PACING_DEFERRED_REASON, LINES_BUSY_RULE: LINES_BUSY_REASON}
 
+#: ...and when a new lead's retry stood down because they answered (or rang in) since.
+RETRY_NOT_NEEDED_REASON = "They answered an earlier call, so this retry was not needed."
+
+#: ...and when a call with them was still on the line when the retry fell due.
+ON_A_CALL_REASON = "They were still on a call with us; we will try again shortly."
+
 #: What the caller hears about, in the ledger sense, when they call their own callback off.
 CANCELLED_BY_CALLER_REASON = "The caller asked us not to ring them back."
 
@@ -100,7 +113,28 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
     # The claim is COMMITTED here. Everything below runs in its own short transaction.
 
     for callback in due:
+        attempt = new_lead_attempt(callback.source_execution_id)
         async with tenant_session(tenant_id) as session:
+            # A RETRY OF A NEW LEAD'S CALL (D-716) was booked before the last try's outcome
+            # was known; it stands down once they answered and waits while they are on a
+            # call. Before the gate, so a retry nobody needs costs no DNC read.
+            if attempt is not None and attempt[0] > 0:
+                verdict = await retry_still_wanted(
+                    session,
+                    lead_id=callback.lead_id,
+                    phone_e164=callback.phone_e164,
+                    booked_at=callback.booked_at,
+                )
+                if verdict == "answered":
+                    await callbacks.settle(
+                        session, callback.id, status="cancelled", reason=RETRY_NOT_NEEDED_REASON
+                    )
+                    continue
+                if verdict == "on_a_call":
+                    await callbacks.defer(
+                        session, callback.id, rule="lead_on_a_call", reason=ON_A_CALL_REASON
+                    )
+                    continue
             # THE GATE (hard rule 5), per callback, at the moment of dialling. This is the
             # dispatch tick DNC additions must precede, and its DNC read is uncached — so a
             # number suppressed between the promise and its time is refused here, on this
@@ -135,6 +169,17 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                         status="refused",
                         rule=rule,
                         reason=decision.reason,
+                    )
+                elif rule in TRIAL_DIAL_REFUSALS:
+                    # A fact about the ACCOUNT that no wait inside the grace window lifts:
+                    # a trial account places no call backs. Ended now, in words that say
+                    # what to do, rather than "waiting" for two hours (F-5).
+                    await callbacks.settle(
+                        session,
+                        callback.id,
+                        status="refused",
+                        rule=rule,
+                        reason=TRIAL_CALLBACK_REASON,
                     )
                 else:
                     await callbacks.defer(session, callback.id, rule=rule, reason=decision.reason)
@@ -216,6 +261,18 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                 blocked += 1
                 log.warning("callback_dial_failed", extra={"code": code})
                 continue
+            if attempt is not None:
+                # The next try for a new lead, booked in the same transaction as this one.
+                await book_retry(
+                    session,
+                    tenant_id=tenant_id,
+                    plan=await load_plan(session),
+                    lead_id=callback.lead_id,
+                    agent_id=callback.agent_id,
+                    phone_e164=callback.phone_e164,
+                    attempt=attempt[0],
+                    root=attempt[1],
+                )
             dialled += 1
     return {"dialled": dialled, "blocked": blocked, "settled": settled}
 

@@ -163,9 +163,20 @@ FREE_ASSIST_FEATURES = ("copilot",)
 ASSIST_FEATURE_STANDBY = "assist_standby"
 #: The first post-call extraction pass (Sarvam): part of serving the call, so absorbed too.
 ASSIST_FEATURE_CALL_EXTRACTION = "call_extraction"
+#: The after-call language pass (`workers/call_language`): English for each turn and the
+#: summary in the call's language. Part of serving the call, so absorbed like extraction.
+ASSIST_FEATURE_CALL_LANGUAGE = "call_language"
+#: The one AI draft of a custom business's lead fields (founder decision 15): part of
+#: setting the account up, drafted once ever, so absorbed too.
+ASSIST_FEATURE_LEAD_FIELDS = "lead_fields_draft"
 #: Features whose cost is OURS: excluded from the allowance like `FREE_ASSIST_FEATURES`, and
 #: unlike them not counted by the fair-use cap, which limits what a person asks for.
-ABSORBED_ASSIST_FEATURES = (ASSIST_FEATURE_STANDBY, ASSIST_FEATURE_CALL_EXTRACTION)
+ABSORBED_ASSIST_FEATURES = (
+    ASSIST_FEATURE_STANDBY,
+    ASSIST_FEATURE_CALL_EXTRACTION,
+    ASSIST_FEATURE_CALL_LANGUAGE,
+    ASSIST_FEATURE_LEAD_FIELDS,
+)
 
 # WHO PAYS FOR A ROW OF THIS UNIT — the one question every reader of `usage_events` has
 # to answer, and until now the only place it was answered was a NEGATIVE predicate in

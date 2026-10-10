@@ -136,6 +136,9 @@ class DueCallback:
     phone_e164: str
     requested_at: datetime
     note: str | None
+    #: What booked it (`lead-ingest:`, `lead-retry:` … for a new lead's call, D-716).
+    source_execution_id: str | None = None
+    booked_at: datetime | None = None
 
 
 def context_note(requested_at: datetime, note: str | None) -> str:
@@ -327,7 +330,8 @@ async def claim_due(
                 "  attempts = s.attempts + 1, last_refusal_rule = NULL, "
                 "  last_refusal_reason = NULL, updated_at = now() "
                 "FROM picked WHERE s.id = picked.id "
-                "RETURNING s.id, s.agent_id, s.lead_id, s.phone_e164, s.requested_at, s.note"
+                "RETURNING s.id, s.agent_id, s.lead_id, s.phone_e164, s.requested_at, s.note, "
+                "  s.source_execution_id, s.booked_at"
             ),
             {"now": now or datetime.now(UTC), "n": limit},
         )
@@ -340,6 +344,8 @@ async def claim_due(
             phone_e164=str(row[3]),
             requested_at=row[4],
             note=row[5],
+            source_execution_id=row[6],
+            booked_at=row[7],
         )
         for row in rows
     ]

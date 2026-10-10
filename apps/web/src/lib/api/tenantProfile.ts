@@ -79,8 +79,8 @@ export const EDIT_FIELD_COPY: Record<keyof EditTenantIn, FieldCopy> = {
     hint: "The invoice, the hot-lead alert and the closure notice are all addressed from here. It is NOT a sign-in address — nobody gains or loses access by changing it — but it does move a channel, so it takes a confirmation and the address being replaced is told.",
   },
   vertical_template: {
-    label: "Vertical",
-    hint: "Picks the extraction schema a NEW agent starts from, and decides whether subscriber verification and the first-campaign hold apply. Agents that already exist keep the fields they are collecting into.",
+    label: "Business type",
+    hint: "Picks the lead details a NEW agent starts with, and decides whether subscriber verification and the first-campaign hold apply. Agents that already exist keep their details until you choose to replace them, which is offered after saving.",
   },
 };
 

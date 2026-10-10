@@ -24,7 +24,12 @@ from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict
 
 from apps.api.agents.engine_catalogue_offer import offered_models
-from apps.api.agents.engine_choice import BYOK_CHOICE_NOTE, byok_in_force
+from apps.api.agents.engine_choice import (
+    BYOK_CHOICE_NOTE,
+    STUDIO_AFTER_GO_LIVE_NOTE,
+    byok_in_force,
+    in_call_default_model,
+)
 from apps.api.agents.hosted_voices import (
     STUDIO_VOICE_PROVIDER,
     hosted_voice_unofferable_reason,
@@ -37,11 +42,12 @@ from apps.api.agents.llm_models import LlmReasonAudience
 from apps.api.agents.llm_tiers import engine_model_labels, engine_model_token
 from apps.api.agents.voice_offer import tts_price_is_billable
 from apps.api.billing.engine_minutes import attested_rate_keys
+from apps.api.compliance.trial_access import restricting_trial
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
-from apps.api.db.session import untenanted_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.catalogue import HoldsCatalogue, HostsVoices
 from apps.api.engine.hosted_platform import engine_platform_label
@@ -100,6 +106,11 @@ class EngineCatalogueModelOut(BaseModel):
     #: May an agent on a Studio voice use it? A Studio voice runs the call on the
     #: platform's standard models only, and any other is refused at publish (D-687).
     usable_with_studio_voice: bool
+    #: Operators only (null to a client): the per-minute band the model lifts a call to,
+    #: "none" or "premium", or null when nobody has recorded it (then it is not offered).
+    price_band: Literal["none", "premium"] | None = None
+    #: Operators only: the reply latency the platform's console shows, in milliseconds.
+    latency_ms: int | None = None
     offerable: bool
     reason: str | None
 
@@ -117,11 +128,30 @@ class EngineCatalogueOut(BaseModel):
     #: account's own keys (`Settings.thinnest_byok_enabled`), where `choice_note` says why.
     choosable: bool = True
     choice_note: str | None = None
-    #: Are Studio voices switched on on this deployment (our voice key on in the workspace)?
-    #: False: no Studio voice is listed.
+    #: Can this reader put an agent on a Studio voice? False before Studio is ready on this
+    #: deployment, and for a free-trial account, whose agents speak Clear only (D-717).
     studio_available: bool = False
+    #: Why Studio cannot be chosen, in the reader's words; null when it can. Names no vendor.
+    studio_note: str | None = None
+    #: What "Platform default" means for an agent on a Clear voice: the in-call model it is
+    #: sent when none is chosen (`Settings.thinnest_in_call_default_model`), by the name the
+    #: reader is shown. Null when the platform's own default applies or the model is unlisted.
+    default_model_label: str | None = None
     voices: list[EngineCatalogueVoiceOut]
     models: list[EngineCatalogueModelOut]
+
+
+#: What a client reads while Studio is not ready on this deployment. No vendor name (D-679).
+STUDIO_NOT_READY_NOTE: Final = "Studio voices are not available yet."
+
+
+def _studio_note(*, studio_ready: bool, on_trial: bool) -> str | None:
+    """Why this reader cannot choose a Studio voice, or None. A trial account's agents live
+    in our developer workspace, whose own-keys switch stays off, so they are Clear only;
+    the Studio previews still play for it (D-697, D-717)."""
+    if on_trial:
+        return STUDIO_AFTER_GO_LIVE_NOTE
+    return None if studio_ready else STUDIO_NOT_READY_NOTE
 
 
 @router.get(
@@ -156,10 +186,17 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
         attested = await attested_rate_keys(session, engine=engine.name, at=datetime.now(UTC))
         rows = await offered_hosted_voices(session)
         studio_ready = await studio_voices_ready(session)
+    on_trial = False
+    if principal.tenant_id is not None and not principal.is_admin:
+        async with tenant_session(principal.tenant_id) as tenant:
+            on_trial = await restricting_trial(tenant, tenant_id=principal.tenant_id) is not None
+    studio_note = _studio_note(studio_ready=studio_ready, on_trial=on_trial)
     catalogue = await engine.read_catalogue()
     models = offered_models(catalogue, attested=attested, platform=platform, audience=audience)
     reasons = [
-        hosted_voice_unofferable_reason(
+        STUDIO_AFTER_GO_LIVE_NOTE
+        if on_trial and row.source == "byok"
+        else hosted_voice_unofferable_reason(
             row,
             attested=attested,
             voice_key_priced=voice_key_priced,
@@ -185,12 +222,23 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
     is_client = audience == "client"
     offerable = sum(1 for v in voices if v.offerable)
     byok = byok_in_force(engine)
+    default_model = in_call_default_model(engine, voice_id=None)
+    default_label = next(
+        (
+            client_labels[m.model_id] if is_client else m.label
+            for m in catalogue.models
+            if m.model_id == default_model
+        ),
+        None,
+    )
     return EngineCatalogueOut(
         available=True,
         complete=catalogue.complete,
         choosable=not byok,
         choice_note=BYOK_CHOICE_NOTE if byok else None,
-        studio_available=studio_ready,
+        studio_available=studio_ready and not on_trial,
+        studio_note=studio_note,
+        default_model_label=default_label,
         note=(
             f"{offerable} of {len(voices)} voices can be chosen today."
             if voices
@@ -204,6 +252,8 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
                 call_capable=m.model.call_capable,
                 plan_allows=m.model.plan_allows,
                 usable_with_studio_voice=m.model.voice_only_byok,
+                price_band=None if is_client else m.model.surcharge,
+                latency_ms=None if is_client else m.model.console_latency_ms,
                 offerable=m.offerable,
                 reason=m.reason,
             )

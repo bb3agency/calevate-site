@@ -95,6 +95,34 @@ NOT_ON_TRIAL_REASON: Final = (
 )
 
 
+#: A trial account's agent cannot promise a call back (founder decision 1, 10 Oct 2026):
+#: nothing can ring a caller back until the account pays, so a promise would be broken.
+TRIAL_CALLBACK_RULE: Final = "trial_call_back_unavailable"
+#: What the AGENT is told when it tries to book one, mid-call.
+TRIAL_CALLBACK_SAY: Final = (
+    "You could NOT book a call-back: call-backs are not available on this test call. Do "
+    "NOT promise a call-back or a time. Tell the caller the business will follow up with "
+    "them, then carry on helping."
+)
+#: What the CLIENT reads on a call back a trial account could not place.
+TRIAL_CALLBACK_REASON: Final = (
+    "Call backs are not placed during your free trial, so this caller was not rung back. "
+    "Follow up with them yourself; call backs start once you add credit and verify your "
+    "business."
+)
+#: The dial gate's trial refusals. Waiting cannot lift any of them inside a call back's
+#: grace window, so the dispatcher ends the call back at once with `TRIAL_CALLBACK_REASON`
+#: instead of showing it as waiting for two hours (first-call review F-5).
+TRIAL_DIAL_REFUSALS: Final = frozenset(
+    {
+        TRIAL_REFUSALS["live_outbound"][0],
+        TRIAL_ENDED_RULE,
+        TRIAL_MINUTES_USED_RULE,
+        TRIAL_DAILY_CAP_RULE,
+    }
+)
+
+
 def daily_cap_reason(cap: int) -> str:
     return (
         f"You have placed today's {cap} test calls. You can place more tomorrow, or add "
@@ -236,7 +264,11 @@ __all__ = [
     "ADD_CREDIT_STEP",
     "NOT_ON_TRIAL_REASON",
     "NOT_ON_TRIAL_RULE",
+    "TRIAL_CALLBACK_REASON",
+    "TRIAL_CALLBACK_RULE",
+    "TRIAL_CALLBACK_SAY",
     "TRIAL_DAILY_CAP_RULE",
+    "TRIAL_DIAL_REFUSALS",
     "TRIAL_ENDED_REASON",
     "TRIAL_ENDED_RULE",
     "TRIAL_LINE_MARGIN",

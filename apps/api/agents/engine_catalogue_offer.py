@@ -74,6 +74,16 @@ def model_unofferable_reason(
             f"The {platform} account's plan does not include this model. Upgrading the "
             f"plan in the {platform} console makes it available."
         )
+    if model.surcharge is None:
+        # Hard rule 7: a model can lift a call to a dearer band, and the engine's API does
+        # not say which ones do, so a model whose band nobody has read is not sold.
+        if audience == "client":
+            return "Not available yet: calls on this model have not been priced."
+        return (
+            f"{platform} does not publish this model's per-minute band and nobody has "
+            "recorded the price tag its console shows, so a call on it cannot be priced. "
+            "Record it in engine/thinnest._MODEL_CONSOLE_READING to offer it."
+        )
     return None
 
 

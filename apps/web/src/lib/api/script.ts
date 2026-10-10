@@ -50,6 +50,62 @@ export interface FaqEntry {
   answer: string;
 }
 
+/** How to say a word the voice might misread. Mirrors `Pronunciation`. */
+export interface Pronunciation {
+  word: string;
+  say_as: string;
+}
+
+export type CodeMix = "light" | "natural" | "heavy";
+
+/** How the agent sounds. Mirrors `SpeakingStyle`. */
+export interface SpeakingStyle {
+  tone: string;
+  address_form: string;
+  code_mix: CodeMix;
+  sample_phrases: string[];
+  pronunciations: Pronunciation[];
+}
+
+/** One section of the call graph. Mirrors `ConversationStage` (see the "Script API
+ *  (lane 2)" contract in docs/evidence/first-call-review-2026-10-10.md). */
+export interface ConversationStage {
+  /** Stable id: branches and the canvas point at it. */
+  id: string;
+  name: string;
+  /** "say": `instruction` is said as written (best effort). */
+  mode?: "guide" | "say";
+  instruction: string;
+  /** One line in the call's language showing how the section sounds. */
+  sounds_like?: string;
+  /** `target` is a section id, or "end" | "hand_over" | "call_back". */
+  branches?: { when: string; target: string }[];
+  /** Where to go when no branch holds; empty = the next section. */
+  otherwise?: string;
+  collect?: string[];
+  /** Canvas layout only; never compiled. */
+  position?: { x: number; y: number } | null;
+}
+
+/** Mirrors `Objection`. */
+export interface Objection {
+  objection: string;
+  response: string;
+}
+
+/** What the business allows the agent to do. Mirrors `ScriptPolicies`. */
+export interface ScriptPolicies {
+  offer_call_backs: boolean;
+  share_prices: boolean;
+  take_bookings: boolean;
+}
+
+/** One line of the example call. Mirrors `ExampleLine`. */
+export interface ExampleLine {
+  speaker: "caller" | "agent";
+  text: string;
+}
+
 /**
  * A whole agent script, structured — or a raw escape hatch. Mirrors `CallScript`.
  *
@@ -65,6 +121,22 @@ export interface CallScript {
   end_call_extra_rules: string[];
   variables: ScriptVariable[];
   raw_override: string | null;
+  /** 1 for scripts saved before 10 Oct 2026; the builder always edits 2. */
+  schema_version: 1 | 2;
+  business_line: string;
+  identity: string;
+  goal: string;
+  outbound_purpose: string;
+  style: SpeakingStyle;
+  stages: ConversationStage[];
+  objections: Objection[];
+  policies: ScriptPolicies;
+  ending: string;
+  example_exchange: ExampleLine[];
+  /** The example was drafted by AI and no native speaker has read it yet. */
+  example_needs_review: boolean;
+  /** How closely the sections are followed. */
+  adherence?: "flexible" | "strict";
 }
 
 /** The empty structured script a brand-new agent opens on. */
@@ -76,10 +148,50 @@ export const EMPTY_SCRIPT: CallScript = {
   end_call_extra_rules: [],
   variables: [],
   raw_override: null,
+  schema_version: 2,
+  business_line: "",
+  identity: "",
+  goal: "",
+  outbound_purpose: "",
+  style: { tone: "", address_form: "", code_mix: "natural", sample_phrases: [], pronunciations: [] },
+  stages: [],
+  objections: [],
+  policies: { offer_call_backs: true, share_prices: true, take_bookings: true },
+  ending: "",
+  example_exchange: [],
+  example_needs_review: false,
 };
+
+/** What the builder shows beside the script and does not edit there. */
+export interface ScriptContext {
+  collect: { label: string; reason: string; required: boolean }[];
+  call_backs_available: boolean;
+  hand_over_enabled: boolean;
+  direction: string;
+  language: string;
+  register_name: string | null;
+  register_needs_review: boolean;
+  business_type: string;
+  /** The builder's limits on this deployment's engine (Script API, lane 2). */
+  limits?: {
+    max_sections: number;
+    section_title_max: number;
+    section_detail_max: number;
+    sounds_like_max: number;
+    max_branches: number;
+    max_collect: number;
+    instructions_limit: number | null;
+    native_steps: boolean;
+    special_targets: string[];
+  };
+}
 
 export interface ScriptOut {
   script: CallScript;
+  stored_schema_version: number | null;
+  context: ScriptContext | null;
+  /** The autosaved working copy, when one is unpublished. */
+  draft?: { script: CallScript; saved_at: string } | null;
   version: number | null;
   is_freeform: boolean;
   has_pending: boolean;
@@ -101,10 +213,32 @@ interface SaveScriptOut {
 
 interface PreviewOut {
   compiled: string;
+  /** Characters of the instructions text and the engine's ceiling (null: none). */
+  instructions_chars?: number;
+  instructions_limit?: number | null;
+  /** Stages sent as the engine's own step list. */
+  native_steps?: number;
 }
 
+/** The five short questions the owner answers; keys match the server's OWNER_QUESTIONS. */
+export const OWNER_QUESTIONS = [
+  { key: "what_you_offer", label: "What do you sell or do?" },
+  { key: "customers", label: "Who calls you, or who will the agent call?" },
+  { key: "good_outcome", label: "What should a good call end with?" },
+  { key: "common_questions", label: "What do callers ask most often?" },
+  { key: "never_say", label: "Anything the agent must never say or promise?" },
+] as const;
+
+export type OwnerQuestionKey = (typeof OWNER_QUESTIONS)[number]["key"];
+
 interface AssistIn {
-  description: string;
+  description?: string;
+  answers: Partial<Record<OwnerQuestionKey, string>>;
+  /** The editor's working copy. With `change`, the answer is this script with only that
+   *  change made and every section id kept. */
+  current?: CallScript | null;
+  /** The owner's request, at most 600 characters. */
+  change?: string;
 }
 
 export interface AssistOut {
@@ -225,5 +359,193 @@ export function useUndoScript(
         client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
         client.invalidateQueries({ queryKey: publishingKeys.pending(session.orgSlug, agentId) }),
       ]),
+  });
+}
+
+// --- the autosaved draft, "Put it live", history and the hand-written conversion ------
+
+interface SaveDraftIn {
+  script: CallScript;
+  /** The draft's `saved_at` the editor loaded (null: there was none). Sent, the server
+   *  refuses with `script_changed_elsewhere` (409) if the stored draft moved since. */
+  base_saved_at?: string | null;
+}
+
+export interface DraftSavedOut {
+  saved_at: string;
+}
+
+interface PublishIn {
+  /** What changed, in the owner's words; becomes the history entry's note (1-200). */
+  summary: string;
+  /** The script to put live; left out, the autosaved draft is. */
+  script?: CallScript;
+  expected_version?: number | null;
+}
+
+export interface PublishOut {
+  version: number;
+  /** False while the agent is not switched on, or the push did not complete. */
+  live: boolean;
+}
+
+/** One history entry. Mirrors `VersionOut`; `version` is an id, never shown. */
+export interface ScriptVersion {
+  version: number;
+  summary: string | null;
+  created_at: string;
+  is_live: boolean;
+}
+
+export interface ConvertOut {
+  /** The proposed sections; never saved by the server. */
+  script: CallScript;
+  /** Lines of the hand-written text that appear nowhere in the proposal. */
+  unplaced: string[];
+  disclosure: string | null;
+  metered: boolean;
+}
+
+const versionsKey = (org: string, agentId: string) => ["script-versions", org, agentId] as const;
+
+function invalidateScript(client: ReturnType<typeof useQueryClient>, session: Session, agentId: string) {
+  return Promise.all([
+    client.invalidateQueries({ queryKey: scriptKeys.one(session.orgSlug, agentId) }),
+    client.invalidateQueries({ queryKey: versionsKey(session.orgSlug, agentId) }),
+    client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
+    client.invalidateQueries({ queryKey: publishingKeys.pending(session.orgSlug, agentId) }),
+  ]);
+}
+
+/**
+ * Autosave the working copy. Does NOT invalidate the script read: a save per pause in
+ * typing would otherwise refetch per pause. The builder patches the cached read itself
+ * (`withDraft`), so the read and the screen stay one copy.
+ */
+export function useSaveDraft(
+  session: Session,
+  agentId: string,
+): UseMutationResult<DraftSavedOut, Error, SaveDraftIn> {
+  return useMutation({
+    mutationFn: (payload: SaveDraftIn) =>
+      apiRequest<DraftSavedOut>(session, `${base(agentId)}/draft`, { method: "PUT", body: payload }),
+  });
+}
+
+/** The cached script read with `draft` replaced, after an autosave or a restore. */
+export function withDraft(out: ScriptOut, draft: { script: CallScript; saved_at: string }): ScriptOut {
+  return { ...out, draft };
+}
+
+/** "Put it live": the draft becomes a history entry and is applied in one request. */
+export function usePublishScript(
+  session: Session,
+  agentId: string,
+): UseMutationResult<PublishOut, Error, PublishIn> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: PublishIn) =>
+      apiRequest<PublishOut>(session, `${base(agentId)}/publish`, { method: "POST", body: payload }),
+    onSuccess: () => invalidateScript(client, session, agentId),
+  });
+}
+
+/** The script's history, newest first. */
+export function useScriptVersions(
+  session: Session,
+  agentId: string,
+  enabled = true,
+): UseQueryResult<ScriptVersion[], Error> {
+  return useQuery({
+    queryKey: versionsKey(session.orgSlug, agentId),
+    queryFn: () => apiRequest<ScriptVersion[]>(session, `${base(agentId)}/versions`),
+    enabled,
+  });
+}
+
+/** Copy an earlier entry into the draft; callers keep the live one. */
+export function useRestoreVersion(
+  session: Session,
+  agentId: string,
+): UseMutationResult<{ script: CallScript; saved_at: string }, Error, number> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (version: number) =>
+      apiRequest<{ script: CallScript; saved_at: string }>(
+        session,
+        `${base(agentId)}/versions/${version}/restore`,
+        { method: "POST" },
+      ),
+    onSuccess: () => invalidateScript(client, session, agentId),
+  });
+}
+
+/** Propose sections for a hand-written script (AI, on the account's allowance). */
+export function useConvertScript(
+  session: Session,
+  agentId: string,
+): UseMutationResult<ConvertOut, Error, { raw_text?: string }> {
+  return useMutation({
+    mutationFn: (payload: { raw_text?: string }) =>
+      apiRequest<ConvertOut>(session, `${base(agentId)}/convert`, { method: "POST", body: payload }),
+  });
+}
+
+// --- pre-launch test conversations ------------------------------------------------------
+
+export type TestVerdict = "passed" | "attention" | "failed" | "read";
+
+export interface TestResult {
+  key: string;
+  title: string;
+  said: string;
+  reply: string;
+  verdict: TestVerdict;
+  advice: string | null;
+}
+
+export interface TestRun {
+  status: "queued" | "running" | "done" | "failed";
+  prompt_version: number | null;
+  is_current: boolean;
+  results: TestResult[];
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface TestConversations {
+  available: boolean;
+  unavailable_reason: string | null;
+  cost_note: string;
+  latest: TestRun | null;
+}
+
+const testsKey = (org: string, agentId: string) => ["script-tests", org, agentId] as const;
+
+/** The agent's latest test run. Polls while a run is queued or running. */
+export function useTestConversations(
+  session: Session,
+  agentId: string,
+): UseQueryResult<TestConversations, Error> {
+  return useQuery({
+    queryKey: testsKey(session.orgSlug, agentId),
+    queryFn: () => apiRequest<TestConversations>(session, `${base(agentId)}/tests`),
+    refetchInterval: (query) => {
+      const status = query.state.data?.latest?.status;
+      return status === "queued" || status === "running" ? 3000 : false;
+    },
+  });
+}
+
+/** Start a run (or get the one already running). */
+export function useRunTestConversations(
+  session: Session,
+  agentId: string,
+): UseMutationResult<TestConversations, Error, void> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<TestConversations>(session, `${base(agentId)}/tests`, { method: "POST" }),
+    onSuccess: (data) => client.setQueryData(testsKey(session.orgSlug, agentId), data),
   });
 }

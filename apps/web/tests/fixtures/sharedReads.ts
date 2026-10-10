@@ -7,7 +7,9 @@ import type { AutodialerNotice } from "@/lib/api/autodialerNotice";
 import type { Me } from "@/lib/api/client";
 import type { PeRegistration } from "@/lib/api/dltRegistration";
 import type { DeliveryList } from "@/lib/api/kb";
+import { EMPTY_SCRIPT } from "@/lib/api/script";
 import type { KycRecord } from "@/lib/api/kyc";
+import type { LeadFields } from "@/lib/api/leadFields";
 import type { ClientLlmDefaults } from "@/lib/api/llmModels";
 import type { ClientMaintenance } from "@/lib/api/maintenance";
 import type { HostedVoices } from "@/lib/api/opsHostedVoices";
@@ -16,6 +18,7 @@ import type { Lanes } from "@/lib/api/publishing";
 import type { OfferedVoice, VoiceCatalogue } from "@/lib/api/voices";
 import type { WalletLots } from "@/app/c/[slug]/billing/lots";
 import type { PlatformFee } from "@/lib/api/platformFee";
+import type { Spend } from "@/lib/api/spend";
 import type { Wallet } from "@/lib/api/wallet";
 import type { AlertOptIn } from "@/lib/api/whatsappAlerts";
 
@@ -565,3 +568,82 @@ export const PLATFORM_FEE_OFF = {
   grace_days: 7,
   charges: [],
 } satisfies PlatformFee;
+
+/** `GET /v1/billing/spend` with no month: the agent header's "spent this month" read. */
+export const AGENT_SPEND_PATH = "/v1/billing/spend";
+
+/** A month with no charged call on any agent — the header says "Nothing spent this month". */
+export function spendThisMonth(over: Partial<Spend> = {}): Spend {
+  return {
+    month: currentISTMonth(),
+    charge_basis: "wallet_debit",
+    calls: 0,
+    minutes_used: "0.0000",
+    retainer_inr: null,
+    period_charge_inr: "0.00",
+    itemised_charge_inr: "0.00",
+    itemisation_residual_inr: "0.00",
+    residual_reason: null,
+    by_agent: [],
+    top_calls: [],
+    top_calls_truncated: false,
+    ...over,
+  };
+}
+
+/** `GET /v1/lead-fields`: the core only, no business fields, no draft. The leads screen
+ *  reads it for `need_key`, the field it shows as "What they want". */
+export const LEAD_FIELDS_CORE_ONLY = {
+  agents: [],
+  business_type: null,
+  business_type_label: "Your business",
+  can_draft: false,
+  core_fields: [],
+  draft: null,
+  has_standard_set: false,
+  need_key: "need",
+  standard_fields: [],
+} satisfies LeadFields;
+
+/**
+ * `GET /v1/agents/{id}/script` with a live script and no draft. The agent page's header
+ * (Put it live) and its section menu (the Script line) read it on every section.
+ */
+export function agentScript(over: Record<string, unknown> = {}) {
+  return {
+    script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram." },
+    draft: null,
+    stored_schema_version: 2,
+    context: null,
+    version: 4,
+    is_freeform: false,
+    has_pending: false,
+    standard_variables: [],
+    ...over,
+  };
+}
+
+/**
+ * `GET /v1/agents/{id}/pending` with nothing waiting and a Clear voice live. The script
+ * builder reads it for the voice tier its "Put it live" step names.
+ */
+export function settledPending(over: Record<string, unknown> = {}) {
+  const clear = { voice_id: "timbre-v2.5:Suhana", provider: "gnani", voice_tier: "clear", catalog: null };
+  return {
+    agent_id: "agent-1",
+    agent_status: "live",
+    published: true,
+    has_pending: false,
+    pending: [],
+    effective_call_cap_s: 600,
+    call_cap_is_platform_default: true,
+    worst_case_call_cost_inr: "12.50",
+    precedence_rule: "Script decides content.",
+    voice: { configured: clear, live: clear, headline: "Callers hear Suhana.", unnamed_note: null },
+    voice_tier_rates: [
+      { voice_tier: "clear", label: "Clear", inr_per_min: "2.50", further_open_lots: 0 },
+      { voice_tier: "studio", label: "Studio", inr_per_min: "4.00", further_open_lots: 0 },
+    ],
+    ...over,
+  };
+}

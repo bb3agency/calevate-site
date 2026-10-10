@@ -74,7 +74,7 @@ async def _finished_call(
     agent_id: uuid.UUID,
     *,
     status: str = "completed",
-    outcome: str | None = "needs_follow_up",
+    outcome: str | None = "needs_you",
     summary: str | None = "Wanted a quote for a 2BHK but had to hang up.",
     age_days: int = 0,
     parent: uuid.UUID | None = None,
@@ -127,7 +127,7 @@ async def _finished_call(
 async def test_a_resolved_call_is_not_followed_up() -> None:
     """The point of recording an outcome is acting differently on it."""
     tenant_id, agent_id = await _tenant()
-    call_id, _ = await _finished_call(tenant_id, agent_id, outcome="resolved")
+    call_id, _ = await _finished_call(tenant_id, agent_id, outcome="answered")
     async with tenant_session(tenant_id) as session:
         with pytest.raises(ProblemError) as excinfo:
             await service.plan_callback(session, call_id)
@@ -267,7 +267,7 @@ async def test_the_dispatched_callback_is_linked_to_the_call_it_follows() -> Non
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "UPDATE calls SET status = 'completed', outcome_tag = 'needs_follow_up', "
+                "UPDATE calls SET status = 'completed', outcome_tag = 'needs_you', "
                 "summary = 'Still undecided.' WHERE id = :c"
             ),
             {"c": new_call},
@@ -281,7 +281,7 @@ async def test_the_dispatched_callback_is_linked_to_the_call_it_follows() -> Non
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
                 "status, outcome_tag, summary, lead_id, callback_of_call_id, created_at, "
                 "updated_at) VALUES (:i, :t, :a, :e, 'outbound', '+919876500000', 'completed', "
-                "'needs_follow_up', 'Still undecided.', :lid, :parent, now(), now())"
+                "'needs_you', 'Still undecided.', :lid, :parent, now(), now())"
             ),
             {
                 "i": third_id,

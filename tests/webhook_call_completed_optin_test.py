@@ -78,7 +78,7 @@ async def _completed_call(tenant_id: uuid.UUID, *, recording_key: str | None) ->
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status, "
                 "from_e164, summary, sentiment, outcome_tag, duration_s, recording_url, "
                 "started_at, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, 'inbound', "
-                "'completed', :from_e, 'A summary.', 'neutral', 'needs_follow_up', 42, :rec, "
+                "'completed', :from_e, 'A summary.', 'neutral', 'needs_you', 42, :rec, "
                 "now(), now(), now())"
             ),
             {
@@ -123,7 +123,7 @@ async def _fan_out(tenant_id: uuid.UUID, call_id: uuid.UUID) -> list[dict]:
                 "lead_id": None,
                 "direction": "inbound",
                 "duration_s": 42,
-                "outcome": "needs_follow_up",
+                "outcome": "needs_you",
                 "sentiment": "neutral",
                 "summary": "A summary.",
             },
@@ -184,7 +184,7 @@ async def test_not_opted_in_is_unchanged() -> None:
     assert "raw_transcript" not in data
     # The base fields still travel.
     assert data["summary"] == "A summary."
-    assert data["outcome"] == "needs_follow_up"
+    assert data["outcome"] == "needs_you"
 
 
 # --- 2. recording + redacted transcript when opted in -------------------------

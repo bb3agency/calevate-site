@@ -227,6 +227,11 @@
   --text-figure--line-height: 2rem;
   --text-figure--font-weight: 600;
   --text-figure--letter-spacing: -0.01em;
+  /* Words a caller or the agent said, and the summary of them: 16px with open leading,
+     because Telugu and Devanagari stack vowel signs above and below the line and the
+     body role's 22px leading clips them into the next line. */
+  --text-transcript: 1rem;
+  --text-transcript--line-height: 1.7;
 
   /* Overriding Tailwind's own `ease-out`/`ease-in-out` rather than adding parallel names,
      so `ease-out` means one curve everywhere it is written. */
@@ -495,9 +500,12 @@ html:has([data-app-shell]) body {
 body {
   background: var(--app);
   color: var(--text);
-  /* Use PPMori as the primary font */
-  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  /* PP Mori first. It has no Telugu or Devanagari glyphs, so text in those scripts falls
+     through to the bundled Noto faces; their unicode-range means a page with none of
+     that text never downloads them. */
+  font-family: var(--font-sans), var(--font-noto-telugu), var(--font-noto-devanagari), ui-sans-serif, system-ui, sans-serif;
 }
+
 
 /*
  * NO TEXT-ENTRY CONTROL UNDER 16px ON A TOUCH DEVICE — the iOS zoom rule.
@@ -550,6 +558,22 @@ body {
   input[type="radio"] {
     min-width: 24px;
     min-height: 24px;
+  }
+}
+
+/*
+ * Text tagged with its language (`lang="te"`, `lang="hi"`) is set in the Noto face for its
+ * script throughout, English words included, so a code-mixed line reads in one face.
+ * In `@layer base` so a utility such as `font-mono` still wins inside it.
+ */
+@layer base {
+  :lang(te) {
+    font-family: var(--font-noto-telugu), var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  }
+  :lang(hi),
+  :lang(mr),
+  :lang(ne) {
+    font-family: var(--font-noto-devanagari), var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   }
 }
 

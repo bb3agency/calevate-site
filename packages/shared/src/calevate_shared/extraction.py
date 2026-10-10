@@ -18,7 +18,27 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 FieldType = Literal["text", "number", "bool", "enum", "date"]
-OutcomeTag = Literal["resolved", "needs_follow_up", "transferred", "dropped"]
+#: What a call came to, as the client reads it (founder decision 6, 10 Oct 2026). DERIVED
+#: from facts after extraction by `apps/api/crm/outcomes.derive_outcome` and never
+#: defaulted: a booked call back, a hand-over, a call that never connected are things the
+#: platform holds, and the model's reading only decides between the conversational ones.
+OutcomeTag = Literal[
+    "call_back_booked", "needs_you", "answered", "transferred", "hung_up_early", "missed"
+]
+#: What the extraction MODEL may say: the part of `OutcomeTag` a transcript can show.
+#: `call_back_booked` and `missed` are not in it because the transcript cannot prove either
+#: (an agent saying "booked" is not a row in `scheduled_callbacks`).
+OutcomeHint = Literal["needs_you", "answered", "transferred", "hung_up_early"]
+OUTCOME_HINTS: tuple[OutcomeHint, ...] = ("needs_you", "answered", "transferred", "hung_up_early")
+#: The vocabulary stored before 10 Oct 2026. Nothing writes it; the `calls` CHECK still
+#: admits it for one release (hard rule 8) and readers map it with `outcomes.normalise`.
+LegacyOutcomeTag = Literal["resolved", "needs_follow_up", "transferred", "dropped"]
+LEGACY_OUTCOME_TAGS: tuple[LegacyOutcomeTag, ...] = (
+    "resolved",
+    "needs_follow_up",
+    "transferred",
+    "dropped",
+)
 Sentiment = Literal["positive", "neutral", "negative"]
 
 #: The speaker labels the pipeline actually writes — `TranscriptTurn.speaker` is
@@ -70,6 +90,9 @@ _PHONE_SHAPED_RE = re.compile(r"\d(?:[\s\-().+]*\d){9,}")
 
 #: Words in a field's key/label/description that mean "a phone number belongs here".
 _PHONE_FIELD_HINTS = ("number", "phone", "mobile", "cell", "whatsapp", "contact")
+
+#: The call list shows one line; the headline is cut to this at a word boundary.
+HEADLINE_MAX = 90
 
 #: A text answer longer than this is not an answer; it is the model pasting the call
 #: back at us — unredacted transcript text heading for a CRM column (hard rule 5).
@@ -131,8 +154,15 @@ class ExtractionOutput(BaseModel):
 
     data: dict[str, Any] = Field(default_factory=dict)
     summary: str = ""
+    #: One line for the call list, in English, at most `HEADLINE_MAX` characters: what the
+    #: caller wanted and what happened. Empty when the model wrote none.
+    headline: str = ""
+    #: What the business should do next, in English, one short sentence. Empty when nothing.
+    next_step: str = ""
     sentiment: Sentiment = "neutral"
-    outcome_tag: OutcomeTag = "resolved"
+    #: The model's reading, or None when no model read the call or it said nothing usable.
+    #: Never defaulted to a verdict: `derive_outcome` decides with the facts.
+    outcome_tag: OutcomeHint | None = None
     out_of_scope: bool = False
     callback_requested: bool = False
     valid: bool = True
@@ -344,6 +374,16 @@ def validate_extraction(spec: ExtractionSchemaSpec, raw: dict[str, Any]) -> Vali
     return ValidationOutcome(data=data, errors=errors, needs_review=needs_review)
 
 
+def clip_headline(text: str) -> str:
+    """One line of at most `HEADLINE_MAX` characters, cut at a word boundary with an
+    ellipsis rather than mid-word, whitespace collapsed. Empty in, empty out."""
+    line = " ".join(text.split())
+    if len(line) <= HEADLINE_MAX:
+        return line
+    cut = line[: HEADLINE_MAX - 1].rsplit(" ", 1)[0].rstrip(" ,;:.-")
+    return cut + "\u2026"
+
+
 def build_extraction_prompt(spec: ExtractionSchemaSpec, transcript: str) -> str:
     """Generate the extraction instruction. Kept in `shared` so the regression harness
     scores the SAME prompt the pipeline uses (OPERATIONS §3)."""
@@ -375,10 +415,23 @@ Return ONLY a JSON object with these keys:
 
 Also include:
 - "summary": two sentences, in English, of what the caller wanted and what happened.
+  Written in your own words: never copy a transcript line into it.
+- "headline": at most 90 characters, in English: what the caller wanted and how it ended,
+  e.g. "Asked if chilli is in stock; wants a call back today".
+- "next_step": one short English sentence saying what the business should do next, or ""
+  when nothing is needed.
 - "sentiment": one of positive, neutral, negative.
-- "outcome_tag": one of resolved, needs_follow_up, transferred, dropped.
+- "outcome_tag": exactly one of:
+    needs_you      the caller needs a person from the business: they asked for one, asked
+                   to be called back, or the agent could not answer or resolve what they
+                   wanted;
+    transferred    the call was handed over to a person and the caller was connected;
+    hung_up_early  the conversation never really started: silence, a wrong number, an
+                   answering machine, or the caller hung up within the first exchange;
+    answered       the agent dealt with what the caller wanted and nothing is left open.
 - "out_of_scope": true if the caller asked about something the agent could not handle.
-- "callback_requested": true if the caller asked to be called back.
+- "callback_requested": true if the caller asked to be called back, in any language or
+  script ("call back", "కాల్ బ్యాక్", "malli call cheyyandi", "वापस कॉल", "baad mein call").
 
 WHO SPOKE DECIDES WHAT IS A FACT.
 The transcript is one turn per line, and every line is labelled with the speaker:
@@ -436,15 +489,21 @@ Transcript:
 
 
 __all__ = [
+    "HEADLINE_MAX",
+    "LEGACY_OUTCOME_TAGS",
     "MAX_TEXT_LEN",
+    "OUTCOME_HINTS",
     "ExtractionField",
     "ExtractionOutput",
     "ExtractionSchemaSpec",
     "FieldType",
+    "LegacyOutcomeTag",
+    "OutcomeHint",
     "OutcomeTag",
     "Sentiment",
     "ValidationOutcome",
     "build_extraction_prompt",
+    "clip_headline",
     "coerce_value",
     "is_phone_field",
     "validate_extraction",

@@ -170,8 +170,10 @@ the current list. The carrier SWITCHES are console-managed: `carrier`,
 `vobiz_callback_ips`; DEPLOYMENT's carrier table gives each one's default and effect.
 ThinnestAI's own call ceiling, `thinnest_max_concurrent_calls` (default 5, applies live), is
 console-managed the same way and plays `carrier_concurrency`'s part on `ENGINE=thinnest`.
-Its other console-managed settings are `thinnest_byok_enabled` (needs republish; the
-operator's statement that the developer workspace runs on all three of its own keys),
+Its other console-managed settings are `thinnest_byok_enabled` (needs republish and the typed
+step-up confirmation; the operator's statement that the developer workspace runs on all three
+of its own keys, which moves every minute to the ₹1 BYOK rate and locks per-agent voice and
+model choices; not Studio),
 `engine_actions_base_url` (needs republish; the public API origin its in-call actions call)
 and `thinnest_clear_voice_band` (added by D-688, 8 Oct 2026, needs republish, default
 `premium`: the ThinnestAI voice band sold as Clear, `premium` or `studio`; Studio voices and
@@ -204,10 +206,10 @@ OPERATIONS gate G-1), `google_cloud_project_number` and the secret `google_picke
 client's own Google account.
 `ENGINE_INTAKE_KEK` is env-only, in `ENV_ONLY_REASONS`. No BYOK provider key is stored
 under a ThinnestAI setting: full (`scope: all`) BYOK is not on sale (D-681), and the Studio
-rung's voice-only BYOK sends our Cartesia key to ThinnestAI's developer workspace, which the
-client workspaces inherit (on
-"Enable Studio voices", and again through the outbox when `cartesia_api_key` is rotated),
-where it is stored encrypted (`thinnest-findings/mirror/snapshots/2026-10-07b/pages/
+rung's voice-only BYOK sends our Cartesia key to ThinnestAI: held in our developer workspace
+with its switch off (on "Studio ready"), and switched on in the customer workspace of each
+client that uses Studio (at its first Studio publish, D-717), and again to every one of them
+through the outbox when `cartesia_api_key` is rotated, where it is stored encrypted (`thinnest-findings/mirror/snapshots/2026-10-07b/pages/
 api-reference/bring-your-own-keys.md:77-78`; `docs/THINNEST-INTEGRATION.md` §4a).
 The ThinnestAI keys appear in the console's Calling section with plain labels, and
 `/healthz/ready` names `THINNEST_API_KEY`, `ENGINE_INTAKE_KEK`, `WEBHOOK_BASE_URL` and

@@ -103,8 +103,13 @@ _LEADING_FIXED: tuple[LeadColumn, ...] = (
         "fixed",
         "enum",
         row_key="source",
-        enum_values=("inbound_call", "webhook", "campaign", "manual"),
+        enum_values=("inbound_call", "webhook", "campaign", "manual", "test_call", "outbound_call"),
     ),
+    # What the last call came to and what is next, read through the last call
+    # (`crm.service._LEAD_COLUMNS`). Columns rather than screen-only extras so the chooser
+    # and the file can hold them like any other.
+    LeadColumn("next_step", "Next step", "fixed", "text", row_key="next_step"),
+    LeadColumn("last_call", "Last call", "fixed", "text", row_key="last_call_headline"),
 )
 
 _TRAILING_FIXED: tuple[LeadColumn, ...] = (
@@ -198,12 +203,30 @@ def resolve(columns: tuple[LeadColumn, ...], requested: list[str] | None) -> Res
     return Resolved(columns=tuple(chosen), dropped=tuple(dropped))
 
 
+#: The columns every exported file starts with, whatever the screen shows: a contact list
+#: without who and which number is not one anybody can act on (founder, 10 Oct 2026).
+EXPORT_LEADING_KEYS: tuple[str, ...] = ("name", "phone")
+
+
+def for_export(
+    columns: tuple[LeadColumn, ...], chosen: tuple[LeadColumn, ...]
+) -> tuple[LeadColumn, ...]:
+    """The file's columns: Name and Phone first, then the chosen ones in their order, each
+    once. The screen may hide either; the file never does."""
+    by_key = {c.key: c for c in columns}
+    leading = tuple(by_key[k] for k in EXPORT_LEADING_KEYS if k in by_key)
+    rest = tuple(c for c in chosen if c.key not in EXPORT_LEADING_KEYS)
+    return leading + rest
+
+
 __all__ = [
+    "EXPORT_LEADING_KEYS",
     "FIXED_KEYS",
     "ColumnKind",
     "LeadColumn",
     "Resolved",
     "available",
     "facetable",
+    "for_export",
     "resolve",
 ]

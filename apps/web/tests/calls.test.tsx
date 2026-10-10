@@ -52,7 +52,9 @@ function call(over: Partial<CallSummary> = {}): CallSummary {
     caller_e164: "+919876543210",
     started_at: "2026-08-13T04:30:00Z",
     duration_s: 92,
-    outcome_tag: "appointment_booked",
+    outcome_tag: "call_back_booked",
+    summary_state: "ready",
+    test_call: false,
     sentiment: "positive",
     summary: "Caller asked for a Tuesday slot.",
     lead_id: null,
@@ -142,39 +144,44 @@ describe("the call log", () => {
     ).toBeNull();
   });
 
-  it("can filter by every status the system records, not a subset of them", async () => {
-    // The four the old chip row omitted. A client who cannot ASK for their voicemails
-    // has no way to find them: the list is capped at 100 rows.
-    for (const label of ["Busy", "Voicemail", "In progress", "No answer"]) {
-      expect(screen.queryByRole("radio", { name: label })).toBeNull();
-    }
-
+  it("filters on one row: outcome chips with Needs you first, two dropdowns and the test-call switch", async () => {
     await renderClientPage(page, routes([call()]));
+    await screen.findByText("+91 98765 43210");
 
-    // REDESIGN-2: the log filters by how a call ENDED (the founder's four outcomes); a
-    // status arrives only by link and shows as a chip.
-    for (const label of ["All", "Resolved", "Needs follow-up", "Transferred", "Dropped"]) {
-      // A segmented control now (D-655: one filter over one list), so each option is a
-      // radio rather than a toggle button.
-      expect(
-        screen.getByRole("radio", { name: label }),
-        `missing filter option: ${label}`,
-      ).toBeTruthy();
-    }
+    // The founder's outcome vocabulary (first-call review, decision 6), in the order an
+    // owner works them. "Resolved" is gone.
+    const chips = Array.from(
+      screen.getByRole("group", { name: "Show calls by how they ended" }).querySelectorAll("button"),
+    ).map((b) => b.textContent);
+    expect(chips).toEqual(["Needs you", "Call back booked", "Answered", "Transferred", "Hung up early", "Missed"]);
+    expect(screen.getByRole("combobox", { name: "When" })).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Which way" })).toBeTruthy();
+    expect((screen.getByRole("checkbox", { name: "Include test calls" }) as HTMLInputElement).checked).toBe(true);
   });
 
   it("asks the server for the outcome the chip names", async () => {
     const { calls } = await renderClientPage(
       page,
-      routes([call()], { "/v1/calls?outcome=dropped&limit=100": [] }),
+      routes([call()], { "/v1/calls?outcome=missed&limit=100": [] }),
     );
 
-    fireEvent.click(await screen.findByRole("radio", { name: "Dropped" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Missed" }));
     await screen.findByText("No calls match this filter");
 
     // Server-side, not a client-side slice of a capped list — the difference decides
     // whether row 101 is findable at all.
-    expect(calls.some((c) => c.path === "/v1/calls?outcome=dropped&limit=100")).toBe(true);
+    expect(calls.some((c) => c.path === "/v1/calls?outcome=missed&limit=100")).toBe(true);
+  });
+
+  it("leaves test calls out on the server when the switch is turned off", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes([call({ test_call: true })], { "/v1/calls?test_calls=false&limit=100": [] }),
+    );
+    expect(await screen.findByText("Test call")).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Include test calls" }));
+    await screen.findByText("No calls match this filter");
+    expect(calls.some((c) => c.path === "/v1/calls?test_calls=false&limit=100")).toBe(true);
   });
 
   it("renders a status it has never seen rather than dropping the row", async () => {
@@ -223,7 +230,9 @@ describe("exporting the call log (REDESIGN-2)", () => {
       "/v1/calls/export.csv?direction=inbound": csv("Started (India time),Direction\n"),
     });
 
-    fireEvent.click(await screen.findByRole("radio", { name: "Incoming" }));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Which way" }), {
+      target: { value: "inbound" },
+    });
     fireEvent.click(await screen.findByRole("button", { name: "Export CSV" }));
     await waitFor(() =>
       expect(calls.some((c) => c.path === "/v1/calls/export.csv?direction=inbound")).toBe(true),
@@ -234,5 +243,83 @@ describe("exporting the call log (REDESIGN-2)", () => {
     await renderClientPage(page, routes([call()]));
     await screen.findByText("+91 98765 43210");
     expect(screen.queryByRole("button", { name: "Export CSV" })).toBeNull();
+  });
+});
+
+/**
+ * WHAT ONE ROW SAYS (first-call review F-6): who (the lead's name, or the number), the
+ * one-line headline written after the call and never the last thing said, how it ended
+ * in words, how long and when. The warning tone is kept for the two things that ask the
+ * owner to act: "Needs you" and a call back that is late.
+ */
+describe("a call row", () => {
+  it("leads with the lead's name and the headline, never the last utterance", async () => {
+    await renderClientPage(
+      page,
+      routes([
+        call({
+          lead_name: "Lakshmi",
+          headline: "Asked for green chilli; wants a call back today",
+          summary: "agent: ధన్యవాదాలు అండి, మళ్ళీ మాట్లాడతాము.",
+        }),
+      ]),
+    );
+    expect(await screen.findByRole("link", { name: "Lakshmi" })).toBeTruthy();
+    expect(screen.getByText("Asked for green chilli; wants a call back today")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("agent: ధన్యవాదాలు");
+  });
+
+  it("says the summary is on its way for a fresh call rather than printing nothing", async () => {
+    await renderClientPage(
+      page,
+      routes([call({ summary: null, headline: null, summary_state: "pending", outcome_tag: null })]),
+    );
+    expect(await screen.findByText("Summary on its way")).toBeTruthy();
+  });
+
+  it("uses the warning tone only for Needs you and an overdue call back", async () => {
+    await renderClientPage(
+      page,
+      routes([
+        call({ id: "c1", outcome_tag: "needs_you" }),
+        call({ id: "c2", outcome_tag: "answered" }),
+        call({
+          id: "c3",
+          outcome_tag: "call_back_booked",
+          callback: { id: "cb", due_at: "2020-01-01T00:00:00Z", status: "scheduled" },
+        }),
+      ]),
+    );
+    await screen.findAllByText("+91 98765 43210");
+    const needs = screen.getAllByText("Needs you").find((el) => el.tagName === "SPAN")!;
+    expect(needs.className).toContain("text-warn");
+    const answered = screen.getAllByText("Answered").find((el) => el.tagName === "SPAN")!;
+    expect(answered.className).not.toContain("text-warn");
+    const late = screen.getAllByText("Call back overdue")[0];
+    expect(late.className).toContain("text-warn");
+  });
+});
+
+/**
+ * ONE AGENT'S CALLS, BY LINK. The agent page links its Calls entry to
+ * `/c/{slug}/calls?agent_id=<id>`; the log asks the server for that agent only and says so
+ * with a chip that clears it.
+ */
+describe("the agent filter from a link", () => {
+  it("asks the server for that agent's calls and names the agent in a removable chip", async () => {
+    window.history.replaceState(null, "", "/c/acme/calls?agent_id=a1");
+    try {
+      const { calls } = await renderClientPage(
+        page,
+        routes([call()], { "/v1/calls?agent_id=a1&limit=100": [call()] }),
+      );
+      const chip = await screen.findByRole("button", { name: "Agent: Reception" });
+      expect(calls.some((c) => c.path === "/v1/calls?agent_id=a1&limit=100")).toBe(true);
+      fireEvent.click(chip);
+      await waitFor(() => expect(screen.queryByRole("button", { name: /^Agent:/ })).toBeNull());
+      expect(calls.some((c) => c.path === "/v1/calls?limit=100")).toBe(true);
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
   });
 });

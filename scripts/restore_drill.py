@@ -889,6 +889,7 @@ class RestoreDrill:
             # prompt hash would invite someone to try.
             empty_sha = hashlib.sha256(b"").hexdigest()
             call_id = _uuid7()
+            fee_charge_id = _uuid7()
             statements += [
                 "INSERT INTO agent_config_versions (id, tenant_id, agent_id, "
                 "prompt_sha256, model_config_sha256) VALUES "
@@ -923,6 +924,16 @@ class RestoreDrill:
                 "(id, tenant_id, kind, ref, description, amount, billing_month) VALUES "
                 f"('{_uuid7()}', '{tenant}', 'setup_fee', 'drill-{tenant}', "
                 "'Onboarding setup fee', 5000.0000, '2026-08')",
+                # A platform fee payment (D-707) is append-only and its `charge_id` is ON
+                # DELETE RESTRICT, so it needs the month's charge to point at.
+                "INSERT INTO monthly_fee_charges "
+                "(id, tenant_id, period, amount, issued_at, grace_ends_at) VALUES "
+                f"('{fee_charge_id}', '{tenant}', '2026-08', 999.0000, now(), "
+                "now() + interval '7 days')",
+                "INSERT INTO monthly_fee_payments "
+                "(id, tenant_id, charge_id, amount, method, payment_ref, paid_at) VALUES "
+                f"('{_uuid7()}', '{tenant}', '{fee_charge_id}', 999.0000, 'manual', "
+                f"'drill-fee-{prefix}', now())",
                 # A GRANTED opt-in has to satisfy `granted_optin_is_evidenced` and
                 # `names_one_recorder`, so the self-serve shape is the only one that is
                 # one INSERT: the recorder IS the user, and the notice version is set.

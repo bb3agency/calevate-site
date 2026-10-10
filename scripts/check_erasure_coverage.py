@@ -429,6 +429,18 @@ ERASURE_EXEMPT: dict[str, str] = {
 #: reaches fails, and so does one that duplicates `ERASURE_EXEMPT`.
 ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
     "execute_deletion_request": {
+        "agent_rule_proposals": (
+            "A rule the owner taught for one agent's script (how the agent should behave), "
+            "the business's own instruction and never a caller's words; a caller's deletion "
+            "request has nothing to match here. It ends with the engagement, which "
+            "`execute_tenant_erasure` covers."
+        ),
+        "kb_facts": (
+            "A fact the BUSINESS wrote about itself in the teach box or on the Knowledge "
+            "screen (prices, hours, delivery areas), never a caller's words; a caller's "
+            "deletion request has nothing to match here. It ends with the engagement, which "
+            "`execute_tenant_erasure` covers."
+        ),
         "heal_fallback_phones": (
             "The phone the client's own team answers while the healer holds their agent "
             "(D-701), set by the account owner: a member of the client's staff, not a "

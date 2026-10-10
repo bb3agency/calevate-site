@@ -16,8 +16,7 @@ Every job here is reached through the outbox or a cron, and every one is idempot
   owed is queued through the same job.
 * `submit_engine_business_details` sends the client's verified details to its workspace.
 * `sweep_engine_workspaces` walks every client workspace each day, bounded and resumable:
-  its business-details application read back (an expired one sent again), whether it still
-  runs on our voice key while Studio voices are on (`using: developer`), and whether the
+  its business-details application read back (an expired one sent again), and whether the
   clone copies we recorded for it are still there.
 * `offboard_engine_workspace` runs when an account closes: numbers released
   (`?confirm=release`), agents deleted, the customer deleted (refused by the vendor while it
@@ -384,18 +383,6 @@ async def _business_details_leg(tenant_id: UUID, tally: dict[str, int]) -> None:
         tally["resent"] += 1
 
 
-async def _byok_leg(engine: object, workspace: str, tally: dict[str, int]) -> None:
-    """A client's workspace runs on the developer workspace's voice key while it brings none
-    of its own: `GET /byok` there answers `using: developer` (`api-reference/bring-your-own-
-    keys/get-byok-status.md:465-473`). Anything else means its Studio agents would not speak."""
-    if not isinstance(engine, HostsVoices):
-        return
-    with in_workspace(workspace):
-        state = await engine.own_key_state()
-    if state.using not in ("developer", "own"):
-        tally["byok_not_inherited"] += 1
-
-
 async def _clone_leg(
     engine: object, tenant_id: UUID, workspace: str, tally: dict[str, int]
 ) -> None:
@@ -426,29 +413,20 @@ async def _clone_leg(
 
 async def sweep_engine_workspaces(ctx: dict[str, Any]) -> str:
     """Daily. For each active client workspace, bounded and resumable: its business-details
-    application, whether it still runs on our voice key while Studio voices are on, and
-    whether the clone copies we recorded for it are still there. One workspace's failure is
-    logged and the walk goes on."""
+    application, and whether the clone copies we recorded for it are still there. Whether a
+    Studio workspace is still on our Cartesia key is the hourly `studio_voice_key.
+    sweep_studio_workspaces` (D-717). One workspace's failure is logged and the walk goes
+    on."""
     if not engine_has_workspaces():
         return "not_applicable"
     engine = get_engine()
-    studio_on = False
-    if isinstance(engine, HostsVoices):
-        try:
-            studio_on = (await engine.own_key_state()).using != "none"
-        except ProblemError as exc:
-            log.warning("engine_byok_state_unreadable", extra={"code": exc.code})
-    tally = dict.fromkeys(
-        ("changed", "resent", "unreadable", "byok_not_inherited", "clones_forgotten"), 0
-    )
+    tally = dict.fromkeys(("changed", "resent", "unreadable", "clones_forgotten"), 0)
     report = WalkReport()
     async for visit in walk_workspaces("engine_workspaces", include_developer=False, report=report):
         assert visit.tenant_id is not None and visit.workspace is not None
         try:
             if engine_number_provider() is not None:
                 await _business_details_leg(visit.tenant_id, tally)
-            if studio_on:
-                await _byok_leg(engine, visit.workspace, tally)
             await _clone_leg(engine, visit.tenant_id, visit.workspace, tally)
         except ProblemError as exc:
             tally["unreadable"] += 1
@@ -456,18 +434,6 @@ async def sweep_engine_workspaces(ctx: dict[str, Any]) -> str:
                 "engine_workspace_sweep_leg_failed",
                 extra={"tenant_id": str(visit.tenant_id), "code": exc.code},
             )
-    if tally["byok_not_inherited"]:
-        alert(
-            "CORE_LOGIC",
-            "engine_workspace_byok_not_inherited",
-            detail=(
-                f"{tally['byok_not_inherited']} client voice workspace(s) do not run on our "
-                "voice key although Studio voices are switched on, so their Studio agents "
-                "would not speak. Check those workspaces' own-keys switch in the voice "
-                "platform's console: a client workspace must bring no keys of its own."
-            ),
-            count=str(tally["byok_not_inherited"]),
-        )
     summary = " ".join(f"{key}={value}" for key, value in tally.items())
     return f"visited={report.visited} deferred={report.deferred} {summary}"
 

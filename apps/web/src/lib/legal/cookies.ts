@@ -7,8 +7,9 @@ import type { LegalDocument } from "./types";
  * where a template would put them, and the difference is the whole document:
  *
  * - `src/app/layout.tsx` (the root layout, which the public pages inherit) mounts no
- *   authentication provider, no analytics and no third-party script. Fonts are local
- *   (`next/font/local`), so there is not even a font request leaving the browser. The
+ *   authentication provider, no analytics and no third-party script. Fonts are self-hosted
+ *   (`next/font/local`, and `next/font/google` which fetches at build time and serves
+ *   from our origin), so there is not even a font request leaving the browser. The
  *   public pages therefore set nothing.
  * - The dashboards set ONE cookie each, and we mint it ourselves. There is no
  *   authentication vendor and no vendor cookie: `apps/api/authn/cookies.py` is the only

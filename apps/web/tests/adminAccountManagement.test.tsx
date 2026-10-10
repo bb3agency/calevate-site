@@ -627,8 +627,10 @@ describe("correcting a client's business record", () => {
   it("offers exactly the verticals the server said it would accept", async () => {
     await renderProfile();
 
+    // "Business type", not "Vertical": D-715 renamed the field in every screen's words
+    // (`EDIT_FIELD_COPY.vertical_template`); the wire key and its values are unchanged.
     const select = (await screen.findByLabelText(
-      "Vertical",
+      "Business type",
     )) as HTMLSelectElement;
     expect(Array.from(select.options).map((option) => option.value)).toEqual(
       PROFILE.verticals,

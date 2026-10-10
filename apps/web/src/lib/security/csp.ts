@@ -38,8 +38,9 @@
  *    `lib/razorpayCheckout.ts`, which sets `src` and no inline body.
  * 2. **Nothing is loaded from an origin the policy does not admit.** Every external URL in
  *    `src` is either a comment, a placeholder inside a `placeholder=`/example string, or
- *    Razorpay. Both fonts are `next/font/local` from `src/fonts` (`app/layout.tsx`), so
- *    they are served from `/_next/static/media` — `'self'`. Every image is a local
+ *    Razorpay. Every font is self-hosted by `next/font` (`app/layout.tsx`: local files from
+ *    `src/fonts`, and the Noto faces `next/font/google` fetches at build time), so they
+ *    are served from `/_next/static/media` — `'self'`. Every image is a local
  *    `/brand/*` asset (`components/brand.tsx`). There is no analytics, no CDN, no map
  *    tile, no avatar host, no service worker, no web worker and no manifest.
  * 3. **`connect-src`.** The only cross-origin fetches this app makes are to the API:

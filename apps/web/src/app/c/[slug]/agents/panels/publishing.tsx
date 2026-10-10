@@ -5,7 +5,7 @@
  * cost guard, as three pieces the workspace's sections place where each is read.
  *
  * Every number and label here is the server's or is absent: the call cap, the worst-case
- * cost, the version numbers and the voice all come from `GET /v1/agents/{id}/pending`, which
+ * cost, the staged changes and the voice all come from `GET /v1/agents/{id}/pending`, which
  * the caller reads once and hands down. Loading and failure are the caller's branches.
  */
 
@@ -45,37 +45,24 @@ export function PendingBanner({ state }: { state: PendingState }) {
         ))}
       </ul>
       <p className="mt-3 text-xs text-ink-muted">
-        Callers keep hearing the live version until the change is applied — nothing goes
+        Callers keep hearing what is live now until the change is put live — nothing goes
         live silently.
-        {stagedScript(state) ? " Apply it from the top of this page, or undo it in the script builder." : ""}
+        {stagedScript(state) ? " Put it live from the top of this page, or undo it from the ⋯ menu there." : ""}
       </p>
     </div>
   );
 }
 
 /**
- * One staged change, with BOTH pointers named as labelled data. Showing the staged script
- * as the one callers hear is the one catastrophic misreading of the two-speed model, and a
- * sentence can be read the wrong way round where a "Live version" / "Waiting to be
- * applied" pair cannot.
+ * One staged change: the server's headline and reason, and since when it has waited. No
+ * version numbers (founder, 10 Oct 2026): the banner's own title already says callers hear
+ * the live script until the change is put live, which is the misreading this row guards.
  */
 function PendingRow({ change }: { change: PendingChange }) {
   return (
     <li className="border-l-2 border-warn-line pl-3">
       <p className="font-medium">{change.headline}</p>
-      <dl className="mt-2 flex flex-wrap gap-x-8 gap-y-2">
-        <div>
-          <dt className="text-xs text-ink-muted">Live version</dt>
-          <dd className="text-sm font-semibold tabular-nums">
-            {change.live_version === null ? "None yet" : `Version ${change.live_version}`}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-ink-muted">Waiting to be applied</dt>
-          <dd className="text-sm font-semibold tabular-nums">Version {change.staged_version}</dd>
-        </div>
-      </dl>
-      <p className="mt-2 text-xs">{change.why}</p>
+      <p className="mt-1 text-xs">{change.why}</p>
       <p className="mt-1 text-xs text-ink-muted">Waiting since {formatIST(change.staged_at)}</p>
     </li>
   );
@@ -209,4 +196,19 @@ export function CallCapFact({ state }: { state: PendingState }) {
  *  itself, because an owner can quote an id and "unknown" reads as a fault. */
 export function clientVoiceName(voice: NonNullable<PendingState["voice"]["configured"]>): string {
   return voice.catalog?.label ?? voice.voice_id;
+}
+
+/**
+ * The voice tier the agent is on, in one line: "Clear voice · ₹2.50 / min". The tier is the
+ * live voice's (the one being billed), else the chosen one; the label and the rate are the
+ * server's (`voice_tier_rates`), so a client only ever reads "Clear" or "Studio". Null when
+ * no voice is set or the tier has no row.
+ */
+export function voiceTierLine(state: PendingState | undefined): string | null {
+  const voice = state?.voice;
+  const tier = voiceTierRate(state?.voice_tier_rates, (voice?.live ?? voice?.configured)?.voice_tier);
+  if (!tier) return null;
+  return tier.inr_per_min === null
+    ? `${tier.label} voice`
+    : `${tier.label} voice · ${formatRupeeRate(tier.inr_per_min)} / min`;
 }

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Noto_Sans_Devanagari, Noto_Sans_Telugu } from "next/font/google";
 import localFont from "next/font/local";
 
 import { StructuredData } from "@/components/structuredData";
@@ -64,6 +65,26 @@ const jetbrainsMono = localFont({
     },
   ],
   variable: "--font-jetbrains-mono",
+});
+
+// Noto Sans Telugu and Devanagari, for what callers and agents say (first-call review,
+// founder decision 13). `next/font/google` fetches the files at BUILD time and serves them
+// from our own origin, so no request leaves the browser for Google (same CSP and cookie
+// posture as the local faces above). Variable files, so one file per script carries every
+// weight. `preload: false`: each @font-face keeps Google's unicode-range, so a browser
+// downloads a script's file only on a page that shows that script — a preload would
+// push it onto every page.
+const notoTelugu = Noto_Sans_Telugu({
+  subsets: ["telugu"],
+  display: "swap",
+  preload: false,
+  variable: "--font-noto-telugu",
+});
+const notoDevanagari = Noto_Sans_Devanagari({
+  subsets: ["devanagari"],
+  display: "swap",
+  preload: false,
+  variable: "--font-noto-devanagari",
 });
 
 /**
@@ -176,7 +197,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${ppMori.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      className={`${ppMori.variable} ${jetbrainsMono.variable} ${notoTelugu.variable} ${notoDevanagari.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         {children}

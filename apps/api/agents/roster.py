@@ -38,7 +38,7 @@ from uuid import UUID
 
 from calevate_shared.call_script import opening_line_of
 from calevate_shared.engine import DisclosurePosture, compose_opening_line, join_first_words
-from calevate_shared.extraction import ExtractionField
+from calevate_shared.lead_fields import business_only
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -139,7 +139,9 @@ def agent_out(r: Any) -> AgentOut:
         disclosure_line=r[5],
         engine=r[6],
         published=bool(r[7]),
-        extraction_fields=[ExtractionField.model_validate(f) for f in (r[8] or [])],
+        # The agent's OWN fields; the core every agent also captures is
+        # `GET /v1/lead-fields` (`calevate_shared.lead_fields`).
+        extraction_fields=business_only(r[8]),
         ai_disclosure_line=r[9],
         ai_disclosure_enabled=bool(r[10]),
         recording_notice_line=r[11],

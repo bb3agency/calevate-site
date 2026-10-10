@@ -96,6 +96,7 @@ from uuid import UUID
 
 from calevate_shared.engine import SARVAM_DEFAULT_LLM
 from calevate_shared.extraction import ExtractionSchemaSpec
+from calevate_shared.lead_fields import with_core
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -343,7 +344,7 @@ async def load_assist_source(session: AsyncSession, call_id: UUID) -> AssistSour
             remediation="Tell us about this call — we need to re-run its redaction pass.",
         )
 
-    spec = ExtractionSchemaSpec.model_validate({"version": version or 1, "fields": fields or []})
+    spec = ExtractionSchemaSpec(version=version or 1, fields=with_core(fields))
     return AssistSource(
         call_id=call_id,
         agent_id=agent_id,

@@ -275,8 +275,12 @@ class TestWiring:
         a person becomes authenticated and so cannot require it. They are client realm only
         by decision (operators stay on email and a second factor), so they do not pair.
         Each is behind the same-origin check and its own throttle; the two Google halves are
-        bound by a `__Host-` cookie, PKCE and a signed state."""
-        assert len(exempt) <= 58, sorted(exempt)
+        bound by a `__Host-` cookie, PKCE and a signed state.
+
+        RAISED 58 -> 59 for `POST /v1/worker/engine-lookups/{engine}` (D-716): the voice
+        platform's caller lookup, authenticated by its v2 signature under a secret it
+        minted per agent, read-only."""
+        assert len(exempt) <= 59, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

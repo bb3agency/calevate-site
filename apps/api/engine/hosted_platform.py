@@ -21,6 +21,7 @@ from calevate_shared.engine import VoiceEngine
 
 from apps.api.engine.text_split import split_for_text_cap
 from apps.api.engine.thinnest import (
+    CALL_SECONDS_MAX,
     GREETING_MAX_CHARS,
     INSTRUCTIONS_MAX_CHARS,
     KB_TEXT_MAX_CHARS,
@@ -53,6 +54,18 @@ class HostedAgentLimits:
     #: D-708). False where the notices are spoken and the model then greets from the prompt
     #: (the owned runtime, D-654), so the greeting held there is the notices alone.
     greeting_is_first_words: bool = False
+    #: The engine's own name for its knowledge-search tool, which the prompt names so the
+    #: agent searches before saying it does not know. ThinnestAI's is `search_knowledge`, on
+    #: whenever the agent has knowledge (`thinnest-findings/mirror/snapshots/2026-10-08/
+    #: pages/api-reference/tools/list-built-in-tools.md:673-690`).
+    knowledge_tool: str | None = None
+    #: Does the engine hold the script's stages in a step list of its own? ThinnestAI's
+    #: agent has `steps` (at most 12, update-agent.md:588-595), which its console says
+    #: "replace the script in its prompt", so the stages go there and leave `instructions`.
+    native_steps: bool = False
+    #: The longest call the engine will run, in seconds (ThinnestAI: `voice.maxCallSeconds`
+    #: 60-1200). None where our own ceiling is the only one.
+    call_seconds_max: int | None = None
 
 
 NO_HOSTED_LIMITS: Final = HostedAgentLimits(
@@ -78,6 +91,9 @@ THINNEST_LIMITS: Final = HostedAgentLimits(
     facts_in_knowledge=True,
     # `ThinnestEngine._agent_body` sends `compose_first_utterance` as `greeting`.
     greeting_is_first_words=True,
+    knowledge_tool="search_knowledge",
+    native_steps=True,
+    call_seconds_max=CALL_SECONDS_MAX,
 )
 
 _LIMITS_BY_ENGINE: Final[dict[str, HostedAgentLimits]] = {"thinnest": THINNEST_LIMITS}
