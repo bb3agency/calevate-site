@@ -63,7 +63,14 @@ async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
         except Exception as exc:
             log.warning(
                 "engine_webhook_check_failed",
-                extra={"engine": engine, "tenant_id": str(tenant_id), "reason": type(exc).__name__},
+                extra={
+                    "engine": engine,
+                    "tenant_id": str(tenant_id),
+                    "reason": type(exc).__name__,
+                    # A ProblemError's code says which refusal it was; the class name alone
+                    # leaves an operator re-running the sweep by hand to find out.
+                    "code": getattr(exc, "code", None),
+                },
             )
             unreached += 1
             continue

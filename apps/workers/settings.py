@@ -81,6 +81,8 @@ from apps.api.core.observability import (
     traced_job,
     tracing_enabled,
 )
+from apps.api.core.platform_config import refresh as refresh_platform_config
+from apps.api.core.platform_config import start_config_refresher, stop_config_refresher
 from apps.api.core.queue import WORKER_MAX_TRIES, close_queue, redis_settings
 from apps.api.core.redis import close_redis
 from apps.api.core.settings import (
@@ -1544,6 +1546,16 @@ async def startup(ctx: dict[str, Any]) -> None:
     # answer arrived at quietly is the failure mode this line closes; `main.py::_startup`
     # already anticipated it ("the worker process ... should call it too").
     start_pricing_refresher()
+    # The ops console's settings and sealed keys (PLATFORM-CONFIG §6). Without this the
+    # worker ran on .env plus code defaults: every sweep that publishes, checks drift or
+    # registers webhooks compared live agents against values the console never reached
+    # (WEBHOOK_BASE_URL read as localhost, the in-call model as unset), and every vendor
+    # key saved only in the console was invisible to the jobs that call that vendor.
+    # Secrets are adopted because the worker is the process that calls vendors. The first
+    # read is awaited here, before any job runs, rather than left to the poll: a job that
+    # starts on defaults and then flips mid-run is the disagreement this closes.
+    await refresh_platform_config(force=True)
+    start_config_refresher(with_secrets=True)
     missing = runtime_config_missing_keys()
     if missing:
         # Log, do not die. `/healthz/ready` is the go-live gate.
@@ -1641,6 +1653,8 @@ async def shutdown(ctx: dict[str, Any]) -> None:
     # of its three background polls and left the third reading from a pool going away.
     with suppress(Exception):
         await stop_pricing_refresher()
+    with suppress(Exception):
+        await stop_config_refresher()
     with suppress(Exception):
         await close_redis()
     with suppress(Exception):
