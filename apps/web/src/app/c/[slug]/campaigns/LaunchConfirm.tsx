@@ -149,7 +149,7 @@ export function LaunchConfirm({
 
   return (
     <div className="space-y-3">
-      <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+      <div className="rounded-md border border-warn-line bg-warn-soft px-4 py-3 text-body text-warn">
         <p className="flex items-start gap-2 font-semibold">
           <AlertTriangle aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
           <span>

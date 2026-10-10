@@ -32,13 +32,13 @@ const TELUGU = "మా క్లినిక్";
 const HINDI = "नमस्ते क्लिनिक";
 
 function fillName(value: string) {
-  fireEvent.change(screen.getByPlaceholderText("Sunrise Clinic"), {
+  fireEvent.change(screen.getByPlaceholderText("Sri Traders"), {
     target: { value },
   });
 }
 
 function slugInput(): HTMLInputElement {
-  return screen.getByPlaceholderText("sunrise-clinic") as HTMLInputElement;
+  return screen.getByPlaceholderText("sri-traders") as HTMLInputElement;
 }
 
 describe("the preview both signup surfaces share", () => {

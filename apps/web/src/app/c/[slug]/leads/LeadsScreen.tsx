@@ -2,11 +2,10 @@
 
 import { useEffect, useState } from "react";
 
-import { Card, FilterChip, ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
+import { FilterChip, ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { SegmentedControl } from "@/components/interior/segmented-control";
-import { useToast } from "@/components/interior/toaster";
 import { canDialOut } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 import { useClientRealm } from "@/lib/api/session";
@@ -29,7 +28,6 @@ import { examplesFor } from "@/lib/verticalExamples";
 import { BulkActionBar, EMPTY_SELECTION, type BulkSelection } from "./BulkActionBar";
 import { DialerPicker } from "./DialerPicker";
 import { FacetPanel } from "./FacetPanel";
-import { LeadBoard } from "./LeadBoard";
 import { LeadTable } from "./LeadTable";
 import { LeadsFooter } from "./LeadsFooter";
 import { LeadsToolbar } from "./LeadsToolbar";
@@ -61,7 +59,6 @@ import { useLeadsLens } from "./useLeadsLens";
 export function LeadsScreen() {
   // `href` carries the D-22 operator marker forward on the links to each lead.
   const { session, href } = useClientRealm();
-  const { toast } = useToast();
   const f = useLeadsLens();
   const { lens } = f;
 
@@ -140,8 +137,6 @@ export function LeadsScreen() {
   useLeadsCopilotSurface({
     status: f.status,
     setStatus: f.setStatus,
-    view: f.view,
-    setView: f.setView,
     search: f.search,
     leads,
     items,
@@ -189,7 +184,7 @@ export function LeadsScreen() {
         } and the columns shown here, with full phone numbers. Each download is recorded.`;
 
   return (
-    <div className="space-y-4 pb-12">
+    <div className="space-y-5 pb-12">
       <LeadsToolbar
         askExample={examplesFor(me.data?.organization?.vertical_template).leadSearch}
         search={f.search}
@@ -204,8 +199,6 @@ export function LeadsScreen() {
           f.setAskTerm(f.ask.trim());
           f.setOffset(0);
         }}
-        view={f.view}
-        onView={f.setView}
         leads={leads}
         chosenColumns={f.chosenColumns}
         onColumns={f.setChosenColumns}
@@ -214,9 +207,7 @@ export function LeadsScreen() {
         mayExport={mayExport}
         exportRefusal={exportRefused}
         exportNote={exportNote}
-        onExported={() =>
-          toast({ tone: "success", title: "Export ready", description: "Your leads CSV has downloaded." })
-        }
+        onExported={() => undefined}
       />
 
       <RestrictionNote reason={exportRefused} />
@@ -259,7 +250,7 @@ export function LeadsScreen() {
           {/* No count until there IS one: "0 leads" while loading is a statement about the
               business, and the wrong one. */}
           {leads.data && (
-            <p className="flex items-center gap-1 text-[13px] text-ink-muted">
+            <p className="flex items-center gap-1 text-meta text-ink-muted">
               <span className="font-semibold tabular-nums text-ink">{formatCount(leads.data.total)}</span>{" "}
               {scopeLabel(lens, leads.data.total)}
               <InfoTip label="these counts" align="end">
@@ -278,7 +269,7 @@ export function LeadsScreen() {
       {/* An operator is a real person with a real id, so the chip works; it simply cannot
           match, because leads are owned by the client's own team. */}
       {myUserId && me.data?.impersonating && (
-        <p className="text-xs text-ink-muted">
+        <p className="text-meta text-ink-muted">
           You are viewing this account as Calevate operations, so no lead here is assigned to you.
         </p>
       )}
@@ -286,7 +277,7 @@ export function LeadsScreen() {
       {/* WHAT THE ROWS ARE when a question is in force: a ranked table looks exactly like
           a filtered one. `semantic_truncated` is the server's own "is this all of them". */}
       {f.askTerm && leads.data && (
-        <p className="text-xs text-ink-muted">
+        <p className="max-w-prose text-meta text-ink-muted">
           Ranked by how closely each lead&rsquo;s captured answers match{" "}
           <span className="font-medium text-ink">&ldquo;{f.askTerm}&rdquo;</span>.
           {leads.data.semantic_truncated
@@ -296,15 +287,6 @@ export function LeadsScreen() {
           filters for those.
         </p>
       )}
-
-      <FacetPanel
-        facets={facets.data}
-        loading={facets.isLoading}
-        error={facets.error}
-        selected={f.facetValues}
-        onChange={f.setFacetValues}
-        onRetry={() => facets.refetch()}
-      />
 
       <SavedViewBar
         views={savedViews.data}
@@ -329,6 +311,15 @@ export function LeadsScreen() {
           },
           columns: f.chosenColumns ?? null,
         }}
+      />
+
+      <FacetPanel
+        facets={facets.data}
+        loading={facets.isLoading}
+        error={facets.error}
+        selected={f.facetValues}
+        onChange={f.setFacetValues}
+        onRetry={() => facets.refetch()}
       />
 
       <DialerPicker
@@ -382,10 +373,10 @@ export function LeadsScreen() {
       {/* Loading and failure are one answer for both views. `leads.data` can survive a
           failed REFETCH and those rows are real, so the guard is on data, not on error. */}
       {leads.isLoading ? (
-        <Card bodyClassName="p-4">
-          <Skeleton rows={6} />
-        </Card>
-      ) : !leads.data ? null : f.view === "list" ? (
+        <div className="border-y border-line py-4">
+          <Skeleton rows={6} label="Loading your leads" />
+        </div>
+      ) : !leads.data ? null : (
         <LeadTable
           kit={kit}
           partialNote={
@@ -394,8 +385,6 @@ export function LeadsScreen() {
               : undefined
           }
         />
-      ) : (
-        <LeadBoard kit={kit} />
       )}
 
       <LeadsFooter

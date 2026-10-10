@@ -162,7 +162,7 @@ export function BulkActionBar({
       <div
         role="group"
         aria-label="Bulk actions"
-        className="rounded-xl border border-line bg-surface px-4 py-3 shadow-card"
+        className="border-y border-line py-3"
       >
         <BulkResultSummary result={result} nameFor={nameFor} onDismiss={onDismissResult} />
       </div>
@@ -211,7 +211,7 @@ export function BulkActionBar({
         filteredTotal !== undefined &&
         selection.ids.length === pageSize &&
         filteredTotal > pageSize && (
-          <p className="rounded-xl bg-ink/[0.03] px-4 py-2.5 text-sm text-ink-muted">
+          <p className="rounded-md bg-ink/[0.03] px-4 py-2.5 text-body text-ink-muted">
             All {formatCount(pageSize)} leads on this page are selected.{" "}
             <button
               type="button"
@@ -229,16 +229,16 @@ export function BulkActionBar({
         // A selection toolbar that stays in reach: pinned to the bottom of the scrolling
         // console while rows are ticked, so the action is beside the rows wherever the
         // reader has scrolled to. Enters with the pane fade (reduced motion: none).
-        className="settings-enter sticky bottom-3 z-20 rounded-xl border border-line bg-surface/95 px-4 py-3 shadow-overlay backdrop-blur supports-[backdrop-filter]:bg-surface/85"
+        className="settings-enter sticky bottom-3 z-20 rounded-card border border-line bg-surface/95 px-4 py-3 shadow-overlay backdrop-blur supports-[backdrop-filter]:bg-surface/85"
       >
         {/* THE SCOPE, in words, above the controls — never a bare "N selected", which is
             the sentence that does not say WHICH n. */}
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-medium text-ink">{scopeSentence}</p>
+          <p className="text-body font-medium text-ink">{scopeSentence}</p>
           <button
             type="button"
             onClick={onClear}
-            className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 flex items-center gap-1 text-xs font-medium text-ink-muted hover:text-ink touch:min-h-11"
+            className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 flex items-center gap-1 text-meta font-medium text-ink-muted hover:text-ink touch:min-h-11"
           >
             <X className="h-3.5 w-3.5" />
             Clear selection
@@ -317,7 +317,7 @@ export function BulkActionBar({
             person reads what will happen, to how many rows, in which scope, and only
             then meets the button. */}
         {confirming && count !== undefined && (
-          <div className="mt-3 rounded-lg border border-warn-line bg-warn-soft p-3 text-sm text-warn">
+          <div className="mt-3 rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-body text-warn">
             <p className="flex items-start gap-2 font-semibold">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
@@ -414,8 +414,8 @@ function BulkResultSummary({
       role="status"
       className={
         failed
-          ? "mt-3 rounded-lg border border-warn-line bg-warn-soft p-3 text-sm text-warn"
-          : "mt-3 rounded-lg border border-line bg-app p-3 text-sm text-ink"
+          ? "mt-3 rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-body text-warn"
+          : "mt-3 rounded-md bg-surface-muted p-3 text-body text-ink"
       }
     >
       <div className="flex items-start justify-between gap-2">

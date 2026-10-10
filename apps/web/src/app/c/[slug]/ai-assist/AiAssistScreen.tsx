@@ -3,7 +3,7 @@
 import { InfoTip } from "@/components/console/infoTip";
 import { Metric } from "@/components/console/metric";
 import { PageHeader } from "@/components/console/pageHeader";
-import { Panel } from "@/components/console/panel";
+import { Section } from "@/components/console/section";
 import { ProgressBar } from "@/components/interior/progress-bar";
 import {
   ProblemNotice,
@@ -169,7 +169,7 @@ export function AiAssistScreen() {
           <section className="space-y-3 border-b border-line pb-6">
             <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
               <div>
-                <p className="flex items-center gap-1 text-[13px] font-medium text-ink-muted">
+                <p className="flex items-center gap-1 text-meta font-medium text-ink-muted">
                   AI help used
                   <InfoTip label="AI help">
                     <p>
@@ -184,15 +184,15 @@ export function AiAssistScreen() {
                   </InfoTip>
                 </p>
                 <p className="mt-1 flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-[26px] font-semibold leading-tight tracking-tight tabular-nums text-ink">
+                  <span className="text-figure tabular-nums text-ink">
                     {formatCount(data.requests_used)}
                   </span>
-                  <span className="text-sm text-ink-muted">
+                  <span className="text-body text-ink-muted">
                     of about {formatCount(data.requests_included)} this month
                   </span>
                 </p>
               </div>
-              <p className="text-sm text-ink-muted sm:text-right">
+              <p className="text-body text-ink-muted sm:text-right">
                 <span className="font-semibold tabular-nums text-ink">
                   {formatINR(data.remaining_inr)}
                 </span>{" "}
@@ -214,7 +214,7 @@ export function AiAssistScreen() {
                 className="[&>div:first-child]:sr-only"
               />
             ) : (
-              <p className="text-sm text-ink-muted">No AI help is included on your plan.</p>
+              <p className="text-body text-ink-muted">No AI help is included on your plan.</p>
             )}
           </section>
 
@@ -243,8 +243,8 @@ export function AiAssistScreen() {
             />
           </div>
 
-          <Panel title="How AI help is billed">
-            <dl className="space-y-2 text-sm">
+          <Section title="How AI help is billed">
+            <dl className="space-y-2 text-body">
               <Row label="Included with your plan" value={formatINR(data.included_inr)} />
               <Row label="Used so far" value={formatINR(data.used_inr)} />
               {/* "of which" (D-608): the knowledge line is a COMPONENT of the amount used,
@@ -256,7 +256,7 @@ export function AiAssistScreen() {
               />
               <Row label="Available this month" value={formatINR(data.allowance_inr)} emphasis />
             </dl>
-            <p className="mt-3 text-xs text-ink-muted">
+            <p className="mt-3 text-meta text-ink-muted">
               Your calls, campaigns and leads are never affected by this allowance.
             </p>
             {/* THE OVERDRAFT, IN WORDS, ONLY WHEN IT IS REAL (D-608). Uploading is not
@@ -264,7 +264,7 @@ export function AiAssistScreen() {
                 clamps at zero; saying nothing would hide a number this screen knows. It is
                 not dressed as a demand, because what happens next is undecided. */}
             {data.balance_inr.trimStart().startsWith("-") && (
-              <p className="mt-3 text-xs text-ink-muted">
+              <p className="mt-3 text-meta text-ink-muted">
                 You have used{" "}
                 <strong className="font-semibold text-ink">
                   {formatINR(data.balance_inr.replace("-", ""))}
@@ -275,7 +275,7 @@ export function AiAssistScreen() {
                 that changes.
               </p>
             )}
-          </Panel>
+          </Section>
         </>
       )}
     </div>

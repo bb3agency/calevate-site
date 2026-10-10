@@ -1,10 +1,10 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
 
 import {
-  Card,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -67,7 +67,7 @@ export function ScrubForm({
   const confirmed = confirmationMatches(confirmation, draft.scrubRef.trim(), "exact");
 
   return (
-    <Card title={`Record a scrub of “${campaign.name}”`}>
+    <Section title={`Record a scrub of “${campaign.name}”`}>
       <form
         className="max-w-xl space-y-4"
         noValidate
@@ -77,7 +77,7 @@ export function ScrubForm({
           record.mutate({ draft, instant });
         }}
       >
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           Files the provider&apos;s verdict, suppresses the numbers they blocked, and opens
           this campaign&apos;s launch gate until midnight IST. It does not run a scrub.{" "}
           <span className="font-medium text-ink">
@@ -196,7 +196,7 @@ export function ScrubForm({
 
         {blocked && (
           <NoticeBox tone="warn" icon={<AlertTriangle className="h-5 w-5" />}>
-            <p className="text-xs">{blocked}</p>
+            <p>{blocked}</p>
           </NoticeBox>
         )}
 
@@ -208,6 +208,6 @@ export function ScrubForm({
           {record.isPending ? "Recording…" : "Record this scrub"}
         </button>
       </form>
-    </Card>
+    </Section>
   );
 }

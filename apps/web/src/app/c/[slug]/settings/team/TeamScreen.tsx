@@ -1,14 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { UserPlus } from "lucide-react";
 
 import { DataTable } from "@/components/console/dataTable";
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
 import {
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
@@ -32,7 +31,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
 import { ROLES } from "./roles";
-import { InviteDrawer } from "./InviteForm";
+import { InviteInline } from "./InviteForm";
 import { teamColumns, type TeamRow } from "./teamRows";
 
 /**
@@ -114,7 +113,6 @@ export function TeamScreen() {
    * that a removal was intended and says nothing about whose.
    */
   const [removing, setRemoving] = useState<Member | null>(null);
-  const [inviting, setInviting] = useState(false);
 
   /* Colleagues' email addresses are owner-only (`org:manage`), so the roster is not even
      requested for a session that may not read it, or while `/v1/me` has not said. The
@@ -262,22 +260,8 @@ export function TeamScreen() {
   });
 
   return (
-    <div className="space-y-5 pb-12">
-      <PageHeader
-        description="Everyone who can sign in to this account."
-        actions={
-          write.allowed ? (
-            <button
-              type="button"
-              onClick={() => setInviting(true)}
-              className={PRIMARY_BUTTON}
-            >
-              <UserPlus aria-hidden className="h-4 w-4" />
-              Invite
-            </button>
-          ) : undefined
-        }
-      />
+    <div className="max-w-2xl space-y-10 pb-12">
+      <PageHeader description="Everyone who can sign in to this account." />
 
       <RestrictionNote reason={write.reason} />
 
@@ -292,6 +276,8 @@ export function TeamScreen() {
       {invitations.error != null && (
         <ProblemNotice error={invitations.error} onRetry={() => invitations.refetch()} />
       )}
+
+      {write.allowed ? <InviteInline email={email} setEmail={setEmail} role={role} setRole={setRole} /> : null}
 
       {remove.data && (
         <NoticeBox tone="warn" title="Access removed">
@@ -309,8 +295,8 @@ export function TeamScreen() {
       {members.isLoading ? (
         <Skeleton rows={4} label="Loading your team" />
       ) : !people ? null : people.length === 0 ? (
-        <EmptyState
-          className="rounded-card border border-line bg-surface"
+        <EmptyState illustration={<EmptySketch kind="leads" />}
+          className="border-y border-line"
           message={
             <>
               <span className="block font-medium text-ink">Nobody is on this account yet</span>
@@ -322,11 +308,11 @@ export function TeamScreen() {
           }
         />
       ) : (
-        <section className="space-y-2">
+        <section className="space-y-3">
           {/* Counts only from lists the server actually sent: "1 person" while a request is
               in flight, or "0 unused links" over a failed one, is a claim about who has
               access to this business made on no evidence. */}
-          <p className="text-[13px] text-ink-muted">
+          <p className="text-meta text-ink-muted">
             {formatCount(people.length)} {people.length === 1 ? "person" : "people"}
             {pending && pending.length > 0
               ? ` · ${formatCount(pending.length)} unused ${pending.length === 1 ? "link" : "links"}`
@@ -337,13 +323,13 @@ export function TeamScreen() {
             columns={columns}
             rows={rows}
             getRowId={(row) => row.id}
-            className="rounded-card border border-line bg-surface"
+            className="border-y border-line"
           />
         </section>
       )}
 
       {roster.isError && (
-        <p className="text-[13px] text-ink-muted">
+        <p className="text-meta text-ink-muted">
           We could not load your colleagues&apos; email addresses, so they are not shown.{" "}
           <button
             type="button"
@@ -358,20 +344,11 @@ export function TeamScreen() {
       {/* Only from a list the server actually sent empty: over a failed read this sentence
           would tell an owner no unused key to their account exists. */}
       {pending && pending.length === 0 && (
-        <p className="text-[13px] text-ink-muted">
+        <p className="text-meta text-ink-muted">
           <span className="font-medium text-ink">No unused invites.</span> Invite links expire
           after 72 hours and can only be used once, by the person they were sent to.
         </p>
       )}
-
-      <InviteDrawer
-        open={inviting}
-        onClose={() => setInviting(false)}
-        email={email}
-        setEmail={setEmail}
-        role={role}
-        setRole={setRole}
-      />
 
       {/* Closes only on success. A refused removal (the last owner, a stale row) leaves the
           person on the account, and closing the dialog would say otherwise. */}

@@ -113,7 +113,7 @@ export function FireTimeRefusal({
     <p className="flex gap-2.5 text-sm text-ink-muted">
       <CircleAlert
         aria-hidden
-        className="mt-0.5 h-4 w-4 shrink-0 text-amber-500"
+        className="mt-0.5 h-4 w-4 shrink-0 text-warn"
       />
       <span>
         As things stand{" "}

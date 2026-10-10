@@ -21,9 +21,12 @@
  */
 
 import { useId, useState } from "react";
+import { KeyRound } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { Section, TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
+import { IconTile } from "@/components/console/iconTile";
+import { ServiceLogo } from "@/components/console/serviceLogo";
 import { FieldMessage, useFormValidation } from "@/components/formValidation";
 import { PasswordInput } from "@/components/passwordInput";
 import {
@@ -140,9 +143,12 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
               const mine = creds.data.filter((c) => c.kind === s.kind);
               return (
                 <li key={s.kind} className="flex flex-col gap-2 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
-                  <div className="min-w-0">
-                    <p className="text-body font-medium text-ink">{s.label}</p>
-                    <p className="text-meta text-ink-muted">{s.what}</p>
+                  <div className="flex min-w-0 items-start gap-4">
+                    <IconTile service={s.kind} />
+                    <div className="min-w-0">
+                      <p className="text-body font-medium text-ink">{s.label}</p>
+                      <p className="text-meta text-ink-muted">{s.what}</p>
+                    </div>
                   </div>
                   <div className="min-w-0 space-y-1.5 sm:text-right">
                     {mine.map((c) => (
@@ -215,13 +221,16 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
           <ul className="divide-y divide-line border-y border-line">
             {keys.map((c) => (
               <li key={c.id} className="py-3.5">
-                <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
-                  <span className="min-w-0 text-body text-ink [overflow-wrap:anywhere]">
-                    {c.label}{" "}
-                    <span className="text-ink-muted">
-                      · {lookup(PROVIDER_LABELS, c.kind) ?? c.kind} · ····{c.last_four}
-                    </span>
-                  </span>
+                <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+                  <div className="flex min-w-0 items-center gap-4">
+                    <IconTile service={c.kind} icon={KeyRound} />
+                    <div className="min-w-0">
+                      <p className="text-body text-ink [overflow-wrap:anywhere]">{c.label}</p>
+                      <p className="text-meta text-ink-muted">
+                        {lookup(PROVIDER_LABELS, c.kind) ?? c.kind} · ····{c.last_four}
+                      </p>
+                    </div>
+                  </div>
                   {accountActions(c)}
                 </div>
                 {checkResult(c)}
@@ -283,13 +292,16 @@ function AddKey({ session, onDone }: { session: Session; onDone: () => void }) {
     >
       <label className="block">
         <span className={FIELD_LABEL}>What is it?</span>
-        <select className={FIELD} value={kind} onChange={(e) => setKind(e.target.value as KeyKind)}>
-          {KEY_KINDS.map((k) => (
-            <option key={k.kind} value={k.kind}>
-              {k.label}
-            </option>
-          ))}
-        </select>
+        <span className="mt-1 flex items-center gap-2">
+          <ServiceLogo service={kind} className="h-5 w-5" />
+          <select className={`${FIELD} mt-0`} value={kind} onChange={(e) => setKind(e.target.value as KeyKind)}>
+            {KEY_KINDS.map((k) => (
+              <option key={k.kind} value={k.kind}>
+                {k.label}
+              </option>
+            ))}
+          </select>
+        </span>
       </label>
       {chosen ? <p className={FIELD_HINT}>{chosen.hint}</p> : null}
       <div>

@@ -1,59 +1,89 @@
 "use client";
 
+/**
+ * THE CALL LOG: every call, newest first, filtered on the server (REDESIGN-2).
+ *
+ * Filters, as the founder set them: how the call ENDED (outcome chips), WHEN (today, 7
+ * days, 30 days, or two dates, all on India-time days, `lib/callFilters`), and WHICH WAY
+ * (incoming or outgoing). There is no agent filter. A STATUS filter (no answer, failed …)
+ * still arrives by link, from the dashboard's "did not connect" row, and shows as a chip
+ * that clears it. Every filter is a server query, never a slice of the loaded page, so a
+ * filtered count is a fact about the business, not about our paging.
+ *
+ * "Export CSV" downloads the same filtered log (owner-only on the server, audited), so
+ * the file is the table.
+ */
+
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
-import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatCount } from "@/components/ui";
-import { EmptyState } from "@/components/console/emptyState";
-import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { DataTable } from "@/components/console/dataTable";
+import { EmptySketch } from "@/components/console/emptySketch";
+import { EmptyState } from "@/components/console/emptyState";
+import { TEXT_ACTION } from "@/components/console/section";
+import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { LoadMore } from "@/components/interior/load-more";
 import { SegmentedControl } from "@/components/interior/segmented-control";
+import { FIELD, FilterChip, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatCount, istDateStamp } from "@/components/ui";
+import { useCallsLog, useExportCalls, useWriteAccess, type CallsLogFilters } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
-import { useCallsLog } from "@/lib/api/hooks";
+import {
+  DIRECTIONS,
+  OUTCOMES,
+  RANGES,
+  callWindow,
+  type CallDirection,
+  type CallOutcome,
+  type CallRange,
+} from "@/lib/callFilters";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
+import { lookup } from "@/lib/lookup";
 
 import { callColumns } from "./callColumns";
 
 /**
- * The call log — every call the agents took or placed, newest first.
- *
- * PRIMARY JOB: find a call and open it. One filter (a server-side status, so row 101 is
- * findable), one table, one way to older calls.
- *
- * The number is the client's own contact data and is printed in full (D-436); the summary
- * is transcript-derived and is shown as the API redacted it. Nothing the API did not send
- * is shown: a call with no number or summary shows that it has none.
+ * One page of the log. A paged read rather than the whole history: the log grows without
+ * bound, and the reader asks for older calls with "Show older calls".
  */
-
-/** One page of the log — and the honesty threshold for the header count (CL1). */
 const CALLS_PAGE_SIZE = 100;
 
-/** Every status `calls.status` records that a client would ask for (ux-audit CL3). */
-const STATUS_FILTERS = [
-  { value: "in_progress", label: "In progress" },
-  { value: "completed", label: "Completed" },
-  { value: "no_answer", label: "No answer" },
-  { value: "busy", label: "Busy" },
-  { value: "voicemail", label: "Voicemail" },
-  { value: "failed", label: "Failed" },
-] as const;
+/** Statuses a link may ask for; only shown as a chip that clears them. */
+const STATUS_WORDS: Record<string, string> = {
+  in_progress: "in progress",
+  completed: "completed",
+  no_answer: "unanswered",
+  busy: "busy",
+  voicemail: "voicemail",
+  failed: "failed",
+};
 
-/** A status from `?status=` (the header's live pill links here) — only a known one. */
 function initialStatus(param: string | null): string | undefined {
-  return STATUS_FILTERS.some((f) => f.value === param) ? (param ?? undefined) : undefined;
+  return param && Object.hasOwn(STATUS_WORDS, param) ? param : undefined;
 }
-
 
 export function CallsScreen({ slug }: { slug: string }) {
   // `href` keeps the D-22 operator session across in-realm links (session.tsx).
   const { session, href } = useClientRealm();
   const params = useSearchParams();
-  const [status, setStatus] = useState<string | undefined>(() =>
-    initialStatus(params.get("status")),
-  );
-  const calls = useCallsLog(session, { status, pageSize: CALLS_PAGE_SIZE });
+  const [status, setStatus] = useState<string | undefined>(() => initialStatus(params.get("status")));
+  const [outcome, setOutcome] = useState<CallOutcome | undefined>();
+  const [direction, setDirection] = useState<CallDirection | undefined>();
+  const [range, setRange] = useState<CallRange>("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const filters: CallsLogFilters = {
+    status,
+    outcome,
+    direction,
+    ...callWindow(range, istDateStamp(), from, to),
+  };
+  const calls = useCallsLog(session, { ...filters, pageSize: CALLS_PAGE_SIZE });
+  const exportCalls = useExportCalls(session);
+  const exportAccess = useWriteAccess(session, "calls:read_raw", "export your calls");
+  const filtered = Boolean(status || outcome || direction || range !== "all");
 
   // Flattened across the loaded pages, deduped by id: a call landing mid-read shifts
   // rows across an offset boundary, and a duplicate React key would crash the log.
@@ -63,16 +93,10 @@ export function CallsScreen({ slug }: { slug: string }) {
     .filter((call) => (seen.has(call.id) ? false : (seen.add(call.id), true)));
 
   /*
-   * THE CALL LOG, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
-   *
-   * THE FILTER IS THE ONLY WRITABLE THING ON THIS SCREEN, and it is worth writing: "show
-   * me the ones nobody answered" is the question this log is opened with. Its options are
-   * the SAME `STATUS_FILTERS` the chips render from plus the "all" chip, so the assistant
-   * cannot select a status this screen has no chip for, and `apply` ignores anything else.
-   *
-   * NOT ONE ROW OF THE LOG IS DECLARED. Every row carries a caller's number (hard rule 6),
-   * and the number of rows loaded plus whether more remain is the whole of what a reader
-   * can see that a copilot read tool cannot fetch for itself under the caller's own RLS.
+   * THE CALL LOG, DECLARED TO THE ASSISTANT. The filters are the writable things on this
+   * screen ("show me yesterday's missed calls"); each field's options are the same lists
+   * the controls render, and `apply` ignores anything else. NOT ONE ROW IS DECLARED: every
+   * row carries a caller's number (hard rule 6).
    */
   useCopilotSurface({
     route: "/c/{slug}/calls",
@@ -80,15 +104,28 @@ export function CallsScreen({ slug }: { slug: string }) {
     realm: "client",
     fields: [
       {
-        id: "calls-status",
-        label: "Show only calls with this outcome",
+        id: "calls-outcome",
+        label: "How the call ended",
         type: "select",
-        value: status ?? "",
-        options: [
-          { value: "", label: "All" },
-          ...STATUS_FILTERS.map((filter) => ({ value: filter.value, label: filter.label })),
-        ],
-        help: "Empty means every call. Filters search all your calls, not just this page.",
+        value: outcome ?? "",
+        options: [{ value: "", label: "Any" }, ...OUTCOMES.map((o) => ({ value: o.value, label: o.label }))],
+      },
+      {
+        id: "calls-range",
+        label: "When",
+        type: "select",
+        value: range,
+        options: RANGES.map((r) => ({ value: r.value, label: r.label })),
+        help: "India time. Custom uses the two dates below.",
+      },
+      { id: "calls-from", label: "From (custom range)", type: "date", value: from },
+      { id: "calls-to", label: "To (custom range)", type: "date", value: to },
+      {
+        id: "calls-direction",
+        label: "Which way",
+        type: "select",
+        value: direction ?? "",
+        options: [{ value: "", label: "Both" }, ...DIRECTIONS.map((d) => ({ value: d.value, label: d.label }))],
       },
     ],
     facts: [
@@ -101,6 +138,7 @@ export function CallsScreen({ slug }: { slug: string }) {
             ? "the log failed to load, so no call is listed"
             : "still loading",
       },
+      { key: "status_link", label: "Status chosen by a link", value: status ? (lookup(STATUS_WORDS, status) ?? status) : "none" },
       { key: "rows_loaded", label: "Call rows loaded so far", value: String(rows.length) },
       {
         key: "more_pages",
@@ -110,10 +148,21 @@ export function CallsScreen({ slug }: { slug: string }) {
     ],
     apply: (items) => {
       for (const item of items) {
-        if (item.field_id !== "calls-status") continue;
         const wanted = asText(item.value);
-        if (wanted === "") setStatus(undefined);
-        else if (STATUS_FILTERS.some((filter) => filter.value === wanted)) setStatus(wanted);
+        if (item.field_id === "calls-outcome") {
+          setOutcome(OUTCOMES.find((o) => o.value === wanted)?.value);
+        } else if (item.field_id === "calls-direction") {
+          setDirection(DIRECTIONS.find((d) => d.value === wanted)?.value);
+        } else if (item.field_id === "calls-range") {
+          const next = RANGES.find((r) => r.value === wanted);
+          if (next) setRange(next.value);
+        } else if (item.field_id === "calls-from") {
+          setFrom(wanted);
+          setRange("custom");
+        } else if (item.field_id === "calls-to") {
+          setTo(wanted);
+          setRange("custom");
+        }
       }
     },
   });
@@ -122,36 +171,87 @@ export function CallsScreen({ slug }: { slug: string }) {
     () => callColumns({ callHref: (id) => href(`/c/${slug}/calls/${id}`) }),
     [href, slug],
   );
-  const filterLabel = status ? STATUS_FILTERS.find((f) => f.value === status)?.label : null;
+  const clearAll = () => {
+    setStatus(undefined);
+    setOutcome(undefined);
+    setDirection(undefined);
+    setRange("all");
+  };
 
   return (
     <div className="space-y-5 pb-12">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="space-y-3">
         <SegmentedControl
-          label="Show calls by outcome"
-          value={status ?? ""}
-          onValueChange={(next) => setStatus(next === "" ? undefined : next)}
-          options={[{ value: "", label: "All" }, ...STATUS_FILTERS]}
+          label="Show calls by how they ended"
+          value={outcome ?? ""}
+          onValueChange={(next) => setOutcome(OUTCOMES.find((o) => o.value === next)?.value)}
+          options={[{ value: "", label: "All" }, ...OUTCOMES]}
           className="min-w-0"
         />
-        {/* The denominator, only once the query has answered — a count rendered while
-            loading says 0 and then jumps. With more pages behind it the loaded length is
-            a statement about our query, not their business, so it is not called a total
-            (ux-audit CL1). */}
-        {calls.data &&
-          (calls.hasNextPage ? (
-            <p className="text-[13px] text-ink-muted">
-              Showing the{" "}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+          <SegmentedControl
+            label="When"
+            value={range}
+            onValueChange={(next) => setRange(RANGES.find((r) => r.value === next)?.value ?? "all")}
+            options={[...RANGES]}
+            className="min-w-0"
+          />
+          <SegmentedControl
+            label="Which way"
+            value={direction ?? ""}
+            onValueChange={(next) => setDirection(DIRECTIONS.find((d) => d.value === next)?.value)}
+            options={[{ value: "", label: "Both" }, ...DIRECTIONS]}
+            className="min-w-0"
+          />
+        </div>
+        {range === "custom" && (
+          <div className="settings-enter flex flex-wrap items-end gap-3">
+            <label className="block">
+              <span className="block text-meta text-ink-muted">From</span>
+              <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className={`${FIELD} w-auto`} />
+            </label>
+            <label className="block">
+              <span className="block text-meta text-ink-muted">To</span>
+              <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className={`${FIELD} w-auto`} />
+            </label>
+            <span className="pb-2 text-meta text-ink-muted">India time, both days included.</span>
+          </div>
+        )}
+        {status && (
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterChip label={`Only ${lookup(STATUS_WORDS, status) ?? status} calls`} active onClick={() => setStatus(undefined)} />
+            <span className="text-meta text-ink-muted">Press it to show every call.</span>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* The denominator, only once the query has answered — a count rendered while
+              loading says 0 and then jumps. With more pages behind it the loaded length is
+              a statement about our query, not their business, so it is not called a total. */}
+          {calls.data ? (
+            <p className="text-meta text-ink-muted">
+              {calls.hasNextPage ? "Showing the " : ""}
               <span className="font-semibold tabular-nums text-ink">{formatCount(rows.length)}</span>{" "}
-              most recent{filterLabel ? ` · ${filterLabel.toLowerCase()}` : ""}
+              {calls.hasNextPage ? "most recent" : rows.length === 1 ? "call" : "calls"}
+              {filtered ? " matching these filters" : ""}
             </p>
           ) : (
-            <p className="text-[13px] text-ink-muted">
-              <span className="font-semibold tabular-nums text-ink">{formatCount(rows.length)}</span>{" "}
-              {filterLabel ? `${filterLabel.toLowerCase()}` : rows.length === 1 ? "call" : "calls"}
-            </p>
-          ))}
-        <AskAssistant prompt="Summarise my latest calls: what callers wanted, and what I should follow up." />
+            <span />
+          )}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            {exportAccess.allowed && (
+              <button
+                type="button"
+                className={TEXT_ACTION}
+                disabled={exportCalls.isPending}
+                onClick={() => exportCalls.mutate(filters)}
+              >
+                {exportCalls.isPending ? "Preparing…" : "Export CSV"}
+              </button>
+            )}
+            <AskAssistant prompt="Summarise my latest calls: what callers wanted, and what I should follow up." />
+          </div>
+        </div>
+        {exportCalls.error ? <ProblemNotice error={exportCalls.error} /> : null}
       </div>
 
       {calls.error && <ProblemNotice error={calls.error} onRetry={() => void calls.refetch()} />}
@@ -166,10 +266,7 @@ export function CallsScreen({ slug }: { slug: string }) {
                notice above is the whole answer. */
         calls.error ? null : !calls.data ? (
           <div className="p-4">
-            <ProblemNotice
-              error={new Error("Your calls did not load.")}
-              onRetry={() => void calls.refetch()}
-            />
+            <ProblemNotice error={new Error("Your calls did not load.")} onRetry={() => void calls.refetch()} />
           </div>
         ) : rows.length ? (
           <DataTable
@@ -185,22 +282,24 @@ export function CallsScreen({ slug }: { slug: string }) {
           />
         ) : (
           <EmptyState
-            message={
-              status
-                ? "No calls match this filter"
-                : "No calls yet — a call appears here a couple of minutes after the caller hangs up."
-            }
+            illustration={filtered ? undefined : <EmptySketch kind="calls" />}
+            message={filtered ? "No calls match this filter" : "No calls yet."}
+            hint={filtered ? undefined : "A call shows here a couple of minutes after the caller hangs up."}
             action={
-              status && (
-                <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setStatus(undefined)}>
+              filtered ? (
+                <button type="button" className={SECONDARY_BUTTON_SM} onClick={clearAll}>
                   Show all calls
                 </button>
+              ) : (
+                <Link href={href(`/c/${slug}/agents`)} className={SECONDARY_BUTTON_SM}>
+                  Make a test call
+                </Link>
               )
             }
           />
         )}
-        {/* The way to yesterday (ux-audit CL2). Manual: a log the reader is scanning
-            grows when asked, not while their scroll passes a sentinel. */}
+        {/* The way to yesterday. Manual: a log the reader is scanning grows when asked,
+            not while their scroll passes a sentinel. */}
         {calls.hasNextPage && rows.length > 0 && (
           <LoadMore
             auto={false}

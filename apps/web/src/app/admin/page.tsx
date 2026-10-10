@@ -1,10 +1,13 @@
 "use client";
 
+import { EmptySketch } from "@/components/console/emptySketch";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus, Search } from "lucide-react";
 
 import { useAdminAccess, type AdminAccess } from "@/app/admin/access";
+import { CreditLeft } from "@/components/admin/credit";
+import { ADMIN_PAGE_WIDE, HAIRLINE_LIST, LIST_HEAD, ROW_HOVER, StatusPill, sentenceCase } from "@/components/admin/kit";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
 import { RowMenu } from "@/components/console/rowMenu";
@@ -12,8 +15,8 @@ import {
   FIELD_INLINE,
   FIELD_INLINE_ICON,
   FilterChip,
-  NOTICE_TONES,
   PRIMARY_BUTTON,
+  type NoticeTone,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -68,8 +71,10 @@ import { NoOwnerAccounts } from "./NoOwnerAccounts";
  * its neutral pill and still prints itself, because a state we have no colour for is the
  * one worth reading.
  */
-const TENANT_STATUS_TONES: Record<string, string> = {
-  active: "border-brand/30 bg-brand-soft text-brand-strong dark:bg-brand-strong/20",
+const TENANT_STATUS_TONES: Record<string, NoticeTone> = {
+  active: "ok",
+  suspended: "warn",
+  churned: "stop",
 };
 
 /**
@@ -125,7 +130,7 @@ function createAccess(
  * for a status the column cannot hold would be refused rather than silently matching
  * nothing.
  *
- * ⚠ THIS PAIR IS THE UNGUARDED LINK, and it is unguarded only until the OpenAPI snapshot
+ * THIS PAIR IS THE UNGUARDED LINK, and it is unguarded only until the OpenAPI snapshot
  * is regenerated: the generated `schema.d.ts` carries those `Literal`s as unions, and
  * typing these as `TenantDirectoryQuery["status"]` is what closes it. Until then a value
  * added to the API and not to this list is a filter an operator cannot reach.
@@ -257,7 +262,7 @@ export default function AdminClientsPage() {
   });
 
   return (
-    <div className="space-y-5 pb-12">
+    <div className={ADMIN_PAGE_WIDE}>
       <PageHeader
         // Only from a page that ARRIVED, and the MATCHING total rather than the rows on
         // screen: a count is the most trusted thing on a directory and the cheapest to get
@@ -307,21 +312,6 @@ export default function AdminClientsPage() {
             />
           </label>
           <label className="min-w-0">
-            <span className="sr-only">Billing</span>
-            <select
-              value={planTier}
-              onChange={(event) => narrow(() => setPlanTier(event.target.value))}
-              className={FIELD_INLINE}
-            >
-              <option value="">Any billing</option>
-              {PLAN_FILTERS.map((value) => (
-                <option key={value} value={value}>
-                  {value.replace(/_/g, " ")}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="min-w-0">
             <span className="sr-only">Sort</span>
             <select
               value={sort}
@@ -336,15 +326,27 @@ export default function AdminClientsPage() {
             </select>
           </label>
         </div>
-        <ScrollRegion label="Filter by state" className="-mx-1 px-1 [scrollbar-width:none]">
+        {/* State and billing as chips in one row, a hairline between the two groups: each
+            group is one choice (or none), and both are the server's own filters. */}
+        <ScrollRegion label="Filter clients" className="-mx-1 px-1 [scrollbar-width:none]">
           <div className="flex w-max items-center gap-1.5">
-            <FilterChip label="any" active={!status} onClick={() => narrow(() => setStatus(""))} />
+            <FilterChip label="Any state" active={!status} onClick={() => narrow(() => setStatus(""))} />
             {STATUS_FILTERS.map((value) => (
               <FilterChip
                 key={value}
-                label={value}
+                label={sentenceCase(value)}
                 active={status === value}
                 onClick={() => narrow(() => setStatus(status === value ? "" : value))}
+              />
+            ))}
+            <span aria-hidden className="mx-1.5 h-5 w-px bg-line" />
+            <FilterChip label="Any billing" active={!planTier} onClick={() => narrow(() => setPlanTier(""))} />
+            {PLAN_FILTERS.map((value) => (
+              <FilterChip
+                key={value}
+                label={sentenceCase(value)}
+                active={planTier === value}
+                onClick={() => narrow(() => setPlanTier(planTier === value ? "" : value))}
               />
             ))}
           </div>
@@ -353,15 +355,13 @@ export default function AdminClientsPage() {
 
       {tenants.error && <ProblemNotice error={tenants.error} onRetry={() => void tenants.refetch()} />}
 
-      <div className="rounded-card border border-line bg-surface shadow-card">
+      <div>
         {tenants.isLoading ? (
-          <div className="p-6">
-            <Skeleton rows={5} />
-          </div>
+          <Skeleton rows={5} />
         ) : tenants.error || !rows ? (
           /* Deliberately NOT the empty state: "there are no clients" is a claim about the
              world that a failed (or parked) read is not evidence for. */
-          <p className="p-6 text-sm text-ink-muted">
+          <p className="border-y border-line py-6 text-body text-ink-muted">
             The client directory could not be read, so this is not a list of your clients.
           </p>
         ) : rows.length === 0 ? (
@@ -370,37 +370,44 @@ export default function AdminClientsPage() {
           narrowed ? (
             <EmptyState message="No account matches this search. Clear the search or the filters." />
           ) : (
-            <EmptyState message="No clients yet." />
+            <EmptyState
+              message="No clients yet."
+              hint="Each business you create appears here with its plan, state and credit."
+              illustration={
+                <EmptySketch kind="leads" />
+              }
+            />
           )
         ) : (
-          <>
-            {/* Column labels for a sighted reader on a wide screen. Each cell below names
-                itself (visibly on a phone, to a screen reader always), so this row is
-                decoration and is hidden from assistive technology. */}
-            <div
-              aria-hidden
-              className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_4.5rem_4.5rem_8.5rem_2.75rem] gap-4 border-b border-line px-5 py-2.5 text-[12px] font-medium text-ink-faint md:grid"
-            >
+          // A TABLE ON EVERY WIDTH (founder, 10 Oct 2026): on a phone it scrolls sideways
+          // with a shadow at the clipped edge rather than stacking each client into a card,
+          // so an operator compares the same columns on any screen.
+          <ScrollRegion label="Clients" className="scroll-shadow-x relative">
+            <div className="min-w-[760px]">
+            {/* Column labels for a sighted reader. Each cell below names itself to a screen
+                reader, so this row is decoration and is hidden from assistive technology. */}
+            <div aria-hidden className={`grid gap-4 px-2 pb-2 ${ROW_GRID} ${LIST_HEAD}`}>
               <span>Client</span>
-              <span>State</span>
-              <span className="text-right">Calls 7d</span>
-              <span className="text-right">Leads</span>
+              <span>Plan</span>
+              <span>Status</span>
+              <span>Credit left</span>
               <span>Last call</span>
               <span />
             </div>
-            <ul aria-label="Clients" className="divide-y divide-line">
+            <ul aria-label="Clients" className={HAIRLINE_LIST}>
               {rows.map((tenant) => (
                 <ClientRow key={tenant.id} tenant={tenant} />
               ))}
             </ul>
-          </>
+            </div>
+          </ScrollRegion>
         )}
       </div>
 
       {/* Says WHICH rows are on screen: "26-50 of 312" is what an operator reads back on a
           support call, and it cannot be off by one the way a derived page index can. */}
       {page && page.total > page.rows.length && (
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-ink-muted">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-meta text-ink-muted">
           <span aria-live="polite">
             Showing {formatCount(page.offset + 1)}–{formatCount(page.offset + page.rows.length)} of{" "}
             {formatCount(page.total)}
@@ -431,28 +438,34 @@ export default function AdminClientsPage() {
   );
 }
 
-const PILL = "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium";
+/** Client · plan · status and flags · credit left · last call · menu. */
+const ROW_GRID =
+  "grid-cols-[minmax(0,1.3fr)_6.5rem_minmax(0,1.2fr)_minmax(0,1.1fr)_7.5rem_2.75rem]";
 
 /**
- * One client. Hard rule 6: a cross-tenant screen carries accounts only — a name, a slug,
- * counts and the gates holding them; nothing that identifies a person.
+ * One client, one row (founder, 10 Oct 2026): name, plan, status with its flags, credit left
+ * (minutes first, rupees second), last call. Hard rule 6: a cross-tenant screen carries
+ * accounts only — a name, a slug, figures and the gates holding them; nothing that
+ * identifies a person.
  */
 function ClientRow({ tenant }: { tenant: TenantSummary }) {
   return (
-    <li className="grid grid-cols-[minmax(0,1fr)_2.75rem] items-start gap-x-4 gap-y-1.5 px-5 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_4.5rem_4.5rem_8.5rem_2.75rem] md:items-center">
+    <li
+      className={`grid items-center gap-x-4 px-2 py-3 ${ROW_GRID} ${ROW_HOVER}`}
+    >
       <div className="min-w-0">
         <Link
           href={`/admin/tenants/${tenant.id}`}
-          className="block truncate rounded-sm font-semibold text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+          className="block truncate rounded-sm text-body font-medium text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           {tenant.name}
         </Link>
-        <div className="truncate text-xs text-ink-faint">
+        <div className="truncate text-meta text-ink-muted">
           /c/{tenant.slug}
           {tenant.vertical_template ? ` · ${tenant.vertical_template.replace(/_/g, " ")}` : ""}
         </div>
       </div>
-      <div className="col-start-2 row-start-1 md:col-start-6">
+      <div className="col-start-6 row-start-1">
         <RowMenu
           label={tenant.name}
           items={[
@@ -467,14 +480,16 @@ function ClientRow({ tenant }: { tenant: TenantSummary }) {
           ]}
         />
       </div>
-      <div className="col-span-2 flex flex-wrap items-center gap-1 md:col-span-1 md:col-start-2 md:row-start-1">
-        <span
-          className={`${PILL} capitalize ${lookup(TENANT_STATUS_TONES, tenant.status) ?? NOTICE_TONES.neutral}`}
-        >
-          {tenant.status}
-        </span>
+      <div className="col-start-2 row-start-1 text-body text-ink">
+        <span className="sr-only">Plan: </span>
+        {sentenceCase(tenant.plan_tier)}
+      </div>
+      <div className="col-start-3 row-start-1 flex flex-wrap items-center gap-1">
+        <StatusPill tone={lookup(TENANT_STATUS_TONES, tenant.status) ?? "neutral"}>
+          {sentenceCase(tenant.status)}
+        </StatusPill>
         {/* Outbound is refused pre-dispatch at the ceiling (TRD §9). */}
-        {tenant.capped && <span className={`${PILL} ${NOTICE_TONES.stop}`}>capped</span>}
+        {tenant.capped && <StatusPill tone="stop">Capped</StatusPill>}
         {/* The R-11 gates from `read_tenant_holds` — the same list the hold queue is built
             from — linking to that queue, where the remedy lives. */}
         {tenant.holds.map((rule) => (
@@ -482,25 +497,19 @@ function ClientRow({ tenant }: { tenant: TenantSummary }) {
             key={rule}
             href="/admin/holds"
             title="Held for a human decision — see the work list"
-            className={`${PILL} hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${NOTICE_TONES.warn}`}
+            className="rounded-full hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
           >
-            {holdRule(rule)?.label ?? rule}
+            <StatusPill tone="warn">{holdRule(rule)?.label ?? rule}</StatusPill>
           </Link>
         ))}
       </div>
-      <div className="col-span-2 flex flex-wrap gap-x-4 text-xs text-ink-muted md:contents">
-        <span className="tabular-nums md:text-right md:text-sm md:text-ink">
-          {formatCount(tenant.calls_7d)}
-          <span className="md:sr-only"> calls in 7 days</span>
-        </span>
-        <span className="tabular-nums md:text-right md:text-sm md:text-ink">
-          {formatCount(tenant.leads)}
-          <span className="md:sr-only"> leads</span>
-        </span>
-        <span className="md:text-xs">
-          <span className="md:sr-only">Last call </span>
-          {formatIST(tenant.last_call_at)}
-        </span>
+      <div className="col-start-4 row-start-1 text-body">
+        <span className="sr-only">Credit left: </span>
+        <CreditLeft credit={tenant} />
+      </div>
+      <div className="col-start-5 row-start-1 text-meta text-ink-muted">
+        <span className="sr-only">Last call </span>
+        {formatIST(tenant.last_call_at)}
       </div>
     </li>
   );

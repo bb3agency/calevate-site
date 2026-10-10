@@ -5,14 +5,14 @@ import { KeyRound, Mail, TriangleAlert } from "lucide-react";
 
 import { ActionButton } from "@/components/actionButton";
 import { useFormValidation } from "@/components/formValidation";
+import { Section } from "@/components/console/section";
 import {
-  Card,
   FIELD,
   FIELD_LABEL,
   MonoValue,
   NoticeBox,
   ProblemNotice,
-  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
 } from "@/components/ui";
@@ -78,16 +78,14 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
   const pending = useTenantInvitations(blockedByPending && !cancellable ? created.id : "");
 
   return (
-    <div className="space-y-4">
-      <Card title="Invite the owner">
-        <div className="space-y-3">
-          <p className="text-sm text-ink-muted">
-            We send the owner a single-use link that is valid for 72 hours. We only keep
-            a fingerprint of it, so it is never shown here and cannot be recovered.
-          </p>
+    <Section
+      title="Invite the owner"
+      description="We send the owner a single-use link that is valid for 72 hours. We only keep a fingerprint of it, so it is never shown here and cannot be recovered."
+    >
+        <div className="space-y-4">
 
           <form
-            className="flex flex-wrap items-start gap-2"
+            className="max-w-sm space-y-4"
             noValidate
             onSubmit={inviteValid.onSubmit(() => {
               // A previous confirmation must not survive this attempt: "sent to …" left
@@ -114,7 +112,7 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
               );
             })}
           >
-            <label className="block flex-1 sm:min-w-[12rem]">
+            <label className="block">
               <span className={FIELD_LABEL}>Owner&apos;s name</span>
               <input
                 value={name}
@@ -124,7 +122,7 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
                 className={FIELD}
               />
             </label>
-            <label className="block flex-1 sm:min-w-[12rem]">
+            <label className="block">
               <span className={FIELD_LABEL}>Owner&apos;s mobile</span>
               <input
                 value={phone}
@@ -135,7 +133,7 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
                 className={`${FIELD} font-mono`}
               />
             </label>
-            <label className="block flex-1 sm:min-w-[16rem]">
+            <label className="block">
               <span className={FIELD_LABEL}>Owner&apos;s email</span>
               <input
                 {...inviteValid.field("email", "Enter the owner's email address.")}
@@ -155,7 +153,6 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
               /* Emptiness is answered at the field now. `refusal` is a permission or a
                  lifecycle gate and stays. */
               disabled={Boolean(refusal)}
-              className="mt-5"
             >
               <Mail aria-hidden className="h-4 w-4" />
               Create invite
@@ -163,11 +160,11 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
           </form>
 
           {invite.error && <ProblemNotice error={invite.error} />}
-          {refusal && <p className="text-xs text-ink-muted">{refusal}</p>}
+          {refusal && <p className="text-meta text-ink-muted">{refusal}</p>}
           {revoke.error && <ProblemNotice error={revoke.error} />}
           {resend.error && <ProblemNotice error={resend.error} />}
           {resend.data && (
-            <p className="text-xs text-ink-muted">
+            <p className="text-meta text-ink-muted">
               A new link is on its way to {resend.data.email}. The previous one has stopped
               working, and this one expires {formatIST(resend.data.expires_at)}.
             </p>
@@ -192,7 +189,7 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
                 />
               ) : (
                 pending.data.map((row) => (
-                  <div key={row.id} className="flex flex-wrap items-center gap-2 text-xs">
+                  <div key={row.id} className="flex flex-wrap items-center gap-2 border-y border-line py-2.5 text-meta">
                     <MonoValue className="text-ink">{row.email}</MonoValue>
                     <span className="text-ink-muted">
                       {row.role} · expires {formatIST(row.expires_at)}
@@ -200,7 +197,7 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
                     <button
                       type="button"
                       disabled={resend.isPending}
-                      className={SECONDARY_BUTTON}
+                      className={SECONDARY_BUTTON_SM}
                       onClick={() =>
                         resend.mutate({ tenantId: created.id, invitationId: row.id })
                       }
@@ -210,7 +207,7 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
                     <button
                       type="button"
                       disabled={revoke.isPending}
-                      className={SECONDARY_BUTTON}
+                      className={SECONDARY_BUTTON_SM}
                       onClick={() =>
                         revoke.mutate({ tenantId: created.id, invitationId: row.id })
                       }
@@ -228,7 +225,7 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
               <button
                 type="button"
                 disabled={resend.isPending}
-                className={SECONDARY_BUTTON}
+                className={SECONDARY_BUTTON_SM}
                 onClick={() => {
                   // The old confirmation goes: "sent to …" described a link this rotation
                   // has just killed, and leaving it beside the new one is two claims about
@@ -242,7 +239,7 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
               <button
                 type="button"
                 disabled={revoke.isPending}
-                className={SECONDARY_BUTTON}
+                className={SECONDARY_BUTTON_SM}
                 onClick={() => {
                   // The confirmation goes with the invitation it described — leaving "sent
                   // to …" beside a cancelled link is a claim about a link that no longer
@@ -263,7 +260,7 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
               >
                 {revoke.isPending ? "Cancelling…" : "Cancel the unused invite"}
               </button>
-              <span className="text-xs text-ink-muted">
+              <span className="text-meta text-ink-muted">
                 Cancels the link this wizard already issued, so a fresh one can be sent to
                 the same address. It does nothing to an invite somebody has already used.
               </span>
@@ -280,7 +277,7 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
                 The link is on its way to <MonoValue>{sentTo}</MonoValue>. It is not shown
                 here and cannot be read again — only a fingerprint of it is stored.
               </p>
-              <p className="mt-2 flex items-start gap-2 text-xs">
+              <p className="mt-2 flex items-start gap-2">
                 <TriangleAlert aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 Whoever opens it becomes an owner of{" "}
                 <MonoValue>/c/{created.slug}</MonoValue>. If it went to the wrong address,
@@ -289,7 +286,6 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
             </NoticeBox>
           )}
         </div>
-      </Card>
-    </div>
+    </Section>
   );
 }

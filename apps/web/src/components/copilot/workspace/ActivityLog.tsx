@@ -4,9 +4,9 @@ import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Undo2 } from "lucide-react";
 
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { NewItemsPill, useNewItems } from "@/components/interior/new-items-pill";
-import { useToast } from "@/components/interior/toaster";
 import { ProblemNotice, SECONDARY_BUTTON, SECONDARY_BUTTON_SM, Skeleton, formatIST } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { useUndoAction } from "@/lib/api/copilot";
@@ -59,6 +59,7 @@ export function ActivityLog({ session, realm }: { session: Session; realm: Realm
   if (rows.length === 0) {
     return (
       <EmptyState
+        illustration={<EmptySketch kind="chat" />}
         message="The assistant hasn't done anything yet."
         hint="Every change it makes appears here, with an Undo while one is possible."
       />
@@ -92,7 +93,7 @@ export function ActivityLog({ session, realm }: { session: Session; realm: Realm
         />
         <div
           {...scroller.scrollProps}
-          className="max-h-[min(40rem,70dvh)] overflow-y-auto overscroll-contain rounded-card border border-line bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          className="max-h-[min(40rem,70dvh)] overflow-y-auto overscroll-contain border-y border-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
         >
           <ul className="divide-y divide-line">
             {rows.map((row) => (
@@ -127,7 +128,6 @@ function ActivityRow({
 }) {
   const undo = useUndoAction(session, realm);
   const client = useQueryClient();
-  const { toast } = useToast();
   const status = lookup(STATUS, row.status) ?? STATUS.done;
   const undone = undo.data !== undefined;
   return (
@@ -163,9 +163,8 @@ function ActivityRow({
           type="button"
           onClick={() =>
             undo.mutate(row.id, {
-              onSuccess: (result) => {
+              onSuccess: () => {
                 void client.invalidateQueries({ queryKey: ["copilot-actions"] });
-                toast({ tone: "success", title: "Undone", description: result.detail });
               },
             })
           }

@@ -36,15 +36,15 @@ function VoiceCell({ voice }: { voice: CuratedVoice }) {
   return (
     <div className="max-w-xs sm:min-w-[10rem]">
       <span className="font-medium text-ink">{voice.label}</span>
-      <MonoValue className="mt-0.5 block break-all text-[11px] text-ink-muted">{voice.voice_id}</MonoValue>
-      <span className="mt-0.5 block text-[11px] text-ink-faint">
+      <MonoValue className="mt-0.5 block break-all text-meta text-ink-muted">{voice.voice_id}</MonoValue>
+      <span className="mt-0.5 block text-meta text-ink-muted">
         {origin ?? <MonoValue>{voice.origin}</MonoValue>}
         {voice.source === "custom" && " · A voice we cloned or imported"}
       </span>
       {voice.withdrawn_at !== null && (
         // The server's sentence when it has one: what un-withdraws a voice depends on
         // whether the engine keeps a catalogue of its own, which only the server knows.
-        <span className="mt-0.5 block text-[11px] text-warn">
+        <span className="mt-0.5 block text-meta text-warn">
           {voice.withdrawn_note ?? WITHDRAWN_MEANING}
         </span>
       )}
@@ -69,7 +69,7 @@ export function voiceColumns(keepSpeaking: string): DataColumn<CuratedVoice>[] {
           {voice.tier_label}
           {/* The vendor, on the one console that may name one: an operator reconciling an
               invoice needs it, and a client never sees this screen. */}
-          <span className="mt-0.5 block text-[11px] text-ink-faint">
+          <span className="mt-0.5 block text-meta text-ink-muted">
             {voice.provider} · <MonoValue>{voice.tts_model}</MonoValue>
           </span>
         </>
@@ -89,7 +89,7 @@ export function voiceColumns(keepSpeaking: string): DataColumn<CuratedVoice>[] {
         <div className="max-w-[12rem] tabular-nums">
           {formatCount(voice.live_agents)}
           {voice.live_agents > 0 && voice.state === "enabled" && (
-            <span className="mt-0.5 block text-[11px] text-ink-faint">{keepSpeaking}</span>
+            <span className="mt-0.5 block text-meta text-ink-muted">{keepSpeaking}</span>
           )}
         </div>
       ),
@@ -103,13 +103,13 @@ export function voiceColumns(keepSpeaking: string): DataColumn<CuratedVoice>[] {
         return (
           <div className="max-w-[12rem]">
             {tone ? (
-              <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}`}>
+              <span className={`inline-flex rounded-full px-2 py-0.5 text-meta font-medium ${tone}`}>
                 {voice.state}
               </span>
             ) : (
               <MonoValue>{voice.state}</MonoValue>
             )}
-            {meaning && <span className="mt-0.5 block text-[11px] text-ink-faint">{meaning}</span>}
+            {meaning && <span className="mt-0.5 block text-meta text-ink-muted">{meaning}</span>}
           </div>
         );
       },

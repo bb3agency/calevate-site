@@ -1,5 +1,7 @@
 "use client";
 
+import { Section } from "@/components/console/section";
+
 /**
  * BUYING A NUMBER — and, for as long as this deployment may not sell one, saying so.
  *
@@ -44,13 +46,12 @@ import { AlertTriangle, Info, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
-import { ConfirmDialog } from "@/components/confirmDialog";
 import {
-  Card,
   FIELD,
   FIELD_LABEL,
   MonoValue,
   NoticeBox,
+  PRIMARY_BUTTON,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
   RestrictionNote,
@@ -59,6 +60,7 @@ import {
   formatINR,
   formatPhone,
 } from "@/components/ui";
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useKycRecord } from "@/lib/api/kyc";
@@ -130,14 +132,14 @@ function CannotSupply({
         <p className="text-ink">{detail}</p>
         {remediation && <p className="mt-2 text-ink-muted">{remediation}</p>}
       </NoticeBox>
-      <p className="text-sm text-ink-muted">
+      <p className="text-body text-ink-muted">
         There is nothing for you to do here. Your account manager arranges your number with
         you, and Calevate provides it on our own telephony account — there is no operator
         account for you to open.
       </p>
       {unverified && (
         <div className="space-y-2">
-          <p className="text-sm text-ink-muted">
+          <p className="text-body text-ink-muted">
             Getting your number needs your business verified first, and you can do that
             now.
           </p>
@@ -176,12 +178,12 @@ function HolderBlock() {
 
   if (holder.data.recorded) {
     return (
-      <div className="rounded-card border border-line p-3">
-        <p className="text-sm font-medium text-ink">Your numbers are registered to</p>
-        <p className="mt-1 text-sm text-ink">
+      <div className="border-l-2 border-line pl-4">
+        <p className="text-body font-medium text-ink">Your numbers are registered to</p>
+        <p className="mt-1 text-body text-ink">
           {holder.data.holder_name} ({holder.data.holder_email})
         </p>
-        <p className="mt-1 text-xs text-ink-muted">
+        <p className="mt-1 text-meta text-ink-muted">
           Recorded once and reused for every number you take. It cannot be changed — the
           operator who issues the connection holds the same details.
         </p>
@@ -192,9 +194,9 @@ function HolderBlock() {
   const complete = draft.holder_name.trim() !== "" && draft.holder_email.trim() !== "";
 
   return (
-    <div className="rounded-card border border-line p-3">
-      <p className="text-sm font-medium text-ink">Who the number is registered to</p>
-      <p className="mt-1 text-sm text-ink-muted">
+    <div className="border-l-2 border-line pl-4">
+      <p className="text-body font-medium text-ink">Who the number is registered to</p>
+      <p className="mt-1 text-body text-ink-muted">
         We collect this once and reuse it for every number you take afterwards. It cannot
         be changed later, so please check it before you save it.
       </p>
@@ -203,7 +205,7 @@ function HolderBlock() {
         <legend className={FIELD_LABEL}>They are</legend>
         <div className="mt-2 flex flex-wrap gap-4">
           {HOLDER_TYPES.map((kind) => (
-            <label key={kind.value} className="flex items-center gap-2 text-sm text-ink">
+            <label key={kind.value} className="flex items-center gap-2 text-body text-ink">
               <input
                 type="radio"
                 name="holder-type"
@@ -263,39 +265,29 @@ function HolderBlock() {
   );
 }
 
-/** One number on offer. */
+/** One number on offer, chosen with a radio; the purchase is confirmed below the list. */
 function OfferRow({
   offer,
-  canBuy,
-  blockedReason,
-  onBuy,
+  selected,
+  onSelect,
 }: {
   offer: OfferedNumber;
-  canBuy: boolean;
-  blockedReason: string | null;
-  onBuy: () => void;
+  selected: boolean;
+  onSelect: () => void;
 }) {
   const where = [offer.locality, offer.region].filter(Boolean).join(", ");
   return (
-    <li className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line p-3">
-      <div>
-        <MonoValue className="text-ink">{formatPhone(offer.e164)}</MonoValue>
-        {where !== "" && <p className="mt-1 text-xs text-ink-muted">{where}</p>}
-      </div>
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm font-medium text-ink">
-          {formatINR(offer.inr_per_month)} a month
+    <li>
+      <label className="flex cursor-pointer items-center justify-between gap-3 py-3 hover:bg-ink/[0.03] sm:px-2">
+        <span className="flex items-center gap-3">
+          <input type="radio" name="offered-number" checked={selected} onChange={onSelect} />
+          <span>
+            <MonoValue className="text-ink">{formatPhone(offer.e164)}</MonoValue>
+            {where !== "" && <span className="mt-1 block text-meta text-ink-muted">{where}</span>}
+          </span>
         </span>
-        <button
-          type="button"
-          className={PRIMARY_BUTTON_SM}
-          disabled={!canBuy}
-          title={blockedReason ?? undefined}
-          onClick={onBuy}
-        >
-          Buy this number
-        </button>
-      </div>
+        <span className="text-body font-medium text-ink">{formatINR(offer.inr_per_month)} a month</span>
+      </label>
     </li>
   );
 }
@@ -312,6 +304,7 @@ export function BuyNumber() {
   const write = useWriteAccess(session, "org:manage", "buy a phone number");
 
   const [chosen, setChosen] = useState<OfferedNumber | null>(null);
+  const [city, setCity] = useState("");
   const [direction, setDirection] = useState<CallDirection>("inbound");
 
   const verifyHref = href(`/c/${session.orgSlug}/verification`);
@@ -329,9 +322,20 @@ export function BuyNumber() {
   const closed = refusal(offers.error);
   const verified = kyc.data?.is_verified === true;
   const bought = purchase.data;
+  const cityOf = (offer: OfferedNumber) => offer.locality ?? offer.region ?? "";
+  const cities = [...new Set((offers.data ?? []).map(cityOf).filter(Boolean))].sort();
+  const shown = (offers.data ?? []).filter((offer) => city === "" || cityOf(offer) === city);
+  const canBuy = write.allowed && holder.data?.recorded === true;
+  // Only once we KNOW there is no registrant: while the read is in flight the button is off
+  // with nothing said about why, rather than naming a step that may already be done.
+  const blockedReason = write.allowed
+    ? holder.data !== undefined && !holder.data.recorded
+      ? "Save who the number is registered to first."
+      : null
+    : write.reason;
 
   return (
-    <Card title="Get a number" density="compact">
+    <Section title="Get a number">
       {offers.isLoading || kyc.isLoading ? (
         <div className="p-4">
           <Skeleton rows={3} label="Loading what we can supply" />
@@ -355,7 +359,7 @@ export function BuyNumber() {
         </div>
       ) : (
         <div className="space-y-4 p-4">
-          <p className="text-sm text-ink-muted">{OWNER_SENTENCE}</p>
+          <p className="text-body text-ink-muted">{OWNER_SENTENCE}</p>
 
           <NoticeBox
             tone={verified ? "ok" : "warn"}
@@ -411,135 +415,163 @@ export function BuyNumber() {
 
           {offers.data.length === 0 ? (
             <EmptyState
+              illustration={<EmptySketch kind="numbers" />}
               message="No numbers are free to take right now"
               hint="Our supplier has none available at the moment. Talk to us and your account manager can source one."
             />
           ) : (
             <>
+              {/* ONE PAGE, IN ORDER (founder, REDESIGN-2): the city, then a number, then the
+                  price confirmed and the purchase, all here rather than in a dialog. The
+                  blockers above come first, each with its one action. */}
               {trial !== null ? (
-                <p className="text-sm text-ink-muted">
+                <p className="text-body text-ink-muted">
                   You&apos;re on a free trial until {trialEndsAt(trial)}, so the first month is
                   on us. Months that start after the trial ends are charged as usual.
                 </p>
               ) : (
                 wallet.data?.prepaid === true && (
-                  <p className="text-sm text-ink-muted">
+                  <p className="text-body text-ink-muted">
                     Your calling credit is {formatINR(wallet.data.balance_inr)}. The first
                     month is taken from it when you buy.
                   </p>
                 )
               )}
-              <ul className="space-y-2">
-                {offers.data.map((offer) => (
-                  <OfferRow
-                    key={offer.e164}
-                    offer={offer}
-                    canBuy={write.allowed && holder.data?.recorded === true}
-                    blockedReason={
-                      write.allowed
-                        ? // Only once we KNOW there is no registrant: while the read is
-                          // in flight the button is off with nothing said about why,
-                          // rather than naming a step that may already be done.
-                          holder.data !== undefined && !holder.data.recorded
-                          ? "Save who the number is registered to first."
-                          : null
-                        : write.reason
-                    }
-                    onBuy={() => {
-                      purchase.reset();
-                      setDirection("inbound");
-                      setChosen(offer);
+              {cities.length > 1 ? (
+                <label className="block max-w-xs">
+                  <span className={FIELD_LABEL}>City</span>
+                  <select
+                    className={FIELD}
+                    value={city}
+                    onChange={(e) => {
+                      setCity(e.target.value);
+                      setChosen(null);
                     }}
-                  />
-                ))}
-              </ul>
+                  >
+                    <option value="">Any city</option>
+                    {cities.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+
+              <fieldset>
+                <legend className={FIELD_LABEL}>Choose a number</legend>
+                <ul className="mt-2 divide-y divide-line border-y border-line">
+                  {shown.map((offer) => (
+                    <OfferRow
+                      key={offer.e164}
+                      offer={offer}
+                      selected={chosen?.e164 === offer.e164}
+                      onSelect={() => {
+                        purchase.reset();
+                        setDirection("inbound");
+                        setChosen(offer);
+                      }}
+                    />
+                  ))}
+                </ul>
+              </fieldset>
+
+              {chosen ? (
+                <section aria-labelledby="buy-confirm-heading" className="space-y-4 border-t border-line pt-6">
+                  <h3 id="buy-confirm-heading" className="text-heading text-ink">
+                    Buy {formatPhone(chosen.e164)}
+                  </h3>
+                  <p className="text-body text-ink">
+                    {formatINR(chosen.inr_per_month)} every month, for as long as you keep the
+                    number.{" "}
+                    {trial !== null
+                      ? `The first month is on us because you're on a free trial until ${trialEndsAt(trial)}.`
+                      : "The first month comes off your calling credit now."}
+                  </p>
+                  {trial === null && wallet.data?.prepaid === true && (
+                    <p className="text-body text-ink-muted">
+                      Your credit is {formatINR(wallet.data.balance_inr)} before this purchase.
+                    </p>
+                  )}
+                  {holder.data?.recorded === true && (
+                    <p className="text-body text-ink-muted">
+                      It is registered to {holder.data.holder_name}, and that cannot be changed
+                      afterwards.
+                    </p>
+                  )}
+
+                  <fieldset>
+                    <legend className={FIELD_LABEL}>What this number is for</legend>
+                    <div className="mt-2 space-y-2">
+                      {DIRECTIONS.map((option) => (
+                        <label key={option.value} className="flex items-start gap-2 text-body text-ink">
+                          <input
+                            type="radio"
+                            className="mt-1"
+                            name="purchase-direction"
+                            value={option.value}
+                            checked={direction === option.value}
+                            onChange={() => setDirection(option.value)}
+                          />
+                          <span>
+                            {option.label}
+                            <span className="block text-meta text-ink-muted">{option.hint}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                  <OutboundRestriction direction={direction} series={chosen.series} />
+
+                  {!verified && (
+                    <p className="text-body text-ink-muted">
+                      It will not be able to make or take calls until your business is verified.
+                      Nothing else about the purchase changes.
+                    </p>
+                  )}
+
+                  {purchase.error ? <ProblemNotice error={purchase.error} /> : null}
+                  {refusal(purchase.error)?.code === INSUFFICIENT_CREDIT_CODE && (
+                    <Link href={creditsHref} className={SECONDARY_BUTTON_SM}>
+                      Top up credit
+                    </Link>
+                  )}
+                  {refusal(purchase.error)?.code === NUMBER_TAKEN_CODE && (
+                    <button
+                      type="button"
+                      className={SECONDARY_BUTTON_SM}
+                      onClick={() => {
+                        setChosen(null);
+                        void offers.refetch();
+                      }}
+                    >
+                      See what is still available
+                    </button>
+                  )}
+
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      className={PRIMARY_BUTTON}
+                      disabled={!canBuy || purchase.isPending}
+                      title={blockedReason ?? undefined}
+                      onClick={() =>
+                        purchase.mutate(
+                          { e164: chosen.e164, direction, idempotencyKey },
+                          { onSuccess: () => setChosen(null) },
+                        )
+                      }
+                    >
+                      {purchase.isPending ? "Buying…" : "Buy this number"}
+                    </button>
+                    {blockedReason ? <p className="text-meta text-ink-muted">{blockedReason}</p> : null}
+                  </div>
+                </section>
+              ) : null}
             </>
           )}
         </div>
       )}
-
-      {chosen && (
-        <ConfirmDialog
-          title={`Buy ${formatPhone(chosen.e164)}`}
-          confirmLabel="Buy this number"
-          pendingLabel="Buying…"
-          pending={purchase.isPending}
-          error={purchase.error}
-          onCancel={() => setChosen(null)}
-          onConfirm={() =>
-            purchase.mutate(
-              { e164: chosen.e164, direction, idempotencyKey },
-              { onSuccess: () => setChosen(null) },
-            )
-          }
-        >
-          <p className="text-ink">
-            {formatINR(chosen.inr_per_month)} every month, for as long as you keep the
-            number.{" "}
-            {trial !== null
-              ? `The first month is on us because you're on a free trial until ${trialEndsAt(trial)}.`
-              : "The first month comes off your calling credit now."}
-          </p>
-          {trial === null && wallet.data?.prepaid === true && (
-            <p>Your credit is {formatINR(wallet.data.balance_inr)} before this purchase.</p>
-          )}
-          <p>{OWNER_SENTENCE}</p>
-          {holder.data?.recorded === true && (
-            <p>
-              It is registered to {holder.data.holder_name}, and that cannot be changed
-              afterwards.
-            </p>
-          )}
-
-          <fieldset>
-            <legend className={FIELD_LABEL}>What this number is for</legend>
-            <div className="mt-2 space-y-2">
-              {DIRECTIONS.map((option) => (
-                <label key={option.value} className="flex items-start gap-2 text-sm text-ink">
-                  <input
-                    type="radio"
-                    className="mt-1"
-                    name="purchase-direction"
-                    value={option.value}
-                    checked={direction === option.value}
-                    onChange={() => setDirection(option.value)}
-                  />
-                  <span>
-                    {option.label}
-                    <span className="block text-xs text-ink-muted">{option.hint}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <OutboundRestriction direction={direction} series={chosen.series} />
-
-          {!verified && (
-            <p>
-              It will not be able to make or take calls until your business is verified.
-              Nothing else about the purchase changes.
-            </p>
-          )}
-
-          {refusal(purchase.error)?.code === INSUFFICIENT_CREDIT_CODE && (
-            <Link href={creditsHref} className={SECONDARY_BUTTON_SM}>
-              Top up credit
-            </Link>
-          )}
-          {refusal(purchase.error)?.code === NUMBER_TAKEN_CODE && (
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              onClick={() => {
-                setChosen(null);
-                void offers.refetch();
-              }}
-            >
-              See what is still available
-            </button>
-          )}
-        </ConfirmDialog>
-      )}
-    </Card>
+    </Section>
   );
 }

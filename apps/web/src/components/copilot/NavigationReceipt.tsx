@@ -25,7 +25,7 @@ import type { CopilotNavigation } from "@/lib/copilot/types";
  */
 export function NavigationReceipt({ navigation }: { navigation: CopilotNavigation }) {
   return (
-    <div className="rounded-lg border border-line bg-app px-3 py-2">
+    <div className="rounded-md bg-surface-muted px-3 py-2">
       <p className="flex items-center gap-1.5 text-xs font-medium text-ink">
         <ArrowRight aria-hidden className="h-3.5 w-3.5 text-ink-faint" />
         Opening

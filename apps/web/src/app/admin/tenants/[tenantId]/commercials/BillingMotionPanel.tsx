@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 
+import { Section } from "@/components/console/section";
 import {
-  Card,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -101,12 +101,11 @@ export function BillingMotionPanel({
   const current = isSettable(currentTier) ? MOTION[currentTier].label : currentTier;
 
   return (
-    <Card
+    <Section
       title="Billing motion"
-      density="compact"
       info="Not a price — the dated agreements are — but which way the money moves. It takes effect at the next dial rather than at the next invoice."
     >
-      <p className="text-sm text-ink-muted">
+      <p className="text-body text-ink-muted">
         Currently <span className="font-medium text-ink">{current}</span>.
       </p>
 
@@ -179,7 +178,7 @@ export function BillingMotionPanel({
             Change billing motion
           </ActionButton>
           {blocked && (
-            <span className="text-xs text-warn">
+            <span className="text-meta text-warn">
               A reason is required before this can be applied.
             </span>
           )}
@@ -201,7 +200,7 @@ export function BillingMotionPanel({
             tone={move.data.changed ? "ok" : "neutral"}
             icon={<CheckCircle2 className="h-5 w-5" />}
           >
-            <p className="text-xs">
+            <p>
               {move.data.changed
                 ? `Moved from ${move.data.previous_plan_tier} to ${move.data.plan_tier}. The dial gate reads it from the next request.`
                 : `This account was already ${move.data.plan_tier} — nothing changed, and no audit row was written.`}
@@ -209,6 +208,6 @@ export function BillingMotionPanel({
           </NoticeBox>
         </div>
       )}
-    </Card>
+    </Section>
   );
 }

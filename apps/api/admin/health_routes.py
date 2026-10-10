@@ -25,10 +25,11 @@ a pattern to inherit.
 reach this route whatever its role, and there is no client-realm twin: a client has no
 business reading a list that names other businesses.
 
-**No audit row.** The board discloses no personal data and it is a page an operator leaves
-open and refreshes; an audit chain that grows a row per poll stops being readable (the
-argument `kyc_routes.py` makes for the client's own screen, and `holds_routes.py` for the
-work list). Every ACTION taken from it writes its own entry.
+**No audit row on the BOARD** (the per-client read at the end of this module has one, as
+every per-tenant admin read does since D-483). The board discloses no personal data and it
+is a page an operator leaves open and refreshes; an audit chain that grows a row per poll
+stops being readable (the argument `kyc_routes.py` makes for the client's own screen, and
+`holds_routes.py` for the work list). Every ACTION taken from it writes its own entry.
 
 **Money is a STRING on the wire, AND IT IS QUANTIZED TO PAISE FIRST.** `spend_used_inr`
 and `spend_cap_inr` are `Decimal` through billing (hard rule 7) and are stringified here,
@@ -48,16 +49,26 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.admin.health import CallBasis, ClientHealth, HealthSignal, Severity, client_health
+from apps.api.admin.health import (
+    CallBasis,
+    ClientHealth,
+    HealthSignal,
+    Severity,
+    client_health,
+    read_account,
+    tenant_health,
+)
 from apps.api.billing.service import to_paise
-from apps.api.core.auth import requires
+from apps.api.core.auth import record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
+from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.db.session import tenant_session
 
 router = APIRouter(prefix="/v1/admin/client-health", tags=["admin"])
 
@@ -200,6 +211,72 @@ async def read_client_health(
 ) -> list[ClientHealthOut]:
     del principal  # the dependency IS the authorization; the identity is not needed here
     return [_out(row) for row in await client_health(session)]
+
+
+class TenantHealthOut(BaseModel):
+    """ONE client's health, for the top of its own admin page.
+
+    The board's judgement for one account (`health.tenant_health`, the same function the
+    board's walk calls), with the healthy case stated rather than absent: `severity` is
+    null and `signals` empty when nothing is wrong. Money as paise strings, as on the
+    board."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: UUID
+    severity: Severity | None
+    signals: list[HealthSignalOut]
+    spend_used_inr: str | None
+    spend_cap_inr: str | None
+
+
+@router.get(
+    "/{tenant_id}",
+    response_model=TenantHealthOut,
+    openapi_extra=permission_meta("org:read"),
+    summary="One client's health — what is wrong with this account now",
+    description=(
+        "The client-health judgement for a single account: the same signals, causes and "
+        "severities the board ranks, read inside the client's own tenant session. Unlike "
+        "the board, a healthy account is answered (`severity: null`, no signals) rather "
+        "than omitted, and ended accounts are answered too. Recorded as a direct admin "
+        "read of the client (D-483)."
+    ),
+)
+async def read_tenant_health(
+    tenant_id: UUID,
+    session: AdminSession,
+    request: Request,
+    principal: BoardReader,
+) -> TenantHealthOut:
+    account = await read_account(session, tenant_id=tenant_id)
+    if account is None:
+        raise ProblemError.not_found("Client")
+    async with tenant_session(tenant_id) as scoped:
+        row = await tenant_health(scoped, account=account)
+    # Unlike the board (no per-poll rows, see the module docstring), this read names ONE
+    # client, so it is in the ledger like every other per-tenant admin read — coalesced
+    # per (admin, tenant) per window by the helper. 404 paths disclose nothing and write
+    # nothing.
+    await record_admin_tenant_read(
+        session, request=request, principal=principal, tenant_id=tenant_id
+    )
+    if row is None:
+        return TenantHealthOut(
+            tenant_id=tenant_id,
+            severity=None,
+            signals=[],
+            spend_used_inr=None,
+            spend_cap_inr=None,
+        )
+    out = _out(row)
+    return TenantHealthOut(
+        tenant_id=tenant_id,
+        severity=out.severity,
+        signals=out.signals,
+        spend_used_inr=out.spend_used_inr,
+        spend_cap_inr=out.spend_cap_inr,
+    )
 
 
 __all__ = ["router"]

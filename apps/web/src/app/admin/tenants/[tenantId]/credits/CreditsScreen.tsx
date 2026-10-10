@@ -1,14 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight } from "lucide-react";
-
 import {
   PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
   Skeleton,
 } from "@/components/ui";
+import { Chooser, ChooserItem } from "@/components/console/chooser";
 import { Drawer } from "@/components/console/drawer";
 import { PageHeader } from "@/components/console/pageHeader";
 import { useAdminAccess } from "@/app/admin/access";
@@ -108,7 +107,7 @@ export function CreditsScreen({ tenantId }: { tenantId: string }) {
   const clientName = tenant.name;
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-4xl space-y-10">
       <PageHeader
         title="Credits"
         description="Every line is permanent: a mistake is fixed by adding an entry, never by changing one."
@@ -124,6 +123,7 @@ export function CreditsScreen({ tenantId }: { tenantId: string }) {
         <>
           <WalletSummary
             wallet={state.wallet}
+            tenant={tenant}
             actions={
               <>
                 <button
@@ -297,22 +297,15 @@ function FixChooser({ wallet, onAct }: { wallet: Credits; onAct: (act: Act) => v
       : []),
   ];
   return (
-    <ul className="divide-y divide-line rounded-card border border-line">
+    <Chooser label="What needs fixing">
       {choices.map(({ act, line }) => (
-        <li key={act.kind}>
-          <button
-            type="button"
-            onClick={() => onAct(act)}
-            className="press flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand touch:min-h-11"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-medium text-ink">{ACT_TITLE[act.kind]}</span>
-              <span className="block text-xs text-ink-muted">{line}</span>
-            </span>
-            <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-ink-faint" />
-          </button>
-        </li>
+        <ChooserItem
+          key={act.kind}
+          title={ACT_TITLE[act.kind]}
+          description={line}
+          onSelect={() => onAct(act)}
+        />
       ))}
-    </ul>
+    </Chooser>
   );
 }

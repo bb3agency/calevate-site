@@ -149,13 +149,13 @@ export function ProposalCard({
       tabIndex={-1}
       role="group"
       aria-label={decided ? "What the assistant changed" : `Suggestion: ${proposal.title}`}
-      className="rounded-lg border border-line bg-app px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+      className="rounded-md bg-surface-muted px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
     >
       {decided ? (
         <Outcome outcome={outcome} onDismiss={onDismiss} />
       ) : (
         <>
-          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+          <p className="flex items-center gap-1.5 text-meta font-semibold text-ink-muted">
             {consequential && <ShieldAlert aria-hidden className="h-3.5 w-3.5" />}
             {/* Named before the change is described, because a person who reads the
                 description first has already started deciding. "Suggestion" and the
@@ -295,7 +295,7 @@ function Outcome({
 }) {
   return (
     <>
-      <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+      <p className="flex items-center gap-1.5 text-meta font-semibold text-ink-muted">
         <Check aria-hidden className="h-3.5 w-3.5" />
         {outcome.applied ? "Done" : "Nothing to change"}
       </p>

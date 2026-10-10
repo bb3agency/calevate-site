@@ -5,7 +5,7 @@ import { useState } from "react";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { Metric } from "@/components/console/metric";
-import { Panel } from "@/components/console/panel";
+import { Section } from "@/components/console/section";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import {
   ProblemNotice,
@@ -95,7 +95,7 @@ export function SpendOverTime({ session, allowed }: { session: Session; allowed:
 
   const data = series.data;
   return (
-    <Panel
+    <Section
       title="Spending"
       info={
         <p>
@@ -146,7 +146,7 @@ export function SpendOverTime({ session, allowed }: { session: Session; allowed:
           )}
         </div>
       )}
-    </Panel>
+    </Section>
   );
 }
 

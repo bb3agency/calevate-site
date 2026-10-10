@@ -206,7 +206,7 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 
   return (
-    <div className="mt-3 space-y-3 rounded-lg border border-line bg-app p-3">
+    <div className="mt-3 space-y-3 rounded-md bg-surface-muted p-3">
       <p className="text-xs text-ink-muted">
         <span>
           {isMachineRead(upload)
@@ -227,7 +227,7 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
           {chunks.data.map((chunk) => (
             <p
               key={chunk.idx}
-              className="whitespace-pre-wrap break-words rounded-md border border-line bg-surface p-2 text-xs text-ink"
+              className="whitespace-pre-wrap break-words border-l-2 border-line pl-3 text-xs text-ink"
             >
               {chunk.content}
             </p>

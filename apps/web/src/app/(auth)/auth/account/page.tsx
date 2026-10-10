@@ -30,7 +30,6 @@ import { EmailVerificationPanel } from "@/components/authn/emailVerificationPane
 import { AuthProblemNotice } from "@/components/authn/fields";
 import {
   Card,
-  DANGER_BUTTON,
   Fact,
   NoticeBox,
   SECONDARY_BUTTON,
@@ -150,7 +149,7 @@ function ClientAccountBody() {
             </button>
             <button
               type="button"
-              className={DANGER_BUTTON}
+              className={SECONDARY_BUTTON}
               disabled={signOut.isPending || signOutAll.isPending}
               onClick={() => {
                 if (signOutAll.isPending) return;

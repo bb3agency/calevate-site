@@ -1,15 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import type { ComponentType } from "react";
-import { ArrowLeft, Clock, Info, ShieldAlert, ShieldCheck, XCircle } from "lucide-react";
+import { Clock, Info, ShieldAlert, ShieldCheck, XCircle } from "lucide-react";
 
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
 import { PageHeader } from "@/components/console/pageHeader";
 import {
   Disclosure,
   ProblemNotice,
-  SECONDARY_BUTTON,
   Skeleton,
   formatIST,
   type NoticeTone,
@@ -163,15 +161,10 @@ export function CampaignReviewScreen() {
   const state = firstCampaignState(data);
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="max-w-2xl space-y-10 pb-12">
       <PageHeader
+        back={{ href: href(`/c/${session.orgSlug}/campaigns`), label: "Your campaigns" }}
         description="Your first campaign is read by a person at Calevate before it calls anyone."
-        actions={
-          <Link href={href(`/c/${session.orgSlug}/campaigns`)} className={SECONDARY_BUTTON}>
-            <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
-            Your campaigns
-          </Link>
-        }
       />
       <VerdictBox hold={data} state={state} />
       {state !== "never_applied" && <ReviewSteps hold={data} state={state} />}
@@ -180,6 +173,7 @@ export function CampaignReviewScreen() {
           client needs first; these are the reasoning around them. */}
       {state !== "never_applied" && (
         <Disclosure
+          variant="inline"
           title="How this review works"
           subtitle="It happens once per account, a person decides, and the decision is recorded."
         >
@@ -231,11 +225,11 @@ function VerdictBox({ hold, state }: { hold: FirstCampaignHold; state: FirstCamp
   const Icon = verdict.icon;
   return (
     <section aria-label="Review status" className="space-y-2">
-      <p className="flex items-start gap-2.5 text-[15px] font-semibold text-ink">
+      <p className="flex items-start gap-2.5 text-heading text-ink">
         <Icon className={`mt-0.5 h-5 w-5 shrink-0 ${TONE_TEXT[verdict.tone]}`} />
         <span>{verdict.headline}</span>
       </p>
-      <div className="space-y-2 pl-7 text-sm text-ink-muted">
+      <div className="space-y-2 pl-7 text-body text-ink-muted">
         <p>{verdict.next}</p>
         {refusal && (
           <p className="rounded-md border border-danger-line bg-danger-soft p-3 text-ink">
@@ -245,7 +239,7 @@ function VerdictBox({ hold, state }: { hold: FirstCampaignHold; state: FirstCamp
         {/* An unrecognised rule gets the server's own sentence and no invented next step. */}
         {state === "held_unknown" && hold.reason && <p>{hold.reason}</p>}
         {hold.decided_at && (
-          <p className="text-xs text-ink-faint">
+          <p className="text-meta text-ink-faint">
             {state === "released" ? "Released" : "Decided"} {formatIST(hold.decided_at)}.
           </p>
         )}
@@ -269,7 +263,7 @@ const TONE_TEXT: Record<NoticeTone, string> = {
 };
 
 const LEAD_IN = "font-semibold text-ink";
-const LIST = "space-y-3 text-sm text-ink-muted";
+const LIST = "space-y-3 text-body text-ink-muted";
 
 /**
  * The account/campaign distinction, which is the whole shape of this control.
@@ -285,7 +279,7 @@ function WhatIsHeld({ state }: { state: FirstCampaignState }) {
   const held = state !== "released";
   return (
     <section>
-      <h3 className="mb-2 text-sm font-semibold text-ink">What is being held, and for how long</h3>
+      <h3 className="mb-2 text-body font-semibold text-ink">What is being held, and for how long</h3>
       <ul className={LIST}>
         <li>
           <span className={LEAD_IN}>It is your account that is reviewed, not each campaign.</span>{" "}
@@ -324,7 +318,7 @@ function WhatIsHeld({ state }: { state: FirstCampaignState }) {
 function WhileYouWait() {
   return (
     <section>
-      <h3 className="mb-2 text-sm font-semibold text-ink">What you can do meanwhile</h3>
+      <h3 className="mb-2 text-body font-semibold text-ink">What you can do meanwhile</h3>
       <ul className={LIST}>
         <li>
           Finish the campaign — upload the contact list, choose the number and the{" "}
@@ -349,7 +343,7 @@ function WhileYouWait() {
 function AfterARefusal() {
   return (
     <section>
-      <h3 className="mb-2 text-sm font-semibold text-ink">What happens next</h3>
+      <h3 className="mb-2 text-body font-semibold text-ink">What happens next</h3>
       <ul className={LIST}>
         <li>
           <span className={LEAD_IN}>Put right what the reviewer named,</span> then tell your
@@ -383,8 +377,8 @@ function AfterARefusal() {
 function WhoDecides({ state }: { state: FirstCampaignState }) {
   return (
     <section>
-      <h3 className="mb-2 text-sm font-semibold text-ink">Who decides this</h3>
-      <p className="text-sm text-ink-muted">
+      <h3 className="mb-2 text-body font-semibold text-ink">Who decides this</h3>
+      <p className="text-body text-ink-muted">
         {state === "released"
           ? "A person at Calevate read this account's campaign and recorded the decision. "
           : "A person at Calevate reads the campaign and records the decision. "}

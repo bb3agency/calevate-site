@@ -49,7 +49,7 @@ export function ActionReceipt({
 
   const undone = undo.data;
   return (
-    <div className="rounded-lg border border-line bg-app px-3 py-2">
+    <div className="border-l-2 border-brand pl-3">
       <p className="flex items-center gap-1.5 text-xs font-medium text-ink">
         <CheckCircle2 aria-hidden className="h-3.5 w-3.5 text-ink-faint" />
         {undone !== undefined ? "Undone" : action.applied ? "Done" : "Already done"}

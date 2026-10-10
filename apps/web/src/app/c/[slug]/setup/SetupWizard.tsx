@@ -158,7 +158,7 @@ function Wizard({
                 type="button"
                 onClick={() => go(i)}
                 aria-current={i === index ? "step" : undefined}
-                className={`press flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+                className={`press flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-meta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
                   i === index ? "bg-ink/[0.05] font-medium text-ink" : "text-ink-muted hover:text-ink"
                 }`}
               >
@@ -171,7 +171,7 @@ function Wizard({
       </nav>
 
       <div className="min-w-0">
-        <p className="mb-3 text-[13px] tabular-nums text-ink-muted lg:hidden">
+        <p className="mb-3 text-meta tabular-nums text-ink-muted lg:hidden">
           {step ? `Step ${index + 1} of ${STEPS.length}` : "All steps seen"}
         </p>
         {reason && <RestrictionNote reason={reason} />}
@@ -183,7 +183,7 @@ function Wizard({
             animate={{ opacity: 1, x: 0 }}
             exit={reduced ? { opacity: 0 } : { opacity: 0, x: direction * -16 }}
             transition={{ duration: reduced ? 0 : 0.2, ease: EASE }}
-            className="rounded-card border border-line bg-surface p-4 shadow-card sm:p-6"
+            className="py-2"
           >
             {step ? (
               <form
@@ -195,10 +195,10 @@ function Wizard({
                 className="space-y-5"
               >
                 <div>
-                  <h2 ref={headingRef} tabIndex={-1} className="text-[18px] font-semibold tracking-tight text-ink focus-visible:outline-none">
+                  <h2 ref={headingRef} tabIndex={-1} className="text-heading text-ink focus-visible:outline-none">
                     {step.title}
                   </h2>
-                  <p className="mt-1 text-sm text-ink-muted">{step.hint}</p>
+                  <p className="mt-1 text-body text-ink-muted">{step.hint}</p>
                 </div>
                 <fieldset disabled={!canWrite || busy} className="min-w-0">
                   <SectionEditor
@@ -211,7 +211,7 @@ function Wizard({
                   />
                 </fieldset>
                 {problem && (
-                  <p role="alert" className="text-[13px] font-medium text-danger">
+                  <p role="alert" className="text-meta font-medium text-danger">
                     {problem}
                   </p>
                 )}
@@ -244,7 +244,7 @@ function Wizard({
             )}
           </motion.section>
         </AnimatePresence>
-        <p className="mt-3 text-[13px] text-ink-muted">
+        <p className="mt-3 text-meta text-ink-muted">
           You can change any answer later in{" "}
           <Link href={href("/settings/business")} className="font-medium text-brand-strong hover:underline">
             Business profile

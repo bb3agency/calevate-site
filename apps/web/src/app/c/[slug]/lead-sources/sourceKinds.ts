@@ -26,3 +26,18 @@ export const META_SOURCE = "meta_lead_ads";
 
 /** Every other kind posts to the shared-secret webhook receiver. */
 export const WEBHOOK_KINDS = CREATABLE_SOURCES.filter((kind) => kind !== META_SOURCE);
+
+/** The service whose logo stands beside a lead source's name, or null for a generic icon. */
+export function sourceLogo(source: string): string | null {
+  switch (source) {
+    case META_SOURCE:
+    case "meta":
+      return "meta_cloud";
+    case "zoho":
+      return "zoho_crm";
+    case "sheets":
+      return "google_sheets";
+    default:
+      return null;
+  }
+}

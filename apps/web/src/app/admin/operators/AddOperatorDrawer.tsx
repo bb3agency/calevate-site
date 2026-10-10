@@ -133,11 +133,11 @@ export function AddOperatorDrawer({
         </label>
 
         {/* What the tier means, above the button: the sentence somebody is deciding on. */}
-        <div className="flex gap-3 rounded-card border border-line p-4 text-sm">
+        <div className="flex gap-3 border-l-2 border-danger py-1 pl-4 text-body">
           {role === "superadmin" ? (
             <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
           ) : (
-            <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+            <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted" />
           )}
           <div className="min-w-0">
             <p className="font-semibold text-ink">

@@ -10,6 +10,7 @@ import { SHELL_RAIL_CLASS } from "@/components/ui";
 import { useAttention } from "@/lib/api/attention";
 import { useClientRealm } from "@/lib/api/session";
 import { clientNavigation } from "@/lib/clientNav";
+import { useDesktopAlerts } from "@/lib/desktopAlerts";
 
 import { currentItem } from "./ClientSidebar";
 
@@ -29,6 +30,8 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
   // all-clear, which is the same "nobody is waiting" claim §52 exists to stop the shell
   // making. A bell that has lost the API says so.
   const waiting = attention.data?.total;
+  // New items on the bell also become desktop notifications, once turned on in Alerts.
+  useDesktopAlerts(slug, attention.data, href);
 
   return (
     // The header spans the window (its border and background are the shell's, not the
@@ -41,11 +44,11 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
             type="button"
             onClick={onMenuToggle}
             aria-label="Open navigation"
-            className="press flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5"
+            className="press flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5"
           >
             <Menu className="h-5 w-5" />
           </button>
-          <h1 className="truncate text-xl font-bold tracking-tight text-ink lg:text-2xl">{title}</h1>
+          <h1 className="truncate text-title text-ink">{title}</h1>
         </div>
 
         <div className="flex shrink-0 items-center gap-2 lg:gap-3">
@@ -61,20 +64,20 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
                   ? `Needs attention: ${waiting} item(s)`
                   : "Needs attention"
             }
-            className="press relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 dark:hover:bg-white/5"
+            className="press relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 dark:hover:bg-white/5"
           >
             <Bell className="h-4 w-4" />
             {attention.error != null ? (
               <span
                 title="We could not read what needs your attention. Open the list to try again."
-                className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-amber-500 px-1 text-[9px] font-bold text-white"
+                className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-warn px-1 text-[9px] font-bold text-white"
               >
                 ?
               </span>
             ) : (
               waiting !== undefined &&
               waiting > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-rose-500 px-1 text-[9px] font-bold text-white">
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-danger px-1 text-[9px] font-bold text-white">
                   {waiting > 99 ? "99+" : waiting}
                 </span>
               )

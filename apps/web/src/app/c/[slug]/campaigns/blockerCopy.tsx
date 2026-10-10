@@ -199,7 +199,7 @@ export const LIST_PROVENANCE_COPY: Record<
   consent_provenance_missing: {
     badge: "Needs one answer",
     badgeClass:
-      "border-amber-300 text-amber-700 dark:border-amber-700/60 dark:text-amber-400",
+      "border-warn-line text-warn",
     text:
       "This campaign can't go out until you say where the list came from and when those " +
       "people agreed to be called. Your contacts stay as they are.",
@@ -208,7 +208,7 @@ export const LIST_PROVENANCE_COPY: Record<
   consent_source_refused: {
     badge: "Can't be launched",
     badgeClass:
-      "border-rose-300 text-rose-700 dark:border-rose-800 dark:text-rose-400",
+      "border-danger-line text-danger",
     text:
       "This list is recorded as bought or rented, and Calevate doesn't dial purchased " +
       "lists — nobody on them agreed to hear from you. The campaign stays here but can't " +
@@ -305,7 +305,7 @@ export function PlatformOutageNotice({ reason }: { reason: string }) {
       // treatment `RestrictionNote` uses. Rose would paint our own outage as this
       // client's fault, and amber would put it in the same visual class as the to-do
       // bullets it was pulled out of.
-      className="flex gap-3 rounded-card border border-line bg-app p-4 text-sm"
+      className="flex gap-3 rounded-md bg-surface-muted p-4 text-sm"
     >
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/5 text-ink-muted dark:bg-white/10">
         <CloudOff aria-hidden className="h-4 w-4" />

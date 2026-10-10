@@ -44,7 +44,7 @@ export function MetaSetupDetails({ setup }: { setup: MetaSetup }) {
   return (
     <div className="mt-4 space-y-4">
       {setup.lead_retrieval_available ? (
-        <div className={`rounded-lg border p-3 text-sm ${NOTICE_TONES.ok}`}>
+        <div className={`rounded-md border px-3 py-2 text-body ${NOTICE_TONES.ok}`}>
           <p className="font-medium">Lead answers will be collected.</p>
           <p className="mt-1">
             Once Meta accepts the details below, each verified delivery becomes a lead
@@ -52,7 +52,7 @@ export function MetaSetupDetails({ setup }: { setup: MetaSetup }) {
           </p>
         </div>
       ) : (
-        <div className={`rounded-lg border p-3 text-sm ${NOTICE_TONES.warn}`}>
+        <div className={`rounded-md border px-3 py-2 text-body ${NOTICE_TONES.warn}`}>
           <p className="flex items-center gap-1.5 font-medium">
             <ShieldAlert className="h-4 w-4 shrink-0" aria-hidden />
             Read this first: lead answers are not collected yet.
@@ -62,7 +62,7 @@ export function MetaSetupDetails({ setup }: { setup: MetaSetup }) {
             delivery below. But fetching what
             the person actually typed into your form needs a Meta Page access token for
             this lead source, and we do not hold one yet — so each lead is recorded as{" "}
-            <span className="font-mono text-xs">
+            <span className="font-mono text-meta">
               {setup.lead_retrieval_reason ?? "unavailable"}
             </span>{" "}
             instead of becoming a lead you can call. Nothing is lost: every delivery is
@@ -115,7 +115,7 @@ export function MetaSetupDetails({ setup }: { setup: MetaSetup }) {
           seen Meta, so none of it is evidence that the connection works — and a client
           who reads a filled-in setup card as "connected" will point ad spend at a
           handshake that never completed. The inbox is the only witness. */}
-      <p className="flex items-start gap-2 text-xs text-ink-muted">
+      <p className="flex items-start gap-2 text-meta text-ink-muted">
         <Inbox className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
         Showing these details does not connect anything, and we cannot see your Meta
         setup from here. The first row in “Recent deliveries” is what tells you it
@@ -135,9 +135,9 @@ function SetupRow({
 }) {
   return (
     <div>
-      <dt className="text-sm font-medium text-ink">{label}</dt>
+      <dt className="text-body font-medium text-ink">{label}</dt>
       <dd className="mt-1">{children}</dd>
-      <p className="mt-1 text-xs text-ink-faint">{hint}</p>
+      <p className="mt-1 text-meta text-ink-faint">{hint}</p>
     </div>
   );
 }

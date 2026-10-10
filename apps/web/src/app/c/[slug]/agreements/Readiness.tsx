@@ -1,10 +1,9 @@
 "use client";
 
-import { FileText } from "lucide-react";
-
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
 import { PageHeader } from "@/components/console/pageHeader";
-import { Disclosure } from "@/components/ui";
+import { Section, TEXT_ACTION } from "@/components/console/section";
+import { NoticeBox } from "@/components/ui";
 import type { LegalReadiness, ReadinessBlocker } from "@/lib/api/agreements";
 import { useClientRealm } from "@/lib/api/session";
 
@@ -54,7 +53,7 @@ export function Readiness({ readiness }: { readiness: LegalReadiness }) {
   ];
 
   return (
-    <div className="space-y-8 pb-12">
+    <div className="max-w-2xl space-y-10 pb-12">
       <PageHeader
         status={
           <TonePill
@@ -75,45 +74,41 @@ export function Readiness({ readiness }: { readiness: LegalReadiness }) {
       />
 
       {readiness.provisional_notice && (
-        <p className="flex items-start gap-2 rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-[13px] text-warn">
-          <FileText className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          <span>
-            <span className="font-semibold">These are drafts.</span> {readiness.provisional_notice}
-          </span>
-        </p>
+        <NoticeBox tone="warn">
+          <span className="font-semibold">These are drafts.</span> {readiness.provisional_notice}
+        </NoticeBox>
       )}
 
-      <Checklist label="Before outgoing calls can start" headingLevel={2} items={items} />
-      {others.length === 0 && (
-        <p className="-mt-5 text-[13px] text-ink-muted">
-          Nothing else at the account level is blocking outgoing calls. A campaign can still
-          have conditions of its own — those are named on the campaign.
-        </p>
-      )}
+      <div className="space-y-3">
+        <Checklist label="Before outgoing calls can start" headingLevel={2} items={items} />
+        {others.length === 0 && (
+          <p className="text-meta text-ink-muted">
+            Nothing else at the account level is blocking outgoing calls. A campaign can still
+            have conditions of its own — those are named on the campaign.
+          </p>
+        )}
+      </div>
 
-      <section id="accept" aria-labelledby="agreements-heading" className="scroll-mt-4">
-        <h2 id="agreements-heading" className="text-[15px] font-semibold text-ink">
-          The agreements that bind this business
-        </h2>
-        <p className="mt-1 text-[13px] text-ink-muted">
-          Read each one, then confirm below. Calls coming IN are unaffected by anything on
-          this page.
-        </p>
-        <div className="mt-3 rounded-card border border-line bg-surface">
+      {/* The jump target of the checklist's "Accept below". */}
+      <div id="accept" className="scroll-mt-4">
+        <Section
+          title="The agreements that bind this business"
+          description="Read each one, then confirm below. Calls coming IN are unaffected by anything on this page."
+        >
           <DocumentRows docs={blocking} />
-        </div>
-        <AcceptPanel readiness={readiness} />
-      </section>
+          <AcceptPanel readiness={readiness} />
+        </Section>
+      </div>
 
-      <AutodialerNoticePanel />
+      <AutodialerNoticePanel readiness={readiness} />
 
       {readable.length > 0 && (
-        <Disclosure
+        <Section
           title="Also published, with nothing to accept"
-          subtitle={`${readable.map((doc) => doc.title).join(", ")}. Notices we owe you, not promises you make us.`}
+          description="Notices we owe you, not promises you make us."
         >
           <DocumentRows docs={readable} />
-        </Disclosure>
+        </Section>
       )}
     </div>
   );
@@ -144,7 +139,7 @@ function JumpLink({ to, label }: { to: string; label: string }) {
   return (
     <a
       href={to}
-      className="inline-flex items-center rounded-sm text-[13px] font-medium text-brand-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+      className={TEXT_ACTION}
     >
       {label}
     </a>

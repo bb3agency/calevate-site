@@ -648,3 +648,64 @@ async def test_the_board_refuses_a_client_realm_token_even_with_the_permission()
             headers={"Authorization": f"Bearer {token}", "X-Org-Slug": account.slug},
         )
     assert response.status_code in (401, 403), response.text
+
+
+# ============================================================================
+# One client's health: GET /v1/admin/client-health/{tenant_id}
+# ============================================================================
+
+
+async def test_one_clients_health_is_the_boards_judgement_for_that_client() -> None:
+    """The per-client read is the same function the board calls, so the two cannot
+    disagree about one account; it answers the healthy case instead of omitting it."""
+    account = await _account(aged=False)
+    await _kb_pending(account)
+    token = await _make_admin()
+
+    async with _client() as http:
+        response = await http.get(
+            f"{BOARD_PATH}/{account.tenant_id}", headers={"Authorization": f"Bearer {token}"}
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    judged = await _judge(account)
+    assert judged is not None
+    assert body["severity"] == judged.severity
+    assert sorted(signal["rule"] for signal in body["signals"]) == sorted(_rules(judged))
+    assert "knowledge_waiting" in [signal["rule"] for signal in body["signals"]]
+
+
+async def test_a_healthy_client_is_answered_not_omitted() -> None:
+    account = await _account(aged=False)
+    token = await _make_admin()
+    judged = await _judge(account)
+
+    async with _client() as http:
+        response = await http.get(
+            f"{BOARD_PATH}/{account.tenant_id}", headers={"Authorization": f"Bearer {token}"}
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    if judged is None:
+        assert body["severity"] is None and body["signals"] == []
+    else:  # pragma: no cover — a fresh account carries no signal today
+        assert body["severity"] == judged.severity
+
+
+async def test_one_clients_health_names_no_one_else_and_refuses_unknown_and_client_tokens() -> None:
+    account = await _account(aged=False)
+    admin = await _make_admin()
+    member = await _make_member(account.tenant_id)
+
+    async with _client() as http:
+        missing = await http.get(
+            f"{BOARD_PATH}/{uuid.uuid4()}", headers={"Authorization": f"Bearer {admin}"}
+        )
+        as_client = await http.get(
+            f"{BOARD_PATH}/{account.tenant_id}", headers={"Authorization": f"Bearer {member}"}
+        )
+
+    assert missing.status_code == 404, missing.text
+    assert as_client.status_code in (401, 403), "a client token cannot read the operator's view"

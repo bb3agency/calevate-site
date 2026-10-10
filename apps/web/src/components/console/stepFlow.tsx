@@ -104,7 +104,7 @@ export function StepFlow({
         fullScreen
           ? "fixed inset-0 z-40 flex flex-col overflow-y-auto bg-surface sm:static sm:z-auto sm:overflow-visible"
           : ""
-      } sm:rounded-card sm:border sm:border-line sm:bg-surface sm:shadow-card ${className}`}
+      } sm:rounded-card sm:border sm:border-line sm:bg-surface ${className}`}
     >
       <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-6">
         <div className="min-w-0">

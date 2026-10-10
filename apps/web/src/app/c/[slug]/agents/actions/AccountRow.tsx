@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 
 import { SettingRow } from "@/components/console/settingRow";
 import { TEXT_ACTION } from "@/components/console/section";
+import { ServiceLogo } from "@/components/console/serviceLogo";
 import { FIELD, ProblemNotice } from "@/components/ui";
 import { PROVIDER_LABELS, useConnectionsStatus, useCredentials, type OAuthKind } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
@@ -116,19 +117,22 @@ export function AccountRow({
       <SettingRow
         label={label}
         control={
-          <select
-            aria-label={label}
-            className={`${FIELD} mt-0 sm:w-64`}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-          >
-            {optional ? <option value="">No key</option> : null}
-            {mine.map((c) => (
-              <option key={c.id} value={c.id}>
-                {service} · {c.label}
-              </option>
-            ))}
-          </select>
+          <span className="flex items-center gap-2">
+            <ServiceLogo service={kind} className="h-5 w-5" />
+            <select
+              aria-label={label}
+              className={`${FIELD} mt-0 sm:w-64`}
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+            >
+              {optional ? <option value="">No key</option> : null}
+              {mine.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {service} · {c.label}
+                </option>
+              ))}
+            </select>
+          </span>
         }
         action={connectButton}
       />
@@ -137,7 +141,16 @@ export function AccountRow({
     row = (
       <SettingRow
         label={label}
-        value={chosen ? `${service} · ${chosen.label}` : <span className="text-ink-muted">None</span>}
+        value={
+          chosen ? (
+            <span className="inline-flex items-center gap-2">
+              <ServiceLogo service={kind} className="h-5 w-5" />
+              {`${service} · ${chosen.label}`}
+            </span>
+          ) : (
+            <span className="text-ink-muted">None</span>
+          )
+        }
         action={
           <button type="button" className={TEXT_ACTION} onClick={() => setPicking(true)}>
             Change

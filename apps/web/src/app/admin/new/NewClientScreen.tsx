@@ -7,8 +7,10 @@ import { ActionButton } from "@/components/actionButton";
 import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
-import { useFormValidation } from "@/components/formValidation";
-import { Card, FIELD, FIELD_HINT, FIELD_LABEL, MonoValue, NoticeBox, ProblemNotice } from "@/components/ui";
+import { FieldMessage, useFormValidation } from "@/components/formValidation";
+import { ADMIN_PAGE } from "@/components/admin/kit";
+import { Section } from "@/components/console/section";
+import { FIELD, FIELD_HINT, FIELD_LABEL, MonoValue, NoticeBox, ProblemNotice } from "@/components/ui";
 import { useCreateTenant, type CreateOrgIn } from "@/lib/api/admin";
 import { previewSlug, slugIsDerivable } from "@/lib/api/signup";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -29,10 +31,11 @@ import { VERTICALS, refusalReason, type OwnerDetails } from "./shared";
 export function NewClientScreen() {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
-  const [vertical, setVertical] = useState<CreateOrgIn["vertical_template"]>("clinic");
+  const [vertical, setVertical] = useState<CreateOrgIn["vertical_template"] | null>(null);
   const [owner, setOwner] = useState<OwnerDetails>({ name: "", email: "", phone: "" });
   const [created, setCreated] = useState<{ id: string; slug: string; status: string; email: string } | null>(null);
 
+  const [typeMissing, setTypeMissing] = useState(false);
   const createTenant = useCreateTenant();
   const refusal = refusalReason(createTenant.error);
   const valid = useFormValidation();
@@ -56,7 +59,7 @@ export function NewClientScreen() {
               id: "new-client-vertical",
               label: "Business type",
               type: "select",
-              value: vertical,
+              value: vertical ?? "",
               options: VERTICALS.map((option) => ({ value: option.value, label: option.label })),
             },
             { id: "new-client-owner-name", label: "Owner's name", type: "text", value: owner.name, personal: "name" },
@@ -73,7 +76,10 @@ export function NewClientScreen() {
               else if (item.field_id === "new-client-owner-phone") ownerField("phone")(value);
               else if (item.field_id === "new-client-vertical") {
                 const option = VERTICALS.find((row) => row.value === item.value);
-                if (option) setVertical(option.value);
+                if (option) {
+                  setVertical(option.value);
+                  setTypeMissing(false);
+                }
               }
             }
           },
@@ -81,7 +87,7 @@ export function NewClientScreen() {
   );
 
   return (
-    <div className="max-w-3xl space-y-5">
+    <div className={ADMIN_PAGE}>
       <PageHeader
         description="Creates the account and invites its owner, together. The owner fills in their business after they join."
       />
@@ -102,11 +108,15 @@ export function NewClientScreen() {
           <NextSteps created={created} />
         </div>
       ) : (
-        <Card title="The business">
+        <div>
           <form
-            className="space-y-5"
+            className="space-y-10"
             noValidate
             onSubmit={valid.onSubmit(() => {
+              if (vertical === null) {
+                setTypeMissing(true);
+                return;
+              }
               createTenant.mutate(
                 {
                   name,
@@ -133,6 +143,8 @@ export function NewClientScreen() {
               );
             })}
           >
+            <Section title="The business">
+            <div className="space-y-5">
             <label className="block max-w-sm">
               <span className={FIELD_LABEL}>Business name</span>
               <input
@@ -193,22 +205,33 @@ export function NewClientScreen() {
                     <input
                       type="radio"
                       name="vertical"
+                      aria-describedby={typeMissing ? "new-client-vertical-error" : undefined}
                       className="sr-only"
                       checked={vertical === option.value}
-                      onChange={() => setVertical(option.value)}
+                      onChange={() => {
+                        setVertical(option.value);
+                        setTypeMissing(false);
+                      }}
                     />
                     {vertical === option.value && (
                       <CheckCircle2 aria-hidden className="absolute right-2 top-2 h-4 w-4 text-brand" />
                     )}
-                    <span className="block pr-6 text-sm font-semibold text-ink">{option.label}</span>
-                    <span className="mt-0.5 block text-xs text-ink-faint">{option.hint}</span>
+                    <span className="block pr-6 text-body font-medium text-ink">{option.label}</span>
+                    <span className="mt-0.5 block text-meta text-ink-muted">{option.hint}</span>
                   </label>
                 ))}
               </div>
+              {typeMissing && (
+                <FieldMessage id="new-client-vertical-error">Choose the business type.</FieldMessage>
+              )}
             </fieldset>
 
-            <fieldset className="grid gap-3 sm:grid-cols-3">
-              <legend className={`${FIELD_LABEL} mb-1`}>The owner — their invitation is sent when you create the account</legend>
+            </div>
+            </Section>
+
+            <Section title="The owner" description="Their invitation is sent when you create the account.">
+            <fieldset className="max-w-sm space-y-5">
+              <legend className="sr-only">The owner — their invitation is sent when you create the account</legend>
               <label className="block min-w-0">
                 <span className={FIELD_LABEL}>Name</span>
                 <input
@@ -245,8 +268,10 @@ export function NewClientScreen() {
                 />
               </label>
             </fieldset>
+            </Section>
 
             {createTenant.error && <ProblemNotice error={createTenant.error} />}
+            <div className="flex flex-col items-end gap-2 border-t border-line pt-6">
             <ActionButton
               type="submit"
               title={refusal ?? undefined}
@@ -256,9 +281,10 @@ export function NewClientScreen() {
               <Building2 aria-hidden className="h-4 w-4" />
               Create and invite
             </ActionButton>
-            {refusal && <p className="text-xs text-ink-muted">{refusal}</p>}
+            {refusal && <p className="text-meta text-ink-muted">{refusal}</p>}
+            </div>
           </form>
-        </Card>
+        </div>
       )}
     </div>
   );

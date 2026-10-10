@@ -44,7 +44,7 @@ function WalletExport({ session }: { session: Session }) {
   if (ledger.isPending || ledger.isError) return null;
   const entries = ledger.data.entries;
   if (entries.length === 0) {
-    return <span className="text-xs text-ink-muted">There is nothing to download yet.</span>;
+    return <span className="text-meta text-ink-muted">There is nothing to download yet.</span>;
   }
   const download = () => {
     // A BOM so Excel opens the file as UTF-8 — a ₹ or a Telugu agent name otherwise opens

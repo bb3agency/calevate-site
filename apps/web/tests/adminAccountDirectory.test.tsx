@@ -173,7 +173,7 @@ describe("the client directory scales", () => {
     });
 
     await screen.findByText(/Sri Traders/);
-    fireEvent.click(screen.getByRole("button", { name: "suspended" }));
+    fireEvent.click(screen.getByRole("button", { name: "Suspended" }));
 
     await screen.findByText(/Halted Traders/);
     expect(calls.some((call) => call.path.includes("status=suspended"))).toBe(true);

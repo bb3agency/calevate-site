@@ -28,6 +28,7 @@ import {
   formatIST,
 } from "@/components/ui";
 import { ConfirmDialog } from "@/components/confirmDialog";
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { RowMenu } from "@/components/console/rowMenu";
 import {
@@ -55,7 +56,7 @@ export function Roster({ agents, slug }: { agents: Agent[]; slug: string }) {
 
   if (agents.length === 0) {
     return (
-      <EmptyState
+      <EmptyState illustration={<EmptySketch kind="actions" />}
         message="No agents yet. Build one and it shows up here before it takes a call."
         action={
           <Link href={href(`/c/${slug}/agents/new`)} className={PRIMARY_BUTTON}>
@@ -113,7 +114,7 @@ function AgentList({
   return (
     <ul
       aria-label={label}
-      className={archived ? "divide-y divide-line" : "divide-y divide-line rounded-card border border-line bg-surface shadow-card"}
+      className={archived ? "divide-y divide-line" : "divide-y divide-line border-y border-line"}
     >
       {rows.map((agent, index) => (
         <AgentRow

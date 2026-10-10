@@ -17,7 +17,7 @@ export function LineNotice({ session, href }: { session: Session; href: string }
   const incidents = useLineIncidents(session);
   if (incidents.isError) {
     return (
-      <p className="rounded-card border border-line bg-surface-muted px-4 py-3 text-sm text-ink-muted">
+      <p className="rounded-md bg-surface-muted px-4 py-3 text-body text-ink-muted">
         We could not check whether your lines are working.{" "}
         <Link href={href} className="font-medium text-brand-strong underline">
           See line protection
@@ -33,7 +33,7 @@ export function LineNotice({ session, href }: { session: Session; href: string }
   return (
     <Link
       href={href}
-      className="flex items-start justify-between gap-3 rounded-card border border-warn-line bg-warn-soft px-4 py-3 text-sm text-warn transition-colors duration-(--duration-fast) ease-out hover:bg-[color-mix(in_srgb,var(--warn-soft),var(--warn-line)_40%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn focus-visible:ring-offset-2"
+      className="flex items-start justify-between gap-3 rounded-md border border-warn-line bg-warn-soft px-4 py-3 text-body text-warn transition-colors duration-(--duration-fast) ease-out hover:bg-[color-mix(in_srgb,var(--warn-soft),var(--warn-line)_40%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn focus-visible:ring-offset-2"
     >
       <span className="flex min-w-0 items-start gap-2">
         <LifeBuoy aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />

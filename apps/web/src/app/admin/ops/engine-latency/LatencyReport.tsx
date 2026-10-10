@@ -1,12 +1,13 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { TriangleAlert } from "lucide-react";
 
 import { MonoValue } from "@/app/admin/ops/opsLanguage";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
-import { Card, Disclosure, NoticeBox, formatCount } from "@/components/ui";
+import { Disclosure, NoticeBox, formatCount } from "@/components/ui";
 import {
   BASIS_COPY,
   BUDGET_GAP_BODY,
@@ -46,7 +47,7 @@ export function LatencyReport({
 
   return (
     <div className="space-y-5">
-      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[15px] text-ink">
+      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-body text-ink">
         <span className={rowsOver > 0 ? "font-semibold text-danger" : "font-semibold"}>
           {formatCount(rowsOver)} of {formatCount(report.groups.length)}
         </span>
@@ -122,7 +123,7 @@ export function LatencyReport({
       )}
 
       {report.groups.length === 0 ? (
-        <Card title="How long a reply takes, by engine and region" density="compact">
+        <Section title="How long a reply takes, by engine and region">
           <EmptyState
             message={
               <>
@@ -139,7 +140,7 @@ export function LatencyReport({
               </>
             }
           />
-        </Card>
+        </Section>
       ) : (
         report.groups.map((group) => (
           <GroupCard key={`${group.engine}:${group.region ?? ""}`} group={group} />
@@ -165,7 +166,7 @@ function BudgetDisclosure({ budget }: { budget: LatencyBudget }) {
       title="What we are aiming for"
       subtitle={`Whole reply ${formatMs(budget.turn_ms)}; a caller should hear ${formatMs(budget.voice_to_voice_p50_ms)} typically.`}
     >
-      <p className="text-xs text-ink-muted">
+      <p className="text-meta text-ink-muted">
         Every figure here is a goal we set, not something we have measured.
       </p>
       <dl className="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -230,9 +231,9 @@ function BudgetDisclosure({ budget }: { budget: LatencyBudget }) {
 function BudgetItem({ label, value, note }: { label: string; value: number; note: string }) {
   return (
     <div>
-      <dt className="text-xs text-ink-muted">{label}</dt>
-      <dd className="mt-0.5 text-sm font-medium tabular-nums">{formatMs(value)}</dd>
-      <dd className="mt-0.5 text-xs text-ink-muted">{note}</dd>
+      <dt className="text-meta text-ink-muted">{label}</dt>
+      <dd className="mt-0.5 text-body font-medium tabular-nums">{formatMs(value)}</dd>
+      <dd className="mt-0.5 text-meta text-ink-muted">{note}</dd>
     </div>
   );
 }
@@ -319,7 +320,7 @@ const COLUMNS: DataColumn<LegSummary>[] = [
     cell: (leg) => (
       <>
         {formatCount(leg.turns_over_budget)}
-        {leg.turns > 0 && <span className="text-ink-faint"> of {formatCount(leg.turns)}</span>}
+        {leg.turns > 0 && <span className="text-ink-muted"> of {formatCount(leg.turns)}</span>}
       </>
     ),
   },
@@ -348,12 +349,12 @@ function StageCell({ leg }: { leg: LegSummary }) {
   return (
     <div className="sm:min-w-[10rem] sm:max-w-[22rem]">
       <span className="font-medium text-ink">{copy?.label ?? <MonoValue>{leg.leg}</MonoValue>}</span>
-      {copy && <span className="mt-0.5 block text-xs text-ink-muted">{copy.gloss}</span>}
-      {basis != null && <span className="mt-0.5 block text-xs text-ink-muted">{basis}</span>}
+      {copy && <span className="mt-0.5 block text-meta text-ink-muted">{copy.gloss}</span>}
+      {basis != null && <span className="mt-0.5 block text-meta text-ink-muted">{basis}</span>}
       {/* The server's own doubt: a verdict on a number whose unit nobody has confirmed is
           not a verdict, so the row says so (hard rule 11). */}
-      {!leg.unit_verified && <span className="mt-0.5 block text-xs text-warn">{UNVERIFIED_UNIT_NOTE}</span>}
-      <span className="mt-1.5 block text-xs text-ink-muted sm:hidden">
+      {!leg.unit_verified && <span className="mt-0.5 block text-meta text-warn">{UNVERIFIED_UNIT_NOTE}</span>}
+      <span className="mt-1.5 block text-meta text-ink-muted sm:hidden">
         <span className={verdict.className}>{verdict.label}</span> · typical {formatMs(leg.p50_ms)} ·
         slowest typical {formatMs(leg.p95_ms)} · worst {formatMs(leg.max_ms)}
       </span>
@@ -364,8 +365,8 @@ function StageCell({ leg }: { leg: LegSummary }) {
 function GroupCard({ group }: { group: LatencyGroup }) {
   const heading = `${group.engine} — ${regionLabel(group.region)}`;
   return (
-    <Card title={heading} density="compact" bodyClassName="pb-2">
-      <p className="flex flex-wrap items-center gap-x-1 px-4 text-xs text-ink-muted">
+    <Section title={heading}>
+      <p className="flex flex-wrap items-center gap-x-1 px-4 text-meta text-ink-muted">
         {formatCount(group.calls)} {group.calls === 1 ? "call" : "calls"} ·{" "}
         {formatCount(group.turns)} timed {group.turns === 1 ? "reply" : "replies"} · a blank cell
         means too few replies yet, never zero
@@ -384,6 +385,6 @@ function GroupCard({ group }: { group: LatencyGroup }) {
         getRowId={legId}
         label={`Reply stages for ${group.engine}, region ${group.region ?? "not reported"}`}
       />
-    </Card>
+    </Section>
   );
 }

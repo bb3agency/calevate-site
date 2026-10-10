@@ -1,5 +1,6 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 import { CheckCircle2, CircleAlert, Lock, Phone } from "lucide-react";
 
@@ -8,7 +9,6 @@ import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withhel
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { useFormValidation } from "@/components/formValidation";
 import {
-  Card,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -75,7 +75,7 @@ export function NumberPricePanel() {
   const actionLabel = current?.attested ? "Record the new price" : "Record the price";
 
   return (
-    <Card
+    <Section
       title="Phone number price"
       action={
         editing || !current ? undefined : (
@@ -92,7 +92,7 @@ export function NumberPricePanel() {
       }
     >
       <div className="space-y-4">
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           What a client is charged each month for a phone number they buy from their console.
         </p>
 
@@ -115,32 +115,32 @@ export function NumberPricePanel() {
         {current?.attested && (
           <dl className="grid gap-3 sm:grid-cols-3">
             <div>
-              <dt className="text-xs font-medium text-ink-faint">Per number, per month</dt>
-              <dd className="mt-0.5 text-sm font-semibold text-ink">
+              <dt className="text-meta font-medium text-ink-muted">Per number, per month</dt>
+              <dd className="mt-0.5 text-body font-semibold text-ink">
                 {formatINR(current.inr_per_month)}
               </dd>
             </div>
             <div>
-              <dt className="text-xs font-medium text-ink-faint">Read from</dt>
-              <dd className="mt-0.5 text-sm break-words text-ink">{current.source ?? "—"}</dd>
+              <dt className="text-meta font-medium text-ink-muted">Read from</dt>
+              <dd className="mt-0.5 text-body break-words text-ink">{current.source ?? "—"}</dd>
             </div>
             <div>
-              <dt className="text-xs font-medium text-ink-faint">Recorded</dt>
-              <dd className="mt-0.5 text-sm text-ink">{formatIST(current.attested_at)}</dd>
+              <dt className="text-meta font-medium text-ink-muted">Recorded</dt>
+              <dd className="mt-0.5 text-body text-ink">{formatIST(current.attested_at)}</dd>
             </div>
           </dl>
         )}
 
         {attest.error && <WriteFailure error={attest.error} actionLabel={actionLabel} />}
         {attest.isSuccess && !editing && (
-          <p className="flex items-start gap-2 text-sm text-ink-muted">
+          <p className="flex items-start gap-2 text-body text-ink-muted">
             <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
             <span>Recorded. New purchases are charged this price; numbers already bought keep theirs.</span>
           </p>
         )}
 
         {!editing && !access.allowed && access.reason && (
-          <p className="flex items-start gap-2 text-xs text-ink-muted">
+          <p className="flex items-start gap-2 text-meta text-ink-muted">
             <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             {access.reason}
           </p>
@@ -184,7 +184,7 @@ export function NumberPricePanel() {
                 />
                 {valid.error("inr_per_month")}
                 {overCeiling && (
-                  <span role="alert" className="mt-1 block text-xs text-danger">
+                  <span role="alert" className="mt-1 block text-meta text-danger">
                     That is more than ₹1,00,000 a month. Check the figure on the document.
                   </span>
                 )}
@@ -209,8 +209,8 @@ export function NumberPricePanel() {
               </label>
             </div>
 
-            <div className="flex gap-3 rounded-card border border-line bg-app p-4 text-sm">
-              <Phone aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+            <div className="flex gap-3 border-l-2 border-danger py-1 pl-4 text-body">
+              <Phone aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted" />
               <p className="text-ink-muted">
                 Every client who buys a number from now on is charged this on the day they buy
                 it and again on each monthly renewal date: from credit on a prepaid account, on
@@ -245,6 +245,6 @@ export function NumberPricePanel() {
           </form>
         )}
       </div>
-    </Card>
+    </Section>
   );
 }

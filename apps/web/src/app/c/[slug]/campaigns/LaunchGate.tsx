@@ -158,7 +158,7 @@ export function LaunchGate({
           <button
             type="button"
             disabled
-            className="inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-line bg-app px-4 py-2 text-sm font-semibold text-ink-faint touch:min-h-11"
+            className="inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-line bg-surface-muted px-4 py-2 text-sm font-semibold text-ink-faint touch:min-h-11"
           >
             <Rocket aria-hidden className="h-4 w-4" />
             Launch campaign

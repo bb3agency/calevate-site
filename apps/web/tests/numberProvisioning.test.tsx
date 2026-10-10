@@ -195,6 +195,16 @@ describe("a deployment that may not supply a number says so", () => {
   });
 });
 
+/** One page (REDESIGN-2): pick the number, and its purchase is confirmed below the list. */
+async function chooseNumber(): Promise<void> {
+  fireEvent.click(await screen.findByRole("radio", { name: /80412 34500/ }));
+}
+
+/** The confirmation under the list, where the dialog used to be. */
+function confirmation(): HTMLElement {
+  return screen.getByRole("region", { name: /^Buy \+91/ });
+}
+
 describe("browsing what is on offer", () => {
   it("prices the month through the shared rupee formatter", async () => {
     const { container } = await renderClientPage(<PhoneNumberPage />, routes());
@@ -217,6 +227,7 @@ describe("browsing what is on offer", () => {
   it("will not sell until the registrant is on file", async () => {
     await renderClientPage(<PhoneNumberPage />, routes({ [PATHS.holder]: holder(false) }));
 
+    await chooseNumber();
     const buy = await screen.findByRole("button", { name: /buy this number/i });
     expect(buy.hasAttribute("disabled")).toBe(true);
     // The reason arrives with the registrant read, a round trip after the offers.
@@ -259,6 +270,7 @@ describe("browsing what is on offer", () => {
     expect(
       await screen.findByText(/will not be able to make or take calls until your business is verified/i),
     ).toBeTruthy();
+    await chooseNumber();
     const buy = screen.getByRole("button", { name: /buy this number/i });
     await waitFor(() => expect(buy.hasAttribute("disabled")).toBe(false));
   });
@@ -277,23 +289,21 @@ describe("buying", () => {
   async function openConfirmation(extra: Routes = {}) {
     const render = await renderClientPage(<PhoneNumberPage />, routes(extra));
     await screen.findByText(/₹1,49,900\.00 a month/);
+    await chooseNumber();
     // Enabled once the registrant read lands, a round trip after the offers.
     const buy = screen.getByRole("button", { name: /buy this number/i });
     await waitFor(() => expect(buy.hasAttribute("disabled")).toBe(false));
-    fireEvent.click(buy);
     return render;
   }
 
   function confirmButton(): HTMLElement {
-    return within(screen.getByRole("dialog")).getByRole("button", {
-      name: /buy this number/i,
-    });
+    return within(confirmation()).getByRole("button", { name: /buy this number/i });
   }
 
   it("states the recurring charge and the balance before it is incurred", async () => {
     await openConfirmation();
 
-    const dialog = await screen.findByRole("dialog");
+    const dialog = confirmation();
     expect(dialog.textContent).toContain("₹1,49,900.00 every month");
     expect(dialog.textContent).toContain("₹2,00,000.00 before this purchase");
     expect(dialog.textContent).toMatch(/registered to Acme Dental/);
@@ -302,7 +312,7 @@ describe("buying", () => {
   it("sends the number and what it is for", async () => {
     const { calls } = await openConfirmation({ [`POST ${PATHS.purchase}`]: purchased });
 
-    const dialog = screen.getByRole("dialog");
+    const dialog = confirmation();
     fireEvent.click(within(dialog).getByLabelText(/^both/i));
     fireEvent.click(confirmButton());
 
@@ -351,7 +361,7 @@ describe("buying", () => {
 
     fireEvent.click(confirmButton());
 
-    const dialog = await screen.findByRole("dialog");
+    const dialog = confirmation();
     await waitFor(() =>
       expect(dialog.textContent).toContain(
         "Your calling credit does not cover the first month.",

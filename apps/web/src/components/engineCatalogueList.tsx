@@ -117,7 +117,7 @@ export function EngineCatalogueList({
       {choice && lockReason && <p className="text-xs text-ink-muted">{lockReason}</p>}
       {choice?.error && <ProblemNotice error={choice.error} />}
       {choice && (
-        <ul className="rounded-card border border-line" aria-label="Default voice">
+        <ul className="border-y border-line" aria-label="Default voice">
           <Option
             name="engine-voice"
             value={DEFAULT}
@@ -138,7 +138,7 @@ export function EngineCatalogueList({
           if (rung.value === "studio" && !data.studio_available && voices.length === 0) return null;
           return (
             <fieldset key={rung.value} className="space-y-1">
-              <legend className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+              <legend className="text-meta font-semibold text-ink-muted">
                 {rung.label} voices
               </legend>
               <p className="text-xs text-ink-muted">{rung.blurb}</p>
@@ -149,7 +149,7 @@ export function EngineCatalogueList({
               ) : voices.length === 0 ? (
                 <p className="mt-1 text-sm text-ink-muted">No {rung.label} voice is offered yet.</p>
               ) : (
-                <ul className="mt-1 divide-y divide-line rounded-card border border-line">
+                <ul className="mt-1 divide-y divide-line border-y border-line">
                   {voices.map((entry) => {
                     const blocked =
                       entry.rung === "studio" && studioBlockedBy !== null
@@ -188,13 +188,13 @@ export function EngineCatalogueList({
         })
       )}
       <fieldset className="space-y-1">
-        <legend className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+        <legend className="text-meta font-semibold text-ink-muted">
           The platform&apos;s language models
         </legend>
         {data.models.length === 0 ? (
           <p className="mt-1 text-sm text-ink-muted">The platform listed no models.</p>
         ) : (
-          <ul className="mt-1 divide-y divide-line rounded-card border border-line">
+          <ul className="mt-1 divide-y divide-line border-y border-line">
             {choice && (
               <Option
                 name="engine-model"
@@ -290,7 +290,7 @@ function Option({
         </span>
       )}
       {reason ? (
-        <span className="mt-0.5 block text-xs font-medium text-amber-700 dark:text-amber-400">
+        <span className="mt-0.5 block text-xs font-medium text-warn">
           Cannot be used — {reason}
         </span>
       ) : (

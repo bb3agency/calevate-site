@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useState } from "react";
 import { TriangleAlert } from "lucide-react";
 
+import { ADMIN_PAGE_WIDE, HAIRLINE_LIST, MetricRow } from "@/components/admin/kit";
+import { Section } from "@/components/console/section";
 import {
-  Card,
   FIELD_INLINE,
-  NOTICE_TONES,
   ProblemNotice,
   Skeleton,
   formatCount,
@@ -88,7 +88,7 @@ export function FleetSpendScreen() {
   });
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className={ADMIN_PAGE_WIDE}>
       <PageHeader
         description={
           <>
@@ -138,7 +138,7 @@ function losing(margin: string): boolean {
 function Totals({ data }: { data: FleetSpend }) {
   const negative = losing(data.margin_inr);
   return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-5 lg:grid-cols-4">
+    <MetricRow>
       <Metric label={`Revenue · ${data.month}`} value={formatINR(data.revenue_inr)} />
       <Metric label="Our cost" value={formatINR(data.cost_inr)} />
       <Metric
@@ -158,7 +158,7 @@ function Totals({ data }: { data: FleetSpend }) {
         value={data.margin_pct === null ? "not billed yet" : `${data.margin_pct}%`}
         hint={`${formatCount(data.clients)} live ${data.clients === 1 ? "client" : "clients"} walked.`}
       />
-    </div>
+    </MetricRow>
   );
 }
 
@@ -172,11 +172,7 @@ const num = "whitespace-nowrap tabular-nums";
  */
 function ClientTable({ data }: { data: FleetSpend }) {
   if (data.tenants.length === 0) {
-    return (
-      <Card density="compact">
-        <EmptyState message="No live clients this month" />
-      </Card>
-    );
+    return <EmptyState message="No live clients this month" />;
   }
   const columns: DataColumn<FleetTenant>[] = [
     {
@@ -190,7 +186,7 @@ function ClientTable({ data }: { data: FleetSpend }) {
           >
             {tenant.name}
           </Link>
-          <span className="block text-xs text-ink-faint">/c/{tenant.slug}</span>
+          <span className="block text-meta text-ink-muted">/c/{tenant.slug}</span>
         </>
       ),
     },
@@ -228,15 +224,13 @@ function ClientTable({ data }: { data: FleetSpend }) {
     },
   ];
   return (
-    <Card density="compact" bodyClassName="px-0 py-1">
-      <DataTable
-        rows={data.tenants}
-        columns={columns}
-        getRowId={(tenant) => tenant.tenant_id}
-        label="Every live client's month"
-        rowClassName={(tenant) => (losing(tenant.margin_inr) ? NOTICE_TONES.stop : "")}
-      />
-    </Card>
+    <DataTable
+      rows={data.tenants}
+      columns={columns}
+      getRowId={(tenant) => tenant.tenant_id}
+      label="Every live client's month"
+      rowClassName={(tenant) => (losing(tenant.margin_inr) ? "bg-danger-soft/60 text-danger" : "")}
+    />
   );
 }
 
@@ -250,30 +244,26 @@ function UndecidableCard({ board }: { board: FleetSpend }) {
   const rows = board.undecidable ?? [];
   if (rows.length === 0) return null;
   return (
-    <Card
-      density="compact"
+    <Section
       title={`${formatCount(rows.length)} ${rows.length === 1 ? "client is" : "clients are"} not in the totals above`}
+      description={<>Their month could not be priced from the ledger. Every other client&rsquo;s figures above are complete.</>}
     >
-      <p className="mb-3 text-[13px] text-ink-muted">
-        Their month could not be priced from the ledger. Every other
-        client&rsquo;s figures above are complete.
-      </p>
-      <ul className="divide-y divide-line">
+      <ul className={HAIRLINE_LIST}>
         {rows.map((row) => (
-          <li key={row.tenant_id} className="py-3 first:pt-0 last:pb-0">
+          <li key={row.tenant_id} className="py-3 sm:px-2">
             <Link
               href={`/admin/tenants/${row.tenant_id}/spend`}
-              className="rounded-sm text-sm font-semibold text-ink underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+              className="rounded-sm text-body font-medium text-ink underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
             >
               {row.name}
             </Link>
-            <p className="text-[13px] text-ink-muted">
+            <p className="text-meta text-ink-muted">
               /c/{row.slug} · {row.plan_tier}
             </p>
-            <p className="mt-1 text-[13px] text-ink-muted">{row.reason}</p>
+            <p className="mt-1 text-meta text-ink-muted">{row.reason}</p>
           </li>
         ))}
       </ul>
-    </Card>
+    </Section>
   );
 }

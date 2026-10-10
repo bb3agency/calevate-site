@@ -25,7 +25,7 @@ export default function MaintenancePage() {
   const read: MaintenanceBoard | undefined = board.error === null ? board.data : undefined;
 
   return (
-    <div className="space-y-8 pb-12">
+    <div className="max-w-3xl space-y-10 pb-12">
       <PageHeader description="Drain live work, close the client portals for planned work, then reopen them." />
 
       {board.error !== null && (
@@ -81,7 +81,7 @@ function NoWindow({ leadHours }: { leadHours: number }) {
         message={
           <>
             No window is open.
-            <span className="mt-1 block text-[13px] text-ink-faint">
+            <span className="mt-1 block text-meta text-ink-muted">
               The platform has one maintenance slot. Scheduling a second while one is open is
               refused.
             </span>

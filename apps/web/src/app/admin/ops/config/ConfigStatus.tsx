@@ -23,7 +23,7 @@ export function ConfigStatus({ config }: { config: ConfigList }) {
       <StoreHealth config={config} />
       {/* Read from the sentinel, not from any row's `updated_at`: a revert deletes the row
           and takes that timestamp with it. */}
-      <p className="text-xs text-ink-faint">
+      <p className="text-meta text-ink-muted">
         Configuration version <MonoValue>{config.config_version}</MonoValue>
         {config.config_changed_at
           ? `, last changed ${formatIST(config.config_changed_at)}.`
@@ -104,36 +104,36 @@ export function EnvOnlyKeys({ keys }: { keys: ConfigList["bootstrap"] }) {
   return (
     <section className="space-y-2">
       <div>
-        <h3 className="text-sm font-semibold text-ink">Set outside this console</h3>
-        <p className="text-xs text-ink-faint">
+        <h3 className="text-body font-semibold text-ink">Set outside this console</h3>
+        <p className="text-meta text-ink-muted">
           Real settings this deployment uses that can never be stored here. Each row says
           why, and where the value goes instead. Values are never shown.
         </p>
       </div>
-      <ul className="divide-y divide-line rounded-card border border-line">
+      <ul className="divide-y divide-line border-y border-line">
         {keys.map((entry) => (
           <li key={entry.key} className="px-3 py-2.5">
             <div className="flex flex-wrap items-center gap-2">
-              <Lock aria-hidden className="h-4 w-4 text-ink-faint" />
-              <span className="text-sm font-medium text-ink">{entry.label}</span>
+              <Lock aria-hidden className="h-4 w-4 text-ink-muted" />
+              <span className="text-body font-medium text-ink">{entry.label}</span>
               <MonoValue>{entry.env_var}</MonoValue>
               {entry.held_by ? (
-                <span className="text-xs text-ink-muted">
+                <span className="text-meta text-ink-muted">
                   Held by {entry.held_by} — not by this deployment.
                 </span>
               ) : entry.configured ? (
-                <span className="inline-flex items-center gap-1 text-xs text-ink-muted">
+                <span className="inline-flex items-center gap-1 text-meta text-ink-muted">
                   <CheckCircle2 aria-hidden className="h-3.5 w-3.5" />
                   Set in this deployment&apos;s environment
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 text-xs text-warn">
+                <span className="inline-flex items-center gap-1 text-meta text-warn">
                   <TriangleAlert aria-hidden className="h-3.5 w-3.5" />
                   Not set in this deployment&apos;s environment
                 </span>
               )}
             </div>
-            <p className="mt-1 text-xs text-ink-muted">Cannot be set here because {entry.reason}</p>
+            <p className="mt-1 text-meta text-ink-muted">Cannot be set here because {entry.reason}</p>
             {entry.key === CARRIER_PROBE_ROW && <CarrierProbe />}
           </li>
         ))}
@@ -157,7 +157,7 @@ function CarrierProbe() {
       {probe.data && (
         <div className="space-y-1">
           <TestOutcome outcome={probe.data.outcome} verified={probe.data.verified} />
-          <p className="text-xs text-ink-muted">
+          <p className="text-meta text-ink-muted">
             Asked <MonoValue>{probe.data.carrier}</MonoValue>: {probe.data.detail}
           </p>
         </div>

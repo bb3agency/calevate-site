@@ -6,7 +6,7 @@ import { useAdminAccess } from "@/app/admin/access";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { SegmentedControl } from "@/components/interior/segmented-control";
-import { Card, ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
+import { ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
 import {
   DEFAULT_WINDOW_DAYS,
   WINDOW_CHOICES,
@@ -141,7 +141,7 @@ export function EngineLatencyScreen() {
   });
 
   return (
-    <div className="space-y-5 pb-12">
+    <div className="max-w-4xl space-y-10 pb-12">
       <PageHeader
         description={
           <>
@@ -185,9 +185,9 @@ export function EngineLatencyScreen() {
           {/* §52: in flight gets a skeleton; failed is the refusal above and nothing else. */}
           {!data ? (
             report.error ? null : (
-              <Card>
+              <div>
                 <Skeleton rows={6} label="Loading the engine's latency report" />
-              </Card>
+              </div>
             )
           ) : (
             <LatencyReport report={data} windowLabel={windowLabel(data.window_days)} />

@@ -279,7 +279,7 @@ function OnFile({ record }: { record: KycRecord }) {
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="space-y-2">
-      <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
+      <h2 className="text-heading text-ink">{title}</h2>
       {children}
     </section>
   );

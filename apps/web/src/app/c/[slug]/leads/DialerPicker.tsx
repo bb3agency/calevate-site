@@ -1,5 +1,7 @@
 "use client";
 
+import { FIELD_INLINE } from "@/components/ui";
+
 /**
  * WHICH AGENT RINGS A LEAD FROM THIS TABLE. The agent decides the script, the voice and
  * the disclosure line, so the choice is on screen whenever there is one. The checks
@@ -19,17 +21,17 @@ export function DialerPicker({
   selectedAgentId: string;
   onSelect: (agentId: string) => void;
 }) {
-  if (unavailable !== null) return <p className="text-xs text-ink-muted">{unavailable}</p>;
+  if (unavailable !== null) return <p className="text-meta text-ink-muted">{unavailable}</p>;
   if (!canCall) return null;
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+    <div className="flex flex-wrap items-center gap-2 text-meta text-ink-muted">
       <span>Calls from this table are placed by</span>
       {dialers !== undefined && dialers.length > 1 ? (
         <select
           value={selectedAgentId}
           onChange={(e) => onSelect(e.target.value)}
           aria-label="Agent that places calls from this table"
-          className="rounded-md border border-line bg-transparent px-2 py-1 text-xs text-ink touch:min-h-11"
+          className={FIELD_INLINE}
         >
           {dialers.map((agent) => (
             <option key={agent.id} value={agent.id}>

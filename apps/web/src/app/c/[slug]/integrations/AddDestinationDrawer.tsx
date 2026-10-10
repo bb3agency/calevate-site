@@ -1,9 +1,10 @@
 "use client";
 
 import { useId, useState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Webhook } from "lucide-react";
 
 import { Drawer } from "@/components/console/drawer";
+import { IconTile } from "@/components/console/iconTile";
 import { InfoTip } from "@/components/console/infoTip";
 import { PRIMARY_BUTTON } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
@@ -65,10 +66,10 @@ export function AddDestinationDrawer({
       }
     >
       {secret ? (
-        <div className="space-y-3 text-sm">
+        <div className="space-y-3 text-body">
           <p className="font-medium text-ink">Copy this now — we will not show it again.</p>
           <CopyRow label="Signing secret" value={secret} copyLabel="Copy signing secret" />
-          <p className="flex items-center gap-1 text-xs text-ink-muted">
+          <p className="flex items-center gap-1 text-meta text-ink-muted">
             <span>
               Check the <code>X-Calevate-Signature</code> header on every request.
             </span>
@@ -95,8 +96,13 @@ export function AddDestinationDrawer({
                   {kind === option.value && (
                     <CheckCircle2 aria-hidden className="absolute right-2 top-2 h-4 w-4 text-brand-strong" />
                   )}
-                  <span className="block pr-6 text-sm font-semibold text-ink">{option.label}</span>
-                  <span className="mt-0.5 block text-xs text-ink-faint">{option.hint}</span>
+                  <IconTile
+                    service={option.value === "sheet" ? "google_sheets" : null}
+                    icon={Webhook}
+                    className="mb-3"
+                  />
+                  <span className="block pr-6 text-body font-semibold text-ink">{option.label}</span>
+                  <span className="mt-0.5 block text-meta text-ink-faint">{option.hint}</span>
                 </label>
               ))}
             </div>

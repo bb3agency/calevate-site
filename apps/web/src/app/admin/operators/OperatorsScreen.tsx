@@ -108,7 +108,7 @@ export function OperatorsScreen({
   }
 
   return (
-    <div className="max-w-3xl space-y-6 pb-12">
+    <div className="max-w-3xl space-y-10 pb-12">
       <PageHeader
         description="Who can sign in to this console, and in which tier. Every change is recorded in the audit log against you."
         actions={
@@ -149,7 +149,7 @@ export function OperatorsScreen({
             The account exists and cannot sign in until they follow that link and choose their
             own password. It works once and expires within the hour.
           </p>
-          <p className="mt-2 text-xs">
+          <p className="mt-2 text-meta">
             We cannot show or forward the link — it is stored only as a fingerprint. If it does
             not arrive, use <span className="font-semibold">Resend setup link</span> on their
             row below, which invalidates the previous one.
@@ -159,7 +159,7 @@ export function OperatorsScreen({
 
       <section aria-labelledby="operators-list" className="space-y-2">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <h2 id="operators-list" className="text-[17px] font-semibold text-ink">
+          <h2 id="operators-list" className="text-heading text-ink">
             Admin accounts
           </h2>
           <InfoTip label="Admin accounts">
@@ -170,7 +170,7 @@ export function OperatorsScreen({
           {/* No count until the server has sent a list: "1 account" in flight is a claim
               about who can reach every client's data, made on no evidence. */}
           {operators && (
-            <span className="text-xs text-ink-faint">
+            <span className="text-meta text-ink-muted">
               {formatCount(operators.length)} {operators.length === 1 ? "account" : "accounts"}
             </span>
           )}
@@ -179,7 +179,7 @@ export function OperatorsScreen({
         {list.error != null && (
           <div className="space-y-2">
             <ProblemNotice error={list.error} onRetry={() => void list.refetch()} />
-            <p className="text-xs text-ink-muted">
+            <p className="text-meta text-ink-muted">
               No accounts are listed while that read is failing, including any this screen had
               already shown: a list that is thirty seconds stale would tell you somebody still
               has access after another super admin has taken it away.
@@ -207,7 +207,7 @@ export function OperatorsScreen({
             message={
               <>
                 No admin accounts are listed
-                <span className="mt-1 block text-[13px] text-ink-faint">
+                <span className="mt-1 block text-meta text-ink-muted">
                   That cannot be right — you are signed in to this console, so at least your own
                   account exists. Reload the page, and treat it as an incident if it stays empty.
                 </span>

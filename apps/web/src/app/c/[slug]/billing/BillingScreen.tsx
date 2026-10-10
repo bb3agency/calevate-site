@@ -6,7 +6,7 @@ import { Plus } from "lucide-react";
 
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import {
-  PRIMARY_BUTTON_LG,
+  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
@@ -370,7 +370,7 @@ export function BillingScreen({ slug }: { slug: string }) {
     }
     if (walletState(wallet.data) === "not-prepaid") return <InvoicedAccount />;
     return (
-      <div className="space-y-5">
+      <div className="space-y-10">
         <WalletHero
           wallet={wallet.data}
           funded={funded}
@@ -379,7 +379,7 @@ export function BillingScreen({ slug }: { slug: string }) {
             <button
               type="button"
               onClick={() => setAddingCredit(true)}
-              className={`${PRIMARY_BUTTON_LG} w-full justify-center lg:w-auto`}
+              className={`${PRIMARY_BUTTON} w-full justify-center sm:w-auto`}
             >
               <Plus aria-hidden className="h-4 w-4" />
               Add credit
@@ -418,7 +418,7 @@ export function BillingScreen({ slug }: { slug: string }) {
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="max-w-4xl space-y-10 pb-12">
       {header()}
       {/* D-525 + D-655: three peer views of the account's money under one header. */}
       <SegmentedControl

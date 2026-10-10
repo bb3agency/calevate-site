@@ -440,6 +440,9 @@ AREAS: tuple[Area, ...] = (
             # for one call, the input `workers/engine_charges` reconciles our metering
             # against — money, so this area's failures.
             "apps/api/crm/models.py",
+            # `heal_actions` (D-701) is an append-only ledger: every automatic step the
+            # healer took on a client's account, read in time order like `audit_log`.
+            "apps/api/healer/models.py",
         ),
         why=(
             "metering, credits, caps, rating and invoicing. Money arithmetic fails "

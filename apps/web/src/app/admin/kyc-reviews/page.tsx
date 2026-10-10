@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 
-import { Card, ProblemNotice, Skeleton } from "@/components/ui";
+import { ADMIN_PAGE_WIDE, HAIRLINE_LIST, ROW_HOVER } from "@/components/admin/kit";
+import { EmptyState } from "@/components/console/emptyState";
+import { PageHeader } from "@/components/console/pageHeader";
+import { ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 import { useKycReviewQueue } from "@/lib/api/kycReview";
 
@@ -26,26 +29,30 @@ export default function KycReviewsPage() {
   }
   const items = queue.data;
   return (
-    <Card title="Waiting for review">
+    <div className={ADMIN_PAGE_WIDE}>
+      <PageHeader description="Identity checks waiting for a reviewer, oldest first. Open one to see the files and decide." />
       {items.length === 0 ? (
-        <p className="text-sm text-ink-muted">Nothing is waiting for review.</p>
+        <EmptyState message="Nothing is waiting for review." />
       ) : (
-        <ul className="divide-y divide-line text-sm">
+        <ul aria-label="Waiting for review" className={HAIRLINE_LIST}>
           {items.map((item) => (
-            <li key={item.tenant_id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-              <Link href={`/admin/tenants/${item.tenant_id}/kyc`} className="font-semibold underline">
-                {item.name}
+            <li key={item.tenant_id}>
+              <Link
+                href={`/admin/tenants/${item.tenant_id}/kyc`}
+                className={`flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand sm:px-2 touch:min-h-11 ${ROW_HOVER}`}
+              >
+                <span className="text-body font-medium text-ink">{item.name}</span>
+                <span className="text-meta text-ink-muted">
+                  {item.kyc_path === "digilocker" ? "DigiLocker" : "Document review"}
+                  {item.owner_id_type ? ` · ${lookup(ID_TYPE_LABEL, item.owner_id_type) ?? item.owner_id_type}` : ""}
+                  {item.digilocker_required ? " · DigiLocker required" : ""}
+                  {item.submitted_at ? ` · sent ${formatIST(item.submitted_at)}` : ""}
+                </span>
               </Link>
-              <span className="text-ink-muted">
-                {item.kyc_path === "digilocker" ? "DigiLocker" : "Document review"}
-                {item.owner_id_type ? ` · ${lookup(ID_TYPE_LABEL, item.owner_id_type) ?? item.owner_id_type}` : ""}
-                {item.digilocker_required ? " · DigiLocker required" : ""}
-                {item.submitted_at ? ` · sent ${new Date(item.submitted_at).toLocaleDateString("en-IN")}` : ""}
-              </span>
             </li>
           ))}
         </ul>
       )}
-    </Card>
+    </div>
   );
 }

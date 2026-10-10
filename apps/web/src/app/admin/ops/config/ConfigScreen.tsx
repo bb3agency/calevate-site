@@ -7,7 +7,7 @@ import { KeyManagementPanel, SecretsPanel } from "@/app/admin/ops/SecretsPanel";
 import { WithheldPanel } from "@/app/admin/withheld";
 import { InfoTip } from "@/components/console/infoTip";
 import { SettingsLayout, useActiveSection } from "@/components/console/settingsLayout";
-import { Card, ProblemNotice, Skeleton } from "@/components/ui";
+import { ProblemNotice, Skeleton } from "@/components/ui";
 import { useOpsConfig, type ConfigList } from "@/lib/api/opsConfig";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
@@ -137,9 +137,9 @@ function ConfigFrame({
   });
 
   return (
-    <div className="space-y-5 pb-12">
+    <div className="max-w-4xl space-y-8 pb-12">
       <div className="space-y-3">
-        <p className="flex items-center gap-1 text-sm text-ink-muted">
+        <p className="flex items-center gap-1 text-body text-ink-muted">
           Changes are recorded in the audit log with your reason. Stored keys are never shown.
           <InfoTip label="Platform configuration">
             <p>
@@ -155,9 +155,9 @@ function ConfigFrame({
       </div>
 
       {waiting ? (
-        <Card>
+        <div>
           <Skeleton rows={4} label="Loading the platform configuration…" />
-        </Card>
+        </div>
       ) : filtering && config ? (
         <ConfigSearchResults
           config={config}
@@ -203,7 +203,7 @@ function SectionContent({
   maySecrets: Access;
   problem: ReactNode;
 }) {
-  const lead = hint ? <p className="-mt-2 mb-4 text-sm text-ink-muted">{hint}</p> : null;
+  const lead = hint ? <p className="-mt-2 mb-4 text-body text-ink-muted">{hint}</p> : null;
 
   if (id === CREDENTIALS_SECTION.id) {
     // THE SHARPEST EDGE IN EITHER CONSOLE: the withheld cards say what each panel is for
@@ -259,7 +259,7 @@ function SectionContent({
         <ConfigSectionBody section={section} config={config} access={mayConfigure} />
       ) : (
         // Unreachable while the menu is built from the same read; said rather than blank.
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           {SETTINGS_FALLBACK.hint} This section is not in the list the platform served.
         </p>
       )}

@@ -6,7 +6,7 @@ import { TrialStrip } from "@/app/c/[slug]/TrialBanner";
 import { TRIAL_LOCK_COPY } from "@/app/c/[slug]/TrialLockNotice";
 import type { TrialPanel } from "@/lib/api/trialCalls";
 
-import { activeTrialBlock, agentRow, prepaidWallet } from "./fixtures/sharedReads";
+import { OWNER_ME, activeTrialBlock, agentRow, prepaidWallet } from "./fixtures/sharedReads";
 import { renderClientPage } from "./harness";
 
 /**
@@ -84,6 +84,31 @@ describe("the test-call panel", () => {
       {
         "/v1/agents": [agent],
         "/v1/trial/calls": { status: "queued", call_handle: "out_1", blocked_reason: null, blocked_rule: null },
+        // The test call, read back once it lands (REDESIGN-2): this agent's newest call.
+        "/v1/me": OWNER_ME,
+        "/v1/calls?agent_id=agent-out&limit=1": [
+          { id: "call-t1", agent_id: "agent-out", direction: "outbound", status: "completed", started_at: new Date().toISOString() },
+        ],
+        "/v1/calls/call-t1": {
+          id: "call-t1",
+          agent_id: "agent-out",
+          agent_name: "Caller",
+          direction: "outbound",
+          status: "completed",
+          caller_e164: "+919876543210",
+          started_at: new Date().toISOString(),
+          duration_s: 40,
+          outcome_tag: "resolved",
+          sentiment: "neutral",
+          summary: "A test call.",
+          lead_id: null,
+          transcript: [{ idx: 0, speaker: "agent", text: "Hello, this is your test call.", lang: "en", start_ms: 0, redacted: true }],
+          extraction: {},
+          extraction_valid: true,
+          has_recording: false,
+          disclosure_played: true,
+          moments: [],
+        },
       },
     );
     const text = page.container.textContent ?? "";
@@ -101,6 +126,10 @@ describe("the test-call panel", () => {
     expect(JSON.parse(post!.body!)).toEqual({ agent_id: "agent-out", number: "9876543210" });
     expect(post?.headers["Idempotency-Key"]).toBeTruthy();
     expect(await screen.findByText("Calling now. The call appears under Calls once it ends.")).toBeTruthy();
+    // Then what was said, in place, redacted by default with its notice above.
+    expect(await screen.findByText("Hello, this is your test call.")).toBeTruthy();
+    expect(screen.getByText(/are hidden in/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open this call" }).getAttribute("href")).toBe("/c/acme/calls/call-t1");
   });
 
   it("asks for the promise first, and does not offer a call the server would refuse", async () => {

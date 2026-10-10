@@ -353,8 +353,7 @@ describe("what the invite flow shows", () => {
     });
 
     await screen.findByText("Anita");
-    // The invite form opens in a drawer from the header's Invite button (round-2).
-    fireEvent.click(screen.getByRole("button", { name: "Invite" }));
+    // The invite form is inline on the page since REDESIGN-2 (it was a drawer).
     fireEvent.change(
       await screen.findByRole("textbox", { name: "Email address to invite" }),
       {
@@ -368,8 +367,8 @@ describe("what the invite flow shows", () => {
       const post = calls.find((c) => c.method === "POST");
       expect(post?.path).toBe("/v1/invitations");
     });
-    // The confirmation renders in the invite drawer, which is portalled to <body>, so the
-    // page is read from there — a wider net for the token, not a narrower one.
+    // The confirmation renders under the inline form; the page is read from <body>, a
+    // wider net for the token, not a narrower one.
     // D-190: the token is not in the response and is therefore not on the screen. This
     // assertion used to be `toContain(created.token)` — the inversion is the fix.
     await waitFor(() =>

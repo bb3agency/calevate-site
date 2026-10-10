@@ -2,7 +2,7 @@
  * The desktop panel beside the client realm's sign-in and setup forms: the product, shown.
  *
  * Two slices of the console a client is signing in to — a live call and the lead it left —
- * built from the same mockup parts as the home page, with the same illustrative clinic.
+ * built from the same mockup parts as the home page, with the same illustrative business.
  * Exposed to assistive technology as one image with a short name, because to a screen
  * reader the content is decoration beside a form, not something to read through.
  */

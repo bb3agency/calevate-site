@@ -13,7 +13,6 @@ import { WriteFailure } from "@/app/admin/writeFailure";
 import { useFormValidation } from "@/components/formValidation";
 import { InfoTip } from "@/components/console/infoTip";
 import { Metric } from "@/components/console/metric";
-import { useToast } from "@/components/interior/toaster";
 import {
   FIELD,
   FIELD_HINT,
@@ -62,7 +61,6 @@ export function SuppressForm({
   const [source, setSource] = useState<GlobalDncSource>("regulator");
   const [reason, setReason] = useState("");
   const [confirm, setConfirm] = useState("");
-  const { toast } = useToast();
 
   // One parser and one ceiling with the client realm, so a paste from a regulator's email
   // behaves identically on both surfaces.
@@ -82,14 +80,10 @@ export function SuppressForm({
           mutation.mutate(
             { numbers: parsed, source, reason: reason.trim() },
             {
-              onSuccess: (result) => {
+              onSuccess: () => {
                 setPaste("");
                 setReason("");
                 setConfirm("");
-                toast({
-                  tone: "success",
-                  title: `${formatCount(result.added)} suppressed for every client`,
-                });
               },
             },
           );
@@ -98,7 +92,7 @@ export function SuppressForm({
         {/* What the button does, above the button: blast radius first, then what is NOT
             affected, then that it is recorded — an operator who reads only the first line
             has read the part that matters. */}
-        <div className="flex gap-3 rounded-card border border-danger-line bg-danger-soft/40 p-4 text-sm">
+        <div className="flex gap-3 border-l-2 border-danger py-1 pl-4 text-body">
           <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
           <div className="min-w-0">
             <p className="font-semibold text-ink">
@@ -115,7 +109,7 @@ export function SuppressForm({
               — that is a separate per-campaign scrub, recorded against the campaign it
               covers.
             </p>
-            <p className="mt-1 text-xs text-ink-muted">
+            <p className="mt-1 text-meta text-ink-muted">
               Recorded in the audit log under your admin account, together with the reason
               you type below — as counts, never as the numbers themselves.
             </p>
@@ -149,7 +143,7 @@ export function SuppressForm({
         {/* Stopped here rather than at the API's 422: the ceiling is the server's, and an
             operator who pasted a whole register should be told before they wait. */}
         {tooMany && (
-          <p className="text-sm text-warn">
+          <p className="text-body text-warn">
             That is {formatCount(parsed.length)} numbers. Add up to{" "}
             {formatCount(MAX_NUMBERS_PER_ADD)} at a time.
           </p>
@@ -208,7 +202,7 @@ export function SuppressForm({
 
         {/* A dead control with no explanation cannot be told apart from a broken page. */}
         {!access.allowed && access.reason && (
-          <p className="flex items-start gap-2 text-xs text-ink-muted">
+          <p className="flex items-start gap-2 text-meta text-ink-muted">
             <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             {access.reason}
           </p>
@@ -233,13 +227,13 @@ export function SuppressForm({
 
       {/* Counts, and only counts — the API never echoes the numbers back. */}
       {mutation.data && (
-        <section aria-label="Result" className="space-y-3 rounded-card border border-line p-4">
+        <section aria-label="Result" className="space-y-3 border-t border-line pt-4">
           <div className="grid grid-cols-3 gap-3">
             <Metric label="Suppressed" value={formatCount(mutation.data.added)} />
             <Metric label="Already suppressed" value={formatCount(mutation.data.already_suppressed)} />
             <Metric label="Not a usable number" value={formatCount(mutation.data.malformed)} />
           </div>
-          <p className="text-xs text-ink-muted">
+          <p className="text-meta text-ink-muted">
             Totals, not which number went where: a list of who must not be called is itself
             personal data.
           </p>
@@ -267,7 +261,6 @@ export function ReleaseConfirm({
   onDone: () => void;
 }) {
   const [confirm, setConfirm] = useState("");
-  const { toast } = useToast();
   const releasing = mutation.isPending && mutation.variables === entry.id;
   const number = formatPhone(entry.phone_e164);
 
@@ -275,7 +268,7 @@ export function ReleaseConfirm({
     <div className="space-y-4">
       {mutation.error != null && <WriteFailure error={mutation.error} actionLabel="Release" />}
 
-      <div className="flex gap-3 rounded-card border border-danger-line bg-danger-soft/40 p-4 text-sm">
+      <div className="flex gap-3 border-l-2 border-danger py-1 pl-4 text-body">
         <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
         <div className="min-w-0">
           <p className="font-semibold text-ink">
@@ -291,7 +284,7 @@ export function ReleaseConfirm({
             Reason on file:{" "}
             {entry.source ? dncSourceCopy(entry.source).label : "no source was recorded"}.
           </p>
-          <p className="mt-1 text-xs text-ink-muted">
+          <p className="mt-1 text-meta text-ink-muted">
             Recorded in the audit log under your admin account. The only way back is to add the
             number again.
           </p>
@@ -320,10 +313,7 @@ export function ReleaseConfirm({
           disabled={!confirmationMatches(confirm, "RELEASE", "exact") || releasing}
           onClick={() =>
             mutation.mutate(entry.id, {
-              onSuccess: () => {
-                toast({ tone: "success", title: "Suppression released" });
-                onDone();
-              },
+              onSuccess: () => onDone(),
             })
           }
           className={`${DANGER_BUTTON} max-sm:flex-1 max-sm:justify-center`}

@@ -42,7 +42,7 @@ import {
 } from "@/lib/api/numbers";
 import { useWorkspaceForget } from "@/lib/api/engineWorkspaces";
 
-import { StatePill } from "../statePill";
+import { StatusPill } from "@/components/admin/kit";
 
 type Agent = components["schemas"]["AgentOut"];
 
@@ -82,11 +82,11 @@ export function NumberRow({
   );
 
   return (
-    <li className="space-y-3 px-4 py-3.5 text-sm">
+    <li className="space-y-3 py-3.5 text-body sm:px-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="font-mono text-[15px] font-medium text-ink">{formatPhone(number.e164)}</span>
-        <StatePill>{number.series}</StatePill>
-        <span className="text-xs text-ink-muted">
+        <span className="font-mono text-body font-medium text-ink">{formatPhone(number.e164)}</span>
+        <StatusPill>{number.series}</StatusPill>
+        <span className="text-meta text-ink-muted">
           {number.engine_owned ? "we bought it" : "the client's own connection"}
           {number.engine_owned && number.monthly_rental_usd
             ? ` · $${number.monthly_rental_usd} / month`
@@ -94,9 +94,7 @@ export function NumberRow({
           {number.released ? " · released — no longer charged" : ""}
         </span>
         {number.platform_held && (
-          <span className="rounded-full border border-warn-line bg-warn-soft px-2 py-0.5 text-xs font-medium text-ink">
-            Held in the platform account (testing only)
-          </span>
+          <StatusPill tone="warn">Held in the platform account (testing only)</StatusPill>
         )}
         {/* A number the voice platform holds is released from its workspace panel
             (`EngineNumberActions`), the one path that also checks which workspace holds it.
@@ -105,7 +103,7 @@ export function NumberRow({
         {!number.released && number.on_engine && canWrite && (
           <span className="ml-auto">
             <RowMenu
-              label={number.e164}
+              label={formatPhone(number.e164)}
               items={[
                 {
                   id: "forget",
@@ -124,7 +122,7 @@ export function NumberRow({
         {number.engine_owned && !number.released && !number.on_engine && canWrite && (
           <span className="ml-auto">
             <RowMenu
-              label={number.e164}
+              label={formatPhone(number.e164)}
               items={[
                 {
                   id: "release",
@@ -162,19 +160,19 @@ export function NumberRow({
         <div className="space-y-2">
           {/* THE SENTENCE THAT WAS MISSING FROM EVERY SCREEN. It is a fact, not a
               warning tone, and it is stated before the control that changes it. */}
-          <p className="text-xs text-ink-muted">
+          <p className={number.agent_name ? "text-meta text-ink-muted" : "text-meta font-medium text-warn"}>
             {number.agent_name
               ? `Answered by ${number.agent_name}.`
               : "No agent answers this number. A call to it reaches nobody — publishing an agent will report success and this phone will not ring."}
           </p>
           {attach.error && <ProblemNotice error={attach.error} />}
           {agentsFailed ? (
-            <p className="text-xs text-ink-muted">
+            <p className="text-meta text-ink-muted">
               We could not read this client&apos;s agents, so the choice cannot be offered
               right now. Reload the page to try again.
             </p>
           ) : answering === undefined ? (
-            <p className="text-xs text-ink-muted">Reading this client&apos;s agents…</p>
+            <p className="text-meta text-ink-muted">Reading this client&apos;s agents…</p>
           ) : (
             <label className="flex flex-wrap items-end gap-2">
               <span className="flex flex-col gap-1">
@@ -199,21 +197,21 @@ export function NumberRow({
                   ))}
                 </select>
               </span>
-              {attach.isPending && <span className="text-xs text-ink-muted">Saving…</span>}
+              {attach.isPending && <span className="text-meta text-ink-muted">Saving…</span>}
             </label>
           )}
           {/* The server's own counts, never a cheerier sentence composed here: "we told
               the platform and it refused" and "the platform now answers" are different
               outcomes and an operator has to be able to tell them apart. */}
           {attach.data && (
-            <p className="text-xs text-ink-muted">{attachedSentence(attach.data)}</p>
+            <p className="text-meta text-ink-muted">{attachedSentence(attach.data)}</p>
           )}
         </div>
       )}
 
       {!number.engine_linked && !number.released && (
-        <div className="space-y-2 rounded-card border border-warn-line bg-warn-soft p-3">
-          <p className="text-xs text-ink-muted">
+        <div className="max-w-xl space-y-2 border-l-2 border-warn pl-3">
+          <p className="text-meta text-ink-muted">
             The voice platform has no handle for this number, so no agent can answer it —
             publishing one will report success and the phone will not ring. Paste the
             identifier from the voice platform&apos;s own number list.
@@ -221,7 +219,7 @@ export function NumberRow({
           {link.error && <ProblemNotice error={link.error} />}
           <div className="flex flex-wrap gap-2">
             <input
-              aria-label={`Voice platform identifier for ${number.e164}`}
+              aria-label={`Voice platform identifier for ${formatPhone(number.e164)}`}
               className={`flex-1 font-mono ${FIELD_INLINE}`}
               value={ref}
               disabled={!canWrite}
@@ -238,7 +236,7 @@ export function NumberRow({
             </button>
           </div>
           {link.data && (
-            <p className="text-xs text-ink-muted">
+            <p className="text-meta text-ink-muted">
               {link.data.failed > 0
                 ? "Recorded, but the voice platform refused the routing — the number is not answering yet."
                 : link.data.bound > 0

@@ -100,7 +100,7 @@ export function AssistPanel({
         )}
       </div>
       {assist.data?.disclosure && (
-        <div className="rounded-lg border border-line bg-app p-3 text-sm text-ink">
+        <div className="rounded-md bg-surface-muted p-3 text-sm text-ink">
           <p className="font-medium">How this draft was written</p>
           <p className="mt-1 text-ink-muted">{assist.data.disclosure}</p>
         </div>

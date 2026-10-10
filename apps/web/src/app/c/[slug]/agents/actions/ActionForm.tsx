@@ -14,6 +14,7 @@
 import { useCallback, useState } from "react";
 
 import { Section, TEXT_ACTION } from "@/components/console/section";
+import { ServiceLogo } from "@/components/console/serviceLogo";
 import { SettingRows } from "@/components/console/settingRow";
 import { useFormValidation } from "@/components/formValidation";
 import { Disclosure, FIELD, FIELD_HINT, FIELD_LABEL, PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
@@ -26,7 +27,7 @@ import {
 import type { Session } from "@/lib/api/client";
 
 import { AccountRow } from "./AccountRow";
-import { DEFAULT_INSTRUCTIONS, NAME_BASE, defaultParams, humanName, jobFor, uniqueName } from "./jobs";
+import { DEFAULT_INSTRUCTIONS, NAME_BASE, defaultParams, uniqueName } from "./jobs";
 import { KindFields, buildConfig, initialDraft, type KindDraft } from "./KindFields";
 import { ParamEditor } from "./ParamEditor";
 import { credentialKindFor, fromParam, toParam, type DraftParam, type Kind, type Provider } from "./params";
@@ -87,7 +88,6 @@ export function ActionForm({
   const update = useUpdateAction(session, agentId);
   const save = existing ? update : create;
   const valid = useFormValidation();
-  const job = jobFor(kind);
   const choices = PROVIDER_CHOICES[kind];
   const [provider, setProvider] = useState<Provider>(
     choices?.find((c) => c.value === existing?.provider)?.value ?? DEFAULT_PROVIDER[kind] ?? "custom",
@@ -150,15 +150,16 @@ export function ActionForm({
     >
       <Section
         headingLevel={3}
-        title={existing ? `Change “${humanName(existing.name)}”` : (job?.title ?? "New action")}
-        description={existing ? undefined : job?.line}
+        title={existing ? "Change the settings" : "Set it up"}
       >
         <div className="space-y-4">
           {choices ? (
             <label className="block max-w-sm">
               <span className={FIELD_LABEL}>{kind === "caller_lookup" ? "Look the caller up in" : "Using"}</span>
+              <span className="mt-1 flex items-center gap-2">
+              <ServiceLogo service={provider} className="h-5 w-5" />
               <select
-                className={FIELD}
+                className={`${FIELD} mt-0`}
                 value={provider}
                 onChange={(e) => {
                   const next = e.target.value as Provider;
@@ -176,6 +177,7 @@ export function ActionForm({
                   </option>
                 ))}
               </select>
+              </span>
             </label>
           ) : null}
 

@@ -5,10 +5,10 @@ import { AlertTriangle } from "lucide-react";
 
 import { ActionButton } from "@/components/actionButton";
 import { SuccessRipple } from "@/components/successRipple";
+import { Section } from "@/components/console/section";
 import {
-  Card,
   NoticeBox,
-  PRIMARY_BUTTON_SM,
+  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -95,8 +95,8 @@ export function GoLivePanel({
   const publish = usePublishAgent({ tenantId, agentId, slug });
 
   return (
-    <Card title="Voice platform">
-      <div className="mt-1 space-y-3">
+    <Section title="Voice platform" headingLevel={3}>
+      <div className="space-y-4">
         <RestrictionNote reason={write.reason} />
         {publish.error && <ProblemNotice error={publish.error} />}
 
@@ -104,7 +104,7 @@ export function GoLivePanel({
           <Skeleton rows={2} />
         ) : !pending ? (
           !readFailed && (
-            <p className="text-xs text-ink-muted">
+            <p className="text-meta text-ink-muted">
               We could not read whether this agent is on the voice platform, so there is
               nothing to act on here yet.
             </p>
@@ -125,10 +125,10 @@ export function GoLivePanel({
             icon={<AlertTriangle className="h-5 w-5" />}
             title="This agent cannot be published from here"
           >
-            <p className="mt-0.5 text-xs">{pending.engine_verification.headline}</p>
+            <p className="mt-0.5">{pending.engine_verification.headline}</p>
           </NoticeBox>
         ) : pending.published ? (
-          <p className="text-sm text-ink-muted">
+          <p className="text-body text-ink-muted">
             This agent is on the voice platform. Script changes reach it through Apply to
             live calls.
           </p>
@@ -139,7 +139,7 @@ export function GoLivePanel({
               icon={<AlertTriangle className="h-5 w-5" />}
               title="This agent has never reached the voice platform"
             >
-              <p className="mt-0.5 text-xs">
+              <p className="mt-0.5">
                 Nothing dials it and nothing answers on it. Publishing creates the agent
                 on the platform and records the routing that lets an inbound call find
                 this client.
@@ -161,7 +161,7 @@ export function GoLivePanel({
               >
                 Publish to the voice platform
               </ActionButton>
-              <span className="text-xs text-ink-muted">
+              <span className="text-meta text-ink-muted">
                 {hasAScript === false
                   ? "This agent has no script yet — the client's business profile, or a version saved in Script, gives it one."
                   : "A test call and a re-check of the standard scripts are meant to happen before this. Neither is automated here yet, so this button only publishes the agent — it does not sign anything off."}
@@ -179,14 +179,14 @@ export function GoLivePanel({
               aria-hidden
               sizeClassName="h-10 w-10 shrink-0 sm:h-12 sm:w-12"
             />
-            <p className="text-xs text-ink-muted">
+            <p className="text-meta text-ink-muted">
               Published — the platform holds this agent as{" "}
               <span className="font-mono">{publish.data.engine_agent_ref}</span>.
             </p>
           </div>
         )}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -231,11 +231,14 @@ export function PublishingPanel({
   const busy = apply.isPending || undo.isPending;
 
   return (
-    <Card title="Publishing">
-      {/* The precedence rule §2b asks to be stated in the UI, in the server's own
-          words — the same sentence the client sees on their agents screen. */}
-      {pending && <p className="-mt-2 text-xs text-ink-muted">{pending.precedence_rule}</p>}
-      <div className="mt-3 space-y-3">
+    <Section
+      title="Publishing"
+      headingLevel={3}
+      // The precedence rule §2b asks to be stated in the UI, in the server's own words —
+      // the same sentence the client sees on their agents screen.
+      description={pending?.precedence_rule}
+    >
+      <div className="space-y-4">
         <RestrictionNote reason={write.reason} />
         {error != null && <ProblemNotice error={error} onRetry={onRetry} />}
         {apply.error && <ProblemNotice error={apply.error} />}
@@ -245,7 +248,7 @@ export function PublishingPanel({
           <Skeleton rows={2} />
         ) : !pending ? (
           error == null && (
-            <p className="text-xs text-ink-muted">
+            <p className="text-meta text-ink-muted">
               Publishing state is unavailable for this agent.
             </p>
           )
@@ -256,15 +259,15 @@ export function PublishingPanel({
               icon={<AlertTriangle className="h-5 w-5" />}
               title={staged.headline}
             >
-              <p className="mt-0.5 text-xs">{staged.why}</p>
-              <p className="mt-0.5 text-xs opacity-80">Staged {formatIST(staged.staged_at)}</p>
+              <p className="mt-0.5">{staged.why}</p>
+              <p className="mt-0.5">Staged {formatIST(staged.staged_at)}</p>
             </NoticeBox>
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 disabled={busy || !write.allowed}
                 onClick={() => apply.mutate({ expected_version: staged.staged_version })}
-                className={PRIMARY_BUTTON_SM}
+                className={PRIMARY_BUTTON}
               >
                 {apply.isPending ? "Applying…" : "Apply to live calls"}
               </button>
@@ -276,7 +279,7 @@ export function PublishingPanel({
               >
                 {undo.isPending ? "Undoing…" : "Undo"}
               </button>
-              <span className="text-xs text-ink-muted">
+              <span className="text-meta text-ink-muted">
                 {pending.published
                   ? "Apply pushes this script to the voice platform now."
                   : "This agent is not on the voice platform yet, so Apply moves our pointer only."}
@@ -284,13 +287,13 @@ export function PublishingPanel({
             </div>
           </>
         ) : (
-          <p className="text-sm text-ink-muted">
+          <p className="text-body text-ink-muted">
             Nothing staged. The live script is what the client&apos;s dashboard describes.
           </p>
         )}
 
         {apply.data && (
-          <p className="text-xs text-ink-muted">
+          <p className="text-meta text-ink-muted">
             {apply.data.applied
               ? `Applied — callers now hear v${apply.data.live_version}.`
               : `Nothing to apply — v${apply.data.live_version} was already live.`}
@@ -301,7 +304,7 @@ export function PublishingPanel({
           </p>
         )}
         {undo.data && (
-          <p className="text-xs text-ink-muted">
+          <p className="text-meta text-ink-muted">
             {undo.data.undone
               ? `Discarded v${undo.data.discarded_version}. The draft is back to v${undo.data.live_version ?? "—"}; the discarded version stays in the history.`
               : "Nothing was staged, so nothing was discarded."}
@@ -317,7 +320,7 @@ export function PublishingPanel({
           />
         )}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -357,15 +360,15 @@ function LiveConfirmation({
   const engineState = useTenantEngineState(slug, agentId, checking);
 
   return (
-    <div className="rounded-card border border-line p-3">
+    <div className="border-t border-line pt-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-[12px] font-medium text-ink-muted">
+          <h4 className="text-body font-semibold text-ink">
             What the voice platform was confirmed to be running
-          </p>
-          <p className="mt-1 text-xs text-ink">{verification.headline}</p>
+          </h4>
+          <p className="mt-1 text-meta text-ink">{verification.headline}</p>
           {verification.confirmed && verification.verified_at && (
-            <p className="mt-0.5 text-xs text-ink-muted">
+            <p className="mt-0.5 text-meta text-ink-muted">
               Confirmed {formatIST(verification.verified_at)}.
             </p>
           )}
@@ -389,7 +392,7 @@ function LiveConfirmation({
         /* The reason this agent has nothing to confirm, said once here as well as on the
            publish panel: an operator who scrolls straight to this card must not read
            "nothing confirmed" as a publish that went wrong. */
-        <p className="mt-2 text-xs text-ink-muted">
+        <p className="mt-2 text-meta text-ink-muted">
           Publishing is not available on this voice platform, so there is nothing to
           confirm.
         </p>
@@ -399,7 +402,7 @@ function LiveConfirmation({
         /* Amber and unmissable, because the failure this covers looks like success from
            every other angle: the agent says `live`, the version list says the right
            number, and nobody has established that a caller hears any of it. */
-        <p className="mt-2 text-xs text-warn">
+        <p className="mt-2 text-meta text-warn">
           Nothing here is wrong yet — it is unconfirmed. Publish again, or check now, to
           find out which.
         </p>
@@ -416,8 +419,8 @@ function LiveConfirmation({
               <p
                 className={
                   engineState.data.in_sync
-                    ? "text-xs text-ink"
-                    : "text-xs font-medium text-warn"
+                    ? "text-meta text-ink"
+                    : "text-meta font-medium text-warn"
                 }
               >
                 {engineState.data.detail}
@@ -483,8 +486,8 @@ function PropertyVerdict({ label, verdict }: { label: string; verdict: boolean |
         : "text-ink-muted";
   return (
     <div>
-      <dt className="text-[12px] font-medium text-ink-muted">{label}</dt>
-      <dd className={`text-sm font-medium ${tone}`}>{reading}</dd>
+      <dt className="text-meta font-medium text-ink-muted">{label}</dt>
+      <dd className={`text-body font-medium ${tone}`}>{reading}</dd>
     </div>
   );
 }

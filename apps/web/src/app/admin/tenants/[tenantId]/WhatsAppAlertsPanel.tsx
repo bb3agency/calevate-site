@@ -1,10 +1,11 @@
 "use client";
 
+import { ServiceLogo } from "@/components/console/serviceLogo";
 import { useState } from "react";
 import { BellOff, BellRing } from "lucide-react";
 
+import { Section } from "@/components/console/section";
 import {
-  Card,
   FIELD,
   FIELD_LABEL,
   NoticeBox,
@@ -61,9 +62,13 @@ export function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
   const ready = write.allowed && reference.trim().length > 0 && !record.isPending;
 
   return (
-    <Card
-      title="WhatsApp alerts to the owner"
-      density="compact"
+    <Section
+      title={
+        <span className="inline-flex items-center gap-2">
+          <ServiceLogo service="whatsapp" className="h-5 w-5" />
+          WhatsApp alerts to the owner
+        </span>
+      }
       info="Hot-lead alerts go to the owner's mobile only if they have agreed to receive them. Record an agreement given during onboarding here; the client can turn it on or off themselves on their own Alerts screen."
     >
       <RestrictionNote reason={write.reason} />
@@ -116,7 +121,7 @@ export function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
 
           {record.error && <ProblemNotice error={record.error} />}
 
-          <label className="block">
+          <label className="block max-w-sm">
             <span className={FIELD_LABEL}>Where the agreement is filed</span>
             <input
               value={reference}
@@ -125,7 +130,7 @@ export function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
               placeholder="e.g. ONB-2026-0042, or a ticket id"
               className={FIELD}
             />
-            <span className="mt-1 block text-xs text-ink-faint">
+            <span className="mt-1 block text-meta text-ink-muted">
               A reference, never the document itself. A grant without one is refused by the
               service and by the database.
             </span>
@@ -162,6 +167,6 @@ export function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
           </div>
         </div>
       )}
-    </Card>
+    </Section>
   );
 }

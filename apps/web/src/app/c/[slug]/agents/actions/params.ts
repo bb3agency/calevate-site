@@ -85,9 +85,9 @@ export function credentialKindFor(kind: Kind, provider: Provider): CredKind | nu
 /** The call facts a parameter can be bound to instead of a typed or AI-decided value. */
 export const LEAD_VARS: { value: string; label: string }[] = [
   { value: "caller_phone", label: "Caller's phone number" },
-  { value: "from_number", label: "From number" },
-  { value: "to_number", label: "To number" },
-  { value: "call_sid", label: "Call id" },
+  { value: "from_number", label: "The number the call came from" },
+  { value: "to_number", label: "The number that was called" },
+  { value: "call_sid", label: "This call's reference" },
 ];
 
 /**

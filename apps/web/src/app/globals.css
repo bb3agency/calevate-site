@@ -35,6 +35,8 @@
      are different colours on purpose — the shell reads as recessed. */
   --app: #fafafa;
   --surface: #ffffff;
+  /* A quiet tint on the white ground: an inline status line, a read-only well. */
+  --surface-muted: #f5f6f8;
   --line: #e2e8f0;
 
   --text: #171a1c;
@@ -154,6 +156,7 @@
 .dark {
   --app: #020617;
   --surface: #0f172a;
+  --surface-muted: #131c31;
   --line: #1e293b;
 
   --text: #f8fafc;
@@ -178,6 +181,7 @@
 
   --color-app: var(--app);
   --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
   --color-line: var(--line);
 
   --color-ink: var(--text);

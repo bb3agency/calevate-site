@@ -51,7 +51,7 @@ const NO_OVERRIDE: OverrideDraft = { lotId: "", packId: "", confirm: "", reason:
 /** Said wherever the re-price control is withheld for want of a pack ladder. */
 export function NoPackLadder() {
   return (
-    <p className="text-xs text-ink-faint">
+    <p className="text-meta text-ink-muted">
       Re-pricing a lot at another pack&apos;s rates is not offered here: this deployment
       sent no pack ladder, and a control that let you choose a pack whose rates it could
       not show you would be re-pricing a client&apos;s minutes blind.
@@ -93,7 +93,7 @@ export function OverrideForm({
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-ink-muted">
+      <p className="text-meta text-ink-muted">
         For a promotion or a negotiated deal: {clientName}&apos;s credit stays exactly as
         it is, and the minutes it buys become cheaper. It changes a term this client was
         sold, so it is recorded in the audit log with your reason and cannot be undone —
@@ -107,7 +107,7 @@ export function OverrideForm({
           icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
           title="Re-priced — the lot now carries that pack's rates"
         >
-          <p className="mt-1 text-xs">
+          <p className="mt-1">
             The lot list has been re-read. Credit did not move; only what a minute drawn
             from that lot costs.
           </p>

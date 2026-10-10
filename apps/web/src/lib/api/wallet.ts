@@ -321,6 +321,25 @@ export function walletEntryLabel(entry: Pick<WalletEntry, "label" | "reason">): 
 export type WalletState = "trial" | "stopped" | "low" | "healthy" | "not-prepaid";
 
 /**
+ * CREDIT AS MINUTES FIRST (founder, REDESIGN-2): "About 240 minutes left", from the
+ * server's own `minutes_left` per voice tier, never a rate computed here. One tier is one
+ * figure; two tiers that differ are a range, because what a minute costs depends on the
+ * voice. `null` (this deployment quotes no rate) returns null and the caller shows rupees
+ * alone; it is never read as zero.
+ */
+export function minutesLeftPhrase(wallet: Pick<Wallet, "minutes_left">): string | null {
+  const tiers = wallet.minutes_left;
+  if (!tiers || tiers.length === 0) return null;
+  const counts = tiers.map((t) => t.minutes);
+  const low = Math.min(...counts);
+  const high = Math.max(...counts);
+  const n = (v: number) => v.toLocaleString("en-IN");
+  if (high === 0) return "No minutes left";
+  if (low === high) return `About ${n(low)} ${low === 1 ? "minute" : "minutes"} left`;
+  return `About ${n(low)} to ${n(high)} minutes left`;
+}
+
+/**
  * `trial` is checked BEFORE `low` because `is_low` is a plain balance comparison and stays
  * true for a ₹0.00 wallet throughout a trial (D-536), when an empty wallet stops nothing.
  * The server already answers `outbound_stopped: false` during a trial; without this arm the

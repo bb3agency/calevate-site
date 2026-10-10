@@ -21,8 +21,10 @@ import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
+  QUIET_ICON_BUTTON,
   SECONDARY_BUTTON_SM,
 } from "@/components/ui";
+import { TEXT_ACTION } from "@/components/console/section";
 import type { FaqEntry, ScriptStep } from "@/lib/api/script";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
@@ -124,11 +126,11 @@ export function StepsSection({
         A loose outline the agent follows, one thing at a time. Drag the handle to reorder,
         or use the up/down buttons.
       </span>
-      <ol className="mt-3 space-y-3">
+      <ol className="mt-3 divide-y divide-line border-y border-line">
         {steps.map((step, i) => (
           <li
             key={i}
-            className="flex items-start gap-2 rounded-md border border-line bg-surface p-2"
+            className="flex items-start gap-2 py-3"
             draggable
             onDragStart={() => (dragFrom.current = i)}
             onDragOver={(e) => e.preventDefault()}
@@ -159,7 +161,7 @@ export function StepsSection({
             <div className="mt-1 flex flex-col gap-1">
               <button
                 type="button"
-                className={SECONDARY_BUTTON_SM}
+                className={QUIET_ICON_BUTTON}
                 aria-label={`Move step ${i + 1} up`}
                 disabled={i === 0}
                 onClick={() => move(i, i - 1)}
@@ -168,7 +170,7 @@ export function StepsSection({
               </button>
               <button
                 type="button"
-                className={SECONDARY_BUTTON_SM}
+                className={QUIET_ICON_BUTTON}
                 aria-label={`Move step ${i + 1} down`}
                 disabled={i === steps.length - 1}
                 onClick={() => move(i, i + 1)}
@@ -177,7 +179,7 @@ export function StepsSection({
               </button>
               <button
                 type="button"
-                className={SECONDARY_BUTTON_SM}
+                className={QUIET_ICON_BUTTON}
                 aria-label={`Remove step ${i + 1}`}
                 onClick={() => remove(i)}
               >
@@ -187,7 +189,7 @@ export function StepsSection({
           </li>
         ))}
       </ol>
-      <button type="button" className={`${SECONDARY_BUTTON_SM} mt-3`} onClick={add}>
+      <button type="button" className={`${TEXT_ACTION} mt-3 inline-flex items-center gap-1`} onClick={add}>
         <Plus aria-hidden className="h-3.5 w-3.5" />
         Add step
       </button>
@@ -220,14 +222,14 @@ export function FaqSection({
         The agent answers these ONLY from what you write here. For anything else it uses the
         don&apos;t-know reply below rather than guessing.
       </span>
-      <div className="mt-3 space-y-3">
+      <div className="mt-3 divide-y divide-line border-y border-line">
         {faqs.map((faq, i) => (
-          <div key={i} className="rounded-md border border-line bg-surface p-3">
+          <div key={i} className="space-y-2 py-4">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-ink-muted">Q&amp;A {i + 1}</span>
               <button
                 type="button"
-                className={SECONDARY_BUTTON_SM}
+                className={QUIET_ICON_BUTTON}
                 aria-label={`Remove question ${i + 1}`}
                 onClick={() => remove(i)}
               >
@@ -254,7 +256,7 @@ export function FaqSection({
           </div>
         ))}
       </div>
-      <button type="button" className={`${SECONDARY_BUTTON_SM} mt-3`} onClick={add}>
+      <button type="button" className={`${TEXT_ACTION} mt-3 inline-flex items-center gap-1`} onClick={add}>
         <Plus aria-hidden className="h-3.5 w-3.5" />
         Add question
       </button>

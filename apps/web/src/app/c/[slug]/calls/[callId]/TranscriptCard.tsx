@@ -77,7 +77,7 @@ export function TranscriptCard({
             in your account&apos;s audit log against your name.
           </NoticeBox>
         ) : (
-          <p className="flex items-start gap-2 rounded-md bg-ink/[0.03] px-3 py-2 text-[13px] text-ink-muted">
+          <p className="flex items-start gap-2 rounded-md bg-ink/[0.03] px-3 py-2 text-meta text-ink-muted">
             <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-strong" />
             <span>
               Personal details — phone numbers, account numbers, dates of birth — are hidden in
@@ -93,7 +93,10 @@ export function TranscriptCard({
         )}
 
         {turns.length ? (
-          <ol className="space-y-2.5">
+          // A PLAIN SCRIPT, not chat bubbles (founder, REDESIGN-2): who spoke, small and
+          // muted, then what they said, with space between turns. The turn the recording is
+          // playing gets a quiet brand rule on its left.
+          <ol className="space-y-5">
             {turns.map((turn, i) => {
               const speaker = lookup(SPEAKERS, turn.speaker);
               const Icon = speaker?.icon ?? User;
@@ -121,23 +124,19 @@ export function TranscriptCard({
               // Caller on the left, agent on the right: the convention a chat reader
               // already has, and the same sides the live speaking indicator uses.
               const body = (
-                <span className={`flex w-full ${agent ? "justify-end" : "justify-start"}`}>
+                <span
+                  className={`block w-full border-l-2 pl-3 text-left ${active ? "border-brand" : "border-transparent"}`}
+                >
                   <span
-                    className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-left ${
-                      agent ? "rounded-br-md bg-brand-soft" : "rounded-bl-md bg-ink/[0.045]"
-                    } ${active ? "ring-2 ring-brand/60" : ""}`}
+                    className={`flex items-baseline gap-2 text-meta ${agent ? "text-brand-strong" : "text-ink-muted"}`}
                   >
-                    <span className="flex items-baseline gap-2 text-[12px] font-medium text-ink-muted">
-                      <Icon aria-hidden className="h-3 w-3 self-center" />
-                      {name}
-                      {at !== null && at !== undefined && (
-                        <span className="font-normal tabular-nums text-ink-faint">
-                          {formatClock(at / 1000)}
-                        </span>
-                      )}
-                    </span>
-                    <span className="mt-0.5 block text-[14px] leading-relaxed text-ink">{turn.text}</span>
+                    <Icon aria-hidden className="h-3 w-3 self-center" />
+                    {name}
+                    {at !== null && at !== undefined && (
+                      <span className="tabular-nums text-ink-faint">{formatClock(at / 1000)}</span>
+                    )}
                   </span>
+                  <span className="mt-1 block max-w-prose text-body leading-relaxed text-ink">{turn.text}</span>
                 </span>
               );
               return (
@@ -148,7 +147,7 @@ export function TranscriptCard({
                       onClick={() => onSeek(at)}
                       aria-label={`Play from ${formatClock(at / 1000)}, ${name}`}
                       aria-current={active ? "true" : undefined}
-                      className="flex w-full rounded-2xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand [&:hover>span>span]:brightness-[0.97]"
+                      className="flex w-full rounded-sm text-left hover:bg-ink/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                     >
                       {body}
                     </button>

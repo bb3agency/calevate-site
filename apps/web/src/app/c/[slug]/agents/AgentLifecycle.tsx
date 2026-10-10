@@ -203,7 +203,7 @@ export function AgentLifecycle({
                  two sibling buttons would silently take away. */
               <div
                 role="status"
-                className="mt-3 rounded-lg border border-danger-line bg-danger-soft p-3 text-xs text-ink"
+                className="mt-3 rounded-md border border-danger-line bg-danger-soft px-3 py-2 text-xs text-ink"
               >
                 <p className="font-semibold">{copy.confirm.title}</p>
                 <ul className="mt-2 list-inside list-disc space-y-1">

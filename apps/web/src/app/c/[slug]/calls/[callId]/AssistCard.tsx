@@ -142,8 +142,8 @@ function AssistAnswer({
   answer: { summary: string; disclosure: string | null; metered: boolean };
 }) {
   return (
-    <div className="space-y-2 rounded-card border border-line bg-canvas p-4">
-      <p className="text-[12px] font-medium text-ink-faint">
+    <div className="space-y-2 border-l-2 border-line pl-4">
+      <p className="text-meta font-medium text-ink-faint">
         The assistant&apos;s summary
       </p>
       {answer.summary.trim() ? (

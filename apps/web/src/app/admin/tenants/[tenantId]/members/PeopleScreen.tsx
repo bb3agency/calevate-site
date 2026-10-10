@@ -1,5 +1,6 @@
 "use client";
 
+import { EmptySketch } from "@/components/console/emptySketch";
 import { useState } from "react";
 import { CheckCircle2, KeyRound, UserPlus } from "lucide-react";
 
@@ -7,8 +8,9 @@ import { ActionButton } from "@/components/actionButton";
 import { Drawer } from "@/components/console/drawer";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
+import { HAIRLINE_LIST } from "@/components/admin/kit";
+import { Section } from "@/components/console/section";
 import {
-  Card,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -136,7 +138,7 @@ export function PeopleScreen({ tenantId }: { tenantId: string }) {
   );
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-4xl space-y-10">
       <PageHeader
         title="People"
         description="Who can sign in to this account, and the invitations still waiting."
@@ -145,10 +147,8 @@ export function PeopleScreen({ tenantId }: { tenantId: string }) {
 
       <RestrictionNote reason={write.reason} />
 
-      <Card
+      <Section
         title="Members"
-        density="compact"
-        bodyClassName="pb-1"
         info={
           <>
             {Object.values(ROLE_COPY).map((copy) => (
@@ -164,26 +164,29 @@ export function PeopleScreen({ tenantId }: { tenantId: string }) {
         }
       >
         {members.isLoading ? (
-          <div className="px-4 pb-3">
+          <div>
             <Skeleton rows={3} />
           </div>
         ) : members.error || !members.data ? (
           /* A read that FAILED must never render as "nobody has access" — an operator who
              believed that would hand out a new owner invitation to an account that already
              has one, or conclude the client is locked out when they are not. */
-          <div className="px-4 pb-3">
+          <div>
             <ProblemNotice
               error={members.error ?? new Error("The member list did not load.")}
               onRetry={() => members.refetch()}
             />
           </div>
         ) : members.data.length === 0 ? (
+          // No button here: "Invite somebody" in the header is this page's one action.
           <EmptyState
             message="Nobody has signed in to this account yet."
-            action={inviteAction}
+            illustration={
+              <EmptySketch kind="leads" />
+            }
           />
         ) : (
-          <ul className="divide-y divide-line border-t border-line">
+          <ul aria-label="Members" className={HAIRLINE_LIST}>
             {members.data.map((member) => (
               <MemberRow
                 key={member.user_id}
@@ -195,23 +198,21 @@ export function PeopleScreen({ tenantId }: { tenantId: string }) {
             ))}
           </ul>
         )}
-      </Card>
+      </Section>
 
-      <Card
+      <Section
         title="Waiting to sign up"
-        density="compact"
-        bodyClassName="pb-1"
         info="A link sits in somebody's inbox until they redeem it. Re-sending cuts a fresh link and kills the previous one in the same movement, so it is safe to press twice. The link itself is emailed and never shown here."
       >
         {invitations.isLoading ? (
-          <div className="px-4 pb-3">
+          <div>
             <Skeleton rows={2} />
           </div>
         ) : invitations.error || !invitations.data ? (
           /* §52: "no invitation is outstanding" must never be said about a read that
              failed — an operator who believes it issues a second link to an address that
              already holds one. */
-          <div className="px-4 pb-3">
+          <div>
             <ProblemNotice
               error={invitations.error ?? new Error("The invitation list did not load.")}
               onRetry={() => invitations.refetch()}
@@ -220,13 +221,13 @@ export function PeopleScreen({ tenantId }: { tenantId: string }) {
         ) : invitations.data.length === 0 ? (
           <EmptyState message="Nobody is holding a key to this account: no invitation is outstanding." />
         ) : (
-          <ul className="divide-y divide-line border-t border-line">
+          <ul aria-label="Waiting to sign up" className={HAIRLINE_LIST}>
             {invitations.data.map((invite) => (
               <InviteRow key={invite.id} tenantId={tenantId} invite={invite} write={inviteWrite} />
             ))}
           </ul>
         )}
-      </Card>
+      </Section>
 
       {/* The owner's WhatsApp consent is a fact about a person on this account, recorded
           here when it was given off-screen (onboarding call, signed form). */}
@@ -320,7 +321,7 @@ function InviteForm({
             Send the invitation
           </ActionButton>
           {malformed && (
-            <span className="text-xs text-warn">Enter the address the link should go to.</span>
+            <span className="text-meta text-warn">Enter the address the link should go to.</span>
           )}
         </div>
       </form>
@@ -328,7 +329,7 @@ function InviteForm({
       {invite.error != null && <ProblemNotice error={invite.error} />}
       {invite.data != null && (
         <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
-          <p className="text-xs">
+          <p>
             The invitation is queued for delivery and the link is good for{" "}
             {invite.data.expires_in_hours} hours. It appears under Waiting to sign up, where it
             can be re-sent or cancelled.

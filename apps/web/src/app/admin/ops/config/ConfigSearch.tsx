@@ -28,7 +28,7 @@ export function ConfigSearchBar({
         <span className="sr-only">Search settings</span>
         <Search
           aria-hidden
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint"
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted"
         />
         <input
           type="search"
@@ -69,7 +69,7 @@ export function ConfigSearchResults({
   return (
     <section aria-labelledby="config-search-heading" className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="config-search-heading" className="text-[17px] font-semibold text-ink">
+        <h2 id="config-search-heading" className="text-heading text-ink">
           Matching settings
         </h2>
         <button type="button" onClick={onClear} className={SECONDARY_BUTTON_SM}>
@@ -78,14 +78,14 @@ export function ConfigSearchResults({
         </button>
       </div>
       {/* Polite: the count follows typing and must not interrupt it. */}
-      <p role="status" className="text-sm text-ink-muted">
+      <p role="status" className="text-body text-ink-muted">
         {count === 0
           ? "No setting matches. Panels such as the rate card and model prices are not searched; open their section."
           : `${count === 1 ? "1 setting" : `${count} settings`} in ${groups.length === 1 ? "1 section" : `${groups.length} sections`}.`}
       </p>
       {groups.map(({ section, fields }) => (
         <section key={section.id} aria-labelledby={`config-search-${section.id}`} className="space-y-2">
-          <h3 id={`config-search-${section.id}`} className="text-sm font-semibold text-ink">
+          <h3 id={`config-search-${section.id}`} className="text-body font-semibold text-ink">
             {section.label}
           </h3>
           <SettingsList fields={fields} access={access} />

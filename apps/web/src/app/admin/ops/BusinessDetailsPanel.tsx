@@ -1,6 +1,7 @@
 "use client";
 
-import { Card, NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import { Section } from "@/components/console/section";
+import { NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import { useEngineBusinessDetails, type EngineBusinessDetails } from "@/lib/api/numbers";
 import { lookup } from "@/lib/lookup";
 
@@ -29,16 +30,16 @@ export function BusinessDetailsPanel() {
 
   if (details.isLoading) {
     return (
-      <Card title="Platform account: business details">
+      <Section title="Platform account: business details">
         <Skeleton rows={2} />
-      </Card>
+      </Section>
     );
   }
   if (details.error) {
     return (
-      <Card title="Platform account: business details">
+      <Section title="Platform account: business details">
         <ProblemNotice error={details.error} onRetry={() => void details.refetch()} />
-      </Card>
+      </Section>
     );
   }
   const data = details.data;
@@ -49,7 +50,7 @@ export function BusinessDetailsPanel() {
 function BusinessDetailsCard({ data }: { data: EngineBusinessDetails }) {
   const status = data.status ?? "unknown";
   return (
-    <Card
+    <Section
       title={`Platform account: ${data.platform ?? "voice platform"} business details`}
       info={
         <p>
@@ -60,7 +61,7 @@ function BusinessDetailsCard({ data }: { data: EngineBusinessDetails }) {
         </p>
       }
     >
-      <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[max-content_1fr]">
+      <dl className="grid gap-x-6 gap-y-2 text-body sm:grid-cols-[max-content_1fr]">
         <dt className="text-ink-muted">Status</dt>
         <dd className="font-medium text-ink">{lookup(STATUS_COPY, status) ?? STATUS_COPY.unknown}</dd>
         <dt className="text-ink-muted">Can rent a number</dt>
@@ -86,6 +87,6 @@ function BusinessDetailsCard({ data }: { data: EngineBusinessDetails }) {
           </NoticeBox>
         </div>
       )}
-    </Card>
+    </Section>
   );
 }

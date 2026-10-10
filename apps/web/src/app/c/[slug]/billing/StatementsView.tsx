@@ -5,6 +5,7 @@ import { Printer } from "lucide-react";
 
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { Drawer } from "@/components/console/drawer";
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { InvoiceDocument } from "@/components/invoiceDocument";
 import {
@@ -47,8 +48,8 @@ export function StatementsView({ session, allowed }: { session: Session; allowed
       cell: (row) => (
         <span className="block">
           <span className="font-medium text-ink">{formatBillingMonth(row.month)}</span>
-          {!row.closed && <span className="ml-1.5 text-xs text-ink-muted">so far</span>}
-          <span className="block font-mono text-xs text-ink-faint">{row.invoice_number}</span>
+          {!row.closed && <span className="ml-1.5 text-meta text-ink-muted">so far</span>}
+          <span className="block font-mono text-meta text-ink-muted">{row.invoice_number}</span>
         </span>
       ),
     },
@@ -103,7 +104,7 @@ export function StatementsView({ session, allowed }: { session: Session; allowed
       ) : !statements.data ? (
         <Skeleton rows={4} label="Loading your statements" />
       ) : rows.length === 0 ? (
-        <EmptyState message="No statements yet. Your first one appears at the end of your first month." />
+        <EmptyState illustration={<EmptySketch kind="deliveries" />} message="No statements yet. Your first one appears at the end of your first month." />
       ) : (
         <>
           <DataTable
@@ -111,7 +112,7 @@ export function StatementsView({ session, allowed }: { session: Session; allowed
             columns={columns}
             rows={rows}
             getRowId={(row) => row.month}
-            className="rounded-card border border-line bg-surface"
+            className="border-y border-line"
           />
           {statements.hasNextPage && (
             <button

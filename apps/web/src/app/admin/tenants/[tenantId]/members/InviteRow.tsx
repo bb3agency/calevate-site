@@ -49,19 +49,19 @@ export function InviteRow({
   const correctionBlocked = correctionMalformed || attestation.trim().length < 3;
 
   return (
-    <li className="space-y-2 px-4 py-3.5">
+    <li className="space-y-2 py-3.5 sm:px-2">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1 basis-56">
           {/* Two invitations to one domain are told apart by the local part, which is the
               half a truncation eats — so the full address is in the title. */}
-          <p className="truncate text-sm font-medium text-ink" title={invite.email}>
+          <p className="truncate text-body font-medium text-ink" title={invite.email}>
             {invite.email}
           </p>
-          <p className="mt-0.5 text-xs text-ink-muted">
+          <p className="mt-0.5 text-meta text-ink-muted">
             {lookup(ROLE_COPY, invite.role)?.label ?? invite.role} · issued{" "}
             {formatIST(invite.invited_at)} · expires {formatIST(invite.expires_at)}
           </p>
-          <p className="mt-0.5 text-xs text-ink-faint">
+          <p className="mt-0.5 text-meta text-ink-muted">
             Link last sent {formatIST(invite.last_sent_at)} · sent {invite.send_count} time
             {invite.send_count === 1 ? "" : "s"}
           </p>
@@ -113,7 +113,7 @@ export function InviteRow({
         description={`The invitation for ${invite.email}.`}
       >
         <div className="space-y-4">
-          <p className="text-sm text-ink-muted">
+          <p className="text-body text-ink-muted">
             Sends the link to a DIFFERENT address on the same invitation. Use it when the
             address on file cannot receive mail — a client who mistyped it at signup can be
             reached no other way, because every self-service recovery mails that same
@@ -174,7 +174,7 @@ export function InviteRow({
               Send to the corrected address
             </ActionButton>
             {correctionBlocked && (
-              <span className="text-xs text-warn">
+              <span className="text-meta text-warn">
                 {correctionMalformed
                   ? "That does not look like an email address."
                   : "Say how you established this address."}
@@ -196,7 +196,7 @@ function ResentNotice({
 }) {
   return (
     <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
-      <p className="text-xs">
+      <p>
         A fresh link is on its way to {data.email}, and the previous one stopped working the
         moment it was cut. It expires {formatIST(data.expires_at)} — send {data.send_count} for
         this invitation.

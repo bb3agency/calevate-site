@@ -62,10 +62,10 @@ export function Register({ session }: { session: Session }) {
 
   return (
     <section aria-labelledby="erasure-register-heading" className="space-y-2">
-      <h2 id="erasure-register-heading" className="text-[15px] font-semibold text-ink">
+      <h2 id="erasure-register-heading" className="text-heading text-ink">
         Erasure requests
       </h2>
-      <p className="text-[13px] text-ink-muted">
+      <p className="text-meta text-ink-muted">
         Every erasure this account has been asked for, newest first. Numbers are never
         listed here — each request is identified by a one-way hash of the number it
         covers.
@@ -79,12 +79,12 @@ export function Register({ session }: { session: Session }) {
 
       {requests.isSuccess &&
         (requests.data.length === 0 ? (
-          <p className="rounded-card border border-line bg-surface px-4 py-8 text-center text-[14px] text-ink-muted">
+          <p className="rounded-card border border-line bg-surface px-4 py-8 text-center text-body text-ink-muted">
             No erasure requests have been filed for this account.
           </p>
         ) : (
           <>
-            <ul className="divide-y divide-line rounded-card border border-line bg-surface">
+            <ul className="divide-y divide-line border-y border-line bg-surface">
               {requests.data.map((request) => (
                 <li key={request.request_id}>
                   <RegisterRow
@@ -277,7 +277,7 @@ function RequestDetail({ request }: { request: DeletionRequest }) {
  */
 function Certificate({ proof, requestId }: { proof: ErasureProof; requestId: string }) {
   return (
-    <div className="mt-3 rounded-lg border border-line bg-app p-3">
+    <div className="mt-3 rounded-md bg-surface-muted p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-ink">Proof certificate</h3>
         <button
@@ -336,9 +336,9 @@ function Certificate({ proof, requestId }: { proof: ErasureProof; requestId: str
       </ul>
 
       <h4 className="mt-3 text-xs font-semibold text-ink">Not erased</h4>
-      <ul className="mt-1 space-y-2 text-xs">
+      <ul className="mt-1 divide-y divide-line border-y border-line text-xs">
         {proof.not_erased.map((limitation) => (
-          <li key={limitation.what} className="rounded-md border border-line bg-surface p-2">
+          <li key={limitation.what} className="py-2">
             <p className="font-medium text-ink">{limitation.what}</p>
             <p className="mt-0.5 text-ink-muted">{limitation.why}</p>
             <p className="mt-0.5 text-ink-faint">{limitation.authority}</p>

@@ -1,10 +1,10 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
 
 import {
-  Card,
   DANGER_BUTTON,
   FIELD,
   FIELD_HINT,
@@ -54,21 +54,21 @@ export function ErasurePanel({
   // running. So the ladder sits ABOVE the `existing` branch, and both arms keep the card.
   if (filed.isLoading) {
     return (
-      <Card title="Data erasure">
+      <Section title="Data erasure">
         <Skeleton rows={3} />
-      </Card>
+      </Section>
     );
   }
   if (filed.error) {
     return (
-      <Card title="Data erasure">
+      <Section title="Data erasure">
         <ProblemNotice error={filed.error} onRetry={() => void filed.refetch()} />
-        <p className="mt-3 text-sm text-ink-muted">
+        <p className="mt-3 text-body text-ink-muted">
           Until this reads, we cannot tell you whether this client&apos;s data has already
           been erased — so the erasure form stays closed. Filing a second one would start a
           destructive job over the top of a running one.
         </p>
-      </Card>
+      </Section>
     );
   }
 
@@ -76,15 +76,15 @@ export function ErasurePanel({
 
   if (existing) {
     return (
-      <Card title="Data erasure">
-        <p className="text-sm text-ink-muted">
+      <Section title="Data erasure">
+        <p className="text-body text-ink-muted">
           {existing.status === "completed"
             ? `This client's data was erased on ${formatIST(existing.completed_at ?? existing.requested_at)}. The certificate below is the record.`
             : "An erasure has been filed for this client and is running. It cannot be cancelled."}
         </p>
-        <p className="mt-2 text-xs text-ink-muted">Reason recorded: {existing.reason}</p>
+        <p className="mt-2 text-meta text-ink-muted">Reason recorded: {existing.reason}</p>
         {existing.proof && (
-          <ul className="mt-3 space-y-1 text-xs text-ink-muted">
+          <ul className="mt-3 space-y-1 text-meta text-ink-muted">
             <li>Calls stripped: {existing.proof.scope.calls_erased ?? "not recorded"}</li>
             <li>Leads anonymised: {existing.proof.scope.leads_erased ?? "not recorded"}</li>
             <li>
@@ -100,22 +100,22 @@ export function ErasurePanel({
         )}
         {existing.limitations.length > 0 && (
           <details className="mt-3">
-            <summary className="cursor-pointer text-xs font-medium text-ink touch:min-h-11">
+            <summary className="cursor-pointer text-meta font-medium text-ink touch:min-h-11">
               What this erasure did not remove ({existing.limitations.length})
             </summary>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-ink-muted">
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-meta text-ink-muted">
               {existing.limitations.map((line) => (
                 <li key={line}>{line}</li>
               ))}
             </ul>
           </details>
         )}
-      </Card>
+      </Section>
     );
   }
 
   return (
-    <Card title="Erase this client's data">
+    <Section title="Erase this client's data">
       <form
         className="max-w-xl space-y-4"
         noValidate
@@ -126,7 +126,7 @@ export function ErasurePanel({
       >
         <RestrictionNote reason={access.reason} />
         <NoticeBox tone="stop" icon={<AlertTriangle className="h-5 w-5" />}>
-          <p className="text-xs">
+          <p>
             This destroys every caller record {tenantName} holds — call numbers, summaries,
             transcripts, extracted fields, CRM leads, the records we sent to their CRM and
             the audio past its 90-day legal retention floor — and marks the client deleted.
@@ -190,6 +190,6 @@ export function ErasurePanel({
       {erase.error != null && (
         <WriteFailure error={erase.error} actionLabel="Erase this client’s data" />
       )}
-    </Card>
+    </Section>
   );
 }

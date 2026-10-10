@@ -1,9 +1,5 @@
 "use client";
 
-import Link from "next/link";
-
-import { Metric } from "@/components/console/metric";
-import { Card, formatCount, formatIST } from "@/components/ui";
 import { useAdminAccess } from "@/app/admin/access";
 import { useTenant, useTenantKbQueue } from "@/lib/api/admin";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -15,6 +11,7 @@ import { HoldsBanner } from "./HoldsBanner";
 import { NoOwnerBanner } from "./NoOwnerBanner";
 import { KnowledgeDeliveryPanel } from "./KnowledgeDeliveryPanel";
 import { KnowledgeQueue, unpublishedSources } from "./KnowledgeQueue";
+import { HealthSummary } from "./HealthSummary";
 import { MarginPanel } from "./MarginPanel";
 
 /**
@@ -176,7 +173,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   if (!tenant) return null;
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-4xl space-y-10">
       {/* ABOVE the holds, because it outranks them: `check_dispatch` asks the account
           state before it asks any gate, so a suspended account is refused whether or not
           a hold is also open, and an operator told only about the hold would clear it and
@@ -187,28 +184,11 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
 
       <HoldsBanner tenantId={tenantId} holds={tenant.holds} />
 
-      <div className="grid gap-5 2xl:grid-cols-2">
-        <Card title="Activity" density="compact">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4 2xl:grid-cols-2">
-            <Metric
-              label="Live agents"
-              value={formatCount(tenant.live_agents)}
-              hint={
-                <Link
-                  href={`/admin/tenants/${tenantId}/agents`}
-                  className="rounded-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                >
-                  Open agents
-                </Link>
-              }
-            />
-            <Metric label="Calls (7d)" value={formatCount(tenant.calls_7d)} />
-            <Metric label="Leads" value={formatCount(tenant.leads)} />
-            <Metric label="Last call" value={formatIST(tenant.last_call_at)} />
-          </div>
-        </Card>
-        <MarginPanel tenantId={tenantId} />
-      </div>
+      {/* Status, what is wrong now, credit and runway, the last calls and the quick
+          actions (founder, 10 Oct 2026), above the money and the knowledge queue. */}
+      <HealthSummary tenant={tenant} />
+
+      <MarginPanel tenantId={tenantId} />
 
       <KnowledgeQueue tenantId={tenantId} slug={slug} />
 

@@ -39,10 +39,12 @@
  *    ringing phone.** Every row says where it stands on both.
  */
 
+import { EmptySketch } from "@/components/console/emptySketch";
 import { useState } from "react";
 import { Plus, Search } from "lucide-react";
 
 import { useAdminAccess } from "@/app/admin/access";
+import { HAIRLINE_LIST } from "@/components/admin/kit";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { Drawer } from "@/components/console/drawer";
 import { EmptyState } from "@/components/console/emptyState";
@@ -90,7 +92,7 @@ type Direction = ProvisionNumberBody["direction"];
 /**
  * A search result WITH a quoted monthly price — the only thing this screen will buy.
  *
- * ⚠ **THE PURCHASE USED TO SEND `monthly_price_usd ?? "0"`.** The button above is
+ * **THE PURCHASE USED TO SEND `monthly_price_usd ?? "0"`.** The button above is
  * disabled without a price, so the fallback was unreachable — and it was a FABRICATED
  * FIGURE on a money field sitting one edit away from being reached, which would have
  * recorded a rental that bills every month at a cost of nothing. Hard rule 7 is about the
@@ -156,7 +158,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
   );
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-4xl space-y-10">
       <PageHeader
         title="Numbers"
         description="Record the client's own connection, then choose which agent answers it."
@@ -185,11 +187,12 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
         <Skeleton rows={3} />
       ) : held.data.length === 0 ? (
         <EmptyState
+          // No button here: the header already carries the one filled action.
           message="No numbers on this account. Nothing can make their phone ring until one is on file."
-          action={recordAction}
+          illustration={<EmptySketch kind="numbers" />}
         />
       ) : (
-        <ul className="divide-y divide-line rounded-card border border-line bg-surface">
+        <ul aria-label="Numbers" className={HAIRLINE_LIST}>
           {held.data.map((number) => (
             <NumberRow
               key={number.id}
@@ -261,17 +264,17 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
             (offers.isLoading || !offers.data ? (
               <Skeleton rows={3} />
             ) : offers.data.length === 0 ? (
-              <p className="text-sm text-ink-muted">
+              <p className="text-body text-ink-muted">
                 The voice platform has nothing available matching that. Try a different
                 prefix — this is their inventory today, not a permanent answer.
               </p>
             ) : (
-              <ul className="divide-y divide-line">
+              <ul className={HAIRLINE_LIST}>
                 {offers.data.map((offer) => (
-                  <li key={offer.e164} className="flex flex-wrap items-center gap-3 py-2.5 text-sm">
+                  <li key={offer.e164} className="flex flex-wrap items-center gap-3 py-2.5 text-body">
                     <span className="font-mono text-ink">{formatPhone(offer.e164)}</span>
                     {offer.region && <span className="text-ink-muted">{offer.region}</span>}
-                    {offer.provider && <span className="text-xs text-ink-muted">{offer.provider}</span>}
+                    {offer.provider && <span className="text-meta text-ink-muted">{offer.provider}</span>}
                     <span className="text-ink-muted">
                       {/* The vendor's own figure, in the vendor's own currency. */}
                       {offer.monthly_price_usd
@@ -297,7 +300,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
               </ul>
             ))}
           {searching && offers.data?.some((offer) => !offer.monthly_price_usd) && (
-            <p className="text-xs text-ink-muted">
+            <p className="text-meta text-ink-muted">
               A number with no quoted price cannot be bought: its monthly cost would never
               be recorded, and an unbilled monthly cost is a leak nobody sees.
             </p>
@@ -335,7 +338,7 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
             );
           })}
         >
-          <p className="text-sm text-ink-muted">
+          <p className="text-body text-ink-muted">
             Recording a number here is what lets an agent be put on it. To buy a new one,
             use the search on this page instead.
           </p>

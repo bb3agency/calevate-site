@@ -14,7 +14,7 @@ export function ViewAsBanner({ slug }: { slug: string }) {
 
   if (me.data?.impersonating) {
     return (
-      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-amber-500 px-4 py-1.5 text-center text-xs font-semibold text-amber-950">
+      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-warn px-4 py-1.5 text-center text-xs font-semibold text-white">
         <span>
           Viewing as {me.data.organization?.name ?? slug}. Every page view is logged, and
           anything you change here is recorded against you, not this account.
@@ -41,7 +41,7 @@ export function ViewAsBanner({ slug }: { slug: string }) {
         <button
           type="button"
           onClick={() => window.location.assign(adminConsoleUrl(ADMIN_CONSOLE_PATH))}
-          className="press shrink-0 rounded border border-amber-950/40 px-2 py-0.5 font-semibold underline-offset-2 hover:bg-amber-950/10 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-950 touch:min-h-11"
+          className="press shrink-0 rounded border border-white/50 px-2 py-0.5 font-semibold underline-offset-2 hover:bg-white/10 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white touch:min-h-11"
         >
           Exit and return to the admin console
         </button>
@@ -62,7 +62,7 @@ export function ViewAsBanner({ slug }: { slug: string }) {
   // the server's own `impersonating`, and this one must never be mistaken for it.
   if (viewAsRequested && me.isPending) {
     return (
-      <div className="bg-amber-500/60 px-4 py-1.5 text-center text-xs font-semibold text-amber-950">
+      <div className="bg-warn-soft px-4 py-1.5 text-center text-xs font-semibold text-warn">
         Opening as an operator — confirming with the server…
       </div>
     );
@@ -70,9 +70,9 @@ export function ViewAsBanner({ slug }: { slug: string }) {
 
   if (viewAsRequested && !me.data?.impersonating && me.error != null) {
     return (
-      <div className="border-b border-rose-200 bg-rose-50 px-4 py-2 dark:border-rose-900 dark:bg-rose-950">
+      <div className="border-b border-danger-line bg-danger-soft px-4 py-2">
         <ProblemNotice error={me.error} />
-        <p className="mt-2 text-xs text-rose-800 dark:text-rose-300">
+        <p className="mt-2 text-xs text-danger">
           This page was opened as an operator. Open it from the admin console, or{" "}
           <Link href={`/c/${slug}`} className="underline">
             continue as a normal user

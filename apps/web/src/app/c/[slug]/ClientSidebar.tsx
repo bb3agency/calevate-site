@@ -105,7 +105,7 @@ export function ClientSidebar({
         {item.badge !== undefined && item.badge > 0 && (
           <span
             aria-label={`${item.badge} outstanding`}
-            className={`flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white ${sidebarFadeClass(
+            className={`flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-danger px-1.5 text-[10px] font-bold text-white ${sidebarFadeClass(
               isCollapsed,
             )}`}
           >
@@ -168,7 +168,7 @@ export function ClientSidebar({
           <SidebarLabel isCollapsed={isCollapsed}>
             {me.error != null ? (
               <>
-                <span className="block truncate text-sm font-semibold text-amber-700 dark:text-amber-400">
+                <span className="block truncate text-sm font-semibold text-warn">
                   Account not read
                 </span>
                 <span className="block truncate text-xs text-ink-muted">
@@ -211,7 +211,7 @@ export function ClientSidebar({
         <Link
           href={CLIENT_ACCOUNT_PATH}
           title={isCollapsed ? "Your account" : undefined}
-          className="flex w-full items-center gap-3 overflow-hidden rounded-lg px-4 py-1.5 text-[14px] font-medium text-ink-muted transition-colors hover:bg-ink/[0.04] hover:text-ink touch:min-h-11"
+          className="flex w-full items-center gap-3 overflow-hidden rounded-lg px-4 py-1.5 text-body font-medium text-ink-muted transition-colors hover:bg-ink/[0.04] hover:text-ink touch:min-h-11"
         >
           <UserRound aria-hidden className="h-4 w-4 shrink-0" />
           {/* Mounted and faded rather than unmounted, for `SidebarSignOut`'s reason: the

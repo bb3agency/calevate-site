@@ -1,17 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Hourglass, TriangleAlert } from "lucide-react";
+import { ArrowRight, TriangleAlert } from "lucide-react";
 
-import {
-  Card,
-  NOTICE_TONES,
-  NoticeBox,
-  ProblemNotice,
-  SECONDARY_BUTTON_SM,
-  Skeleton,
-  formatIST,
-} from "@/components/ui";
+import { ADMIN_PAGE_WIDE, HAIRLINE_LIST, LIST_HEAD, StatusPill } from "@/components/admin/kit";
+import { TEXT_ACTION } from "@/components/console/section";
+import { NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -97,7 +91,7 @@ export function HoldsScreen() {
   const answered = !queue.isLoading && !queue.error && queue.data !== undefined;
 
   return (
-    <div className="space-y-5 pb-12">
+    <div className={ADMIN_PAGE_WIDE}>
       <PageHeader
         description={
           <>
@@ -119,32 +113,22 @@ export function HoldsScreen() {
           the list, not as a row to scroll to. Derived from the rows, not read off the
           first one, so it cannot go quietly wrong if the order ever changes. */}
       {answered && rows.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span className="inline-flex items-center gap-2 font-semibold text-ink">
-            <Hourglass aria-hidden className="h-4 w-4 text-ink-faint" />
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-body font-medium text-ink">
             {rows.length} {rows.length === 1 ? "account" : "accounts"} waiting
           </span>
-          {breaching.length > 0 && (
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${NOTICE_TONES.stop}`}
-            >
-              <TriangleAlert aria-hidden className="h-3.5 w-3.5" />
-              {breaching.length} waiting over a week
-            </span>
-          )}
-          <span className="text-xs text-ink-muted">
+          {breaching.length > 0 && <StatusPill tone="stop">{breaching.length} waiting over a week</StatusPill>}
+          <span className="text-meta text-ink-muted">
             Longest wait: {waitedFor(longestWait(rows), now)}
           </span>
         </div>
       )}
 
-      <Card density="compact" bodyClassName="p-0">
+      <div>
         {queue.isLoading ? (
-          <div className="p-4">
-            <Skeleton rows={4} />
-          </div>
+          <Skeleton rows={4} />
         ) : !answered ? (
-          <div className="p-4">
+          <div>
             <NoticeBox
               tone="warn"
               icon={<TriangleAlert className="h-5 w-5" />}
@@ -160,7 +144,7 @@ export function HoldsScreen() {
         ) : (
           <HoldList rows={rows} now={now} />
         )}
-      </Card>
+      </div>
     </div>
   );
 }
@@ -184,14 +168,14 @@ function HoldList({ rows, now }: { rows: HeldTenant[]; now: number }) {
     <div>
       <div
         aria-hidden
-        className={`hidden border-b border-line px-4 py-2 text-[12px] font-medium text-ink-faint ${GRID}`}
+        className={`hidden pb-2 sm:px-2 ${LIST_HEAD} ${GRID}`}
       >
         <span>Client</span>
         <span>Waiting</span>
         <span>Held on</span>
         <span className="text-right">Next step</span>
       </div>
-      <ul aria-label="Accounts held on us" className="divide-y divide-line">
+      <ul aria-label="Accounts held on us" className={HAIRLINE_LIST}>
         {rows.map((row) => (
           <HoldRow key={row.tenant_id} row={row} now={now} />
         ))}
@@ -212,15 +196,15 @@ function HoldRow({ row, now }: { row: HeldTenant; now: number }) {
   const unknown = row.holds.filter((rule) => holdRule(rule) === null);
 
   return (
-    <li className={`space-y-2 px-4 py-3 md:space-y-0 ${GRID}`}>
+    <li className={`space-y-2 py-3 sm:px-2 md:space-y-0 ${GRID}`}>
       <div className="min-w-0">
         <Link
           href={`/admin/tenants/${row.tenant_id}`}
-          className="rounded-sm font-semibold text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+          className="rounded-sm text-body font-medium text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           {row.name}
         </Link>
-        <div className="text-xs text-ink-muted">
+        <div className="text-meta text-ink-muted">
           /c/{row.slug} · {row.plan_tier}
         </div>
       </div>
@@ -231,8 +215,8 @@ function HoldRow({ row, now }: { row: HeldTenant; now: number }) {
         {row.holds.map((rule) => {
           const copy = holdRule(rule);
           return (
-            <li key={rule} className="text-xs">
-              <span className="font-semibold text-ink">{copy?.label ?? rule}</span>
+            <li key={rule} className="text-meta">
+              <span className="font-medium text-ink">{copy?.label ?? rule}</span>
               <div className="text-ink-muted">
                 {copy?.blocks ??
                   "This console does not know this rule. The account is held by it all the same — open the account."}
@@ -241,11 +225,11 @@ function HoldRow({ row, now }: { row: HeldTenant; now: number }) {
           );
         })}
       </ul>
-      <div className="flex flex-wrap gap-2 md:justify-end">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 md:flex-col md:items-end">
         {[...remedies].map(([href, cta]) => (
-          <Link key={href} href={href} className={`${SECONDARY_BUTTON_SM} max-md:flex-1`}>
+          <Link key={href} href={href} className={TEXT_ACTION}>
             {cta}
-            <ArrowRight aria-hidden className="h-3 w-3" />
+            <ArrowRight aria-hidden className="h-3.5 w-3.5" />
           </Link>
         ))}
         {/* A rule this build cannot name still has an account behind it: send the operator
@@ -253,7 +237,7 @@ function HoldRow({ row, now }: { row: HeldTenant; now: number }) {
         {unknown.length > 0 && (
           <Link
             href={`/admin/tenants/${row.tenant_id}`}
-            className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium hover:underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press max-md:flex-1 max-md:justify-center ${NOTICE_TONES.warn}`}
+            className={TEXT_ACTION}
           >
             Open the account
             <ArrowRight aria-hidden className="h-3 w-3" />
@@ -276,11 +260,8 @@ function WaitPill({
   // The duration is the fact; the signup instant is its evidence, kept in the tooltip so the
   // column stays scannable without becoming unverifiable.
   return (
-    <span
-      className={`inline-block shrink-0 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-medium ${NOTICE_TONES[band]}`}
-      title={`Signed up ${formatIST(row.signed_up_at)} IST`}
-    >
-      {waitedFor(row.signed_up_at, now)}
+    <span title={`Signed up ${formatIST(row.signed_up_at)} IST`}>
+      <StatusPill tone={band}>{waitedFor(row.signed_up_at, now)}</StatusPill>
     </span>
   );
 }

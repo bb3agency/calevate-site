@@ -54,14 +54,15 @@ function CardTitle({ children, aside }: { children: ReactNode; aside?: ReactNode
  * toggles (`agents/panels/openingNotices.tsx`) and its handover switch
  * (`agents/panels/handover.tsx`), shown OFF because this platform cannot put a caller
  * through; the switch's own help line says what happens instead.
+ * The calls are an illustrative appliance shop's; the page's other jobs show other trades.
  */
 export function AnsweringMock() {
   const calls = [
-    { time: "6:12 AM", tail: "417", summary: "Wants the first slot tomorrow", outcome: "resolved", after: true },
+    { time: "6:12 AM", tail: "417", summary: "Is the 1.5-ton AC in stock?", outcome: "resolved", after: true },
     { time: "10:05 AM", tail: "208", summary: "Asked if Saturday is open", outcome: "resolved", after: false },
     { time: "1:40 PM", tail: "553", summary: "Asked for the manager — call-back offered", outcome: "needs follow up", after: false },
-    { time: "9:52 PM", tail: "731", summary: "Toothache — booked a morning visit", outcome: "resolved", after: true },
-    { time: "11:47 PM", tail: "096", summary: "Asked about braces for adults", outcome: "needs follow up", after: true },
+    { time: "9:52 PM", tail: "731", summary: "Fridge not cooling — repair booked", outcome: "resolved", after: true },
+    { time: "11:47 PM", tail: "096", summary: "Asked about exchanging an old AC", outcome: "needs follow up", after: true },
   ] as const;
   return (
     <span className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:items-start">
@@ -284,8 +285,8 @@ export function QualificationMock() {
 /**
  * Appointments — "Call-backs" (`app/c/[slug]/callbacks/page.tsx`: the group words
  * "Waiting", "Calling now", "Called", the "They said:" note, "Call it off", "Too late to
- * stop") beside a day of the clinic's Google Calendar: what the agent asked about (busy and
- * free, the `calendar.freebusy` scope) and the one event it added (`calendar.events`).
+ * stop") beside a day of a coaching centre's Google Calendar: what the agent asked about (busy
+ * and free, the `calendar.freebusy` scope) and the one event it added (`calendar.events`).
  */
 export function AppointmentsMock() {
   const callbacks = [
@@ -297,7 +298,7 @@ export function AppointmentsMock() {
   const day = [
     { time: "4 PM", kind: "busy", label: "Busy" },
     { time: "5 PM", kind: "free", label: "Free" },
-    { time: "6 PM", kind: "new", label: "Check-up · Priya Reddy" },
+    { time: "6 PM", kind: "new", label: "Demo class · Harshitha K" },
     { time: "7 PM", kind: "free", label: "Free" },
   ] as const;
   return (
@@ -394,7 +395,7 @@ export function DeliveryMock() {
         <Panel elevation="raised" className="mk-rise mk-s2 flex items-center gap-3 p-4">
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="text-[13px] font-semibold text-ink">Send events to a Google Sheet</span>
-            <span className="truncate text-[11px] text-ink-muted">Leads tab · Sunrise Dental enquiries</span>
+            <span className="truncate text-[11px] text-ink-muted">Leads tab · Showroom enquiries</span>
           </span>
           <Tag tone="emerald">Google connection ready</Tag>
         </Panel>

@@ -3,9 +3,12 @@
 import type { ReactNode } from "react";
 import { CircleAlert, CircleHelp } from "lucide-react";
 
-import { Card, NoticeBox, formatINR, formatIST } from "@/components/ui";
+import { minutesLine } from "@/components/admin/credit";
+import { NoticeBox, formatINR, formatIST } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
 import { Metric } from "@/components/console/metric";
+import { Section } from "@/components/console/section";
+import type { TenantSummary } from "@/lib/api/admin";
 import type { Credits } from "@/lib/api/credits";
 
 /**
@@ -13,12 +16,32 @@ import type { Credits } from "@/lib/api/credits";
  * deltas), and beside it the two lifetime figures the founder's guardrail keeps apart —
  * what this wallet has been PAID for and what it has been GIVEN.
  */
-export function WalletSummary({ wallet, actions }: { wallet: Credits; actions: ReactNode }) {
+export function WalletSummary({
+  wallet,
+  tenant,
+  actions,
+}: {
+  wallet: Credits;
+  /** The directory row, for the minutes left: credit is stated minutes first (founder,
+   * 10 Oct 2026), and the row carries the wallet's own per-quality runway. */
+  tenant: TenantSummary;
+  actions: ReactNode;
+}) {
   const newest = wallet.entries.length > 0 ? wallet.entries[0] : null;
+  const minutes = minutesLine(tenant);
   return (
     <section aria-label="Wallet" className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
-        <div className="grid min-w-0 flex-1 grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-3">
+        <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-8 gap-y-4 lg:grid-cols-4">
+          <Metric
+            label="Minutes left"
+            value={minutes ?? (tenant.plan_tier === "managed" ? "Invoiced" : "—")}
+            hint={
+              tenant.minutes_left === null && tenant.credit_inr !== null
+                ? "Not quoted during a trial: the calling is on us."
+                : undefined
+            }
+          />
           <Metric
             label="On the wallet now"
             value={formatINR(wallet.balance_inr)}
@@ -86,7 +109,7 @@ export function LedgerUnreadable() {
           back.
         </InfoTip>
       </p>
-      <p className="mt-2 text-xs">
+      <p className="mt-2 text-meta">
         If a client is blocked on credit and this will not load, the top-up payments
         runbook has the steps to record it by hand.
       </p>
@@ -104,14 +127,14 @@ export function LedgerUnreadable() {
  */
 export function CorrectionCard() {
   return (
-    <Card title="If a credit was wrong" density="compact">
-      <p className="text-sm text-ink-muted">
+    <Section title="If a credit was wrong">
+      <p className="text-body text-ink-muted">
         Nothing on this ledger is edited or deleted, ever — that is a firm rule, and the
         database enforces it. The wrong entry stays where it is, because it is the
         evidence that it happened. The balance is repaired by adding ONE opposite entry
         that cancels it.
       </p>
-      <ul className="mt-3 space-y-3 text-sm text-ink-muted">
+      <ul className="mt-3 space-y-3 text-body text-ink-muted">
         <li>
           <span className="font-semibold text-ink">
             TOO MUCH was credited — the wrong client, or more than arrived.
@@ -148,11 +171,11 @@ export function CorrectionCard() {
           this client; it checks before it changes anything and deletes nothing.
         </li>
       </ul>
-      <p className="mt-3 text-xs text-ink-muted">
+      <p className="mt-3 text-meta text-ink-muted">
         The top-up payments runbook, under &ldquo;What NOT to do&rdquo;, is the full list —
         including why a payment is never credited by hand while a signature failure is
         unexplained.
       </p>
-    </Card>
+    </Section>
   );
 }

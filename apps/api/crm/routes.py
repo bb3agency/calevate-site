@@ -12,10 +12,12 @@ raw transcript, recording link, and "call this lead".
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Any
 from uuid import UUID
 
+from calevate_shared.extraction import OutcomeTag
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.sse import EventSourceResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -108,10 +110,85 @@ async def get_calls(
     offset: int = Query(0, ge=0),
     status: str | None = None,
     agent_id: UUID | None = None,
+    outcome: OutcomeTag | None = None,
+    direction: service.CallDirection | None = None,
+    since: datetime | None = Query(None, description="Calls started at or after this instant"),
+    until: datetime | None = Query(None, description="Calls started before this instant"),
     _: Principal = Depends(requires("calls:read")),
 ) -> list[CallSummaryOut]:
-    return await service.list_calls(
-        session, limit=limit, offset=offset, status=status, agent_id=agent_id
+    filters = _call_filters(status, agent_id, outcome, direction, since, until)
+    return await service.list_calls(session, limit=limit, offset=offset, filters=filters)
+
+
+def _call_filters(
+    status: str | None,
+    agent_id: UUID | None,
+    outcome: OutcomeTag | None,
+    direction: service.CallDirection | None,
+    since: datetime | None,
+    until: datetime | None,
+) -> service.CallFilters:
+    for instant in (since, until):
+        if instant is not None and instant.tzinfo is None:
+            raise ProblemError(
+                kind="validation",
+                code="call_filter_time_without_zone",
+                title="That date range has no time zone",
+                detail="The dates need a time zone, so a day means the same day for everyone.",
+                remediation="Send them like 2026-10-10T00:00:00+05:30.",
+            )
+    return service.CallFilters(
+        status=status,
+        agent_id=agent_id,
+        outcome=outcome,
+        direction=direction,
+        since=since,
+        until=until,
+    )
+
+
+@router.get(
+    "/calls/export.csv",
+    # Declared before `/calls/{call_id}`, which would otherwise take "export.csv" as an id.
+    # `calls:read_raw` and the audit row for the reason the leads export gives: the file
+    # carries every number in full out of the building in one click.
+    openapi_extra=permission_meta("calls:read_raw"),
+    summary="CSV export of calls — full phone numbers, owner-only and audit-logged",
+    response_class=Response,
+)
+async def export_calls(
+    session: Session,
+    request: Request,
+    principal: Annotated[Principal, Depends(requires("calls:read_raw"))],
+    status: str | None = None,
+    agent_id: UUID | None = None,
+    outcome: OutcomeTag | None = None,
+    direction: service.CallDirection | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> Response:
+    filters = _call_filters(status, agent_id, outcome, direction, since, until)
+    export = await service.export_calls_csv(session, filters)
+    await write_audit(
+        session,
+        action="calls.export",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="call_export",
+        ip=client_request_ip(request),
+        summary={
+            "rows": export.row_count,
+            "outcome": outcome,
+            "direction": direction,
+            "since": since.isoformat() if since else None,
+            "until": until.isoformat() if until else None,
+            "agent_id": str(agent_id) if agent_id else None,
+        },
+    )
+    return Response(
+        content=export.csv,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="calls.csv"'},
     )
 
 

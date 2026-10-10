@@ -8,12 +8,13 @@ import { AcceptChargeDialog, extraUnavailableSentence } from "@/components/aiExt
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { DotWave } from "@/components/console/speakingIndicator";
 import { selectionSummary } from "@/lib/copilot/selection";
-import { FIELD, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
+import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
 import type { Session } from "@/lib/api/client";
 import type { SurfaceHolder } from "@/lib/copilot/registry";
 import { ADMIN_REALM_IDENTITY_CLASS } from "@/components/realmChrome";
 import { unsavedWork } from "@/lib/copilot/unsaved";
+import { suggestedQuestions } from "@/lib/copilot/suggestions";
 import { useCopilotConversation } from "@/lib/copilot/useCopilotConversation";
 
 import { AnswerText } from "./answerText";
@@ -256,15 +257,15 @@ export function CopilotPanel({
         <div className="min-w-0">
           <h2
             id={labelledBy}
-            className={`text-sm font-semibold ${realm === "admin" ? "text-white" : "text-ink"}`}
+            className={`text-body font-semibold ${realm === "admin" ? "text-white" : "text-ink"}`}
           >
             {/* The words too, because the colour is for the eye that is not looking and
                 a screen reader gets none of it. */}
-            {realm === "admin" ? "Ask about this admin screen" : "Ask about this screen"}
+            {realm === "admin" ? "Ask about this admin screen" : "Assistant"}
           </h2>
           <p
-            className={`truncate text-xs ${
-              realm === "admin" ? "text-white/70" : "text-ink-faint"
+            className={`truncate text-meta ${
+              realm === "admin" ? "text-white/70" : "text-ink-muted"
             }`}
           >
             {surface.title}
@@ -302,10 +303,10 @@ export function CopilotPanel({
               className={
                 realm === "admin"
                   ? "-mr-1 rounded-md p-1 text-white/70 hover:bg-white/10 hover:text-white disabled:opacity-40"
-                  : "-mr-1 rounded-md p-1 text-ink-muted hover:bg-black/5 hover:text-ink disabled:opacity-40 dark:hover:bg-white/10"
+                  : "rounded-md px-2 py-1 text-meta font-medium text-ink-muted hover:bg-ink/[0.05] hover:text-ink disabled:opacity-40 touch:min-h-11"
               }
             >
-              <Eraser aria-hidden className="h-4 w-4" />
+              {realm === "admin" ? <Eraser aria-hidden className="h-4 w-4" /> : "Start again"}
             </button>
           )}
           {onClose !== undefined && (
@@ -352,37 +353,46 @@ export function CopilotPanel({
             must promise instead, is that it cannot DO any of them on its own — every one
             arrives as a suggestion with a Confirm button — because a person told nothing
             can ever be saved will not read the card before clicking. */}
-        {conversation.turns.length === 0 &&
-          conversation.streaming === null &&
-          (surface.undeclared === true ? (
-            /* THE FALLBACK SENTENCE (D-501), AND IT SAYS THE HONEST THING. This screen did
-               not describe itself, so the assistant cannot see what is on it — which is not
-               the same as the screen being empty, and this copy must never let a person
-               (or the model, which is told the same thing in `prompt.py`) read it as "this
-               screen shows nothing". What it CAN still do is the whole reason the launcher
-               is here at all: the read tools answer from the account's own records. */
-            <p className="text-xs text-ink-muted">
-              This screen hasn&apos;t told the assistant what it shows, so it can&apos;t
-              read or fill anything on it. It can still answer questions about your
-              account — your calls, leads, campaigns and agents — by looking them up.
+        {/* THE EMPTY PANEL (founder, REDESIGN-2): one human line that fits the screen, three
+            questions worth asking here, and the one sentence about what waits for the person.
+            Fields are mentioned only when the screen has some, and never counted. The
+            undeclared case keeps the honest sentence (D-501): the assistant cannot see this
+            screen, which is not the same as the screen being empty. */}
+        {conversation.turns.length === 0 && conversation.streaming === null && (
+          <div className="space-y-4">
+            <p className="text-body text-ink">
+              {surface.undeclared === true
+                ? "This screen hasn't told the assistant what it shows yet. I can still look up your calls, leads, campaigns and agents."
+                : surface.fields.length > 0
+                  ? "Ask me about this screen, or tell me what to fill in here."
+                  : realm === "admin"
+                    ? "Ask me about the platform or the account you have open."
+                    : "Ask me about this screen, or anything in your account."}
             </p>
-          ) : realm === "admin" ? (
-            /* THE OPERATOR'S OWN SENTENCE (D-694): it can suggest platform actions, which
-               wait for a confirm with a second factor, and it can open admin screens. */
-            <p className="text-xs text-ink-muted">
-              It can see the {surface.fields.length} fields on this screen and fill them in —
-              nothing is saved until you press the screen&apos;s own save button. It answers
-              about the platform and the account you have open, can take you to another
-              screen, and asks you to confirm before any platform change.
+            {realm === "client" && (
+              <ul aria-label="Questions you could ask" className="flex flex-wrap gap-2">
+                {suggestedQuestions(surface.route).map((question) => (
+                  <li key={question}>
+                    <button
+                      type="button"
+                      disabled={conversation.asking}
+                      onClick={() => conversation.ask(question)}
+                      className="press rounded-full border border-line px-3 py-1.5 text-left text-meta text-ink hover:bg-ink/[0.04] disabled:cursor-not-allowed disabled:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+                    >
+                      {question}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="text-meta text-ink-muted">
+              {surface.fields.length > 0 ? "Nothing is saved until you press this screen's own save button. " : ""}
+              {realm === "admin"
+                ? "Any platform change waits for you to confirm."
+                : "Small changes happen at once and can be undone; anything that calls someone, costs money or can't be undone waits for you."}
             </p>
-          ) : (
-            <p className="text-xs text-ink-muted">
-              It can see the {surface.fields.length} fields on this screen and fill them in —
-              nothing is saved until you press the screen&apos;s own save button. Small,
-              reversible changes happen straight away and you can undo them. Anything that
-              calls someone, costs money or cannot be taken back waits for you to confirm.
-            </p>
-          ))}
+          </div>
+        )}
 
         {/* NOT A LIVE REGION, AND THAT IS THE FIX.
             This whole container used to carry `aria-live="polite"`, so everything inside
@@ -408,9 +418,15 @@ export function CopilotPanel({
               that must not be given. `aria-hidden` for the skeleton's reason: it is a
               status about the panel, not an answer, and the live region is for answers. */}
           {conversation.historyUnavailable && !conversation.loading && (
-            <p aria-hidden className="text-xs text-ink-muted">
-              Your earlier messages could not be loaded just now — they are not lost. You
-              can still ask a question; reopen the assistant to try again.
+            <p className="flex flex-wrap items-center gap-x-2 text-meta text-ink-muted">
+              Your earlier messages could not be loaded. They are not lost.
+              <button
+                type="button"
+                onClick={conversation.reloadHistory}
+                className="rounded-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+              >
+                Retry
+              </button>
             </p>
           )}
           {/* KEYED BY IDENTITY, NOT BY POSITION.
@@ -429,7 +445,7 @@ export function CopilotPanel({
             turn.role === "user" ? (
               <p
                 key={turn.id ?? turn.localKey ?? `at-${index}`}
-                className="ml-6 whitespace-pre-wrap rounded-lg bg-black/5 px-3 py-2 text-ink dark:bg-white/10"
+                className="ml-auto w-fit max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-ink/[0.05] px-3 py-2 text-ink"
               >
                 {turn.content}
               </p>
@@ -531,7 +547,7 @@ export function CopilotPanel({
         </div>
 
         {batch !== null && (
-          <div className="rounded-lg border border-line bg-app px-3 py-2">
+          <div className="border-l-2 border-brand pl-3">
             <p className="text-xs font-medium text-ink">
               Filled {batch.labels.length} {batch.labels.length === 1 ? "field" : "fields"}
             </p>
@@ -576,7 +592,7 @@ export function CopilotPanel({
             )}
             {quota.error == null && quota.data === undefined && <Skeleton rows={2} />}
             {quota.data !== undefined && (
-              <div className="rounded-lg border border-line bg-app px-3 py-2">
+              <div className="border-l-2 border-line pl-3">
                 <p className="text-xs font-medium text-ink">
                   You have used this month&apos;s included AI help.
                 </p>
@@ -601,7 +617,7 @@ export function CopilotPanel({
       </div>
 
       <form
-        className="border-t border-line px-4 py-3"
+        className="border-t border-line p-3"
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
@@ -612,6 +628,7 @@ export function CopilotPanel({
         <label htmlFor={inputId} className="sr-only">
           Your question about this screen
         </label>
+        <div className="rounded-card border border-line bg-surface p-2 transition-[border-color] duration-(--duration-fast) focus-within:border-brand">
         <textarea
           id={inputId}
           rows={2}
@@ -635,10 +652,11 @@ export function CopilotPanel({
               setQuestion("");
             }
           }}
-          placeholder="e.g. fill in our opening hours: we are closed on Sunday"
-          className={FIELD}
+          placeholder={surface.fields.length > 0 ? "Ask a question, or say what to fill in" : "Ask a question"}
+          className="block w-full resize-none bg-transparent px-1 py-1 text-body text-ink placeholder:text-ink-faint focus:outline-none"
         />
-        <div className="mt-2 flex justify-end">
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <p className="hidden px-1 text-meta text-ink-faint sm:block">Enter to send · Shift+Enter for a new line</p>
           {/* ONE CONTROL, TWO JOBS, and it is never disabled while an answer is arriving.
               It used to read "Asking…" and be dead, which left a person watching a long
               answer with nothing to press — so the only way out was to type over it and
@@ -661,6 +679,7 @@ export function CopilotPanel({
               Ask
             </button>
           )}
+        </div>
         </div>
       </form>
       {/* "YOU WILL LOSE WHAT YOU TYPED" — the one question the server could not answer.

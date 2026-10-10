@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { SetupWizard } from "@/app/c/[slug]/setup/SetupWizard";
+import { SetupChecklist } from "@/app/c/[slug]/SetupChecklist";
 import { BusinessProfileScreen } from "@/app/c/[slug]/settings/business/BusinessProfileScreen";
 import {
   draftFromProfile,
@@ -162,5 +163,31 @@ describe("the business profile screen", () => {
     });
     await screen.findByText(/Only an account owner can change the business profile/);
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  });
+});
+
+describe("the setup checklist's two places (founder, REDESIGN-2)", () => {
+  it("leaves the dashboard once hidden but stays under Settings, and can go back", async () => {
+    const hidden = profile({ setup: { ...profile().setup, dismissed: true } });
+    const { calls } = await renderClientPage(<SetupChecklist placement="settings" />, {
+      "/v1/me": OWNER,
+      "/v1/business-profile": hidden,
+      "POST /v1/business-profile/setup": profile(),
+    });
+    expect(await screen.findByText("Your setup")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show it on the dashboard again" }));
+    await waitFor(() => {
+      const post = calls.find((c) => c.method === "POST" && c.path.endsWith("/setup"));
+      expect(JSON.parse(post?.body ?? "{}")).toEqual({ action: "reopen" });
+    });
+  });
+
+  it("is not on the dashboard once hidden", async () => {
+    const hidden = profile({ setup: { ...profile().setup, dismissed: true } });
+    const { container } = await renderClientPage(<SetupChecklist />, {
+      "/v1/me": OWNER,
+      "/v1/business-profile": hidden,
+    });
+    await waitFor(() => expect(container.textContent).toBe(""));
   });
 });

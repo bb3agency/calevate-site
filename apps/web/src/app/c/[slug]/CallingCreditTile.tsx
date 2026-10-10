@@ -8,6 +8,7 @@ import {
   activeTrial,
   trialEndsAt,
   trialTimeLeft,
+  minutesLeftPhrase,
   useWallet,
   walletState,
   type WalletTrial,
@@ -68,7 +69,7 @@ export function CallingCreditTile({
     <Metric
       className="py-4"
       label="Calling credit left"
-      value={formatINR(wallet.data.balance_inr)}
+      value={minutesLeftPhrase(wallet.data) ?? formatINR(wallet.data.balance_inr)}
       flashValue={wallet.data.balance_inr}
       tone={
         state === "stopped"
@@ -78,6 +79,10 @@ export function CallingCreditTile({
             : "default"
       }
       hint={
+        <>
+        {minutesLeftPhrase(wallet.data) !== null ? (
+          <span className="block text-body text-ink-muted">{formatINR(wallet.data.balance_inr)} in your account</span>
+        ) : null}
         <Link href={href} className="underline decoration-ink/30 underline-offset-2 hover:text-ink">
           {trial !== null
             ? trialHint(trial)
@@ -87,6 +92,7 @@ export function CallingCreditTile({
                 ? "Running low — top up before calls stop, outgoing and incoming"
                 : "Add credit or see where it went"}
         </Link>
+        </>
       }
     />
   );

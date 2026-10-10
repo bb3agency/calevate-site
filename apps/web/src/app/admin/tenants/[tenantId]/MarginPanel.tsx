@@ -1,8 +1,9 @@
 "use client";
 
 import { Metric } from "@/components/console/metric";
+import { MetricRow } from "@/components/admin/kit";
+import { Section } from "@/components/console/section";
 import {
-  Card,
   Disclosure,
   ProblemNotice,
   Skeleton,
@@ -33,21 +34,21 @@ export function MarginPanel({ tenantId }: { tenantId: string }) {
 
   if (margin.error)
     return (
-      <Card title="Margin" density="compact">
+      <Section title="Margin">
         <ProblemNotice error={margin.error} onRetry={() => margin.refetch()} />
-      </Card>
+      </Section>
     );
   if (!data)
     return (
-      <Card title="Margin" density="compact">
+      <Section title="Margin">
         <Skeleton rows={2} />
-      </Card>
+      </Section>
     );
   const negative = data.margin_inr.trim().startsWith("-");
 
   return (
-    <Card title={`Margin · ${data.month}`} density="compact" info={info}>
-      <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4 2xl:grid-cols-2">
+    <Section title={`Margin · ${data.month}`} info={info}>
+      <MetricRow className="border-b-0 pb-0">
         <Metric label="Revenue" value={formatINR(data.revenue_inr)} />
         <Metric label="Our cost" value={formatINR(data.cost_inr)} />
         <Metric
@@ -62,12 +63,12 @@ export function MarginPanel({ tenantId }: { tenantId: string }) {
           label="Margin %"
           value={data.margin_pct === null ? "not billed yet" : `${data.margin_pct}%`}
         />
-      </div>
-      <p className="mt-3 text-[13px] text-ink-muted">
+      </MetricRow>
+      <p className="mt-3 text-meta text-ink-muted">
         {data.minutes_used} minutes across {formatCount(data.calls)} calls
       </p>
       <TierSplit tiers={data.tiers} />
-    </Card>
+    </Section>
   );
 }
 
@@ -147,8 +148,8 @@ function TierSplit({ tiers }: { tiers: Margin["tiers"] }) {
       <dl className="grid gap-x-6 gap-y-2 pb-2 sm:grid-cols-3">
         {rungs.map((rung) => (
           <div key={rung.label}>
-            <dt className="text-[13px] text-ink-muted">{rung.label}</dt>
-            <dd className="text-sm font-semibold tabular-nums text-ink">
+            <dt className="text-meta text-ink-muted">{rung.label}</dt>
+            <dd className="text-body font-semibold tabular-nums text-ink">
               {formatINR(rung.cost)}
               <span className="ml-1.5 font-normal text-ink-muted">{rung.minutes} min</span>
             </dd>

@@ -112,8 +112,8 @@ export function EndTrialForm({
         />
       </Field>
 
-      <div className="flex gap-3 rounded-card border border-line bg-surface p-4 text-sm">
-        <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+      <div className="flex gap-3 border-l-2 border-danger py-1 pl-4 text-body">
+        <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted" />
         <div className="min-w-0">
           <p className="font-semibold text-ink">
             This ends {clientName}&apos;s trial now and starts a fresh counting period
@@ -141,7 +141,7 @@ export function EndTrialForm({
           icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
           title={`Trial ended — ${end.data.status}`}
         >
-          <p className="mt-1 text-xs">
+          <p className="mt-1">
             {end.data.erase_after
               ? `They did not convert, so their data becomes erasable on ${formatIST(end.data.erase_after)}.`
               : "They bought, so their leads, calls and transcripts are kept."}

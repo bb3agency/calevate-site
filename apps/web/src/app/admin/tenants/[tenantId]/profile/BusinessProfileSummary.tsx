@@ -1,6 +1,7 @@
 "use client";
 
-import { Card, ProblemNotice, Skeleton } from "@/components/ui";
+import { Section } from "@/components/console/section";
+import { ProblemNotice, Skeleton } from "@/components/ui";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { useAdminBusinessProfile } from "@/lib/api/businessProfile";
 import { viewAsHref } from "@/lib/api/session";
@@ -14,27 +15,26 @@ export function BusinessProfileSummary({ tenantId, slug }: { tenantId: string; s
   const profile = useAdminBusinessProfile(tenantId);
   if (profile.isPending) {
     return (
-      <Card title="Business profile" density="compact">
+      <Section title="Business profile">
         <Skeleton rows={3} />
-      </Card>
+      </Section>
     );
   }
   if (profile.isError) {
     return (
-      <Card title="Business profile" density="compact">
+      <Section title="Business profile">
         <ProblemNotice error={profile.error} onRetry={() => void profile.refetch()} />
-      </Card>
+      </Section>
     );
   }
   const data = profile.data;
   const done = data.setup.steps.filter((step) => step.state !== "todo").length;
   return (
-    <Card
+    <Section
       title="Business profile"
-      density="compact"
       action={
         slug ? (
-          <a href={viewAsHref(slug, "/settings/business")} className="text-[13px] font-medium text-brand-strong hover:underline">
+          <a href={viewAsHref(slug, "/settings/business")}>
             Edit as client
           </a>
         ) : undefined
@@ -59,6 +59,6 @@ export function BusinessProfileSummary({ tenantId, slug }: { tenantId: string; s
           />
         )}
       </SettingRows>
-    </Card>
+    </Section>
   );
 }

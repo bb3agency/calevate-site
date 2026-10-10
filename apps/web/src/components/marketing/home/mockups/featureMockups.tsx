@@ -1,6 +1,6 @@
 import { ArrowRight, Check, Pause, Play } from "lucide-react";
 
-import { CALL_TURNS, Turn } from "./callCards";
+import { Turn, type CallTurn } from "./callCards";
 import { Avatar, Bar, Chip, MaskedPhone, Panel, StatusPill, Tag, Waveform, Window } from "./kit";
 
 /**
@@ -16,7 +16,39 @@ import { Avatar, Bar, Chip, MaskedPhone, Panel, StatusPill, Tag, Waveform, Windo
  * the "date · duration · agent · direction · sentiment" line), the "Transcript" card with
  * "Agent"/"Caller" turns, and the right-hand cards "Summary", "Captured details", "Key
  * points in this call" and "Recording".
+ *
+ * An illustrative dental clinic in Hyderabad, so this section shows a different trade from
+ * the hero's coaching centre; the captured fields are the clinic template's
+ * (`scripts/seed.py`).
  */
+const CLINIC_TURNS: readonly CallTurn[] = [
+  {
+    who: "Agent",
+    te: "నమస్కారం, Sunrise Dental. నేను AI అసిస్టెంట్‌ని, ఈ కాల్ రికార్డ్ చేయబడుతోంది. మీకు ఎలా సహాయం చేయగలను?",
+    en: "Namaskaram, Sunrise Dental. I am an AI assistant, and this call is recorded. How can I help?",
+  },
+  {
+    who: "Caller",
+    te: "రూట్ కెనాల్ చేస్తారా? ఖర్చు ఎంత అవుతుంది?",
+    en: "Do you do root canal? What does it cost?",
+  },
+  {
+    who: "Agent",
+    te: "చేస్తాము. ఖర్చు పంటిని బట్టి ఉంటుంది — ముందుగా చెకప్ బుక్ చేయనా?",
+    en: "We do. It depends on the tooth — shall I book a check-up first?",
+  },
+  {
+    who: "Caller",
+    te: "అవును. మంగళవారం సాయంత్రం. నా పేరు ప్రియ.",
+    en: "Yes. Tuesday evening. My name is Priya.",
+  },
+  {
+    who: "Agent",
+    te: "మంగళవారం సాయంత్రం 6 గంటలకు బుక్ చేశాను.",
+    en: "Booked for Tuesday at 6 PM.",
+  },
+];
+
 export function CallDetailMock() {
   const captured = [
     ["Symptom / reason", "Root canal"],
@@ -47,7 +79,7 @@ export function CallDetailMock() {
       <span className="flex flex-col md:flex-row">
         <span className="flex flex-1 flex-col gap-2 p-4 sm:p-5">
           <span className="text-[12px] font-semibold text-ink">Transcript</span>
-          {CALL_TURNS.map((turn, i) => (
+          {CLINIC_TURNS.map((turn, i) => (
             <Turn key={turn.en} {...turn} className={`mk-rise mk-s${Math.min(i + 1, 6)}`} />
           ))}
         </span>
@@ -164,7 +196,7 @@ export function FollowUpMini() {
       <span className="mk-rise mk-s1 flex min-w-0 flex-1 flex-col gap-1 rounded-lg border border-line bg-surface p-3 shadow-card">
         <span className="text-[11px] font-semibold text-ink-muted">Website form</span>
         <span className="text-[13px] font-semibold text-ink">Sneha Rao</span>
-        <span className="truncate text-[12px] text-ink-muted">Braces for daughter</span>
+        <span className="truncate text-[12px] text-ink-muted">Class 6 admission for her son</span>
       </span>
       <span className="mk-rise mk-s2 flex shrink-0 items-center justify-center gap-2 min-[420px]:flex-col min-[420px]:gap-1">
         <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] leading-5 font-semibold text-ink-muted ring-1 ring-line">
@@ -211,21 +243,25 @@ export function QualifiedMini() {
   );
 }
 
-/** Information you can act on: calls as rows and columns, and the CSV export. */
+/**
+ * Information you can act on: calls as rows and columns, and the CSV export. An
+ * illustrative appliance shop, so its columns are the starting fields every business
+ * outside the named trades gets (`scripts/seed.py` CUSTOM_EXTRACTION_FIELDS).
+ */
 export function RowsMini() {
   const rows = [
-    ["Priya Reddy", "Root canal", "Tue, 6:00 PM"],
-    ["Ravi Kumar", "Severe tooth pain", "Today, 5:30 PM"],
-    ["Sneha Rao", "Braces consult", "Sat morning"],
-    ["Anitha Naidu", "Implant consult", "Thu, 11:00 AM"],
+    ["Suresh Babu", "1.5-ton split AC, fitted", "Sat morning"],
+    ["Ramya Devi", "Washing machine repair", "Today, 5:30 PM"],
+    ["Naveen Kumar", "Double-door fridge", "This week"],
+    ["Fatima Begum", "TV wall mounting", "Tomorrow, 11 AM"],
   ] as const;
   return (
     <span className="flex flex-col gap-2">
       <span className="flex flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-card">
         <span className="flex items-center gap-3 border-b border-line bg-app/70 px-3 py-2 text-[11px] font-semibold text-ink-muted">
           <span className="w-24 shrink-0">Name</span>
-          <span className="min-w-0 flex-1">Symptom / reason</span>
-          <span className="hidden w-24 shrink-0 min-[420px]:block">Preferred slot</span>
+          <span className="min-w-0 flex-1">What they need</span>
+          <span className="hidden w-24 shrink-0 min-[420px]:block">Preferred time</span>
         </span>
         {rows.map(([name, reason, slot], i) => (
           <span
@@ -251,7 +287,7 @@ export function RowsMini() {
  * An outbound list being worked — `app/c/[slug]/campaigns`: the status pill, the detail
  * tiles ("Contacts", "Connected" / calls answered, "Not called" / on the do-not-call list),
  * and the "Progress" card with the contact states and the Pause control. Every count is
- * sample data, chosen to add up.
+ * sample data, chosen to add up, for an illustrative school's admissions list.
  */
 export function CampaignBoardMock() {
   const progress = [
@@ -278,7 +314,7 @@ export function CampaignBoardMock() {
     >
       <span className="flex flex-col gap-4 p-4 sm:p-5">
         <span className="flex flex-wrap items-center gap-2">
-          <span className="text-[15px] font-semibold text-ink">Site visits — September enquiries</span>
+          <span className="text-[15px] font-semibold text-ink">Admissions — open day invitations</span>
           <Tag tone="emerald">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
             Running

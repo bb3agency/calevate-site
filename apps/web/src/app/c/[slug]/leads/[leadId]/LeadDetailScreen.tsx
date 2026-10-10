@@ -15,6 +15,7 @@ import {
 } from "@/components/ui";
 import { CopyButton } from "@/components/interior/copy-button";
 import { PageHeader } from "@/components/console/pageHeader";
+import { TEXT_ACTION } from "@/components/console/section";
 import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import { useEditLead, useLead, useLeadTimeline, useMembers } from "@/lib/api/leads";
 import { useClientRealm } from "@/lib/api/session";
@@ -182,20 +183,15 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
   });
 
   return (
-    <div className="space-y-4 pb-12">
+    <div className="max-w-4xl space-y-8 pb-12">
       <PageHeader back={{ href: href(`/c/${slug}/leads`), label: "Leads" }} />
 
       {lead.error && <ProblemNotice error={lead.error} onRetry={() => void lead.refetch()} />}
 
       {lead.isLoading ? (
-        <div className="rounded-card border border-line bg-surface p-4 shadow-card sm:p-5">
-          <Skeleton rows={3} />
-        </div>
+        <Skeleton rows={3} />
       ) : lead.data ? (
-        <section
-          aria-label="Lead"
-          className="rounded-card border border-line bg-surface p-4 shadow-card sm:p-5"
-        >
+        <section aria-label="Lead">
           {/* IN FULL (D-436) and as text, never an `href` (hard rule 6); the copy button
               copies the E.164 form. */}
           <PageHeader
@@ -204,7 +200,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
               <>
                 <StatusBadge value={lead.data.status} />
                 {lead.data.is_repeat_caller && (
-                  <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[12px] font-medium text-brand-strong">
+                  <span className="rounded-full bg-brand-soft px-2 py-0.5 text-meta font-medium text-brand-strong">
                     Repeat caller
                   </span>
                 )}
@@ -212,11 +208,11 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
             }
             description={
               <>
-                <span className="flex items-center gap-1 text-[15px] tabular-nums text-ink">
+                <span className="flex items-center gap-1 text-body tabular-nums text-ink">
                   {formatPhone(lead.data.phone_e164)}
                   <CopyButton value={lead.data.phone_e164} label="Copy phone number" />
                 </span>
-                <span className="block text-[13px] text-ink-faint">
+                <span className="block text-meta text-ink-faint">
                   {lead.data.source} · {formatCount(lead.data.call_count)}{" "}
                   {lead.data.call_count === 1 ? "call" : "calls"} · updated{" "}
                   {formatIST(lead.data.updated_at)}
@@ -227,7 +223,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
               lead.data.last_call_id && (
                 <Link
                   href={href(`/c/${slug}/calls/${lead.data.last_call_id}`)}
-                  className="inline-flex items-center gap-1 rounded-sm text-sm font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+                  className={TEXT_ACTION}
                 >
                   Open the last call
                   <ArrowRight aria-hidden className="h-3.5 w-3.5" />
@@ -242,7 +238,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
             <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-line pt-4 lg:grid-cols-4">
               {Object.entries(lead.data.data ?? {}).map(([key, value]) => (
                 <div key={key} className="min-w-0">
-                  <dt className="text-[12px] capitalize text-ink-faint">{key.replace(/_/g, " ")}</dt>
+                  <dt className="text-meta capitalize text-ink-faint">{key.replace(/_/g, " ")}</dt>
                   <dd className="break-words text-sm font-medium text-ink">{shownValue(value)}</dd>
                 </div>
               ))}
@@ -253,7 +249,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
               decision is made, with the same shared selects and mutation as the table. */}
           <div className="mt-4 grid gap-3 border-t border-line pt-4 sm:grid-cols-2 lg:max-w-xl">
             <div className="flex flex-col gap-1">
-              <span className="text-[12px] font-medium text-ink-muted">Stage</span>
+              <span className="text-meta font-medium text-ink-muted">Stage</span>
               <StatusSelect
                 value={lead.data.status}
                 label={`Stage for ${lead.data.name ?? lead.data.phone_e164}`}
@@ -263,7 +259,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
               />
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-[12px] font-medium text-ink-muted">Owner</span>
+              <span className="text-meta font-medium text-ink-muted">Owner</span>
               <AssigneeSelect
                 lead={lead.data}
                 members={members.data}

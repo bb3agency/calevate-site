@@ -36,12 +36,15 @@ import {
   Skeleton,
   formatCallCap,
 } from "@/components/ui";
+import { TEXT_ACTION } from "@/components/console/section";
 import { SettingRow } from "@/components/console/settingRow";
 import { ClientEngineCatalogue } from "@/components/engineCatalogueList";
 import { useLanes, useSetMyCallCap, type PendingState } from "@/lib/api/publishing";
 import { useClientSession } from "@/lib/api/session";
 import { useSetMyAgentVoice, useVoiceCatalogue } from "@/lib/api/voices";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 
 import { VoiceCards } from "./voiceCards";
 
@@ -63,6 +66,44 @@ export function VoiceChoice({ agentId, state }: { agentId: string; state: Pendin
   const selected = choice ?? saved;
   const changed = selected !== "" && selected !== saved;
   useUnsavedGuard(changed);
+
+  // THE VOICE SECTION, DECLARED TO THE ASSISTANT: which voice callers hear, and the choice
+  // as a field it can fill ("use a female Telugu voice"). Nothing changes until the owner
+  // presses "Use this voice".
+  const offered = catalogue.data?.selectable ? catalogue.data.voices.filter((v) => v.offerable) : [];
+  useCopilotSurface({
+    route: "/c/{slug}/agents/{id}",
+    title: "Agent: voice",
+    realm: "client",
+    fields:
+      offered.length > 0
+        ? [
+            {
+              id: "agent-voice",
+              label: "Voice callers hear",
+              type: "select",
+              value: selected,
+              options: offered.map((v) => ({ value: v.id, label: `${v.label} (${v.tier_label})` })),
+            },
+          ]
+        : [],
+    facts: [
+      { key: "voice_now", label: "What callers hear now", value: state.voice.headline },
+      {
+        key: "state",
+        label: "What is on screen",
+        value: catalogue.data ? "the voices have loaded" : catalogue.error ? "the voices failed to load" : "still loading",
+      },
+      { key: "unsaved", label: "A different voice is picked but not saved", value: changed ? "yes" : "no" },
+    ],
+    unsaved: changed,
+    apply: (items) => {
+      for (const item of items) {
+        const id = asText(item.value);
+        if (item.field_id === "agent-voice" && offered.some((v) => v.id === id)) setChoice(id);
+      }
+    },
+  });
 
   // A read like any other: a skeleton in flight and a refusal on failure — never an empty
   // list, which would be a claim about the product rather than about a request.
@@ -105,7 +146,7 @@ export function VoiceChoice({ agentId, state }: { agentId: string; state: Pendin
         onChange={setChoice}
       />
       {(changed || save.isPending) && (
-        <div className="settings-enter sticky bottom-0 -mx-1 flex flex-wrap items-center gap-3 border-t border-line bg-app/95 px-1 py-3 backdrop-blur-sm">
+        <div className="settings-enter sticky bottom-0 -mx-1 flex flex-wrap items-center gap-3 border-t border-line bg-surface/95 px-1 py-3 backdrop-blur-sm">
           <button type="submit" disabled={save.isPending} className={PRIMARY_BUTTON_SM}>
             {save.isPending ? "Saving…" : "Use this voice"}
           </button>
@@ -162,9 +203,9 @@ export function CallCapChoice({ agentId, state }: { agentId: string; state: Pend
           </p>
         }
         value={formatCallCap(state.effective_call_cap_s)}
-        control={
+        action={
           editing ? undefined : (
-            <button type="button" onClick={() => setEditing(true)} className={`${SECONDARY_BUTTON_SM} mt-1`}>
+            <button type="button" onClick={() => setEditing(true)} className={TEXT_ACTION}>
               Change
             </button>
           )

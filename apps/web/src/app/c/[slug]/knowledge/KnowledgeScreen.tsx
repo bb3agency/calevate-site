@@ -3,11 +3,13 @@
 import { useState } from "react";
 
 import { PageHeader } from "@/components/console/pageHeader";
+import { Tabs } from "@/components/interior/tabs";
 import { ProblemNotice, RestrictionNote } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
 
+import { KnowledgeGaps } from "../KnowledgeGaps";
 import { AddDocument } from "./AddDocument";
 import { KnowledgeDelivery } from "./KnowledgeDelivery";
 import { AddKnowledgeForm } from "./AddKnowledgeForm";
@@ -101,7 +103,7 @@ export function KnowledgeScreen() {
   useKnowledgeCopilot({ name, setName, body, setBody });
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="max-w-4xl space-y-8 pb-12">
       {/* WHAT THIS SCREEN MAY PROMISE: approved facts are compiled into the agent's own
           prompt at publish time, so the copy says "part of what it already knows" rather
           than anything retrieval-shaped (`tests/knowledgeApproval.test.tsx` pins it). */}
@@ -116,34 +118,49 @@ export function KnowledgeScreen() {
       )}
       {submit.error && <ProblemNotice error={submit.error} />}
 
-      {/* THE DROP ZONE: everything a client can teach, in one place at the top — a file or
-          a photo, a web page, or a fact typed in. */}
-      <section
-        aria-label="Add to your business knowledge"
-        className="space-y-4 rounded-card border border-line bg-surface p-4 sm:p-5"
-      >
-        <SubmissionConsequence />
-        <div className="grid gap-6 lg:grid-cols-2 lg:gap-8">
-          <AddDocument allowed={write.allowed} reason={write.reason} />
-          <div className="lg:border-l lg:border-line lg:pl-8">
-            <AddKnowledgeForm
-              name={name}
-              onName={setName}
-              body={body}
-              onBody={setBody}
-              submit={submit}
-              canWrite={write.allowed}
-              reason={write.reason}
-            />
-          </div>
-        </div>
-      </section>
+      {/* What happens to anything added, said once above both tabs. */}
+      <SubmissionConsequence />
 
       {/* Whether what was added has reached the phone — the question a client arrives
           with when the agent has not caught up (`apps/api/kb/delivery.py`). */}
       <KnowledgeDelivery />
 
-      <SourcesList sources={sources} />
+      {/* FACTS AND FILES, two peer views of one knowledge base (D-655, founder REDESIGN-2):
+          each tab is complete on its own. The questions the agents could not answer on real
+          calls have their own tab, so teaching one is one click from anywhere on the screen. */}
+      <Tabs
+        label="Your business knowledge"
+        items={[
+          { value: "facts", label: "Facts" },
+          { value: "files", label: "Files" },
+          { value: "gaps", label: "Questions to answer" },
+        ]}
+        defaultValue="facts"
+        panelClassName="pt-6"
+        renderPanel={(tab) =>
+          tab === "gaps" ? (
+            <KnowledgeGaps />
+          ) : tab === "files" ? (
+            <div className="space-y-10">
+              <AddDocument allowed={write.allowed} reason={write.reason} />
+              <SourcesList sources={sources} only="files" />
+            </div>
+          ) : (
+            <div className="space-y-10">
+              <AddKnowledgeForm
+                name={name}
+                onName={setName}
+                body={body}
+                onBody={setBody}
+                submit={submit}
+                canWrite={write.allowed}
+                reason={write.reason}
+              />
+              <SourcesList sources={sources} only="facts" />
+            </div>
+          )
+        }
+      />
 
       <StaffCurationSwitch write={curationWrite} />
     </div>

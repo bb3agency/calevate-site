@@ -4,10 +4,13 @@ import Link from "next/link";
 import { useState } from "react";
 import { AlertTriangle, ReceiptIndianRupee, ShieldCheck } from "lucide-react";
 
+import { Section, TEXT_ACTION } from "@/components/console/section";
+import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
-  Card,
+  FIELD,
   FIELD_LABEL,
   NoticeBox,
+  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
@@ -18,7 +21,6 @@ import { useAdminAccess } from "@/app/admin/access";
 import { useCaps } from "@/lib/api/caps";
 import { useRecomputeSpendCap, viewAsSession } from "@/lib/api/admin";
 
-import { FIELD, PrimaryButton } from "./controls";
 
 /**
  * The spend cap that is stopping this client's outbound dialling, and the one control
@@ -80,10 +82,10 @@ export function SpendCapPanel({
   const ready = confirm === "RECOMPUTE";
 
   return (
-    <Card title="Spend cap">
+    <Section title="Spend cap">
       {caps.error ? (
         <>
-          <p className="mb-3 text-sm text-ink-muted">
+          <p className="mb-3 text-body text-ink-muted">
             The cap state could not be read, so nothing is offered here.
           </p>
           <ProblemNotice error={caps.error} onRetry={() => caps.refetch()} />
@@ -107,7 +109,7 @@ export function SpendCapPanel({
                 : "Not capped — the spend cap is not stopping this client"
             }
           >
-            <p className="mt-1 text-xs">
+            <p className="mt-1">
               {data.capped
                 ? "Every outbound call is refused by the spend cap. Inbound calls are unaffected — their receptionist keeps answering."
                 : "The spend cap is not refusing their calls. Any other blocker on this account is listed above."}
@@ -116,7 +118,7 @@ export function SpendCapPanel({
                 do, the reason is almost always a row still stamped with a closed billing
                 month. Saying so turns a confusing screen into a diagnosis. */}
             {directoryCapped !== data.capped && (
-              <p className="mt-2 text-xs">
+              <p className="mt-2">
                 The client directory shows this account as{" "}
                 {directoryCapped ? "capped" : "not capped"}, which disagrees. That badge
                 reads the flag without checking its billing month; this one applies the
@@ -128,7 +130,7 @@ export function SpendCapPanel({
 
           {/* MONEY AS STRINGS. Every rupee field here is an exact decimal the API sent as
               text (hard rule 7); `formatINR` groups the digits and never parses them. */}
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-4 xl:grid-cols-4">
+          <SettingRows className="border-y border-line">
             <CapFact
               label={`Spent · ${data.month}`}
               value={formatINR(data.spend_used_inr)}
@@ -170,7 +172,7 @@ export function SpendCapPanel({
                   : `${formatCount(data.client_cap_minutes)} minutes`
               }
             />
-          </dl>
+          </SettingRows>
 
           {recompute.error && <ProblemNotice error={recompute.error} />}
 
@@ -189,7 +191,7 @@ export function SpendCapPanel({
                     : "Recomputed — this client was not capped and still is not"
               }
             >
-              <p className="mt-1 text-xs">
+              <p className="mt-1">
                 {recompute.data.capped
                   ? `They have spent ${formatINR(recompute.data.spend_used_inr)} of ${formatINR(
                       recompute.data.effective_cap_spend_inr,
@@ -200,7 +202,7 @@ export function SpendCapPanel({
           )}
 
           <form
-            className="space-y-3"
+            className="max-w-xl space-y-4 pt-2"
             // A typed confirmation is the only gate and it is not a rule about an answer,
             // so there is nothing for `useFormValidation` to word. `noValidate` all the
             // same, so a rule added later cannot be answered by the browser.
@@ -212,12 +214,11 @@ export function SpendCapPanel({
           >
             {/* WHAT IT DOES AND WHAT IT CANNOT DO, before the click. The second half is
                 what stops this being read as an "un-cap" button. */}
-            <div className="flex gap-3 rounded-card border border-line bg-app p-4 text-sm">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+            <div className="text-body">
               <div className="min-w-0">
-                <p className="font-semibold text-ink">
+                <h3 className="text-body font-semibold text-ink">
                   This client only — it re-derives the flag, it does not lift the cap
-                </p>
+                </h3>
                 <p className="mt-1 text-ink-muted">
                   It compares the minutes and spend ALREADY metered this month against the
                   ceiling in force now. A client still over that ceiling stays stopped, so
@@ -225,7 +226,7 @@ export function SpendCapPanel({
                   that job, not a substitute for it. It never moves a counter, never
                   touches another client, and never affects inbound calls.
                 </p>
-                <p className="mt-1 text-xs text-ink-faint">
+                <p className="mt-1 text-meta text-ink-muted">
                   Recorded in the audit log against your admin account, and confirmed
                   against this client only.
                 </p>
@@ -239,22 +240,25 @@ export function SpendCapPanel({
                 onChange={(e) => setConfirm(e.target.value)}
                 disabled={!write.allowed}
                 placeholder="RECOMPUTE"
-                className={`${FIELD} mt-1 block w-full font-mono`}
+                className={`${FIELD} font-mono`}
               />
             </label>
 
-            <PrimaryButton
-              type="submit"
-              disabled={!write.allowed || !ready || recompute.isPending}
-            >
-              {recompute.isPending ? "Recomputing…" : "Recompute this client's spend cap"}
-            </PrimaryButton>
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                className={PRIMARY_BUTTON}
+                disabled={!write.allowed || !ready || recompute.isPending}
+              >
+                {recompute.isPending ? "Recomputing…" : "Recompute this client's spend cap"}
+              </button>
+            </div>
 
             <RestrictionNote reason={write.reason} />
           </form>
         </div>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -281,19 +285,21 @@ function CapFact({
   edit?: { href: string; label: string };
 }) {
   return (
-    // Sentence-case label over the figure, like the console's `Metric`, and no box inside
-    // the panel's own card.
-    <div className="min-w-0">
-      <dt className="text-[13px] font-medium text-ink-muted">{label}</dt>
-      <dd className="mt-1 text-lg font-semibold tabular-nums text-ink">{value}</dd>
-      <dd className="mt-0.5 text-xs text-ink-muted">{note}</dd>
-      {edit && (
-        <dd className="mt-1.5">
-          <Link href={edit.href} className="rounded-sm text-xs font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2">
+    <SettingRow
+      label={label}
+      value={
+        <span className="tabular-nums">
+          <span className="font-semibold">{value}</span>
+          <span className="ml-2 text-meta text-ink-muted">{note}</span>
+        </span>
+      }
+      action={
+        edit ? (
+          <Link href={edit.href} className={TEXT_ACTION}>
             {edit.label}
           </Link>
-        </dd>
-      )}
-    </div>
+        ) : undefined
+      }
+    />
   );
 }

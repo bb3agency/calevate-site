@@ -74,7 +74,7 @@ export function OpsStatusStrip({
       : unknown;
 
   return (
-    <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-card border border-line bg-surface p-4 sm:grid-cols-3 lg:grid-cols-5">
+    <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-y border-line py-4 sm:grid-cols-3 lg:grid-cols-5">
       <Fact href="#outbound" label="Outbound calling" {...outbound} />
       <Fact href="#slowdown" label="Protective slowdown" {...slowdown} />
       <Fact href="#registration" label="Telemarketer registration" {...registration} />
@@ -97,11 +97,11 @@ function Fact({
 }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[12px] font-medium text-ink-muted">{label}</dt>
+      <dt className="text-meta text-ink-muted">{label}</dt>
       <dd className="mt-0.5">
         <a
           href={href}
-          className={`inline-flex items-center gap-1.5 rounded-sm text-[15px] font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 ${TONE_TEXT[tone]}`}
+          className={`inline-flex items-center gap-1.5 rounded-sm text-body font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 ${TONE_TEXT[tone]}`}
         >
           <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${TONE_DOT[tone]}`} />
           {value}

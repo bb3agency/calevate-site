@@ -129,7 +129,7 @@ function Draft({ notice }: { notice: CallerNotice }) {
       />
 
       {/* The server's own sentence, word for word, before the document it qualifies. */}
-      <p role="note" className="rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-[13px] leading-snug text-warn">
+      <p role="note" className="rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-meta leading-snug text-warn">
         {notice.disclaimer}
       </p>
 

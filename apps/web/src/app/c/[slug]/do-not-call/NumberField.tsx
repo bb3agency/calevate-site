@@ -79,7 +79,7 @@ export function NumberField({
     <section aria-label="Check or add numbers" className="max-w-xl space-y-3">
       <div>
         <div className="flex items-center gap-1.5">
-          <label htmlFor={fieldId} className="text-[13px] font-medium text-ink">
+          <label htmlFor={fieldId} className="text-meta font-medium text-ink">
             Phone numbers
           </label>
           <InfoTip label="About checking a number">
@@ -110,13 +110,13 @@ export function NumberField({
           }}
           className={`${FIELD} max-h-60 resize-none font-mono field-sizing-content`}
         />
-        <p id={`${fieldId}-hint`} className="mt-1 text-[12px] text-ink-faint">
+        <p id={`${fieldId}-hint`} className="mt-1 text-meta text-ink-faint">
           {many
             ? `${formatCount(parsed.length)} numbers. Check works one number at a time.`
             : "Paste one or many: one per line, or separated by commas."}
         </p>
         {empty && (
-          <p role="alert" className="mt-1 text-[12px] font-medium text-danger">
+          <p role="alert" className="mt-1 text-meta font-medium text-danger">
             Enter the number to check.
           </p>
         )}
@@ -124,7 +124,7 @@ export function NumberField({
 
       {canAdd && parsed.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
-          <label htmlFor="dnc-source" className="text-[13px] text-ink-muted">
+          <label htmlFor="dnc-source" className="text-meta text-ink-muted">
             Reason
           </label>
           <select
@@ -140,14 +140,14 @@ export function NumberField({
               </option>
             ))}
           </select>
-          <span id="dnc-source-note" className="text-[12px] text-ink-faint">
+          <span id="dnc-source-note" className="text-meta text-ink-faint">
             {SOURCE_OPTIONS.find((option) => option.value === source)?.note}
           </span>
         </div>
       )}
 
       {tooMany && (
-        <p className="text-[13px] text-warn">
+        <p className="text-meta text-warn">
           That is {formatCount(parsed.length)} numbers. Add up to {formatCount(MAX_NUMBERS_PER_ADD)} at a
           time.
         </p>
@@ -217,7 +217,7 @@ function Verdict({ tone, icon, children }: { tone: NoticeTone; icon: ReactNode; 
   return (
     <p
       aria-live="polite"
-      className={`settings-enter flex items-start gap-2 rounded-lg border p-3 text-sm ${NOTICE_TONES[tone]}`}
+      className={`settings-enter flex items-start gap-2 rounded-md border px-3 py-2 text-body ${NOTICE_TONES[tone]}`}
     >
       <span className="mt-0.5 shrink-0" aria-hidden>
         {icon}
@@ -239,12 +239,12 @@ function AddResult({ result }: { result: { added: number; already_suppressed: nu
       <dl className="flex flex-wrap gap-x-6 gap-y-2">
         {counts.map((count) => (
           <div key={count.label} title={count.hint}>
-            <dt className="text-[12px] text-ink-muted">{count.label}</dt>
+            <dt className="text-meta text-ink-muted">{count.label}</dt>
             <dd className="text-[18px] font-semibold tabular-nums text-ink">{formatCount(count.value)}</dd>
           </div>
         ))}
       </dl>
-      <p className="text-[12px] text-ink-faint">
+      <p className="text-meta text-ink-faint">
         We report totals, not which number went where: a list of who asked us to stop calling
         them is itself personal data. Check one number above if you need to confirm it.
       </p>

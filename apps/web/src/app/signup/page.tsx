@@ -294,7 +294,9 @@ function SignupForm() {
   const [businessName, setBusinessName] = useState("");
   const valid = useFormValidation();
   const [slug, setSlug] = useState("");
-  const [vertical, setVertical] = useState<string>("custom");
+  // No default (founder, REDESIGN-2): the trade shapes every agent, script and lead column
+  // this business gets, so it is a choice the person makes, never one we make for them.
+  const [vertical, setVertical] = useState<string>("");
   const [language, setLanguage] = useState<SignupLanguage>("te-IN");
   const [email, setEmail] = useState("");
 
@@ -499,7 +501,7 @@ function SignupForm() {
                   minLength={mustChooseSlug ? 3 : undefined}
                   value={slug}
                   onChange={(e) => setSlug(e.target.value)}
-                  placeholder={previewSlug(businessName) || "sri-sai-dental"}
+                  placeholder={previewSlug(businessName) || "your-business"}
                   maxLength={40}
                   className={`${FIELD} mt-0 font-mono`}
                 />
@@ -526,15 +528,20 @@ function SignupForm() {
             id={FIELD_IDS.vertical_template}
             label="Kind of business"
             hint="Sets the questions your agent asks and the columns your leads land in."
-            error={fieldMessage(fields, "vertical_template")}
+            error={valid.message("vertical_template") ?? fieldMessage(fields, "vertical_template")}
           >
             {(props) => (
               <select
                 {...props}
+                {...valid.track("vertical_template", "Choose the kind of business you run.")}
+                required
                 value={vertical}
                 onChange={(e) => setVertical(e.target.value)}
                 className={FIELD}
               >
+                <option value="" disabled>
+                  Choose one
+                </option>
                 {SIGNUP_VERTICALS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
@@ -654,7 +661,7 @@ function Field({
         </span>
       )}
       {error && (
-        <span id={errorId} className="mt-1 block text-xs font-medium text-rose-700 dark:text-rose-400">
+        <span id={errorId} className="mt-1 block text-xs font-medium text-danger">
           {error}
         </span>
       )}

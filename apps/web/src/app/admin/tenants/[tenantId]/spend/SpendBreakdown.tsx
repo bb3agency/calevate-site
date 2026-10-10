@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 
-import { Card, formatCount, formatINR, formatIST } from "@/components/ui";
+import { Section } from "@/components/console/section";
+import { formatCount, formatINR, formatIST } from "@/components/ui";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { SegmentedControl } from "@/components/interior/segmented-control";
@@ -14,8 +15,8 @@ type View = "agents" | "calls" | "units";
 export function Breakdown({ data }: { data: TenantSpend }) {
   const [view, setView] = useState<View>("agents");
   return (
-    <Card title="Where it went" density="compact" bodyClassName="px-0 pb-2">
-      <div className="px-4 pb-3">
+    <Section title="Where it went">
+      <div className="pb-3">
         <SegmentedControl
           label="Break down by"
           value={view}
@@ -32,7 +33,7 @@ export function Breakdown({ data }: { data: TenantSpend }) {
         {view === "calls" && (
           <>
             {data.top_calls_truncated && (
-              <p className="px-4 pb-2 text-xs text-ink-muted">
+              <p className="px-4 pb-2 text-meta text-ink-muted">
                 The {formatCount(data.top_calls.length)} that cost us most, of{" "}
                 {formatCount(data.calls)}.
               </p>
@@ -42,7 +43,7 @@ export function Breakdown({ data }: { data: TenantSpend }) {
         )}
         {view === "units" && <UnitsTable rows={data.by_unit} />}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -52,7 +53,7 @@ function AssumedMark({ assumed }: { assumed: boolean }) {
   return (
     <abbr
       title="At least one cost row here was priced in a currency the vendor's data did not state."
-      className="ml-1 cursor-help text-ink-faint no-underline"
+      className="ml-1 cursor-help text-ink-muted no-underline"
     >
       *
     </abbr>
@@ -134,7 +135,7 @@ function CallsTable({ rows }: { rows: CallSpend[] }) {
 function UnitsTable({ rows }: { rows: UnitSpend[] }) {
   if (rows.length === 0) return <EmptyState message="No metered units this month" />;
   const columns: DataColumn<UnitSpend>[] = [
-    { id: "unit", header: "Unit", cell: (unit) => <span className="font-mono text-xs">{unit.unit_type}</span> },
+    { id: "unit", header: "Unit", cell: (unit) => <span className="font-mono text-meta">{unit.unit_type}</span> },
     // `qty` is not money and is not rounded like it: printed as the ledger holds it.
     { id: "qty", header: "Quantity", align: "right", cell: (unit) => <span className={`${num} text-ink-muted`}>{unit.qty}</span> },
     { id: "cost", header: "Our cost", align: "right", cell: (unit) => <span className={`${num} font-semibold`}>{formatINR(unit.cost_inr)}</span> },

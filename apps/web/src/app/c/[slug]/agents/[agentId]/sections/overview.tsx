@@ -10,7 +10,7 @@
  * so they are on the first screen.
  */
 
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 
 import { ProblemNotice, Skeleton, formatINR } from "@/components/ui";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
@@ -19,10 +19,15 @@ import { useAgreementsReadiness, type LegalReadiness } from "@/lib/api/agreement
 import { usePendingChanges, type PendingState } from "@/lib/api/publishing";
 import { useScript, type ScriptOut } from "@/lib/api/script";
 import { activeTrial, trialEndsAt, useWallet, walletState, type Wallet } from "@/lib/api/wallet";
+import { useCalls } from "@/lib/api/hooks";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 
+import { LatestCalls } from "../../../LatestCalls";
 import { OpeningNotices } from "../../panels/openingNotices";
 import { PendingBanner } from "../../panels/publishing";
+import { TryIt } from "./tryIt";
 
 const PHONE = "(max-width: 639px)";
 
@@ -52,9 +57,55 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
   // Credit is the wallet's own answer — the same read and the same `walletState` the
   // dashboard's credit tile uses — never inferred from the voice tier rates.
   const wallet = useWallet(session);
+  const { href } = useClientRealm();
+  // ITS LAST CALLS (founder, REDESIGN-2): what this agent has actually been doing, the
+  // first thing an owner checks after "is it live".
+  const recent = useCalls(session, { agent_id: agent.id, limit: 5 });
+  // The test-call number lives here so the one declaration below can offer it as a field.
+  const [testNumber, setTestNumber] = useState("");
+  const trial = wallet.data ? activeTrial(wallet.data) : null;
+  const onTrial = trial !== null && trial.test_calls_only === true;
+
+  // OVERVIEW, DECLARED TO THE ASSISTANT. It is the section that opens first, so this is
+  // what the assistant sees on an agent unless another section is open.
+  useCopilotSurface({
+    route: "/c/{slug}/agents/{id}",
+    title: `Agent: ${agent.name}`,
+    realm: "client",
+    fields: onTrial
+      ? [
+          {
+            id: "agent-test-call-number",
+            label: "Your phone number for a test call",
+            type: "text",
+            value: testNumber,
+            personal: "phone",
+          },
+        ]
+      : [],
+    facts: [
+      { key: "agent_id", label: "Agent id", value: agent.id },
+      { key: "name", label: "Agent name", value: agent.name },
+      { key: "status", label: "Status", value: agent.status },
+      { key: "published", label: "Callers hear the latest version", value: agent.published ? "yes" : "no" },
+      { key: "direction", label: "Calls it handles", value: agent.direction },
+      { key: "ai_disclosure_enabled", label: "Says it is an AI at the start", value: agent.ai_disclosure_enabled ? "yes" : "no" },
+      { key: "recording_notice_enabled", label: "Says the call is recorded at the start", value: agent.recording_notice_enabled ? "yes" : "no" },
+      {
+        key: "pending",
+        label: "Changes waiting to go live",
+        value: pending.data ? (pending.data.has_pending ? "yes" : "none") : pending.error ? "could not be read" : "still loading",
+      },
+    ],
+    apply: (items) => {
+      for (const item of items) {
+        if (item.field_id === "agent-test-call-number") setTestNumber(asText(item.value));
+      }
+    },
+  });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-10">
       <SetupChecklist
         agent={agent}
         slug={slug}
@@ -68,6 +119,12 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
       )}
       {pending.data && <PendingBanner state={pending.data} />}
       <OpeningNotices agent={agent} />
+      <TryIt agent={agent} slug={slug} onTrial={onTrial} number={testNumber} onNumber={setTestNumber} />
+      <LatestCalls
+        recent={recent}
+        allHref={href(`/c/${slug}/calls`)}
+        callHref={(id) => href(`/c/${slug}/calls/${id}`)}
+      />
     </div>
   );
 }

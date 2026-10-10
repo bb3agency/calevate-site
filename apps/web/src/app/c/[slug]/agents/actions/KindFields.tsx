@@ -11,6 +11,7 @@
 
 import { CalendarClock } from "lucide-react";
 
+import { ServiceLogo } from "@/components/console/serviceLogo";
 import type { FormValidation } from "@/components/formValidation";
 import { FIELD, FIELD_HINT, FIELD_LABEL, ProblemNotice } from "@/components/ui";
 import { SheetChooser } from "@/components/sheetChooser";
@@ -427,15 +428,18 @@ export function KindFields({
           <div className="flex-1 sm:min-w-[10rem]">
             <label className="block">
               <span className={FIELD_LABEL}>Sent with</span>
-              <select
-                className={FIELD}
-                value={draft.msg_provider}
-                onChange={(e) => onChange({ ...draft, msg_provider: e.target.value, msg_credential_id: "" })}
-              >
-                <option value="aisensy">AiSensy</option>
-                <option value="meta_cloud">WhatsApp Cloud API</option>
-                <option value="interakt">Interakt</option>
-              </select>
+              <span className="mt-1 flex items-center gap-2">
+                <ServiceLogo service={draft.msg_provider} className="h-5 w-5" />
+                <select
+                  className={`${FIELD} mt-0`}
+                  value={draft.msg_provider}
+                  onChange={(e) => onChange({ ...draft, msg_provider: e.target.value, msg_credential_id: "" })}
+                >
+                  <option value="aisensy">AiSensy</option>
+                  <option value="meta_cloud">WhatsApp Cloud API</option>
+                  <option value="interakt">Interakt</option>
+                </select>
+              </span>
             </label>
           </div>
           <div className="flex-1 sm:min-w-[10rem]">

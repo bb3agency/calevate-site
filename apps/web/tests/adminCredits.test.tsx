@@ -216,9 +216,17 @@ async function openAct(title: string) {
   fireEvent.click(await screen.findByRole("button", { name: new RegExp(`^${title}`) }));
 }
 
-/** The wallet's Ledger / Payments / Lots are one segmented control (D-655). */
+/**
+ * The wallet history is one ledger with a type filter (redesign #2): "Payments" is a
+ * filter chip showing one line per bank transfer; the lots are their own section and are
+ * always on screen, so asking for them only waits for the heading.
+ */
 async function showView(name: "Payments" | "Lots") {
-  fireEvent.click(await screen.findByRole("radio", { name: new RegExp(`^${name}`) }));
+  if (name === "Lots") {
+    await screen.findByText("Credit lots — what the balance is made of");
+    return;
+  }
+  fireEvent.click(await screen.findByRole("button", { name: /^Payments$/ }));
 }
 
 /** Fill the form the way an operator does: reference, reference again, amount. */

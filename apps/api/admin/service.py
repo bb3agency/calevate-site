@@ -22,7 +22,7 @@ import re
 import secrets
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Any, Final, Literal
 from uuid import UUID
@@ -38,6 +38,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.holds import NO_HOLDS, read_tenant_holds
 from apps.api.agents.lifecycle import create_agent
+from apps.api.billing.rates import PREPAID_TIERS
+from apps.api.billing.service import get_balance, to_paise
+from apps.api.billing.trials import read_trial
+from apps.api.billing.wallet import tier_minutes
 from apps.api.compliance.disclosure import (
     AI_DISCLOSURE_TEMPLATES,
     RECORDING_NOTICE_TEMPLATES,
@@ -1050,9 +1054,17 @@ async def tenant_overview(
     sort: DirectorySort = DEFAULT_DIRECTORY_SORT,
     limit: int | None = None,
     offset: int = 0,
+    with_credit: bool = False,
 ) -> list[dict[str, Any]]:
     """The admin's client DIRECTORY — every account, with the counters that belong beside
     a name.
+
+    `with_credit` adds each prepaid account's credit left — whole minutes per voice
+    quality first, the rupee balance second — read inside the same tenant-scoped session
+    by the functions the client's own credits screen uses (`wallet.tier_minutes`,
+    `service.get_balance`), so the roster cannot quote a figure the client does not see.
+    Opt-in because it costs three more round trips per prepaid account: the two directory
+    routes page their walk and ask for it; the assistant's unpaged roster tool does not.
 
     **THE SEARCH, THE FILTERS AND THE PAGE ARE APPLIED TO `organizations`, BEFORE THE
     PER-TENANT LOOP** — which is what makes them worth having rather than cosmetic. The
@@ -1211,6 +1223,11 @@ async def tenant_overview(
             # that is N+1 by construction (see above), it is not the term that decides when
             # this loop has to become the materialized `tenant_health` table.
             capped = await spend_capped(scoped, tenant_id=tenant_id)
+            credit = (
+                await _directory_credit(scoped, tenant_id=tenant_id)
+                if with_credit and org[5] in PREPAID_TIERS
+                else _NO_CREDIT
+            )
         overview.append(
             {
                 "id": tenant_id,
@@ -1235,9 +1252,39 @@ async def tenant_overview(
                 # controls are about unattended signups (D-521 split that question from
                 # the billing one, so `prepaid` is outside them too).
                 "holds": list(holds.rules),
+                **credit,
             }
         )
     return overview
+
+
+#: An invoiced account has no wallet, so it has no credit to quote: null, never a zero.
+_NO_CREDIT: Final[dict[str, Any]] = {"credit_inr": None, "minutes_left": None}
+
+
+async def _directory_credit(session: AsyncSession, *, tenant_id: UUID) -> dict[str, Any]:
+    """A prepaid account's credit left, the way its own credits screen states it.
+
+    Minutes are null while a trial is active (D-536): the wallet is not what limits that
+    client's calling, so a runway computed from it would be a limit they will not meet —
+    the same suppression `wallet.read_wallet` applies. The balance is still given: it is
+    a fact about the ledger, not a promise about calling.
+    """
+    balance = await get_balance(session, tenant_id=tenant_id)
+    trial = await read_trial(session, tenant_id=tenant_id)
+    on_trial = trial is not None and trial.is_active(at=datetime.now(UTC))
+    minutes = None if on_trial else await tier_minutes(session, tenant_id=tenant_id)
+    return {
+        "credit_inr": to_paise(balance.amount_inr),
+        "minutes_left": (
+            None
+            if minutes is None
+            else [
+                {"voice_tier": tier.voice_tier, "label": tier.label, "minutes": tier.minutes}
+                for tier in minutes
+            ]
+        ),
+    }
 
 
 #: The tiers an OPERATOR may put an account on, and the two the route below refuses.

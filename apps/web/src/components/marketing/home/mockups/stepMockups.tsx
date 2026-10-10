@@ -12,21 +12,20 @@ import { Chip, Panel, StatusPill, Tag, Waveform } from "./kit";
 /**
  * Step 01: the agent's capture list, as the console's editor draws it ("What it writes
  * down", the type names from `agents/panels/extractionDraft.ts`, "Add variable"), filled
- * with the clinic template from `scripts/seed.py`.
+ * with the education template from `scripts/seed.py`, for the hero's coaching centre.
  */
 export function FieldListMock() {
   const fields = [
-    { label: "Symptom / reason", type: "Text", required: true },
-    { label: "Preferred doctor", type: "Text", required: false },
-    { label: "Urgency", type: "One of a set list", required: true },
-    { label: "Preferred slot", type: "Text", required: true },
-    { label: "Insurance", type: "Text", required: false },
+    { label: "Course", type: "Text", required: true },
+    { label: "Class / year", type: "Text", required: false },
+    { label: "Fee concern", type: "Yes / no", required: false },
+    { label: "Demo booked", type: "Yes / no", required: false },
   ] as const;
   return (
     <Panel elevation="raised" className="p-4">
       <span className="flex items-center justify-between gap-2">
         <span className="text-[13px] font-semibold text-ink">What it writes down</span>
-        <Chip>Clinic</Chip>
+        <Chip>Coaching</Chip>
       </span>
       <span className="mt-3 flex flex-col gap-1.5">
         {fields.map(({ label, type, required }, i) => (
@@ -62,22 +61,22 @@ export function CallMock() {
  */
 export function LeadRecordMock() {
   const moments = [
-    { at: "0:21", label: "Symptom / reason captured", ai: false },
-    { at: "0:48", label: "Asked what a root canal costs", ai: true },
-    { at: "1:36", label: "Preferred slot captured", ai: false },
+    { at: "0:18", label: "Course captured", ai: false },
+    { at: "0:44", label: "Asked what the batch fee is", ai: true },
+    { at: "1:32", label: "Demo booked captured", ai: false },
   ] as const;
   return (
     <Panel elevation="raised" className="mk-rise mk-s1 p-4">
       <span className="flex items-center justify-between gap-3">
         <span className="flex min-w-0 flex-col">
-          <span className="truncate text-[13px] font-semibold text-ink">Priya Reddy</span>
+          <span className="truncate text-[13px] font-semibold text-ink">Kavya Reddy</span>
           <span className="text-[11px] text-ink-muted">inbound call · 2:14 · positive</span>
         </span>
         <StatusPill status="new" />
       </span>
       <span className="mt-3 flex flex-col gap-0.5 rounded-lg bg-app px-3 py-2 text-[12px] leading-snug">
         <span className="text-[11px] font-semibold text-ink-muted">Summary</span>
-        <span className="text-ink">Asked about root canal cost; check-up booked for Tuesday, 6 PM.</span>
+        <span className="text-ink">Asked about the EAMCET long-term batch and its fees; demo class booked for Saturday, 10 AM.</span>
       </span>
       <span className="mt-3 block text-[11px] font-semibold text-ink-muted">Key points in this call</span>
       <span className="mt-1.5 flex flex-col gap-1">

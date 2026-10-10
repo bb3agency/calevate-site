@@ -1,16 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, HeartPulse, TriangleAlert } from "lucide-react";
+import { ArrowRight, TriangleAlert } from "lucide-react";
 
+import { ADMIN_PAGE_WIDE, HAIRLINE_LIST, LIST_HEAD, StatusPill } from "@/components/admin/kit";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
+import { TEXT_ACTION } from "@/components/console/section";
 import {
-  NOTICE_TONES,
   NoticeBox,
   ProblemNotice,
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatINR,
   formatIST,
@@ -127,7 +127,7 @@ export default function ClientHealthPage() {
   const answered = !board.isLoading && !board.error && board.data !== undefined;
 
   return (
-    <div className="space-y-5 pb-12">
+    <div className={ADMIN_PAGE_WIDE}>
       <PageHeader
         description={
           <>
@@ -147,18 +147,10 @@ export default function ClientHealthPage() {
         status={
           answered && rows.length > 0 ? (
             <>
-              <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink">
-                <HeartPulse aria-hidden className="h-4 w-4 text-ink-faint" />
+              <span className="text-body font-medium text-ink">
                 {rows.length} {rows.length === 1 ? "account" : "accounts"} need attention
               </span>
-              {breaking.length > 0 && (
-                <span
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${NOTICE_TONES.stop}`}
-                >
-                  <TriangleAlert aria-hidden className="h-3.5 w-3.5" />
-                  {breaking.length} broken now
-                </span>
-              )}
+              {breaking.length > 0 && <StatusPill tone="stop">{breaking.length} broken now</StatusPill>}
             </>
           ) : undefined
         }
@@ -166,17 +158,15 @@ export default function ClientHealthPage() {
 
       {board.error && <ProblemNotice error={board.error} onRetry={() => void board.refetch()} />}
 
-      <div className="rounded-card border border-line bg-surface shadow-card">
+      <div>
         {board.isLoading ? (
-          <div className="p-6">
-            <Skeleton rows={4} />
-          </div>
+          <Skeleton rows={4} />
         ) : board.error || !board.data ? (
           /* Deliberately NOT the empty state: "every client is fine" is a claim about the
              world, and a failed read is not evidence for it. `|| !board.data` because a
              query PAUSED offline reports no error and no data, and used to fall through to
              the empty state. */
-          <div className="p-4 sm:p-6">
+          <div>
             <NoticeBox
               tone="warn"
               icon={<TriangleAlert className="h-5 w-5" />}
@@ -202,14 +192,14 @@ export default function ClientHealthPage() {
           <>
             <div
               aria-hidden
-              className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_9rem_minmax(0,0.9fr)] gap-5 border-b border-line px-5 py-2.5 text-[12px] font-medium text-ink-faint lg:grid"
+              className={`hidden grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_9rem_minmax(0,0.9fr)] gap-5 pb-2 sm:px-2 lg:grid ${LIST_HEAD}`}
             >
               <span>Client</span>
               <span>What is wrong</span>
               <span>Calls, 7d vs prior</span>
               <span>Next step</span>
             </div>
-            <ul aria-label="Client health board" className="divide-y divide-line">
+            <ul aria-label="Client health board" className={HAIRLINE_LIST}>
               {rows.map((row) => (
                 <HealthRow key={row.tenant_id} row={row} />
               ))}
@@ -225,35 +215,31 @@ function HealthRow({ row }: { row: ClientHealth }) {
   const trend = trendClaim(row);
 
   return (
-    <li className="grid gap-x-5 gap-y-3 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_9rem_minmax(0,0.9fr)]">
+    <li className="grid gap-x-5 gap-y-3 py-4 sm:px-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_9rem_minmax(0,0.9fr)]">
       <div className="min-w-0">
         <Link
           href={`/admin/tenants/${row.tenant_id}`}
-          className="block truncate rounded-sm font-semibold text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+          className="block truncate rounded-sm text-body font-medium text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
         >
           {row.name}
         </Link>
-        <div className="truncate text-xs text-ink-faint">/c/{row.slug}</div>
-        <span
-          className={`mt-1.5 inline-block rounded-full border px-2.5 py-0.5 text-xs font-medium ${
-            NOTICE_TONES[severityTone(row.severity)]
-          }`}
-        >
-          {row.severity === "stop" ? "broken now" : "will break"}
-        </span>
+        <div className="truncate text-meta text-ink-muted">/c/{row.slug}</div>
+        <StatusPill tone={severityTone(row.severity)} className="mt-1.5">
+          {row.severity === "stop" ? "Broken now" : "Will break"}
+        </StatusPill>
       </div>
       <ul className="min-w-0 space-y-2">
         {row.signals.map((signal) => (
           <SignalCell key={signal.rule} signal={signal} row={row} />
         ))}
       </ul>
-      <div className="text-xs">
-        <span className="font-medium text-ink-faint lg:sr-only">Calls, 7 days vs prior: </span>
+      <div className="text-meta">
+        <span className="font-medium text-ink-muted lg:sr-only">Calls, 7 days vs prior: </span>
         {/* An unearned basis prints the REASON we cannot say, never a dash and never a 0%
             that reads as measured. */}
         {trend.kind === "measured" ? (
           <>
-            <span className="tabular-nums text-sm font-medium text-ink">
+            <span className="tabular-nums text-body font-medium text-ink">
               {trend.to} <span className="text-ink-faint">vs {trend.from}</span>
             </span>
             <span className="ml-1.5 text-ink-muted lg:ml-0 lg:block">
@@ -265,15 +251,11 @@ function HealthRow({ row }: { row: ClientHealth }) {
         )}
         <span className="mt-0.5 block text-ink-faint">Last call {formatIST(row.last_call_at)}</span>
       </div>
-      <div className="flex flex-wrap items-start gap-1.5 lg:flex-col">
+      <div className="flex flex-wrap items-start gap-x-4 gap-y-1 lg:flex-col">
         {[...remedies(row)].map(([href, cta]) => (
-          <Link
-            key={href}
-            href={href}
-            className={`${SECONDARY_BUTTON_SM} max-w-full`}
-          >
+          <Link key={href} href={href} className={`${TEXT_ACTION} max-w-full`}>
             <span className="truncate">{cta}</span>
-            <ArrowRight aria-hidden className="h-3 w-3 shrink-0" />
+            <ArrowRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
           </Link>
         ))}
       </div>
@@ -320,16 +302,10 @@ function SignalCell({ signal, row }: { signal: HealthSignal; row: ClientHealth }
   const spend = signal.rule === "spend_cap_near" ? spendLine(row) : null;
 
   return (
-    <li className="text-xs">
+    <li className="text-meta">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span
-          className={`inline-block rounded-full border px-2.5 py-0.5 font-medium ${
-            NOTICE_TONES[severityTone(signal.severity)]
-          }`}
-        >
-          {/* A signal added after this build keeps its row and prints as itself. */}
-          {copy?.label ?? signal.rule}
-        </span>
+        {/* A signal added after this build keeps its row and prints as itself. */}
+        <StatusPill tone={severityTone(signal.severity)}>{copy?.label ?? signal.rule}</StatusPill>
         {count && <span className="text-ink-muted">{count}</span>}
         {copy && (
           <InfoTip label={copy.label} align="start">

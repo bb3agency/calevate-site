@@ -3,10 +3,10 @@
 import { useState } from "react";
 
 import { FieldMessage, useFormValidation } from "@/components/formValidation";
+import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
-  Card,
   FIELD_INLINE,
-  PRIMARY_BUTTON_SM,
+  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
@@ -63,46 +63,41 @@ export function CallCapPanel({
   const hasWorstCase = worstCase !== undefined && worstCase !== null;
 
   return (
-    <Card>
-      <p className="text-xs text-ink-muted">
+    <div>
+      <p className="max-w-prose text-body text-ink-muted">
         Applies immediately — a live agent is re-published with it, so there is nothing to
         apply. Clearing the box restores the platform default; it never means unlimited.
       </p>
-      <div className="mt-3 space-y-3">
+      <div className="mt-4 space-y-5">
         <RestrictionNote reason={write.reason} />
         {save.error && <ProblemNotice error={save.error} />}
 
         {pending ? (
-          <dl className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <dt className="text-[12px] text-ink-muted">In force</dt>
-              <dd className="text-sm font-medium tabular-nums text-ink">
-                {pending.effective_call_cap_s}s
-                <span className="ml-1 text-xs font-normal text-ink-muted">
-                  ({formatCallCap(pending.effective_call_cap_s)}
-                  {pending.call_cap_is_platform_default ? ", platform default" : ", set here"})
+          <SettingRows className="border-y border-line">
+            <SettingRow
+              label="In force"
+              value={
+                <span className="tabular-nums">
+                  {pending.effective_call_cap_s}s
+                  <span className="ml-1 text-meta text-ink-muted">
+                    ({formatCallCap(pending.effective_call_cap_s)}
+                    {pending.call_cap_is_platform_default ? ", platform default" : ", set here"})
+                  </span>
                 </span>
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[12px] text-ink-muted">
-                Worst case, one call
-              </dt>
-              {/* Null is "no rate on the plan", not free. Rendering ₹0 would be a lie
-                  the client would then see on their own screen.
-                  
-                  `formatINR`, not `₹${…}` — the SAME field on the client's own agents
-                  screen already made this trip: its header records "Money bypassed
-                  `formatINR`. `₹${state.worst_case_call_cost_inr}` printed the raw wire
-                  string, so ₹1,500.00 rendered as ₹1500.00". This is the operator's copy
-                  of that number, quoted to a client on the phone, and it was still
-                  ungrouped. `formatINR` formats the DIGITS and never parses them, which
-                  is the property that mattered here (hard rule 7). */}
-              <dd className="text-sm font-medium tabular-nums text-ink">
-                {hasWorstCase ? formatINR(worstCase) : "no rate on this plan"}
-              </dd>
-            </div>
-          </dl>
+              }
+            />
+            {/* Null is "no rate on the plan", not free: rendering ₹0 would be a lie the
+                client then sees on their own screen. `formatINR` formats the digits and
+                never parses them (hard rule 7). */}
+            <SettingRow
+              label="Worst case, one call"
+              value={
+                <span className="tabular-nums">
+                  {hasWorstCase ? formatINR(worstCase) : "no rate on this plan"}
+                </span>
+              }
+            />
+          </SettingRows>
         ) : (
           <Skeleton rows={1} />
         )}
@@ -115,7 +110,7 @@ export function CallCapPanel({
           })}
         >
           <div className="flex flex-col gap-1">
-            <label htmlFor="call-cap" className="text-xs text-ink-muted">
+            <label htmlFor="call-cap" className="text-meta text-ink-muted">
               Seconds
             </label>
             <input
@@ -142,11 +137,11 @@ export function CallCapPanel({
           <button
             type="submit"
             disabled={save.isPending || !write.allowed}
-            className={PRIMARY_BUTTON_SM}
+            className={PRIMARY_BUTTON}
           >
             {save.isPending ? "Saving…" : "Set cap"}
           </button>
-          <span className="text-xs text-ink-muted">
+          <span className="text-meta text-ink-muted">
             {parsed === null
               ? "Empty — restores the platform default."
               : `${formatCallCap(parsed)} per call.`}
@@ -167,7 +162,7 @@ export function CallCapPanel({
         </form>
 
         {save.data && (
-          <p className="text-xs text-ink-muted">
+          <p className="text-meta text-ink-muted">
             Saved — {save.data.effective_call_cap_s}s per call
             {save.data.is_platform_default ? " (platform default)" : ""}.
             {save.data.engine_synced
@@ -176,6 +171,6 @@ export function CallCapPanel({
           </p>
         )}
       </div>
-    </Card>
+    </div>
   );
 }

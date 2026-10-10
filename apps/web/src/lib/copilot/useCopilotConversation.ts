@@ -239,6 +239,8 @@ export interface CopilotConversation {
    * panel shows the skeleton for that case and this sentence only once `loading` is false.
    */
   historyUnavailable: boolean;
+  /** Ask for the stored conversation again (the panel's Retry). */
+  reloadHistory: () => void;
 }
 
 /** The one code the server uses for the allowance ceiling; `AssistCard` reads the same. */
@@ -747,6 +749,7 @@ export function useCopilotConversation(
     // of the sentence `historyUnavailable` puts on screen instead.
     loading: stored.isPending && stored.fetchStatus === "fetching",
     historyUnavailable,
+    reloadHistory: () => void stored.refetch(),
     ask,
     retry,
     stop,

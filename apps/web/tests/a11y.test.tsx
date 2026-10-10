@@ -134,6 +134,7 @@ import {
   OWN_NUMBERS_OFF,
   OWN_NUMBERS_STATUS_PATH,
   clientLlmTiers,
+  adminOverviewSummaryReads,
 } from "./fixtures/sharedReads";
 
 /**
@@ -999,6 +1000,13 @@ const TENANT_SUMMARY = {
   name: "Sri Traders",
   slug: "sri-traders",
   status: "active",
+  // Required on the wire; the redesigned roster prints it as a column (redesign #2).
+  plan_tier: "prepaid",
+  credit_inr: "3400.00",
+  minutes_left: [
+    { voice_tier: "clear", label: "Clear", minutes: 240 },
+    { voice_tier: "studio", label: "Studio", minutes: 80 },
+  ],
   vertical_template: "clinic",
   live_agents: 1,
   calls_7d: 12,
@@ -1584,6 +1592,8 @@ const PENDING_INVITATIONS = [
 
 const TENANT_ROUTES: Routes = {
   "/v1/admin/me": ADMIN_ME,
+  // The overview's health summary (redesign #2), healthy, so its sections are all swept.
+  ...adminOverviewSummaryReads("t1"),
   // Nobody invited yet, so the "No owner invited yet" notice and its invite form are swept.
   "/v1/admin/tenants/t1/owner-status": { owner_present: false, invite_pending: false },
   "/v1/kb/delivery": KB_ALL_DELIVERED,
@@ -2166,6 +2176,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/agents/lanes": LANES,
       "/v1/me": ME,
       "/v1/agents/agent-1": AGENT,
+      "/v1/calls?agent_id=agent-1&limit=5": [],
       // Overview's setup checklist reads the agreements; it and the Script section read
       // the script's version.
       "/v1/legal/readiness": LEGAL_READINESS,

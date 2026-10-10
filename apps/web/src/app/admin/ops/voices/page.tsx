@@ -74,7 +74,7 @@ export default function VoicesPage() {
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="max-w-5xl space-y-10 pb-12">
       <PageHeader
         description="Only voices added here can be chosen for an agent — by a client for their own, or by an admin for anyone's."
         actions={

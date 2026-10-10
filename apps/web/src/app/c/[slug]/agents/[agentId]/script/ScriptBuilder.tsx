@@ -95,7 +95,7 @@ export function ScriptBuilder({ agentId, backHref }: { agentId: string; backHref
 
   if (deleted) {
     return (
-      <div className="rounded-card border border-warn-line bg-warn-soft p-4 text-sm text-ink">
+      <div className="rounded-md border border-warn-line bg-warn-soft px-4 py-3 text-sm text-ink">
         <p className="font-semibold">This agent is deleted</p>
         <p className="mt-1">
           Its script is kept exactly as it was, and it cannot be edited while the agent is
@@ -310,7 +310,7 @@ function Editor({
 
       <section aria-labelledby="script-editor-heading" className="mx-auto max-w-3xl space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 id="script-editor-heading" className="text-[15px] font-semibold text-ink">
+          <h3 id="script-editor-heading" className="text-heading text-ink">
             Its script
           </h3>
           <ModeToggle raw={raw} onStructured={askStructured} onRaw={askRaw} />

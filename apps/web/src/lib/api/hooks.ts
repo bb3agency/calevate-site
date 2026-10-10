@@ -29,6 +29,7 @@ import { useRef } from "react";
 import type { components } from "./schema";
 
 import { unscopedClientSession } from "@/lib/authn/realmSessions";
+import { saveCsv } from "@/lib/csvDownload";
 
 import { aiQuotaKey } from "./aiQuota";
 import {
@@ -239,7 +240,7 @@ export function useDashboard(session: Session): UseQueryResult<Dashboard> {
 
 export function useCalls(
   session: Session,
-  filters: { status?: string; limit?: number } = {},
+  filters: { status?: string; agent_id?: string; limit?: number } = {},
 ): UseQueryResult<CallSummary[]> {
   return useQuery({
     queryKey: queryKeys.calls(session.orgSlug, filters),
@@ -264,17 +265,26 @@ export function useCalls(
  * envelope), so the end of the log is detected the only honest way available: a page
  * shorter than the page size.
  */
+/** The call log's server-side filters (`lib/callFilters` builds the window). */
+export interface CallsLogFilters {
+  status?: string;
+  outcome?: string;
+  direction?: string;
+  since?: string;
+  until?: string;
+}
+
 export function useCallsLog(
   session: Session,
-  filters: { status?: string; pageSize: number },
+  filters: CallsLogFilters & { pageSize: number },
 ): UseInfiniteQueryResult<InfiniteData<CallSummary[]>> {
-  const { status, pageSize } = filters;
+  const { status, outcome, direction, since, until, pageSize } = filters;
   return useInfiniteQuery({
-    queryKey: ["calls-log", session.orgSlug, { status, pageSize }],
+    queryKey: ["calls-log", session.orgSlug, { status, outcome, direction, since, until, pageSize }],
     queryFn: ({ pageParam }) =>
       apiRequest<CallSummary[]>(
         session,
-        `/v1/calls${query({ status, limit: pageSize, offset: pageParam || undefined })}`,
+        `/v1/calls${query({ status, outcome, direction, since, until, limit: pageSize, offset: pageParam || undefined })}`,
       ),
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) =>
@@ -286,6 +296,19 @@ export function useCallsLog(
     // at the render because a new call landing shifts rows across page boundaries.
     refetchInterval: LIVE_INTERVAL_MS,
     refetchOnWindowFocus: true,
+  });
+}
+
+/**
+ * The call log as a CSV, with the same filters as the table, so the file is the table.
+ * Owner-only on the server (`calls:read_raw`, audited); a staff session is refused, so the
+ * screen offers it only to a holder.
+ */
+export function useExportCalls(session: Session) {
+  return useMutation({
+    mutationFn: (filters: CallsLogFilters) =>
+      apiRequest<string>(session, `/v1/calls/export.csv${query({ ...filters })}`),
+    onSuccess: (csv) => saveCsv(csv, "calls"),
   });
 }
 

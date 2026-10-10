@@ -5,20 +5,24 @@ import { useState } from "react";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
+import { EmptySketch } from "@/components/console/emptySketch";
+import { TEXT_ACTION } from "@/components/console/section";
 import { PageHeader } from "@/components/console/pageHeader";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import {
   MonoValue,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON_SM,
   Skeleton,
+  formatCount,
   formatIST,
   formatPhone,
 } from "@/components/ui";
 import { useCallbacks, useCancelCallback, type ScheduledCallback } from "@/lib/api/callbacks";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
 
 /**
@@ -72,6 +76,61 @@ export function CallbacksScreen() {
   const [stopping, setStopping] = useState<ScheduledCallback | null>(null);
   const rows = callbacks.data;
 
+  /*
+   * Declared to the assistant: the Upcoming/All switch is the one control, and the facts
+   * are counts by status. No row is declared, because every row is a caller's number
+   * (hard rule 6).
+   */
+  const byStatus = new Map<string, number>();
+  if (rows) for (const row of rows) byStatus.set(row.status, (byStatus.get(row.status) ?? 0) + 1);
+  useCopilotSurface({
+    route: "/c/{slug}/callbacks",
+    title: "Call-backs",
+    realm: "client",
+    fields: [
+      {
+        id: "callbacks-view",
+        label: "Which call-backs to show",
+        type: "select",
+        value: view,
+        options: VIEWS,
+        help: "Upcoming shows only the ones still waiting to be placed.",
+      },
+    ],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: rows
+          ? "the call-backs below have loaded"
+          : callbacks.error
+            ? "the call-backs failed to load, so none is listed"
+            : "still loading",
+      },
+      ...(rows
+        ? [
+            { key: "rows", label: "Call-backs listed", value: String(rows.length) },
+            {
+              key: "by_status",
+              label: "How many are in each state",
+              value:
+                [...byStatus.entries()]
+                  .map(([status, count]) => `${lookup(HEADINGS, status) ?? status}: ${count}`)
+                  .join(", ") || "none",
+            },
+          ]
+        : []),
+      { key: "can_cancel", label: "Can this person call one off?", value: write.allowed ? "yes" : "no" },
+    ],
+    apply: (items) => {
+      for (const item of items) {
+        if (item.field_id !== "callbacks-view") continue;
+        const wanted = asText(item.value);
+        if (VIEWS.some((option) => option.value === wanted)) setView(wanted);
+      }
+    },
+  });
+
   const columns: DataColumn<ScheduledCallback>[] = [
     {
       id: "who",
@@ -82,7 +141,7 @@ export function CallbacksScreen() {
             {formatPhone(row.phone_e164)}
           </MonoValue>
           {/* Below `sm` the time column is dropped, so it rides under the number. */}
-          <p className="text-xs text-ink-muted sm:hidden">{formatIST(row.requested_at)}</p>
+          <p className="text-meta text-ink-muted sm:hidden">{formatIST(row.requested_at)}</p>
         </div>
       ),
     },
@@ -106,8 +165,8 @@ export function CallbacksScreen() {
           >
             {lookup(HEADINGS, row.status) ?? row.status}
           </span>
-          {row.explanation && <p className="text-xs text-ink-muted">{row.explanation}</p>}
-          {row.note && <p className="text-xs italic text-ink-muted">They said: {row.note}</p>}
+          {row.explanation && <p className="text-meta text-ink-muted">{row.explanation}</p>}
+          {row.note && <p className="text-meta text-ink-muted">They said: {row.note}</p>}
         </div>
       ),
     },
@@ -122,27 +181,23 @@ export function CallbacksScreen() {
             type="button"
             disabled={cancel.isPending && cancel.variables === row.id}
             onClick={() => setStopping(row)}
-            className={SECONDARY_BUTTON_SM}
+            className={TEXT_ACTION}
           >
             {cancel.isPending && cancel.variables === row.id ? "Calling it off…" : "Call it off"}
           </button>
         ) : row.status === "dialing" ? (
-          <span className="text-xs text-ink-faint">Too late to stop</span>
+          <span className="text-meta text-ink-faint">Too late to stop</span>
         ) : row.settled_at ? (
-          <span className="whitespace-nowrap text-xs text-ink-faint">{formatIST(row.settled_at)}</span>
+          <span className="whitespace-nowrap text-meta text-ink-faint">{formatIST(row.settled_at)}</span>
         ) : null,
     },
   ];
 
   return (
-    <div className="space-y-5 pb-12">
-      <PageHeader
-        description="Calls your agents promised, placed at the time the caller asked."
-        actions={
-          <SegmentedControl label="Which call-backs" options={VIEWS} value={view} onValueChange={setView} />
-        }
-      />
-      <p className="max-w-3xl text-xs text-ink-faint">
+    <div className="space-y-6 pb-12">
+      <PageHeader description="Calls your agents promised, placed at the time the caller asked." />
+      {/* Qualifies the compliance gate every call-back passes: visible and word for word. */}
+      <p className="max-w-prose text-meta text-ink-muted">
         It goes through the same checks as every other call — the do-not-call list,
         permitted calling hours, and your account&apos;s credit — so a promise that cannot
         lawfully be kept is stopped and says why.
@@ -150,27 +205,43 @@ export function CallbacksScreen() {
 
       <RestrictionNote reason={write.reason} />
 
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SegmentedControl label="Which call-backs" options={VIEWS} value={view} onValueChange={setView} />
+        {rows && (
+          <p className="text-meta text-ink-muted">
+            <span className="font-semibold tabular-nums text-ink">{formatCount(rows.length)}</span>{" "}
+            {openOnly ? "still to come" : rows.length === 1 ? "call-back" : "call-backs"}
+          </p>
+        )}
+      </div>
+
       {callbacks.error && (
         <ProblemNotice error={callbacks.error} onRetry={() => callbacks.refetch()} />
       )}
-      {callbacks.isLoading ? (
-        <Skeleton rows={5} />
-      ) : !rows ? null : rows.length ? (
-        <DataTable
-          label={openOnly ? "Call-backs still to come" : "Every call-back"}
-          rows={rows}
-          columns={columns}
-          getRowId={(row) => row.id}
-        />
-      ) : (
-        <EmptyState
-          message={
-            openOnly
-              ? "Nobody is waiting for a call right now."
-              : "No call-backs yet. Agents book one when a caller asks to be rung back — switch it on under the agent's Remembering callers."
-          }
-        />
-      )}
+      <div className="border-y border-line">
+        {callbacks.isLoading ? (
+          <div className="py-4">
+            <Skeleton rows={5} label="Loading your call-backs" />
+          </div>
+        ) : !rows ? null : rows.length ? (
+          <DataTable
+            label={openOnly ? "Call-backs still to come" : "Every call-back"}
+            rows={rows}
+            columns={columns}
+            getRowId={(row) => row.id}
+          />
+        ) : (
+          <EmptyState
+            illustration={<EmptySketch kind="callbacks" />}
+            message={openOnly ? "Nobody is waiting for a call right now." : "No call-backs yet."}
+            hint={
+              openOnly
+                ? undefined
+                : "Agents book one when a caller asks to be rung back — switch it on under the agent's Remembering callers."
+            }
+          />
+        )}
+      </div>
 
       {stopping && (
         <ConfirmDialog

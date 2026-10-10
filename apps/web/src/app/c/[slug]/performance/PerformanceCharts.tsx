@@ -3,6 +3,7 @@
 import { EmptyState } from "@/components/console/emptyState";
 import { ScrollRegion, formatCount } from "@/components/ui";
 import type { Performance } from "@/lib/api/performance";
+import { lookup } from "@/lib/lookup";
 
 /**
  * The four readings under the tiles — a rate, a funnel, an outcome list and the hour
@@ -43,7 +44,7 @@ const BAR_ENTER =
 /** Said, rather than left for the reader to notice numbers moving under them. */
 export function Updating({ busy }: { busy: boolean }) {
   if (!busy) return null;
-  return <span className="text-[11px] font-medium text-ink-faint">Updating…</span>;
+  return <span className="text-meta text-ink-faint">Updating…</span>;
 }
 
 /**
@@ -71,8 +72,8 @@ export function Funnel({ funnel }: { funnel: Performance["funnel"] }) {
     <div className="space-y-3">
       {stages.map((stage, index) => (
         <div key={stage.label} className="flex items-center gap-3">
-          <div className="w-20 shrink-0 text-sm text-ink-muted">{stage.label}</div>
-          <div className="h-6 flex-1 overflow-hidden rounded-md bg-black/[0.04] dark:bg-white/10">
+          <div className="w-20 shrink-0 text-body text-ink-muted">{stage.label}</div>
+          <div className="h-6 flex-1 overflow-hidden rounded-md bg-ink/[0.05]">
             <div
               className={`h-full origin-left rounded-md ${FUNNEL_SHADES[index]} ${BAR_ENTER} starting:scale-x-90`}
               style={{
@@ -81,7 +82,7 @@ export function Funnel({ funnel }: { funnel: Performance["funnel"] }) {
               title={`${stage.label}: ${stage.count}`}
             />
           </div>
-          <div className="w-14 shrink-0 text-right text-sm font-semibold tabular-nums text-ink">
+          <div className="w-14 shrink-0 text-right text-body font-semibold tabular-nums text-ink">
             {formatCount(stage.count)}
           </div>
         </div>
@@ -98,9 +99,21 @@ export function Funnel({ funnel }: { funnel: Performance["funnel"] }) {
  * caption says so: a reader who thinks these are all tags will read "no_answer" as an
  * outcome someone chose.
  *
- * No `lookup()` needed — these keys are printed, never used to index a copy table, which
- * is the read `src/lib/lookup.ts` exists to make safe.
+ * The key indexes `OUTCOME_FILL` through `lookup()`, because it is a wire string the
+ * agent's own schema chose and could name an `Object.prototype` member.
  */
+/**
+ * The mark colour for an outcome, on the same roles the dashboard's daily chart uses: a
+ * missed connection is a warning, a failure is danger, everything else is brand. The
+ * label beside each bar carries the meaning; colour is the second channel (WCAG 1.4.1).
+ */
+const OUTCOME_FILL: Record<string, string> = {
+  no_answer: "bg-chart-warn",
+  busy: "bg-chart-warn",
+  voicemail: "bg-chart-warn",
+  failed: "bg-chart-danger",
+};
+
 export function Outcomes({ outcomes }: { outcomes: Record<string, number> }) {
   const rows = Object.entries(outcomes).sort(([, a], [, b]) => b - a);
   if (rows.length === 0) {
@@ -118,17 +131,17 @@ export function Outcomes({ outcomes }: { outcomes: Record<string, number> }) {
                 length is the client's choice and nothing else on this screen repeats it. */}
             <span
               title={outcome.replace(/_/g, " ")}
-              className="truncate text-[13px] capitalize text-ink-muted"
+              className="truncate text-meta capitalize text-ink-muted"
             >
               {outcome.replace(/_/g, " ")}
             </span>
-            <span className="text-[13px] font-semibold tabular-nums text-ink">
+            <span className="text-meta font-semibold tabular-nums text-ink">
               {formatCount(count)}
             </span>
           </div>
-          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-black/[0.04] dark:bg-white/10">
+          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-ink/[0.05]">
             <div
-              className={`h-full origin-left rounded-full bg-brand ${BAR_ENTER} starting:scale-x-90`}
+              className={`h-full origin-left rounded-full ${lookup(OUTCOME_FILL, outcome) ?? "bg-brand"} ${BAR_ENTER} starting:scale-x-90`}
               style={{ width: `${busiest > 0 ? Math.max((count / busiest) * 100, 2) : 0}%` }}
             />
           </div>
@@ -217,7 +230,7 @@ export function HourHistogram({ hours, calls }: { hours: number[]; calls: number
               <div className="flex h-[120px] w-full items-end">
                 <div
                   className={`w-full origin-bottom rounded-t-sm ${BAR_ENTER} starting:scale-y-90 ${
-                    count > 0 ? "bg-brand" : "bg-black/[0.06] dark:bg-white/10"
+                    count > 0 ? "bg-brand" : "bg-ink/[0.08]"
                   }`}
                   // Relative to the busiest hour; a silent hour keeps a 2px baseline so
                   // the axis stays legible on an all-zero day.
@@ -234,7 +247,7 @@ export function HourHistogram({ hours, calls }: { hours: number[]; calls: number
         </div>
       </ScrollRegion>
       {started < calls && (
-        <p className="mt-2 text-xs text-ink-muted">
+        <p className="mt-2 text-meta text-ink-muted">
           {formatCount(started)} of {formatCount(calls)} calls in this period have a start
           time; the rest never reached the network, so they are not in this chart.
         </p>

@@ -28,7 +28,7 @@ export function lotRates(lot: CreditLot): string {
 export function LotReceipt({ lot, lead }: { lot: CreditLot | null; lead: string }) {
   if (lot === null) return null;
   return (
-    <p className="mt-2 text-xs">
+    <p className="mt-2 text-meta">
       {lead} <span className="font-mono">{lot.lot_id}</span> — {formatINR(lot.credits_total)} at
       {lot.clear_label} {formatRupeeRate(lot.clear_inr_per_min)}/min and {lot.studio_label}{" "}
       {formatRupeeRate(lot.studio_inr_per_min)}/min. Those rates are frozen on it: a later change to the rate
@@ -50,7 +50,7 @@ export function LotRestatementReceipt({ result }: { result: RestatementResult })
   const shortfall_inr = result.lot_shortfall_inr;
   return (
     <>
-      <p className="mt-2 text-xs">
+      <p className="mt-2 text-meta">
         Lot <span className="font-mono">{lot.lot_id}</span> now holds{" "}
         {formatINR(lot.credits_remaining)} of {formatINR(lot.credits_total)}. Its rates are
         unchanged at {lot.clear_label} {formatRupeeRate(lot.clear_inr_per_min)}/min and{" "}
@@ -58,7 +58,7 @@ export function LotRestatementReceipt({ result }: { result: RestatementResult })
         <span className="font-semibold">a restatement moves totals, never rates.</span>
       </p>
       {shortfall_inr && (
-        <p className="mt-2 text-xs">
+        <p className="mt-2 text-meta">
           {formatINR(shortfall_inr)} of the correction was more than the lot had left, so it
           became overdraft on the wallet. The next payment repays that before it opens a new
           lot.

@@ -107,8 +107,7 @@ describe("the invite link", () => {
     });
 
     await screen.findByText("Anita");
-    // The invite form opens in a drawer from the header's Invite button (round-2 redesign).
-    fireEvent.click(screen.getByRole("button", { name: "Invite" }));
+    // The invite form is inline on the page since REDESIGN-2 (it was a drawer).
     fireEvent.change(
       await screen.findByRole("textbox", { name: "Email address to invite" }),
       {

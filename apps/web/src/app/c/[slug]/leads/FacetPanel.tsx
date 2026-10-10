@@ -1,6 +1,7 @@
 "use client";
 
-import { Card, Disclosure, ProblemNotice, Skeleton, formatCount } from "@/components/ui";
+import { Disclosure, ProblemNotice, Skeleton, formatCount } from "@/components/ui";
+import { TEXT_ACTION } from "@/components/console/section";
 import type { LeadFacets } from "@/lib/api/leads";
 
 /**
@@ -40,11 +41,7 @@ export function FacetPanel({
   onRetry: () => void;
 }) {
   if (loading) {
-    return (
-      <Card bodyClassName="p-3">
-        <Skeleton rows={2} />
-      </Card>
-    );
+    return <Skeleton rows={1} label="Loading the filters" />;
   }
   if (error) {
     return <ProblemNotice error={error} onRetry={onRetry} />;
@@ -75,6 +72,7 @@ export function FacetPanel({
        itself whenever a value is chosen, so a filter in force is never out of sight, and
        the closed state says how many fields it offers and how many are in use. */
     <Disclosure
+      variant="inline"
       title="Filter by what your agent captured"
       subtitle={`${facets.facets.map((facet) => facet.label).join(", ")}${
         anySelected ? ` · ${selectedCount} chosen` : ""
@@ -86,7 +84,7 @@ export function FacetPanel({
         <button
           type="button"
           onClick={() => onChange({})}
-          className="rounded-sm text-xs font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
+          className={TEXT_ACTION}
         >
           Clear these filters
         </button>
@@ -96,7 +94,7 @@ export function FacetPanel({
         <fieldset key={facet.key} className="space-y-1.5">
           {/* A PERSISTENT VISIBLE LABEL for the group. `<legend>` rather than an
               aria-label, so it is readable by everyone and not only by axe. */}
-          <legend className="text-[12px] font-medium text-ink-muted">
+          <legend className="text-meta font-medium text-ink">
             {facet.label}
           </legend>
           <div className="flex flex-wrap gap-1.5">
@@ -108,7 +106,7 @@ export function FacetPanel({
                   className={
                     on
                       ? "flex cursor-pointer items-center gap-1.5 rounded-full bg-brand-strong px-3 py-1 text-xs font-semibold text-white"
-                      : "flex cursor-pointer items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
+                      : "flex cursor-pointer items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1 text-xs font-medium text-ink-muted hover:bg-ink/[0.04]"
                   }
                 >
                   <input
@@ -134,7 +132,7 @@ export function FacetPanel({
       ))}
 
       {facets.omitted_field_count > 0 && (
-        <p className="text-xs text-ink-faint">
+        <p className="text-meta text-ink-faint">
           {formatCount(facets.omitted_field_count)} more capture{" "}
           {facets.omitted_field_count === 1 ? "field is" : "fields are"} filterable but not shown
           here — ask us to reorder your capture list if you need one of them.

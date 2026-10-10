@@ -2,7 +2,9 @@
 
 import { Send } from "lucide-react";
 
+import { Section } from "@/components/console/section";
 import { useFormValidation } from "@/components/formValidation";
+import { FIELD, PRIMARY_BUTTON } from "@/components/ui";
 import { useSubmitKnowledge } from "@/lib/api/kb";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
@@ -35,10 +37,9 @@ export function AddKnowledgeForm({
   const valid = useFormValidation();
 
   return (
-    <div>
-      <h3 className="text-sm font-semibold text-ink">Add a fact</h3>
+    <Section title="Add a fact" description="Every one of your agents will know this.">
       <form
-        className="mt-2 space-y-3"
+        className="max-w-2xl space-y-4"
         noValidate
         onSubmit={valid.onSubmit(() => {
           submit.mutate(
@@ -52,7 +53,6 @@ export function AddKnowledgeForm({
           );
         })}
       >
-        <p className="text-xs text-ink-muted">Every one of your agents will know this.</p>
 
         <input
           {...valid.field("title", "Say what this is about.")}
@@ -65,7 +65,7 @@ export function AddKnowledgeForm({
           onChange={(e) => onName(e.target.value)}
           aria-label="What this knowledge is about"
           placeholder={`What is this about? e.g. ${eg.knowledgeTitle}`}
-          className="w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint"
+          className={`${FIELD} mt-0`}
         />
         {valid.error("title")}
         <textarea
@@ -81,13 +81,13 @@ export function AddKnowledgeForm({
             "Write it the way you would tell a new member of your team.\n\n" +
             "Leave a blank line between topics."
           }
-          className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
+          className={`${FIELD} mt-0`}
         />
         {valid.error("body")}
         {/* Chunking is paragraph-aware, so telling the client that changes how
             they write — and what they write is what the agent carries verbatim,
             so better input is the only lever there is. */}
-        <p className="text-xs text-ink-muted">
+        <p className="-mt-2 text-meta text-ink-muted">
           Adding a topic that already exists creates a new version; the previous one
           stays in use until the new one has reached your agents.
         </p>
@@ -101,13 +101,13 @@ export function AddKnowledgeForm({
              luck, and a dead button with the explanation off-screen is the 403 we
              are trying not to ship. */
           title={reason ?? undefined}
-          className="press flex w-full items-center justify-center gap-1.5 rounded-md bg-brand-strong sm:w-auto px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
+          className={`${PRIMARY_BUTTON} mt-2 w-full justify-center sm:w-auto`}
         >
           <Send className="h-3.5 w-3.5" />
           {submit.isPending ? "Adding…" : "Add to your knowledge"}
         </button>
       </form>
-    </div>
+    </Section>
 
   );
 }

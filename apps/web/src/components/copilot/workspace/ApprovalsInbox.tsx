@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
-import { useToast } from "@/components/interior/toaster";
 import {
   PRIMARY_BUTTON,
   ProblemNotice,
@@ -33,6 +33,13 @@ import {
 export function ApprovalsInbox({ session }: { session: Session }) {
   const approvals = useCopilotApprovals(session);
   const rows = approvals.data?.actions ?? [];
+  // What the last decision did, in the server's words. It stays after the row leaves.
+  const [result, setResult] = useState<string | null>(null);
+  const said = result ? (
+    <p role="status" className="mb-3 text-body text-ink">
+      {result}
+    </p>
+  ) : null;
 
   if (approvals.error != null) {
     return <ProblemNotice error={approvals.error} onRetry={() => void approvals.refetch()} />;
@@ -40,39 +47,53 @@ export function ApprovalsInbox({ session }: { session: Session }) {
   if (approvals.data === undefined) return <Skeleton rows={3} label="Loading approvals…" />;
   if (rows.length === 0) {
     return (
+      <>
+      {said}
       <EmptyState
+        illustration={<EmptySketch kind="attention" />}
         message="Nothing is waiting for you."
         hint="When a task or routine needs to call someone, spend money or make a change that can't be undone, it waits here."
       />
+      </>
     );
   }
   return (
-    <ul className="space-y-3" aria-label="Waiting for your approval">
+    <>
+    {said}
+    <ul className="divide-y divide-line border-y border-line" aria-label="Waiting for your approval">
       {rows.map((row) => (
-        <ApprovalRow key={row.id} session={session} row={row} />
+        <ApprovalRow key={row.id} session={session} row={row} onResult={setResult} />
       ))}
     </ul>
+    </>
   );
 }
 
-function ApprovalRow({ session, row }: { session: Session; row: CopilotActionOut }) {
+function ApprovalRow({
+  session,
+  row,
+  onResult,
+}: {
+  session: Session;
+  row: CopilotActionOut;
+  onResult: (sentence: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const preview = useApprovalPreview(session, open ? row.id : null);
   const approve = useApproveAction(session);
   const reject = useRejectAction(session);
-  const { toast } = useToast();
   const detailsId = `approval-${row.id}`;
   const ready = preview.data !== undefined && preview.data.still_applies;
   const busy = approve.isPending || reject.isPending;
 
   return (
-    <li className="rounded-card border border-line bg-surface">
+    <li>
       <button
         type="button"
         aria-expanded={open}
         aria-controls={detailsId}
         onClick={() => setOpen((value) => !value)}
-        className="press flex w-full min-w-0 items-start gap-3 rounded-card px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        className="press flex w-full min-w-0 items-start gap-3 px-1 py-3.5 text-left hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
       >
         <span className="min-w-0 flex-1">
           <span className="block break-words text-sm font-medium text-ink [overflow-wrap:anywhere]">
@@ -141,11 +162,7 @@ function ApprovalRow({ session, row }: { session: Session; row: CopilotActionOut
               onClick={() =>
                 approve.mutate(row.id, {
                   onSuccess: (result) =>
-                    toast({
-                      tone: result.applied ? "success" : "info",
-                      title: result.applied ? "Approved and done" : "Nothing to do",
-                      description: result.detail,
-                    }),
+                    onResult(`${result.applied ? "Approved and done" : "Nothing to do"}. ${result.detail}`),
                 })
               }
               className={PRIMARY_BUTTON}
@@ -157,7 +174,7 @@ function ApprovalRow({ session, row }: { session: Session; row: CopilotActionOut
               disabled={busy}
               onClick={() =>
                 reject.mutate(row.id, {
-                  onSuccess: () => toast({ tone: "info", title: "Declined. Nothing was changed." }),
+                  onSuccess: () => onResult("Declined. Nothing was changed."),
                 })
               }
               className={SECONDARY_BUTTON}

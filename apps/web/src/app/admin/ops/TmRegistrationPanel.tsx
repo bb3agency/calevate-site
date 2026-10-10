@@ -1,11 +1,11 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 import { CheckCircle2, CircleAlert, Landmark, Lock, TriangleAlert } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
 import {
-  Card,
   DANGER_BUTTON,
   FIELD,
   FIELD_HINT,
@@ -102,7 +102,7 @@ export function TmRegistrationPanel({
   const ready = confirm === confirmWord;
 
   return (
-    <Card
+    <Section
       title="Our telemarketer registration"
       action={
         editing ? undefined : (
@@ -119,7 +119,7 @@ export function TmRegistrationPanel({
       }
     >
       <div className="space-y-4">
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           Calevate is the registered{" "}
           <Term id="tm" term="telemarketer (TM)" audience="operator" />
           ; each client is its own{" "}
@@ -165,7 +165,7 @@ export function TmRegistrationPanel({
         )}
         {/* The SERVER's `is_live` after the write, never this form's opinion of it. */}
         {record.data && (
-          <p className="flex items-start gap-2 text-sm text-ink-muted">
+          <p className="flex items-start gap-2 text-body text-ink-muted">
             <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
             {/* One span around the whole sentence: a flex container lays out EVERY child
                 as its own item, so leaving the text loose beside the <span> below made
@@ -181,7 +181,7 @@ export function TmRegistrationPanel({
         )}
 
         {!editing && !access.allowed && access.reason && (
-          <p className="flex items-start gap-2 text-xs text-ink-muted">
+          <p className="flex items-start gap-2 text-meta text-ink-muted">
             <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             {access.reason}
           </p>
@@ -281,8 +281,8 @@ export function TmRegistrationPanel({
           />
 
           {/* What this write does to every tenant, before it is sent. */}
-          <div className="flex gap-3 rounded-card border border-line bg-app p-4 text-sm">
-            <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+          <div className="flex gap-3 border-l-2 border-danger py-1 pl-4 text-body">
+            <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted" />
             <p className="text-ink-muted">
               Recording this changes no outbound gate; it is kept for the record.
             </p>
@@ -315,7 +315,7 @@ export function TmRegistrationPanel({
           </div>
 
           {!access.allowed && access.reason && (
-            <p className="flex items-start gap-2 text-xs text-ink-muted">
+            <p className="flex items-start gap-2 text-meta text-ink-muted">
               <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               {access.reason}
             </p>
@@ -323,14 +323,14 @@ export function TmRegistrationPanel({
         </form>
         )}
       </div>
-    </Card>
+    </Section>
   );
 }
 
 function Fact({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div>
-      <dt className="text-xs font-medium text-ink-faint">{label}</dt>
+      <dt className="text-meta font-medium text-ink-muted">{label}</dt>
       <dd className={mono ? "mt-0.5 font-mono text-sm text-ink" : "mt-0.5 text-sm text-ink"}>
         {value}
       </dd>

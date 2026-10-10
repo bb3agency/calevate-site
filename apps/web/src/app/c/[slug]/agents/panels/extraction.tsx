@@ -19,7 +19,7 @@ import {
 } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
 import { InfoTip } from "@/components/console/infoTip";
-import { useToast } from "@/components/interior/toaster";
+import { SavedTick } from "@/components/console/savedTick";
 import { isDeleted } from "@/lib/agentState";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useSetExtractionSchema, type Agent } from "@/lib/api/agents";
@@ -64,7 +64,6 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
   const eg = useVerticalExamples();
   const save = useSetExtractionSchema(session, agent.id);
   const write = useWriteAccess(session, "org:manage", "change what this agent captures");
-  const { toast } = useToast();
 
   const [rows, setRows] = useState<DraftRow[]>(() => agent.extraction_fields.map(toDraft));
 
@@ -242,7 +241,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
   return (
     <section>
       <div className="flex items-center gap-1">
-        <h3 className="text-[15px] font-semibold text-ink">What it writes down</h3>
+        <h3 className="text-heading text-ink">What it writes down</h3>
         <InfoTip label="What it writes down">
           <p>
             The agent fills these in from the conversation — it never reads a form aloud, so
@@ -277,7 +276,6 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
                 // Repaint from the server's stored answer, not the draft — the validator
                 // may have trimmed or reordered, and the screen must show what is on file.
                 setRows(result.fields.map(toDraft));
-                toast({ tone: "success", title: "Variables saved" });
               },
             },
           );
@@ -329,6 +327,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
             <Save aria-hidden className="h-4 w-4" />
             {save.isPending ? "Saving…" : "Save variables"}
           </button>
+          <SavedTick at={save.isSuccess ? save.submittedAt : 0} />
           {clientError ? (
             <span className="text-xs text-warn">{clientError}</span>
           ) : dirty ? (
@@ -390,7 +389,7 @@ function ArchivedExtractionList({
 
   return (
     <section>
-      <h3 className="text-[15px] font-semibold text-ink">What it writes down</h3>
+      <h3 className="text-heading text-ink">What it writes down</h3>
       {agent.extraction_fields.length > 0 ? (
         <ul className="mt-2 divide-y divide-line">
           {agent.extraction_fields.map((field) => (

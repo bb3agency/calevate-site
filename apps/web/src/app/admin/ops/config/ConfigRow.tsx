@@ -36,8 +36,8 @@ export function ConfigRow({ field, access }: { field: ConfigField; access: Acces
     <div className="py-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
         <div className="min-w-0 sm:flex-1">
-          <p className="text-[14px] font-medium text-ink">{field.label}</p>
-          <p className="mt-0.5 text-[13px] text-ink-muted">{field.description}</p>
+          <p className="text-body font-medium text-ink">{field.label}</p>
+          <p className="mt-0.5 text-meta text-ink-muted">{field.description}</p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <ToneBadge
               tone={state.tone === "changed" ? "ok" : "neutral"}
@@ -48,13 +48,13 @@ export function ConfigRow({ field, access }: { field: ConfigField; access: Acces
             {field.editable && <TimingBadge applies={field.applies} />}
           </div>
           {field.source === "db" && field.note && (
-            <p className="mt-1.5 break-words text-xs text-ink-muted">
+            <p className="mt-1.5 break-words text-meta text-ink-muted">
               Reason: &ldquo;{field.note}&rdquo;
             </p>
           )}
         </div>
         <div className="flex min-w-0 items-center justify-between gap-3 sm:max-w-[45%] sm:flex-col sm:items-end sm:justify-start">
-          <p className="min-w-0 break-words text-[15px] font-semibold text-ink [overflow-wrap:anywhere] sm:text-right">
+          <p className="min-w-0 break-words text-body font-semibold text-ink [overflow-wrap:anywhere] sm:text-right">
             {displayValue(field, field.value)}
           </p>
           <RowAction
@@ -72,13 +72,13 @@ export function ConfigRow({ field, access }: { field: ConfigField; access: Acces
       </div>
 
       {!field.editable && (
-        <p className="mt-2 flex items-start gap-1.5 text-xs text-ink-muted">
+        <p className="mt-2 flex items-start gap-1.5 text-meta text-ink-muted">
           <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>{lockedReason(field)}</span>
         </p>
       )}
       {field.editable && tag === null && (
-        <p className="mt-2 flex items-start gap-1.5 text-xs text-ink-muted">
+        <p className="mt-2 flex items-start gap-1.5 text-meta text-ink-muted">
           <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
             The platform did not send a version tag for this setting, and it refuses a change
@@ -152,8 +152,8 @@ function RowAction({
 function Detail({ term, children }: { term: string; children: ReactNode }) {
   return (
     <div className="grid gap-0.5 sm:grid-cols-[10rem_1fr] sm:gap-3">
-      <dt className="text-xs font-medium text-ink-faint">{term}</dt>
-      <dd className="min-w-0 break-words text-xs text-ink-muted [overflow-wrap:anywhere]">{children}</dd>
+      <dt className="text-meta font-medium text-ink-muted">{term}</dt>
+      <dd className="min-w-0 break-words text-meta text-ink-muted [overflow-wrap:anywhere]">{children}</dd>
     </div>
   );
 }
@@ -207,9 +207,9 @@ function WriteReceipt({
   const recorded = write.recorded !== false;
 
   return (
-    <div className="mt-3 space-y-2 rounded-card border border-line bg-surface-muted p-3">
+    <div className="mt-3 space-y-2 border-l-2 border-line py-1 pl-3">
       {/* Polite: the write already succeeded, so it must not interrupt. */}
-      <p role="status" className="flex items-start gap-2 text-sm text-ink">
+      <p role="status" className="flex items-start gap-2 text-body text-ink">
         <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
         {recorded ? (
           <span className="min-w-0 break-words">
@@ -227,7 +227,7 @@ function WriteReceipt({
         )}
       </p>
       {recorded && applies.applies !== "live" && (
-        <p className="text-xs text-ink-muted">{applies.sentence}</p>
+        <p className="text-meta text-ink-muted">{applies.sentence}</p>
       )}
       {recorded && !inForceHere && (
         <NoticeBox

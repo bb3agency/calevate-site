@@ -235,7 +235,7 @@ export function SectionEditor({
           {PROFILE_LANGUAGES.map((option) => {
             const checked = draft.languages.includes(option.value);
             return (
-              <label key={option.value} className="flex items-center gap-2 text-sm text-ink touch:min-h-11">
+              <label key={option.value} className="flex items-center gap-2 text-body text-ink touch:min-h-11">
                 <input
                   id={profileFieldId(`languages.${option.value}`)}
                   type="checkbox"
@@ -254,7 +254,7 @@ export function SectionEditor({
               </label>
             );
           })}
-          {errorAt("languages") && <p className="text-xs font-medium text-danger">{errorAt("languages")}</p>}
+          {errorAt("languages") && <p className="text-meta font-medium text-danger">{errorAt("languages")}</p>}
         </fieldset>
       );
   }

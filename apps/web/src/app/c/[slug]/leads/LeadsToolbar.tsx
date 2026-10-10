@@ -3,12 +3,11 @@
 import { Download, Search, Sparkles } from "lucide-react";
 
 import { InfoTip } from "@/components/console/infoTip";
-import { SegmentedControl } from "@/components/interior/segmented-control";
+import { FIELD_INLINE_ICON, SECONDARY_BUTTON } from "@/components/ui";
 
 import { type LeadLens, type LeadList, type useExportLeads } from "@/lib/api/leads";
 
 import { ColumnChooser } from "./ColumnChooser";
-import { type ViewMode } from "./leadsTable";
 
 /**
  * FIND, SHAPE, TAKE AWAY — the strip above the table.
@@ -26,8 +25,6 @@ export function LeadsToolbar({
   onAsk,
   askTerm,
   onAskSubmit,
-  view,
-  onView,
   leads,
   chosenColumns,
   onColumns,
@@ -45,8 +42,6 @@ export function LeadsToolbar({
   onAsk: (value: string) => void;
   askTerm: string;
   onAskSubmit: () => void;
-  view: ViewMode;
-  onView: (mode: ViewMode) => void;
   leads: { data: LeadList | undefined; error: unknown };
   chosenColumns: string[] | undefined;
   onColumns: (columns: string[] | undefined) => void;
@@ -70,7 +65,7 @@ export function LeadsToolbar({
   return (
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-0 flex-1 sm:flex-none">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+          <Search aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
           <input
             value={search}
             onChange={(e) => onSearch(e.target.value)}
@@ -78,7 +73,7 @@ export function LeadsToolbar({
             maxLength={60}
             aria-label="Search leads"
             placeholder="Name or last digits"
-            className="w-full rounded-md border border-line bg-surface py-1.5 pl-8 pr-3 text-sm text-ink placeholder:text-ink-faint touch:min-h-11 sm:w-56"
+            className={`${FIELD_INLINE_ICON} w-full sm:w-56`}
           />
         </div>
 
@@ -97,7 +92,7 @@ export function LeadsToolbar({
             onAskSubmit();
           }}
         >
-          <Sparkles className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+          <Sparkles aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
           <input
             type="search"
             value={ask}
@@ -107,23 +102,11 @@ export function LeadsToolbar({
             maxLength={2000}
             aria-label="Find leads by what they asked for"
             placeholder={`What did they ask for? e.g. ${askExample}`}
-            className="w-full rounded-md border border-line bg-surface py-1.5 pl-8 pr-3 text-sm text-ink placeholder:text-ink-faint touch:min-h-11"
+            className={`${FIELD_INLINE_ICON} w-full`}
           />
         </form>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-        {/* Two views of the same leads (D-655): the list for detail columns, the board for
-            the pipeline stage by stage. */}
-        <SegmentedControl
-          label="View"
-          value={view}
-          onValueChange={(next) => onView(next === "board" ? "board" : "list")}
-          options={[
-            { value: "list", label: "List" },
-            { value: "board", label: "Board" },
-          ]}
-        />
-
         {/* The COLUMN CHOOSER. It sits beside Export rather than above the table on
             purpose: it decides what the table shows AND what the file contains, and a
             control that changes the download belongs next to the download. */}
@@ -179,9 +162,9 @@ export function LeadsToolbar({
               ? "Downloads the leads and the columns shown here, with full phone numbers."
               : "Checking whether you can export these leads…")
           }
-          className="press flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:enabled:hover:bg-white/5"
+          className={SECONDARY_BUTTON}
         >
-          <Download className="h-3.5 w-3.5" />
+          <Download aria-hidden className="h-3.5 w-3.5" />
           {exportLeads.isPending ? "Preparing…" : "Export this view as CSV"}
         </button>
         <InfoTip label="the CSV export" align="end">

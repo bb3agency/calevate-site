@@ -1669,7 +1669,7 @@
       },
       "AgentCreateIn": {
         "additionalProperties": false,
-        "description": "A new agent, in the three facts a business owner actually has at creation time.\n\nNO DISCLOSURE FIELDS, deliberately. Both sentences are generated from the language\ntemplates by `lifecycle.create_agent` and are not accepted from the caller: the create\nform is the one place a client is not yet thinking about TRAI, and a free-text field\ncalled \"AI disclosure\" on it is how an agent ends up announcing \"Hi there!\". Changing\nthe wording is a reviewed surface, not a text input on the new-agent screen.\n\nNO SCRIPT FIELD either, and that is what `draft` is for: the agent exists, the owner\nwrites and trains it, and `publish_agent` refuses to activate one with no prompt\nversion by name (`agent_has_no_script`).",
+        "description": "A new agent, in the three facts a business owner actually has at creation time.\n\nNO DISCLOSURE FIELDS, deliberately. Both sentences are generated from the language\ntemplates by `lifecycle.create_agent` and are not accepted from the caller: the create\nform is the one place a client is not yet thinking about TRAI, and a free-text field\ncalled \"AI disclosure\" on it is how an agent ends up announcing \"Hi there!\". Changing\nthe wording is a reviewed surface, not a text input on the new-agent screen.\n\nNO SCRIPT FIELD either. Without `starter` the agent is born with no script and\n`publish_agent` refuses to activate it by name (`agent_has_no_script`). With `starter`\n(D-705) the owner picked a job and the agent is born with that job's ready-made script\nfor the account's business type, still a draft for them to review.",
         "properties": {
           "direction": {
             "default": "inbound",
@@ -1709,6 +1709,21 @@
             "minLength": 1,
             "title": "Name",
             "type": "string"
+          },
+          "starter": {
+            "anyOf": [
+              {
+                "enum": [
+                  "answer_calls",
+                  "call_leads"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starter"
           }
         },
         "required": [
@@ -11342,6 +11357,31 @@
           "required"
         ],
         "title": "DigiLockerRequirementIn",
+        "type": "object"
+      },
+      "DirectoryTierMinutes": {
+        "additionalProperties": false,
+        "description": "One voice quality's whole minutes left, as `wallet_routes.TierMinutesOut` states it.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "minutes": {
+            "title": "Minutes",
+            "type": "integer"
+          },
+          "voice_tier": {
+            "title": "Voice Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "voice_tier",
+          "label",
+          "minutes"
+        ],
+        "title": "DirectoryTierMinutes",
         "type": "object"
       },
       "DisclosureIn": {
@@ -28444,6 +28484,83 @@
         "title": "StartVerificationOut",
         "type": "object"
       },
+      "StarterPreviewOut": {
+        "additionalProperties": false,
+        "description": "One ready-made agent as the \"pick a job\" screen shows it before creating (D-705).",
+        "properties": {
+          "captured_details": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Captured Details",
+            "type": "array"
+          },
+          "direction": {
+            "enum": [
+              "inbound",
+              "outbound",
+              "both"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "job": {
+            "enum": [
+              "answer_calls",
+              "call_leads"
+            ],
+            "title": "Job",
+            "type": "string"
+          },
+          "name_suggestion": {
+            "title": "Name Suggestion",
+            "type": "string"
+          },
+          "opening_line": {
+            "title": "Opening Line",
+            "type": "string"
+          },
+          "step_titles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Step Titles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "job",
+          "direction",
+          "name_suggestion",
+          "opening_line",
+          "step_titles",
+          "captured_details"
+        ],
+        "title": "StarterPreviewOut",
+        "type": "object"
+      },
+      "StartersOut": {
+        "additionalProperties": false,
+        "properties": {
+          "starters": {
+            "items": {
+              "$ref": "#/components/schemas/StarterPreviewOut"
+            },
+            "title": "Starters",
+            "type": "array"
+          },
+          "vertical": {
+            "title": "Vertical",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vertical",
+          "starters"
+        ],
+        "title": "StartersOut",
+        "type": "object"
+      },
       "StatementListOut": {
         "additionalProperties": false,
         "properties": {
@@ -30179,6 +30296,70 @@
         "title": "TenantErasureScopeOut",
         "type": "object"
       },
+      "TenantHealthOut": {
+        "additionalProperties": false,
+        "description": "ONE client's health, for the top of its own admin page.\n\nThe board's judgement for one account (`health.tenant_health`, the same function the\nboard's walk calls), with the healthy case stated rather than absent: `severity` is\nnull and `signals` empty when nothing is wrong. Money as paise strings, as on the\nboard.",
+        "properties": {
+          "severity": {
+            "anyOf": [
+              {
+                "enum": [
+                  "stop",
+                  "warn"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity"
+          },
+          "signals": {
+            "items": {
+              "$ref": "#/components/schemas/HealthSignalOut"
+            },
+            "title": "Signals",
+            "type": "array"
+          },
+          "spend_cap_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spend Cap Inr"
+          },
+          "spend_used_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spend Used Inr"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "severity",
+          "signals",
+          "spend_used_inr",
+          "spend_cap_inr"
+        ],
+        "title": "TenantHealthOut",
+        "type": "object"
+      },
       "TenantNumberCostOut": {
         "additionalProperties": false,
         "description": "One number and what it costs US \u2014 the admin-only view of a client's numbers.\n\nSEPARATE FROM `GET /v1/campaigns/numbers`, which a client also reads. Our cost of\nholding a number is not a figure a client is shown: whether the rental is absorbed,\npassed through at cost, or a priced add-on is a founder pricing decision that has not\nbeen taken (OPERATIONS \u00a72 gate 26), and publishing our cost before it is taken would\nmake the decision for them.",
@@ -30627,6 +30808,18 @@
             "title": "Capped",
             "type": "boolean"
           },
+          "credit_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit Inr"
+          },
           "holds": {
             "items": {
               "type": "string"
@@ -30658,6 +30851,20 @@
           "live_agents": {
             "title": "Live Agents",
             "type": "integer"
+          },
+          "minutes_left": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DirectoryTierMinutes"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minutes Left"
           },
           "name": {
             "title": "Name",
@@ -35539,6 +35746,47 @@
           }
         },
         "summary": "Client health overview \u2014 accounts about to churn or break, worst first",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/client-health/{tenant_id}": {
+      "get": {
+        "description": "The client-health judgement for a single account: the same signals, causes and severities the board ranks, read inside the client's own tenant session. Unlike the board, a healthy account is answered (`severity: null`, no signals) rather than omitted, and ended accounts are answered too. Recorded as a direct admin read of the client (D-483).",
+        "operationId": "read_tenant_health_v1_admin_client_health__tenant_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantHealthOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One client's health \u2014 what is wrong with this account now",
         "tags": [
           "admin"
         ],
@@ -42176,7 +42424,7 @@
         "x-calevate-permission": "agents:read"
       },
       "post": {
-        "description": "The agent is created in `draft`: it takes no calls and places none until it is activated, and it cannot be activated until it has a script.\n\nBoth opening notices \u2014 the AI disclosure and the recording notice \u2014 are written for you from the chosen language and are switched on. They cannot be supplied here: every agent on this platform has an AI disclosure on file, the voice platform is verified against it on every publish, and no field on this form can change that.",
+        "description": "The agent is created in `draft`: it takes no calls and places none until it is activated, and it cannot be activated until it has a script.\n\nSend `starter` (`answer_calls` or `call_leads`) to start from a ready-made agent for your business type: its script, opening line and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.\n\nBoth opening notices \u2014 the AI disclosure and the recording notice \u2014 are written for you from the chosen language and are switched on. They cannot be supplied here: every agent on this platform has an AI disclosure on file, the voice platform is verified against it on every publish, and no field on this form can change that.",
         "operationId": "create_agent_route_v1_agents_post",
         "requestBody": {
           "content": {
@@ -42314,6 +42562,57 @@
           }
         },
         "summary": "Which agent settings apply immediately and which wait for Apply (\u00a72b)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/agents/starters": {
+      "get": {
+        "description": "What `POST /v1/agents` with `starter` would create, for YOUR account's business type: the suggested name, the opening line, the script's step titles and the details the agent captures. `job` narrows it to one job; omitted, both jobs are returned (\"Answer my calls\" first). Nothing is created by this read.",
+        "operationId": "list_starters_v1_agents_starters_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "job",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "answer_calls",
+                    "call_leads"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartersOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Preview the ready-made agents for this account's business type",
         "tags": [
           "agents"
         ],
@@ -46209,6 +46508,86 @@
               ],
               "title": "Agent Id"
             }
+          },
+          {
+            "in": "query",
+            "name": "outcome",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "resolved",
+                    "needs_follow_up",
+                    "transferred",
+                    "dropped"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Outcome"
+            }
+          },
+          {
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "inbound",
+                    "outbound"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Direction"
+            }
+          },
+          {
+            "description": "Calls started at or after this instant",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Calls started at or after this instant",
+              "title": "Since"
+            }
+          },
+          {
+            "description": "Calls started before this instant",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Calls started before this instant",
+              "title": "Until"
+            }
           }
         ],
         "responses": {
@@ -46238,6 +46617,138 @@
           "crm"
         ],
         "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/calls/export.csv": {
+      "get": {
+        "operationId": "export_calls_v1_calls_export_csv_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "outcome",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "resolved",
+                    "needs_follow_up",
+                    "transferred",
+                    "dropped"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Outcome"
+            }
+          },
+          {
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "inbound",
+                    "outbound"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Direction"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "CSV export of calls \u2014 full phone numbers, owner-only and audit-logged",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "calls:read_raw"
       }
     },
     "/v1/calls/{call_id}": {

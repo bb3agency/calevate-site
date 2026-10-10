@@ -337,13 +337,13 @@ function ContactTable({
   captionId: string;
 }) {
   return (
-    <div className="overflow-hidden rounded-card border border-line">
+    <div className="overflow-hidden border-y border-line">
       <table className="w-full table-fixed text-left text-sm">
         <caption id={captionId} className="sr-only">
           Contacts and whether each will be called
         </caption>
         <thead>
-          <tr className="border-b border-line bg-app text-xs text-ink-faint">
+          <tr className="border-b border-line bg-surface-muted text-xs text-ink-faint">
             <th scope="col" className="px-3 py-2 font-medium">Phone</th>
             <th scope="col" className="hidden px-3 py-2 font-medium sm:table-cell">Name</th>
             {variables.map((key) => (

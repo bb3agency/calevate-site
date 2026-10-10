@@ -324,7 +324,7 @@ describe("one release path for a number the voice platform holds", () => {
     await render(workspace(), { [COSTS_PATH]: [held(true)] });
     expect(await screen.findAllByText("+91 80123 45672")).toBeTruthy();
     await screen.findByText("Voice workspace");
-    fireEvent.click(await screen.findByRole("button", { name: "More actions for +918012345672" }));
+    fireEvent.click(await screen.findByRole("button", { name: "More actions for +91 80123 45672" }));
     const menu = await screen.findByRole("menu");
     expect(within(menu).queryByRole("menuitem", { name: "Release" })).toBeNull();
     expect(within(menu).getByRole("menuitem", { name: "Release our record" })).toBeTruthy();
@@ -332,7 +332,7 @@ describe("one release path for a number the voice platform holds", () => {
 
   it("keeps the generic Release for a number bought elsewhere", async () => {
     await render(workspace(), { [COSTS_PATH]: [held(false)] });
-    expect(await screen.findByRole("button", { name: "More actions for +918012345672" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "More actions for +91 80123 45672" })).toBeTruthy();
   });
 });
 

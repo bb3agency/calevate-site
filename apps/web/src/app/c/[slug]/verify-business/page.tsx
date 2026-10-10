@@ -137,7 +137,7 @@ function PledgeCard({
   const [read, setRead] = useState(false);
   return (
     <Card title="No-cold-calls pledge">
-      <blockquote className="rounded-card border border-line bg-app p-4 text-sm text-ink">{pledge.pledge_text}</blockquote>
+      <blockquote className="rounded-md bg-surface-muted p-4 text-sm text-ink">{pledge.pledge_text}</blockquote>
       <p className={FIELD_HINT}>Version {pledge.version}.</p>
       {pledge.is_current ? (
         <p className="mt-3 text-sm text-ink">

@@ -14,13 +14,15 @@
 
 import { useState } from "react";
 
+import { HAIRLINE_LIST } from "@/components/admin/kit";
 import { ConfirmDialog } from "@/components/confirmDialog";
+import { Section, TEXT_ACTION_DANGER } from "@/components/console/section";
+import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
   FIELD_INLINE,
   FIELD_LABEL,
   MonoValue,
   NoticeBox,
-  PRIMARY_BUTTON_SM,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
@@ -127,22 +129,19 @@ function WorkspaceBody({
   const retryable = status === "not_provisioned" || status === "failed" || status === "plan_limit" || status === "pending";
 
   return (
-    <section
-      aria-labelledby="voice-workspace-heading"
-      className="space-y-4 rounded-card border border-line bg-surface p-4 sm:p-6"
-    >
-      <div>
-        <h2 id="voice-workspace-heading" className="text-base font-semibold text-ink">
-          Voice workspace
-        </h2>
-        <p className="mt-1 text-sm text-ink-muted">
+    <Section
+      title="Voice workspace"
+      description={
+        <>
           This client&apos;s own ThinnestAI customer workspace. Its numbers are rented there, in
           the client&apos;s business name.
-        </p>
-      </div>
+        </>
+      }
+    >
+      <div className="space-y-6">
 
       {status === "not_provisioned" && (
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           No workspace yet: one is not made when an account is created, so an account nobody
           uses never takes a plan slot. Create workspace now makes one straight away.
         </p>
@@ -161,38 +160,30 @@ function WorkspaceBody({
         </NoticeBox>
       )}
 
-      <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[max-content_1fr]">
-        <dt className="text-ink-muted">Status</dt>
-        <dd className="font-medium text-ink">{lookup(WORKSPACE_STATUS, status) ?? status}</dd>
-        <dt className="text-ink-muted">Workspace id</dt>
-        <dd className="text-ink">
-          {data.workspace_id ? <MonoValue>{data.workspace_id}</MonoValue> : "None yet"}
-        </dd>
-        <dt className="text-ink-muted">Attempts</dt>
-        <dd className="text-ink">{data.attempts}</dd>
+      <SettingRows className="border-y border-line">
+        <SettingRow label="Status" value={<span className="font-medium">{lookup(WORKSPACE_STATUS, status) ?? status}</span>} />
+        <SettingRow
+          label="Workspace id"
+          value={data.workspace_id ? <MonoValue>{data.workspace_id}</MonoValue> : "None yet"}
+        />
+        <SettingRow label="Attempts" value={data.attempts} />
         {data.last_error_code && (
-          <>
-            <dt className="text-ink-muted">Last error</dt>
-            <dd className="font-mono text-ink">{data.last_error_code}</dd>
-          </>
+          <SettingRow label="Last error" value={<span className="font-mono">{data.last_error_code}</span>} />
         )}
-        {data.provisioned_at && (
-          <>
-            <dt className="text-ink-muted">Provisioned</dt>
-            <dd className="text-ink">{formatIST(data.provisioned_at)}</dd>
-          </>
-        )}
-        <dt className="text-ink-muted">Numbers</dt>
-        <dd className="text-ink">
-          {data.numbers
-            ? `${data.numbers.own_workspace} in the client's workspace, ${data.numbers.platform_held} held in the platform account`
-            : "Not read"}
-        </dd>
-        <dt className="text-ink-muted">Client pays</dt>
-        <dd className="text-ink">
-          {data.client_inr_per_month ? `${formatINR(data.client_inr_per_month)} a month per number` : "No attested price"}
-        </dd>
-      </dl>
+        {data.provisioned_at && <SettingRow label="Provisioned" value={formatIST(data.provisioned_at)} />}
+        <SettingRow
+          label="Numbers"
+          value={
+            data.numbers
+              ? `${data.numbers.own_workspace} in the client's workspace, ${data.numbers.platform_held} held in the platform account`
+              : "Not read"
+          }
+        />
+        <SettingRow
+          label="Client pays"
+          value={data.client_inr_per_month ? `${formatINR(data.client_inr_per_month)} a month per number` : "No attested price"}
+        />
+      </SettingRows>
 
       {data.agents_in_platform_account > 0 && (
         <NoticeBox tone="warn">
@@ -202,7 +193,7 @@ function WorkspaceBody({
         </NoticeBox>
       )}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <button
           type="button"
           className={SECONDARY_BUTTON_SM}
@@ -217,7 +208,7 @@ function WorkspaceBody({
         </button>
         <button
           type="button"
-          className={SECONDARY_BUTTON_SM}
+          className={TEXT_ACTION_DANGER}
           disabled={!canWrite || offboard.isPending}
           onClick={() => {
             offboard.reset();
@@ -230,30 +221,23 @@ function WorkspaceBody({
       <ProblemNotice error={provision.error} />
 
       <div className="space-y-2">
-        <h3 className="text-sm font-semibold text-ink">Business details</h3>
+        <h3 className="text-body font-semibold text-ink">Business details</h3>
         {details ? (
-          <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[max-content_1fr]">
-            <dt className="text-ink-muted">Status</dt>
-            <dd className="font-medium text-ink">
-              {lookup(DETAILS_STATUS, details.status ?? "none") ?? DETAILS_STATUS.unknown}
-            </dd>
-            <dt className="text-ink-muted">Can rent a number</dt>
-            <dd className="text-ink">{details.can_rent ? "Yes" : "No"}</dd>
-            {details.submitted_at && (
-              <>
-                <dt className="text-ink-muted">Last sent</dt>
-                <dd className="text-ink">{formatIST(details.submitted_at)}</dd>
-              </>
-            )}
-            {details.checked_at && (
-              <>
-                <dt className="text-ink-muted">Last checked</dt>
-                <dd className="text-ink">{formatIST(details.checked_at)}</dd>
-              </>
-            )}
-          </dl>
+          <SettingRows className="border-y border-line">
+            <SettingRow
+              label="Status"
+              value={
+                <span className="font-medium">
+                  {lookup(DETAILS_STATUS, details.status ?? "none") ?? DETAILS_STATUS.unknown}
+                </span>
+              }
+            />
+            <SettingRow label="Can rent a number" value={details.can_rent ? "Yes" : "No"} />
+            {details.submitted_at && <SettingRow label="Last sent" value={formatIST(details.submitted_at)} />}
+            {details.checked_at && <SettingRow label="Last checked" value={formatIST(details.checked_at)} />}
+          </SettingRows>
         ) : (
-          <p className="text-sm text-ink-muted">Not read yet.</p>
+          <p className="text-body text-ink-muted">Not read yet.</p>
         )}
         {details?.review_note && (
           <NoticeBox tone="warn" title="Review note">
@@ -282,16 +266,16 @@ function WorkspaceBody({
       </div>
 
       <div className="space-y-2">
-        <h3 className="text-sm font-semibold text-ink">Buying a number</h3>
-        <p className="text-sm text-ink">
+        <h3 className="text-body font-semibold text-ink">Buying a number</h3>
+        <p className="text-body text-ink">
           {lookup(STEP_COPY, data.purchase_step) ?? "Not known"}
         </p>
         {data.purchase_blockers.length > 0 && (
-          <ul className="list-disc space-y-1 pl-5 text-sm text-ink-muted">
+          <ul className="list-disc space-y-1 pl-5 text-body text-ink-muted">
             {data.purchase_blockers.map((blocker) => (
               <li key={blocker}>
                 {lookup(BLOCKER_COPY, blocker) ?? blocker}{" "}
-                <span className="font-mono text-xs text-ink-faint">{blocker}</span>
+                <span className="font-mono text-meta text-ink-muted">{blocker}</span>
               </li>
             ))}
           </ul>
@@ -317,7 +301,8 @@ function WorkspaceBody({
           </p>
         </ConfirmDialog>
       )}
-    </section>
+      </div>
+    </Section>
   );
 }
 
@@ -403,21 +388,21 @@ function AdminBuyNumber({
         (numbers === undefined ? (
           <Skeleton rows={2} />
         ) : numbers.length === 0 ? (
-          <p className="text-sm text-ink-muted">Nothing free in {search.city} right now.</p>
+          <p className="text-body text-ink-muted">Nothing free in {search.city} right now.</p>
         ) : (
           <>
-            <ul className="divide-y divide-line rounded-card border border-line">
+            <ul className={HAIRLINE_LIST}>
               {numbers.map((offer) => (
-                <li key={offer.number} className="flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm">
+                <li key={offer.number} className="flex flex-wrap items-center gap-3 py-2.5 text-body sm:px-2">
                   <span className="font-mono text-ink">{formatPhone(offer.e164)}</span>
-                  {offer.city && <span className="text-xs text-ink-muted">{offer.city}</span>}
+                  {offer.city && <span className="text-meta text-ink-muted">{offer.city}</span>}
                   <span className="ml-auto text-ink-muted">
                     Client pays {offer.client_inr_per_month ? formatINR(offer.client_inr_per_month) : "—"}
                     {" · "}our cost {offer.vendor_inr_per_month ? formatINR(offer.vendor_inr_per_month) : "—"} a month
                   </span>
                   <button
                     type="button"
-                    className={PRIMARY_BUTTON_SM}
+                    className={SECONDARY_BUTTON_SM}
                     disabled={!canWrite}
                     aria-label={`Buy ${formatPhone(offer.e164)}`}
                     onClick={() => {

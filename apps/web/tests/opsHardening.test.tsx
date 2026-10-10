@@ -480,7 +480,7 @@ describe("two operators, one key", () => {
     // from anything the console remembered, inside the box that stops the write.
     const box = screen
       .getByText("Someone changed this setting first — nothing was saved")
-      .closest("div.rounded-card") as HTMLElement;
+      .closest("div.rounded-md.border") as HTMLElement;
     expect(box.textContent).toContain("₹7.25 per minute");
     expect(box.textContent).toContain("Changed by Priya");
     expect(box.textContent).toContain("board approved the Q3 rate");
@@ -1306,7 +1306,7 @@ function secretInput(): HTMLInputElement {
 
 /** The tone classes of the `NoticeBox` a title sits in. */
 function noticeToneOf(title: HTMLElement): string {
-  const box = title.closest("div.rounded-card");
+  const box = title.closest("div.rounded-md.border");
   if (!box) throw new Error("that title is not inside a NoticeBox");
   return box.className;
 }

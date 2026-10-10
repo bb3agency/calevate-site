@@ -9,7 +9,7 @@
  */
 
 import Link from "next/link";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
@@ -17,6 +17,8 @@ import type { Agent } from "@/lib/api/agents";
 import { usePendingChanges } from "@/lib/api/publishing";
 import { useScript } from "@/lib/api/script";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 import { stagedScript } from "../../panels/publishing";
 
@@ -30,9 +32,33 @@ export function ScriptSection({ agent, slug }: { agent: Agent; slug: string }) {
   const staged = pending.data ? stagedScript(pending.data) : undefined;
   const data = script.data;
 
+  useCopilotSurface({
+    route: "/c/{slug}/agents/{id}",
+    title: "Agent: script",
+    realm: "client",
+    fields: [],
+    facts: [
+      { key: "agent_id", label: "Agent id", value: agent.id },
+      {
+        key: "state",
+        label: "What is on screen",
+        value: data ? "the script summary has loaded" : script.error ? "the script failed to load" : "still loading",
+      },
+      ...(data
+        ? [
+            { key: "version", label: "Script version saved", value: data.version === null ? "no script yet" : String(data.version) },
+            { key: "opening_line", label: "Opening line", value: data.is_freeform ? "written as free text" : data.script.opening_line },
+            { key: "waiting", label: "A version waiting to be applied", value: staged ? `version ${staged.staged_version}` : "none" },
+          ]
+        : []),
+      { key: "builder", label: "Where the script is edited", value: "the script builder (Open the script builder)" },
+    ],
+    apply: noFill,
+  });
+
   return (
-    <div className="space-y-5">
-      <p className="max-w-prose text-sm text-ink-muted">
+    <div className="max-w-2xl space-y-5">
+      <p className="max-w-prose text-body text-ink-muted">
         The script decides what the agent says and how it handles a call. A change never
         reaches a live call until you apply it.
       </p>
@@ -83,7 +109,6 @@ export function ScriptSection({ agent, slug }: { agent: Agent; slug: string }) {
         </Link>
         {data && data.version === null && (
           <Link href={`${builder}${builder.includes("?") ? "&" : "?"}assist=1`} className={SECONDARY_BUTTON}>
-            <Sparkles aria-hidden className="h-4 w-4" />
             Draft it with AI
           </Link>
         )}

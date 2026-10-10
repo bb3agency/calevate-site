@@ -2,7 +2,8 @@
 
 import { Lock } from "lucide-react";
 
-import { Card, NoticeBox } from "@/components/ui";
+import { Section } from "@/components/console/section";
+import { NoticeBox } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
 
 /**
@@ -53,7 +54,7 @@ export function WithheldPanel({
   subject: string;
 }) {
   return (
-    <Card title={title}>
+    <Section title={title}>
       <NoticeBox
         tone="neutral"
         icon={<Lock aria-hidden className="h-5 w-5" />}
@@ -65,7 +66,7 @@ export function WithheldPanel({
           in place.
         </p>
       </NoticeBox>
-    </Card>
+    </Section>
   );
 }
 

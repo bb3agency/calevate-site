@@ -1,14 +1,16 @@
 "use client";
 
+import { EmptySketch } from "@/components/console/emptySketch";
 import { useState } from "react";
 
-import { Card, formatINR, formatIST } from "@/components/ui";
+import { Section } from "@/components/console/section";
+import { FilterChip, ScrollRegion, formatINR, formatIST } from "@/components/ui";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
 import { RowMenu } from "@/components/console/rowMenu";
-import { SegmentedControl } from "@/components/interior/segmented-control";
 import {
+  CREDIT_REASON_LABEL,
   LEDGER_LIMIT,
   correctableEntries,
   creditReasonLabel,
@@ -32,12 +34,21 @@ import { NoPackLadder } from "./OverrideForm";
  * Each row's menu opens the act that repairs THAT row with it pre-selected; the act's own
  * select still shows the choice, so a mis-click is visible before anything is typed.
  */
-type View = "ledger" | "payments" | "lots";
+/**
+ * ONE HISTORY, NEWEST FIRST, WITH A TYPE FILTER (founder, 10 Oct 2026). "Payments" is the
+ * one filter that groups rather than narrows: a restated payment is two ledger rows and one
+ * bank transfer, and the transfer is what reconciliation keys on — so that filter shows one
+ * line per transfer, with its restate and refund actions. The lots are not history (they
+ * are what the balance is made of now) and have their own section below.
+ */
+type Filter = "all" | "payments" | "usage" | "adjustment" | "refund";
 
-const VIEWS: { value: View; label: string }[] = [
-  { value: "ledger", label: "Ledger" },
+const FILTERS: { value: Filter; label: string }[] = [
+  { value: "all", label: "All" },
   { value: "payments", label: "Payments" },
-  { value: "lots", label: "Lots" },
+  { value: "usage", label: CREDIT_REASON_LABEL.usage },
+  { value: "adjustment", label: "Adjustments" },
+  { value: "refund", label: CREDIT_REASON_LABEL.refund },
 ];
 
 export function WalletHistory({
@@ -47,38 +58,39 @@ export function WalletHistory({
   wallet: Credits;
   onAct: (act: Act) => void;
 }) {
-  const [view, setView] = useState<View>("ledger");
+  const [filter, setFilter] = useState<Filter>("all");
   return (
-    <Card title="Wallet history" density="compact" bodyClassName="px-0 pb-2">
-      <div className="px-4 pb-3">
-        <SegmentedControl
-          label="Show"
-          options={VIEWS.map((option) => ({
-            ...option,
-            count:
-              option.value === "ledger"
-                ? String(wallet.entries.length)
-                : option.value === "payments"
-                  ? String(wallet.payments.length)
-                  : String(wallet.lots.length),
-          }))}
-          value={view}
-          onValueChange={(value) => setView(value as View)}
-        />
-      </div>
-      <div className="settings-enter" key={view}>
-        {view === "ledger" && <LedgerView wallet={wallet} onAct={onAct} />}
-        {view === "payments" && <PaymentsView wallet={wallet} onAct={onAct} />}
-        {view === "lots" && <LotsView wallet={wallet} onAct={onAct} />}
-      </div>
-    </Card>
+    <>
+      <Section title="Wallet history" description="Every entry on this client's wallet, newest first.">
+        <ScrollRegion label="Filter the history" className="-mx-1 px-1 pb-3 [scrollbar-width:none]">
+          <div className="flex w-max items-center gap-1.5">
+            {FILTERS.map((option) => (
+              <FilterChip
+                key={option.value}
+                label={option.label}
+                active={filter === option.value}
+                onClick={() => setFilter(option.value)}
+              />
+            ))}
+          </div>
+        </ScrollRegion>
+        {filter === "payments" ? (
+          <PaymentsView wallet={wallet} onAct={onAct} />
+        ) : (
+          <LedgerView wallet={wallet} onAct={onAct} reason={filter === "all" ? null : filter} />
+        )}
+      </Section>
+      <Section title="Credit lots — what the balance is made of">
+        <LotsView wallet={wallet} onAct={onAct} />
+      </Section>
+    </>
   );
 }
 
 function ViewCaption({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-1.5 px-4 pb-2">
-      <h3 className="text-[13px] font-medium text-ink-muted">{title}</h3>
+    <div className="flex flex-wrap items-center gap-x-1.5 pb-2">
+      <h3 className="text-meta font-medium text-ink-muted">{title}</h3>
       {children}
     </div>
   );
@@ -89,11 +101,31 @@ function signed(delta: string): string {
   return `${delta.startsWith("-") ? "" : "+"}${formatINR(delta)}`;
 }
 
-function LedgerView({ wallet, onAct }: { wallet: Credits; onAct: (act: Act) => void }) {
+function LedgerView({
+  wallet,
+  onAct,
+  reason,
+}: {
+  wallet: Credits;
+  onAct: (act: Act) => void;
+  /** The one entry type shown, or null for every entry. */
+  reason: string | null;
+}) {
   if (wallet.entries.length === 0) {
     // A REAL empty state, reachable only through a successful read: the failed read is
     // `LedgerUnreadable` and never arrives here.
-    return <EmptyState message="Nothing has ever been written to this ledger" />;
+    return (
+      <EmptyState
+        message="Nothing has ever been written to this ledger"
+        illustration={
+          <EmptySketch kind="deliveries" />
+        }
+      />
+    );
+  }
+  const rows = reason === null ? wallet.entries : wallet.entries.filter((entry) => entry.reason === reason);
+  if (rows.length === 0) {
+    return <EmptyState message="No entry of this type among the newest on the ledger." />;
   }
   const correctable = new Set(correctableEntries(wallet.entries).map((entry) => entry.id));
   const columns: DataColumn<LedgerEntry>[] = [
@@ -110,7 +142,7 @@ function LedgerView({ wallet, onAct }: { wallet: Credits; onAct: (act: Act) => v
         // Colour reinforces the sign and is never the only signal.
         <span
           className={`whitespace-nowrap tabular-nums ${
-            entry.delta_inr.startsWith("-") ? "text-ink" : "text-emerald-700 dark:text-emerald-400"
+            entry.delta_inr.startsWith("-") ? "text-ink" : "text-brand-deep dark:text-brand-bright"
           }`}
         >
           {signed(entry.delta_inr)}
@@ -122,7 +154,7 @@ function LedgerView({ wallet, onAct }: { wallet: Credits; onAct: (act: Act) => v
       id: "ref",
       header: "Reference",
       hideBelow: "md",
-      cell: (entry) => <span className="break-all font-mono text-xs">{entry.ref ?? "—"}</span>,
+      cell: (entry) => <span className="break-all font-mono text-meta">{entry.ref ?? "—"}</span>,
     },
     {
       id: "after",
@@ -167,14 +199,13 @@ function LedgerView({ wallet, onAct }: { wallet: Credits; onAct: (act: Act) => v
   ];
   return (
     <>
-      <ViewCaption title="Ledger — newest first" />
       <DataTable
-        rows={wallet.entries}
+        rows={rows}
         columns={columns}
         getRowId={(entry) => entry.id}
         label="Credit ledger, newest first"
       />
-      <p className="px-4 pt-2 text-xs text-ink-muted">
+      <p className="pt-2 text-meta text-ink-muted">
         The newest {LEDGER_LIMIT}. Nothing here can be edited or removed — and the
         repeated-reference check the server makes reads the WHOLE ledger, not only what
         is shown here, so a reference missing from this list is not proof the payment is
@@ -192,7 +223,7 @@ function PaymentsView({ wallet, onAct }: { wallet: Credits; onAct: (act: Act) =>
     {
       id: "ref",
       header: "Reference",
-      cell: (payment) => <span className="break-all font-mono text-xs">{payment.payment_ref}</span>,
+      cell: (payment) => <span className="break-all font-mono text-meta">{payment.payment_ref}</span>,
     },
     {
       id: "first",
@@ -257,7 +288,7 @@ function PaymentsView({ wallet, onAct }: { wallet: Credits; onAct: (act: Act) =>
         getRowId={(payment) => payment.payment_ref}
         label="Bank transfers behind the ledger"
       />
-      <p className="px-4 pt-2 text-xs text-ink-muted">
+      <p className="pt-2 text-meta text-ink-muted">
         Compare <span className="font-semibold">Credited</span> against the statement, one
         line to one line.
       </p>
@@ -281,16 +312,16 @@ function LotsView({ wallet, onAct }: { wallet: Credits; onAct: (act: Act) => voi
     {
       id: "rates",
       header: "Frozen rates",
-      cell: (lot) => <span className="text-xs text-ink-muted">{lotRates(lot)}</span>,
+      cell: (lot) => <span className="text-meta text-ink-muted">{lotRates(lot)}</span>,
     },
     {
       id: "origin",
       header: "Opened",
       hideBelow: "md",
       cell: (lot) => (
-        <span className="text-xs text-ink-faint">
+        <span className="text-meta text-ink-muted">
           <LotOrigin lot={lot} />
-          <span className="mt-0.5 block break-all font-mono text-[11px]">{lot.lot_id}</span>
+          <span className="mt-0.5 block break-all font-mono text-meta">{lot.lot_id}</span>
         </span>
       ),
     },
@@ -315,8 +346,7 @@ function LotsView({ wallet, onAct }: { wallet: Credits; onAct: (act: Act) => voi
   ];
   return (
     <>
-      <ViewCaption title="Credit lots — what the balance is made of" />
-      <p className="px-4 pb-3 text-xs text-ink-muted">
+      <p className="pb-3 text-meta text-ink-muted">
         Calls are charged to the OLDEST lot first, at that lot&apos;s rate for the voice the
         agent speaks with. Restating a payment moves a lot&apos;s totals and{" "}
         <span className="font-semibold">never its rates</span> — only re-pricing a lot can
@@ -325,7 +355,7 @@ function LotsView({ wallet, onAct }: { wallet: Credits; onAct: (act: Act) => voi
       {lots.length === 0 ? (
         <div>
           <EmptyState message="No open lots" />
-          <p className="px-4 text-center text-xs text-ink-faint">
+          <p className="text-center text-meta text-ink-muted">
             Either nothing has been credited yet, or every lot has been spent. A negative
             balance is overdraft: the next payment repays it before a new lot opens.
           </p>
@@ -339,7 +369,7 @@ function LotsView({ wallet, onAct }: { wallet: Credits; onAct: (act: Act) => voi
             label="Credit lots, oldest spent first"
           />
           {!canReprice && (
-            <div className="px-4 pt-2">
+            <div className="pt-2">
               <NoPackLadder />
             </div>
           )}

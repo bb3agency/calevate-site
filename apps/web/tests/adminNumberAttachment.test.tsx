@@ -474,7 +474,7 @@ describe("a recorded number the voice platform has lost can have our record rele
       },
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "More actions for +918041234567" }));
+    fireEvent.click(await screen.findByRole("button", { name: "More actions for +91 80412 34567" }));
     const menu = await screen.findByRole("menu");
     // The generic release refuses a voice-platform number, so it is not offered beside it.
     expect(within(menu).queryByRole("menuitem", { name: "Release" })).toBeNull();
@@ -503,10 +503,10 @@ describe("a recorded number the voice platform has lost can have our record rele
       ]),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "More actions for +918041234567" }));
+    fireEvent.click(await screen.findByRole("button", { name: "More actions for +91 80412 34567" }));
     const menu = await screen.findByRole("menu");
     expect(within(menu).getByRole("menuitem", { name: "Release" })).toBeTruthy();
     expect(within(menu).queryByRole("menuitem", { name: "Release our record" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "More actions for +918041234568" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "More actions for +91 80412 34568" })).toBeNull();
   });
 });

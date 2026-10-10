@@ -14,7 +14,11 @@ import { OWNER_JOINED } from "./businessProfileFixture";
 
 import { problem, stubApi } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
-import { KB_ALL_DELIVERED, WHATSAPP_NEVER_ASKED } from "./fixtures/sharedReads";
+import {
+  KB_ALL_DELIVERED,
+  WHATSAPP_NEVER_ASKED,
+  adminOverviewSummaryReads,
+} from "./fixtures/sharedReads";
 
 /**
  * The console's half of D-22's session-start seam.
@@ -46,6 +50,11 @@ const IMPERSONATED = [
   "/v1/kb/delivery",
   // The agents, numbers, templates and spend-cap reads left the overview with their panels
   // (D-661: Agents, Compliance › Campaign setup, Money › Spend); the grant rule is unchanged.
+  // The health summary at the top of the overview (redesign #2) reads the client's own
+  // wallet, line incidents and last calls through the same session, so each needs the grant.
+  "/v1/billing/wallet",
+  "/v1/healer/incidents?days=30&limit=20",
+  "/v1/calls?limit=5",
 ];
 
 function routes(): Routes {
@@ -108,6 +117,7 @@ function routes(): Routes {
     "/v1/kb/sources?status=approved": [],
     "/v1/kb/delivery": KB_ALL_DELIVERED,
     [`${TENANT_PATH}/whatsapp-alerts`]: WHATSAPP_NEVER_ASKED,
+    ...adminOverviewSummaryReads(TENANT),
     "/v1/agents": [],
     "/v1/campaigns/numbers": [],
     "/v1/campaigns/templates": [],

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 /** A block heading inside a card: sentence case, no icon tile (the shared one has both). */
 export function SubHeading({ children }: { children: ReactNode }) {
-  return <h3 className="mb-1.5 text-sm font-semibold text-ink">{children}</h3>;
+  return <h3 className="mb-1.5 text-body font-semibold text-ink">{children}</h3>;
 }
 
 /**
@@ -15,7 +15,7 @@ export function FactList({ rows }: { rows: { label: string; value: string | null
   return (
     <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
       {shown.map((row) => (
-        <div key={row.label} className="min-w-0 text-xs">
+        <div key={row.label} className="min-w-0 text-meta">
           <dt className="text-ink-muted">{row.label}</dt>
           <dd className="mt-0.5 break-all font-medium text-ink">{row.value}</dd>
         </div>

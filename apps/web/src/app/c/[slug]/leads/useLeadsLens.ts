@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { lensKey, type LeadLens } from "@/lib/api/leads";
 
 import { anyFilterInForce, type LeadFilterKey } from "./leadFilters";
-import { PAGE_SIZE, type ViewMode } from "./leadsTable";
+import { PAGE_SIZE } from "./leadsTable";
 
 /**
  * WHICH ROWS AND WHICH COLUMNS — the leads screen's filter state, and the one `LeadLens`
@@ -27,7 +27,6 @@ export function useLeadsLens() {
    */
   const [ask, setAsk] = useState("");
   const [askTerm, setAskTerm] = useState("");
-  const [view, setView] = useState<ViewMode>("list");
   /** "Assigned to me" — a member id sent to the server, never a slice of the page. */
   const [assignedTo, setAssignedTo] = useState<string | undefined>();
   /** Extraction-schema key → chosen values. */
@@ -104,8 +103,6 @@ export function useLeadsLens() {
     setAsk,
     askTerm,
     setAskTerm,
-    view,
-    setView,
     assignedTo,
     setAssignedTo,
     facetValues,

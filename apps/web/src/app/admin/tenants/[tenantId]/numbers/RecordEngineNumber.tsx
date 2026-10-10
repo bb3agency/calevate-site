@@ -43,7 +43,7 @@ export function RecordEngineNumber({
   const [direction, setDirection] = useState<Direction>("both");
   const [agentId, setAgentId] = useState(NO_AGENT);
 
-  if (record.data) return <p className="text-xs text-ink-muted">{recordedSentence(record.data)}</p>;
+  if (record.data) return <p className="text-meta text-ink-muted">{recordedSentence(record.data)}</p>;
   if (!open) {
     return (
       <button

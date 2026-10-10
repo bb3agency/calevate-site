@@ -1,5 +1,6 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 
 import {
@@ -19,7 +20,6 @@ import {
 
 import { providerLabel } from "@/lib/api/llmModels";
 import {
-  Card,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -120,9 +120,9 @@ export function DashboardDataUsePanel({
   }
 
   return (
-    <Card title="Dashboard AI data-use">
+    <Section title="Dashboard AI data-use">
       <div className="space-y-4">
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           The in-app AI assistant prefers the provider a client&apos;s own agents run on.
           Whether it may is a question about that vendor&apos;s terms for our account, which
           no page reachable from here can answer — so you read it in the vendor&apos;s own
@@ -151,7 +151,7 @@ export function DashboardDataUsePanel({
         )}
 
         {state.status === "read" && (
-          <ul className="space-y-2">
+          <ul className="divide-y divide-line border-y border-line">
             {state.list.providers.map((provider) => (
               <li key={provider.provider}>
                 <DataUseRow
@@ -164,7 +164,7 @@ export function DashboardDataUsePanel({
           </ul>
         )}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -187,17 +187,17 @@ function DataUseRow({
   const attested = hasAttestation(leg);
 
   return (
-    <div className="rounded-md border border-line p-3">
+    <div className="py-3.5 sm:px-2">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-sm text-ink">{providerLabel(leg.provider)}</p>
-          <p className="mt-0.5 text-xs text-ink-faint">
+          <p className="text-body text-ink">{providerLabel(leg.provider)}</p>
+          <p className="mt-0.5 text-meta text-ink-muted">
             <MonoValue>{leg.provider}</MonoValue>
           </p>
         </div>
         <span
-          className={`inline-flex items-center gap-1 text-xs font-medium ${
-            leg.eligible ? "text-brand" : "text-amber-600"
+          className={`inline-flex items-center gap-1 text-meta font-medium ${
+            leg.eligible ? "text-brand" : "text-warn"
           }`}
         >
           {leg.eligible ? (
@@ -243,31 +243,31 @@ function DataUseRow({
       )}
 
       {attested ? (
-        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-          <dt className="text-ink-faint">Vendor project / account</dt>
+        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-meta">
+          <dt className="text-ink-muted">Vendor project / account</dt>
           <dd className="text-ink">
             <MonoValue>{leg.vendor_account_ref}</MonoValue>
           </dd>
-          <dt className="text-ink-faint">On the vendor&apos;s paid tier</dt>
+          <dt className="text-ink-muted">On the vendor&apos;s paid tier</dt>
           <dd className="text-ink">{leg.paid_tier_confirmed ? "Yes" : "No"}</dd>
-          <dt className="text-ink-faint">Content not opted into free-tier terms</dt>
+          <dt className="text-ink-muted">Content not opted into free-tier terms</dt>
           <dd className="text-ink">
             {leg.no_training_opt_in_confirmed ? "Yes" : "No"}
           </dd>
-          <dt className="text-ink-faint">Attested</dt>
+          <dt className="text-ink-muted">Attested</dt>
           <dd className="text-ink">
             {formatIST(leg.attested_at)}
             {leg.attested_by ? ` · ${leg.attested_by}` : ""}
           </dd>
           {leg.source_note && (
             <>
-              <dt className="text-ink-faint">Source</dt>
+              <dt className="text-ink-muted">Source</dt>
               <dd className="text-ink">{leg.source_note}</dd>
             </>
           )}
         </dl>
       ) : (
-        <p className="mt-2 text-xs text-ink-faint">
+        <p className="mt-2 text-meta text-ink-muted">
           Nobody has looked yet. Recording that a leg is NOT on the paid tier, or HAS opted
           its content in, is worth as much as recording that it is clean — it is a different
           and more useful state than an unanswered one.
@@ -294,7 +294,7 @@ function DataUseRow({
           )}
         </div>
       ) : (
-        <p className="mt-3 text-xs text-ink-faint">
+        <p className="mt-3 text-meta text-ink-muted">
           {access.reason ??
             "Your admin account cannot change platform configuration."}
         </p>
@@ -363,9 +363,9 @@ function AttestForm({
 
       {/* THE EXACT SENTENCE THE OPERATOR IS AGREEING TO, rendered verbatim from the server so
           the console never keeps its own copy that drifts from what the API records. */}
-      <div className="rounded-lg border border-line bg-app px-3 py-2">
-        <p className="text-xs font-medium text-ink">What you are attesting</p>
-        <p className="mt-1 text-xs leading-relaxed text-ink-muted">{statement}</p>
+      <div className="border-l-2 border-line py-1 pl-3">
+        <p className="text-meta font-medium text-ink">What you are attesting</p>
+        <p className="mt-1 text-meta leading-relaxed text-ink-muted">{statement}</p>
       </div>
 
       <label className="block">
@@ -393,7 +393,7 @@ function AttestForm({
           onChange={(e) => setPaidTier(e.target.checked)}
           className="mt-0.5 h-4 w-4"
         />
-        <span className="text-sm text-ink">
+        <span className="text-body text-ink">
           This project is on the vendor&apos;s paid tier
           <span className={`${FIELD_HINT} block`}>
             For Google, the &quot;Billing Tier&quot; column on the AI Studio Projects page
@@ -409,7 +409,7 @@ function AttestForm({
           onChange={(e) => setNoTrainingOptIn(e.target.checked)}
           className="mt-0.5 h-4 w-4"
         />
-        <span className="text-sm text-ink">
+        <span className="text-body text-ink">
           Nothing on this project opts our content into the vendor&apos;s free-tier data terms
           <span className={`${FIELD_HINT} block`}>
             For Google, Gemini API Logs and Datasets sharing is OFF. Leave this unticked if you

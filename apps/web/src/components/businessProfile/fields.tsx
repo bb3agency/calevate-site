@@ -42,7 +42,7 @@ export function Field({
         </span>
       )}
       {error && (
-        <span id={errorId} className="mt-1 block text-xs font-medium text-danger">
+        <span id={errorId} className="mt-1 block text-meta font-medium text-danger">
           {error}
         </span>
       )}
@@ -82,9 +82,9 @@ export function RowList<T>({
   const grid = columns === 3 ? "sm:grid-cols-3" : columns === 2 ? "sm:grid-cols-2" : "";
   return (
     <div className="space-y-3">
-      {rows.length === 0 && <p className="text-sm text-ink-muted">{empty}</p>}
+      {rows.length === 0 && <p className="text-body text-ink-muted">{empty}</p>}
       {rows.map((row, index) => (
-        <div key={index} className="relative rounded-card border border-line p-3 pr-11">
+        <div key={index} className="relative border-l-2 border-line py-1 pl-3 pr-11">
           <button
             type="button"
             aria-label={`Remove ${noun} ${index + 1}`}

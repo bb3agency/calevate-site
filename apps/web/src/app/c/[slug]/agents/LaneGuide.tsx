@@ -149,8 +149,8 @@ function LaneList({
   if (lanes.length === 0) return null;
   return (
     <div>
-      <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
+      <h3 className="flex items-center gap-2 text-body font-semibold text-ink">
+        <span aria-hidden className="shrink-0 text-ink-muted">
           {icon}
         </span>
         {title}

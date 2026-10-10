@@ -45,7 +45,7 @@ export function RowFailure({ error }: { error: unknown }) {
     // that only exists as red text is a change a screen-reader user never learns about.
     <span
       role="alert"
-      className="mt-0.5 block text-[11px] font-normal text-rose-700 dark:text-rose-400"
+      className="mt-0.5 block text-meta font-normal text-danger"
     >
       {message}
     </span>

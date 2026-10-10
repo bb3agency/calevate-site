@@ -1,9 +1,12 @@
 "use client";
 
+import { DesktopAlerts } from "./DesktopAlerts";
+
 import { CircleAlert } from "lucide-react";
 
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
+import { ServiceLogo } from "@/components/console/serviceLogo";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
   Disclosure,
@@ -136,7 +139,7 @@ export function AlertsScreen() {
   });
 
   return (
-    <div className="max-w-2xl space-y-6 pb-12">
+    <div className="max-w-2xl space-y-10 pb-12">
       <PageHeader
         description={
           <>
@@ -162,10 +165,11 @@ export function AlertsScreen() {
         <Skeleton rows={3} label="Checking your alert settings" />
       ) : !current ? null : (
         <>
-          <section className="rounded-card border border-line bg-surface px-4 sm:px-5">
+          <section className="border-y border-line">
             <SettingRows>
               <SettingRow
                 label="WhatsApp alerts"
+                icon={<ServiceLogo service="whatsapp" className="h-5 w-5" />}
                 hint={
                   current.messageable ? (
                     <>
@@ -244,7 +248,7 @@ export function AlertsScreen() {
             title="What we send, and what we never send"
             subtitle="One message per hot lead, to you only. Never marketing, and never to your customers."
           >
-            <ul className="space-y-2 text-sm text-ink-muted">
+            <ul className="space-y-2 text-body text-ink-muted">
               <li>
                 One message per hot lead, to the owner. Never marketing, and never to your
                 customers — this setting is about messages to YOU.
@@ -259,7 +263,7 @@ export function AlertsScreen() {
                 anyone asking exactly what was on when.
               </li>
             </ul>
-            <p className="mb-3 mt-3 text-xs text-ink-faint">
+            <p className="mb-3 mt-3 text-meta text-ink-faint">
               Wording in force: <MonoValue>{current.current_notice_version}</MonoValue>
               {current.notice_version &&
                 current.notice_version !== current.current_notice_version && (
@@ -272,6 +276,7 @@ export function AlertsScreen() {
           </Disclosure>
         </>
       )}
+      <DesktopAlerts />
     </div>
   );
 }
@@ -280,9 +285,7 @@ export function AlertsScreen() {
 function AlertStatePill({ on }: { on: boolean }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[13px] font-medium ${
-        on ? "border-brand/30 bg-brand-soft text-brand-strong" : "border-line bg-ink/[0.04] text-ink-muted"
-      }`}
+      className={`text-body font-medium ${on ? "text-brand-strong dark:text-brand-bright" : "text-ink-muted"}`}
     >
       {on ? "On" : "Off"}
     </span>

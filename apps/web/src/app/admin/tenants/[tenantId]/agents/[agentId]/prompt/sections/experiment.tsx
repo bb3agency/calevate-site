@@ -4,12 +4,13 @@ import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
 
 import { useFormValidation } from "@/components/formValidation";
+import { StatusPill } from "@/components/admin/kit";
+import { Section } from "@/components/console/section";
 import {
-  Card,
   FIELD,
   FIELD_INLINE,
   NoticeBox,
-  PRIMARY_BUTTON_SM,
+  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -76,12 +77,12 @@ export function ExperimentPanel({
   const running = experiment?.status === "running";
 
   return (
-    <Card
+    <Section
       title="Script test"
-      density="compact"
+      headingLevel={3}
       info="Two published scripts against comparable outbound traffic. Which arm a call ran is recorded on the call, so the attribution never changes when the split does."
     >
-      <div className="space-y-3">
+      <div className="space-y-4">
         <RestrictionNote reason={write.reason} />
         {state.error != null && (
           <ProblemNotice error={state.error} onRetry={() => state.refetch()} />
@@ -95,7 +96,7 @@ export function ExperimentPanel({
           /* No results and no problem to show: say we cannot tell, and offer nothing
              else. A Start form here would be a control built on rules we never read. */
           state.error == null && (
-            <p className="text-xs text-ink-muted">
+            <p className="text-meta text-ink-muted">
               Script-test state is unavailable for this agent.
             </p>
           )
@@ -135,7 +136,7 @@ export function ExperimentPanel({
                 >
                   Stop, keep the control
                 </button>
-                <span className="text-xs text-ink-muted">
+                <span className="text-meta text-ink-muted">
                   Promoting saves the winning script as a new version and applies it — the
                   same Apply to live calls as the Live section.
                 </span>
@@ -150,12 +151,12 @@ export function ExperimentPanel({
               />
             )}
             {conclude.data && (
-              <p className="text-xs text-ink-muted">{concludeMessage(conclude.data)}</p>
+              <p className="text-meta text-ink-muted">{concludeMessage(conclude.data)}</p>
             )}
           </>
         )}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -170,15 +171,13 @@ function ExperimentResults({ experiment }: { experiment: Experiment }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-baseline gap-2">
-        <span className="text-sm font-medium text-ink">{experiment.name}</span>
-        <span className="text-xs text-ink-muted">
+        <span className="text-body font-medium text-ink">{experiment.name}</span>
+        <span className="text-meta text-ink-muted">
           {experiment.status === "running" ? "running" : "concluded"} · scoring{" "}
           {experiment.conversion_metric_label} · started {formatIST(experiment.started_at)}
         </span>
         {experiment.winner_label && (
-          <span className="rounded bg-brand-strong px-1.5 py-0.5 text-xs font-medium text-white">
-            winner: {experiment.winner_label}
-          </span>
+          <StatusPill tone="ok">winner: {experiment.winner_label}</StatusPill>
         )}
       </div>
 
@@ -193,14 +192,14 @@ function ExperimentResults({ experiment }: { experiment: Experiment }) {
       >
         {/* The server's own caveat, verbatim. It is about repeated reading, which is
             exactly what a screen invites. */}
-        <p className="mt-0.5 text-xs">{experiment.caveat}</p>
+        <p className="mt-0.5">{experiment.caveat}</p>
         {experiment.coverage_note && (
-          <p className="mt-0.5 text-xs opacity-80">{experiment.coverage_note}</p>
+          <p className="mt-0.5">{experiment.coverage_note}</p>
         )}
       </NoticeBox>
 
       <ScrollRegion label="Prompt experiment arms">
-        <table className="w-full text-left text-xs">
+        <table className="w-full text-left text-meta">
           <thead className="text-ink-muted">
             <tr>
               <th className="py-1 pr-3 font-medium">Arm</th>
@@ -223,7 +222,7 @@ function ExperimentResults({ experiment }: { experiment: Experiment }) {
                   {experiment.leader_label === variant.label && (
                     // AHEAD, not better. The word is the whole point: on an unearned
                     // basis this is the only comparative statement allowed on screen.
-                    <span className="ml-1.5 font-sans text-[11px] font-normal text-ink-muted">
+                    <span className="ml-1.5 font-sans text-meta font-normal text-ink-muted">
                       ahead so far
                     </span>
                   )}
@@ -240,14 +239,14 @@ function ExperimentResults({ experiment }: { experiment: Experiment }) {
       </ScrollRegion>
 
       {measured && experiment.difference_low !== null && experiment.difference_high !== null ? (
-        <p className="text-xs text-ink-muted">
+        <p className="text-meta text-ink-muted">
           Gap between the arms: {pointsReading(experiment.difference_low)} to{" "}
           {pointsReading(experiment.difference_high)} (A minus B, 95% confidence).
         </p>
       ) : (
         /* Deliberately not a dash, not a zero and not an empty cell: the reason the
            comparison is absent is more useful than the space it would occupy. */
-        <p className="text-xs text-ink-muted">
+        <p className="text-meta text-ink-muted">
           No gap is published below {experiment.minimum_calls_per_variant} completed calls
           per arm — the comparison is not valid at smaller samples.
         </p>
@@ -292,7 +291,7 @@ function StartExperimentForm({
   // than a disabled control with no explanation.
   if (!versions || versions.length < 2) {
     return (
-      <p className="text-xs text-ink-muted">
+      <p className="text-meta text-ink-muted">
         A test needs two prompt versions. Write a challenger in Script, then start one.
       </p>
     );
@@ -308,7 +307,7 @@ function StartExperimentForm({
 
   return (
     <form
-      className="space-y-2"
+      className="max-w-xl space-y-4"
       noValidate
       onSubmit={expValid.onSubmit(() => {
         onStart({
@@ -351,7 +350,7 @@ function StartExperimentForm({
           disabled={!write.allowed}
         />
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-ink-muted">Counts as a conversion</span>
+          <span className="text-meta text-ink-muted">Counts as a conversion</span>
           <select
             value={metric}
             disabled={!write.allowed}
@@ -366,10 +365,10 @@ function StartExperimentForm({
           </select>
         </label>
       </div>
-      <button type="submit" disabled={pending || !ready || !write.allowed} className={PRIMARY_BUTTON_SM}>
+      <button type="submit" disabled={pending || !ready || !write.allowed} className={PRIMARY_BUTTON}>
         {pending ? "Starting…" : "Start test (50/50)"}
       </button>
-      <p className="text-xs text-ink-muted">
+      <p className="text-meta text-ink-muted">
         Each arm is published to the voice platform with its own disclosure line. Outbound
         calls only. No comparison is reported until each arm has{" "}
         {rules.minimum_calls_per_variant} completed calls.
@@ -393,7 +392,7 @@ function VersionSelect({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs text-ink-muted">{label}</span>
+      <span className="text-meta text-ink-muted">{label}</span>
       <select
         value={value}
         disabled={disabled}

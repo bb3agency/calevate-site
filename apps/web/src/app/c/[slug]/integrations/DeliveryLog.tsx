@@ -9,6 +9,7 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import type { WriteAccess } from "@/lib/api/hooks";
 import { eventLabel, useDeliveries, useDeliveryPayload } from "@/lib/api/integrations";
@@ -146,7 +147,8 @@ export function DeliveryLog({
         </ScrollRegion>
       ) : (
         <EmptyState
-          message="Nothing sent yet"
+          illustration={<EmptySketch kind="deliveries" />}
+          message="Nothing sent yet."
           hint="Deliveries appear here as they happen — including the ones your endpoint rejected."
         />
       )}
@@ -202,7 +204,7 @@ export function DeliveryLog({
                 aria-label="Delivered payload"
                 // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- see above
                 tabIndex={0}
-                className="mt-2 max-h-80 overflow-auto rounded-md bg-app p-3 font-mono text-xs whitespace-pre-wrap break-all"
+                className="mt-2 max-h-80 overflow-auto rounded-md bg-surface-muted p-3 font-mono text-xs whitespace-pre-wrap break-all"
               >
                 {payload.data.body}
               </pre>

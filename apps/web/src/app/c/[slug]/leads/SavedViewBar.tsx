@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { Bookmark, Trash2 } from "lucide-react";
 
-import { ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
-import { useToast } from "@/components/interior/toaster";
+import { FIELD_INLINE, FIELD_LABEL, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
+import { SavedTick } from "@/components/console/savedTick";
 import { useClientRealm } from "@/lib/api/session";
 import { useDeleteView, useSaveView, type SavedView, type SavedViewBody } from "@/lib/api/leads";
 
@@ -45,11 +46,10 @@ export function SavedViewBar({
   currentBody: Omit<SavedViewBody, "name">;
 }) {
   const { session } = useClientRealm();
-  // Transient confirmation for save/update/delete, which otherwise leave no on-screen
-  // trace of success — the picker just re-selects. Additive and no-op without a provider;
-  // the mutations, the invalidation and the refused-name-clash `ProblemNotice` are all
-  // unchanged.
-  const { toast } = useToast();
+  // Save, update and delete otherwise leave no trace on screen (the picker just
+  // re-selects), so each is acknowledged beside these controls with a tick that fades
+  // (REDESIGN-2: no success toasts).
+  const [done, setDone] = useState<{ at: number; label: string }>({ at: 0, label: "Saved" });
   const saveView = useSaveView(session);
   const deleteView = useDeleteView(session);
   const [naming, setNaming] = useState(false);
@@ -63,9 +63,9 @@ export function SavedViewBar({
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-end gap-2">
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
         <div>
-          <label htmlFor="saved-view" className="block text-xs font-medium text-ink-muted">
+          <label htmlFor="saved-view" className={FIELD_LABEL}>
             Saved view
           </label>
           <select
@@ -75,7 +75,7 @@ export function SavedViewBar({
             // an empty picker reads as "you have none", which we do not yet know.
             disabled={views === undefined}
             onChange={(e) => onApply(views?.find((v) => v.id === e.target.value))}
-            className="mt-1 rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink"
+            className={`${FIELD_INLINE} mt-1 block`}
           >
             <option value="">All leads (no view)</option>
             {(views ?? []).map((view) => (
@@ -104,18 +104,14 @@ export function SavedViewBar({
                     setNaming(false);
                     setName("");
                     onApply(view);
-                    toast({
-                      tone: "success",
-                      title: "View saved",
-                      description: `Saved “${view.name}”.`,
-                    });
+                    setDone({ at: Date.now(), label: `Saved “${view.name}”` });
                   },
                 },
               );
             }}
           >
             <div>
-              <label htmlFor="saved-view-name" className="block text-xs font-medium text-ink-muted">
+              <label htmlFor="saved-view-name" className={FIELD_LABEL}>
                 Name this view
               </label>
               <input
@@ -123,7 +119,7 @@ export function SavedViewBar({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 maxLength={60}
-                className="mt-1 w-48 rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink"
+                className={`${FIELD_INLINE} mt-1 block w-48`}
               />
             </div>
             <button
@@ -139,7 +135,7 @@ export function SavedViewBar({
                 setNaming(false);
                 setName("");
               }}
-              className={SECONDARY_BUTTON_SM}
+              className={TEXT_ACTION}
             >
               Cancel
             </button>
@@ -150,9 +146,9 @@ export function SavedViewBar({
             onClick={() => setNaming(true)}
             disabled={!canWrite}
             title={writeReason ?? undefined}
-            className={SECONDARY_BUTTON_SM}
+            className={TEXT_ACTION}
           >
-            <Bookmark className="h-3.5 w-3.5" />
+            <Bookmark aria-hidden className="h-3.5 w-3.5" />
             Save this view
           </button>
         )}
@@ -167,16 +163,11 @@ export function SavedViewBar({
                 saveView.mutate(
                   { viewId: active.id, body: { ...currentBody, name: active.name } },
                   {
-                    onSuccess: () =>
-                      toast({
-                        tone: "success",
-                        title: "View updated",
-                        description: `Updated “${active.name}”.`,
-                      }),
+                    onSuccess: () => setDone({ at: Date.now(), label: `Updated “${active.name}”` }),
                   },
                 )
               }
-              className={SECONDARY_BUTTON_SM}
+              className={TEXT_ACTION}
             >
               Update “{active.name}”
             </button>
@@ -188,21 +179,18 @@ export function SavedViewBar({
                 deleteView.mutate(active.id, {
                   onSuccess: () => {
                     onApply(undefined);
-                    toast({
-                      tone: "success",
-                      title: "View deleted",
-                      description: `Deleted “${active.name}”.`,
-                    });
+                    setDone({ at: Date.now(), label: `Deleted “${active.name}”` });
                   },
                 })
               }
-              className={SECONDARY_BUTTON_SM}
+              className={TEXT_ACTION_DANGER}
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 aria-hidden className="h-3.5 w-3.5" />
               Delete
             </button>
           </>
         )}
+        <SavedTick at={done.at} label={done.label} />
       </div>
 
       {/* Errors from the mutations, in the server's own words. A refused name clash has a
@@ -214,7 +202,7 @@ export function SavedViewBar({
       {/* THE DEGRADATION, said out loud. Both lists are already excluded from what the
           view applies, so this is a report and not a warning about something pending. */}
       {active && (active.stale_filter_keys.length > 0 || active.stale_column_keys.length > 0) && (
-        <p className="text-xs text-amber-700 dark:text-amber-400">
+        <p className="text-meta text-warn">
           “{active.name}” also referred to{" "}
           {[...active.stale_filter_keys, ...active.stale_column_keys].join(", ")}, which your
           agent&apos;s capture list no longer has. Those parts are not being applied. Update the

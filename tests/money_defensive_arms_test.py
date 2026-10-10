@@ -308,6 +308,12 @@ async def test_a_failed_replay_does_not_release_the_original_refunds_claim(
     async def _record_release(*_: object, **kwargs: object) -> None:
         released.append(str(kwargs.get("refund_key")))
 
+    async def _is_replay(**_: object) -> bool:
+        return True
+
+    # The route's unspent-credit check (D-699) waves a replay through, because the refund
+    # it repeats already took that credit; this scenario IS a replay, so say so.
+    monkeypatch.setattr(payment_routes, "_is_refund_replay", _is_replay)
     monkeypatch.setattr(payment_routes, "claim_refund", _replay_claim)
     monkeypatch.setattr(payment_routes, "issue_refund", _provider_dies)
     monkeypatch.setattr(payment_routes, "release_refund_claim", _record_release)

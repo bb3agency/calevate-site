@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -557,20 +558,53 @@ def _busy(body: Any, calendar_id: str) -> list[tuple[datetime, datetime]] | None
     return out
 
 
+_WEEKDAYS: Final = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+
+def within_booking_hours(config: CalendarConfig, start: datetime, end: datetime) -> bool:
+    """Does `start` to `end` sit inside the business's booking hours and days, in India time?
+    A booking that runs past midnight is never inside them."""
+    local_start, local_end = start.astimezone(_IST), end.astimezone(_IST)
+    if config.open_days is not None and local_start.isoweekday() not in config.open_days:
+        return False
+    if config.opens is None or config.closes is None:
+        return True
+    if local_end.date() != local_start.date():
+        return False
+    return (
+        local_start.strftime("%H:%M") >= config.opens
+        and local_end.strftime("%H:%M") <= config.closes
+    )
+
+
+def booking_hours_text(config: CalendarConfig) -> str:
+    """The hours as the agent should say them: `from 09:00 to 18:00, Monday to Saturday`."""
+    hours = (
+        f"from {config.opens} to {config.closes} India time"
+        if config.opens and config.closes
+        else "at any time of day"
+    )
+    if config.open_days is None or len(config.open_days) == 7:
+        return f"{hours}, every day"
+    return f"{hours}, on " + ", ".join(_WEEKDAYS[d - 1] for d in sorted(config.open_days))
+
+
 def free_slots(
     *,
     window_start: datetime,
     window_end: datetime,
     minutes: int,
     busy: list[tuple[datetime, datetime]],
+    allowed: Callable[[datetime, datetime], bool] | None = None,
 ) -> list[datetime]:
     """Slot starts of `minutes` inside the window that overlap no busy interval (busy end is
-    exclusive, as freeBusy says), stepping by the slot length."""
+    exclusive, as freeBusy says) and that `allowed` accepts, stepping by the slot length."""
     step = timedelta(minutes=minutes)
     slots: list[datetime] = []
     at = window_start
     while at + step <= window_end and len(slots) < FREE_SLOTS_OFFERED:
-        if all(not (at < end and at + step > start) for start, end in busy):
+        free = all(not (at < end and at + step > start) for start, end in busy)
+        if free and (allowed is None or allowed(at, at + step)):
             slots.append(at)
         at += step
     return slots
@@ -612,6 +646,10 @@ async def _run_calendar(
         return _refused("unreadable_time")
     if start_at < datetime.now(UTC) - timedelta(minutes=5):
         return _refused("time_in_past")
+    # Refused before the calendar is asked: a time the business does not take bookings at
+    # is not bookable however free the diary is.
+    if config.operation == "book" and not within_booking_hours(config, start_at, end_at):
+        return _refused("outside_hours", hours=booking_hours_text(config))
 
     cred = await _credential(session, tool)
     if cred is None:
@@ -635,11 +673,18 @@ async def _run_calendar(
         return _refused("calendar_error", status_code=response.status_code)
 
     if config.operation == "check":
-        slots = free_slots(window_start=start_at, window_end=end_at, minutes=minutes, busy=busy)
+        slots = free_slots(
+            window_start=start_at,
+            window_end=end_at,
+            minutes=minutes,
+            busy=busy,
+            allowed=lambda start, end: within_booking_hours(config, start, end),
+        )
         return ExecutionResult(
             ok=True,
             payload={
                 "available": bool(slots) and slots[0] == start_at,
+                "booking_hours": booking_hours_text(config),
                 "free_slots": [
                     {"start": s.astimezone(_IST).isoformat(), "say": spoken_time(s)} for s in slots
                 ],

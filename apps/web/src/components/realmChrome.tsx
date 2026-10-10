@@ -68,5 +68,4 @@
  * one of them in a component would invent a shared thing that does not exist.
  */
 export const ADMIN_REALM_IDENTITY_CLASS =
-  "border border-emerald-200 bg-emerald-50 text-emerald-950 " +
-  "dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-50";
+  "border border-brand/25 bg-brand-soft text-ink";

@@ -34,7 +34,7 @@ export function stagedScript(state: PendingState): PendingChange | undefined {
 export function PendingBanner({ state }: { state: PendingState }) {
   if (!state.has_pending) return null;
   return (
-    <div role="status" className="rounded-card border border-warn-line bg-warn-soft p-4 text-sm text-ink">
+    <div role="status" className="rounded-md border border-warn-line bg-warn-soft px-4 py-3 text-sm text-ink">
       <p className="flex items-center gap-2 font-semibold">
         <Hourglass aria-hidden className="h-4 w-4 shrink-0 text-warn" />
         Changes waiting to go live

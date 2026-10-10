@@ -16,7 +16,11 @@ import type { KbSource, Margin, TenantSummary } from "@/lib/api/admin";
 import { routeParams } from "./adminRoute";
 import { problem, stubApi, type Routes } from "./harness";
 import { OWNER_JOINED } from "./businessProfileFixture";
-import { KB_ALL_DELIVERED, WHATSAPP_NEVER_ASKED } from "./fixtures/sharedReads";
+import {
+  KB_ALL_DELIVERED,
+  WHATSAPP_NEVER_ASKED,
+  adminOverviewSummaryReads,
+} from "./fixtures/sharedReads";
 
 /**
  * "Approved, awaiting publish" — §52's FIRST clause, on the one panel that had lost it.
@@ -127,6 +131,7 @@ function healthy(): Routes {
     [TEMPLATES_PATH]: [],
     "/v1/kb/delivery": KB_ALL_DELIVERED,
     [`${TENANT_PATH}/whatsapp-alerts`]: WHATSAPP_NEVER_ASKED,
+    ...adminOverviewSummaryReads(TENANT),
     [MARGIN_PATH]: {
       month: "2026-08",
       minutes_used: "1204.5",

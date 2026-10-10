@@ -137,6 +137,10 @@ _REFUSAL_SAY: Final[dict[str, str]] = {
         "other times."
     ),
     "time_in_past": "That time has already passed. Ask the caller for a time in the future.",
+    "outside_hours": (
+        "Nothing was booked: the business does not take bookings at that time. Do NOT say "
+        "it is booked. Offer a time inside its booking hours."
+    ),
     "unreadable_time": (
         "Nothing was booked: the time could not be read. Ask the caller for the day and time "
         "again, then call this with the date and time in YYYY-MM-DDTHH:MM form, Indian time."
@@ -166,7 +170,7 @@ _REFUSAL_SAY: Final[dict[str, str]] = {
 #: Refusals that ask the agent to work out a day: they carry today's date, which the voice
 #: platform does not otherwise give the model.
 TIME_REFUSALS: Final = frozenset(
-    {"unreadable_time", "time_in_past", "no_start_time", "no_end_time"}
+    {"unreadable_time", "time_in_past", "no_start_time", "no_end_time", "outside_hours"}
 )
 
 
@@ -175,6 +179,9 @@ def say_for(result: ExecutionResult, *, now: datetime | None = None) -> str:
     if result.ok:
         return _OK_SAY.get(result.status, "Done. Use the answer to reply to the caller.")
     said = _REFUSAL_SAY.get(result.status, NOT_AVAILABLE_SAY)
+    hours = result.payload.get("hours")
+    if result.status == "outside_hours" and isinstance(hours, str):
+        said = f"{said} It takes bookings {hours}."
     if result.status in TIME_REFUSALS:
         said = f"{said} {today_in_india(now or datetime.now(UTC))}"
     return said

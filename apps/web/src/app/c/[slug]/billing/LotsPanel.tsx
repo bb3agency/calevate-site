@@ -1,8 +1,7 @@
 "use client";
 
-import { Layers } from "lucide-react";
-
-import { Card, NOTICE_TONES, ScrollRegion, formatINR, formatIST, formatRupeeRate } from "@/components/ui";
+import { Section } from "@/components/console/section";
+import { NOTICE_TONES, ScrollRegion, formatINR, formatIST, formatRupeeRate } from "@/components/ui";
 
 import { formatWhole, isVoiceTier, lotRate, type WalletLots } from "./lots";
 
@@ -56,9 +55,12 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
   if (lots.lots.length === 0 && !owed) return null;
 
   return (
-    <Card title="Your credit and what it costs a minute">
+    <Section
+      title="Your credit and what it costs a minute"
+      description="Each purchase keeps the per-minute rates it was bought at, and your calls are charged against the oldest one first."
+    >
       {owed && (
-        <p role="status" className={`mb-3 rounded-card border p-3 text-sm ${NOTICE_TONES.warn}`}>
+        <p role="status" className={`mb-4 rounded-md border px-4 py-3 text-body ${NOTICE_TONES.warn}`}>
           Your calls have run {formatINR(lots.overdraft_inr)} past the credit on the account.
           Your next top-up clears that first, and whatever is left opens as new credit at
           that purchase&rsquo;s rates.
@@ -67,38 +69,34 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
 
       {lots.lots.length > 0 && (
         <>
-          <p className="text-sm text-ink-muted">
-            Each purchase keeps the per-minute rates it was bought at, and your calls are
-            charged against the oldest one first.
-          </p>
-          <ScrollRegion label="Your credit, purchase by purchase" className="scroll-shadow-x mt-3">
-          <table className="w-full border-collapse text-sm">
+          <ScrollRegion label="Your credit, purchase by purchase" className="scroll-shadow-x">
+          <table className="w-full border-collapse text-body">
             <caption className="sr-only">
               Your credit, in the order it will be spent — {lots.lots.length}{" "}
               {lots.lots.length === 1 ? "purchase" : "purchases"}
             </caption>
             <thead>
-              <tr className="border-b border-line text-left text-[12px] text-ink-muted">
-                <th scope="col" className="py-2 pr-3 font-semibold">
+              <tr className="border-b border-line text-left text-meta text-ink-muted">
+                <th scope="col" className="py-2 pr-3 font-medium">
                   Credit left
                 </th>
                 {lots.tiers.map((tier) => (
-                  <th key={tier.voice_tier} scope="col" className="py-2 pr-3 text-right font-semibold">
+                  <th key={tier.voice_tier} scope="col" className="py-2 pr-3 text-right font-medium">
                     {tier.label}
                   </th>
                 ))}
-                <th scope="col" className="py-2 text-right font-semibold">
+                <th scope="col" className="py-2 text-right font-medium">
                   Bought
                 </th>
               </tr>
             </thead>
             <tbody>
               {lots.lots.map((lot, index) => (
-                <tr key={lot.lot_id} className="border-b border-line/60">
-                  <th scope="row" className="py-3 pr-3 text-left font-medium tabular-nums text-ink">
+                <tr key={lot.lot_id} className="border-b border-line last:border-b-0">
+                  <th scope="row" className="py-3.5 pr-3 text-left font-medium tabular-nums text-ink">
                     {formatINR(lot.credits_remaining)}
                     {index === 0 && (
-                      <span className="ml-2 rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-semibold text-brand-strong">
+                      <span className="ml-2 text-meta font-normal text-ink-muted">
                         Spent first
                       </span>
                     )}
@@ -106,14 +104,14 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
                   {lots.tiers.map((tier) => (
                     <td
                       key={tier.voice_tier}
-                      className="py-3 pr-3 text-right tabular-nums text-ink-muted"
+                      className="py-3.5 pr-3 text-right tabular-nums text-ink-muted"
                     >
                       {isVoiceTier(tier.voice_tier)
                         ? `${formatRupeeRate(lotRate(lot, tier.voice_tier))}/min`
                         : null}
                     </td>
                   ))}
-                  <td className="py-3 text-right text-ink-muted">{formatIST(lot.opened_at)}</td>
+                  <td className="py-3.5 text-right text-ink-muted">{formatIST(lot.opened_at)}</td>
                 </tr>
               ))}
             </tbody>
@@ -121,7 +119,7 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
           </ScrollRegion>
         </>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -152,8 +150,7 @@ export function TierRunwayLines({ lots }: { lots: WalletLots }) {
   const priced = lots.tiers.filter((tier) => tier.minutes_left !== null);
   if (priced.length === 0) return null;
   return (
-    <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
-      <Layers className="h-3.5 w-3.5 shrink-0" aria-hidden />
+    <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-ink-muted">
       {priced.map((tier) => (
         <span key={tier.voice_tier}>
           about{" "}

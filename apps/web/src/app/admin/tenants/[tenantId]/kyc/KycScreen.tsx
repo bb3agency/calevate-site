@@ -1,8 +1,9 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
-import { Card, NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import { NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import { PageHeader } from "@/components/console/pageHeader";
 import { useAdminAccess } from "@/app/admin/access";
 import { Term } from "@/lib/glossary";
@@ -20,7 +21,7 @@ import {
   type KycRecord,
 } from "@/lib/api/kyc";
 
-import { TonePill } from "../tonePill";
+import { StatusPill } from "@/components/admin/kit";
 import { CarrierApplicationPanel, CarrierPill } from "./CarrierApplicationPanel";
 import { FactList, SubHeading } from "./FactList";
 import { KycRecordForm } from "./KycRecordForm";
@@ -55,7 +56,7 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
   if (!tenant) return null;
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-3xl space-y-10">
       <PageHeader
         title={
           <>
@@ -73,7 +74,7 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
 
       <KycReviewPanel tenantId={tenantId} access={write} />
 
-      <Card
+      <Section
         title="Our identity check"
         info={
           <p>
@@ -83,7 +84,7 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
           </p>
         }
       >
-        <p className="-mt-1 text-sm text-ink-muted">
+        <p className="-mt-1 text-body text-ink-muted">
           A verified record opens number provisioning on every tier and outbound dialling on
           self-serve and trial accounts; inbound answering is never gated by it.
         </p>
@@ -102,7 +103,7 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
               icon={<AlertTriangle className="h-5 w-5" />}
               title="Cannot record while the current state is unreadable"
             >
-              <p className="mt-1 text-xs opacity-90">
+              <p className="mt-1 text-meta opacity-90">
                 We could not read what is on file for this client. Recording a verification
                 replaces the status outright, so doing it now could close a gate that is
                 currently open without anyone seeing it happen. Retry the read above; the
@@ -128,7 +129,7 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
               {save.error != null && <ProblemNotice error={save.error} />}
               {save.data && (
                 <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
-                  <p className="text-xs">
+                  <p>
                     Recorded as{" "}
                     <span className="font-medium">
                       {/* `status` is a plain string on the wire, so an unnameable member
@@ -145,7 +146,7 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
             </>
           )}
         </div>
-      </Card>
+      </Section>
 
       <CarrierApplicationPanel tenantId={tenantId} application={application} />
     </div>
@@ -154,14 +155,14 @@ export function KycScreen({ tenantId }: { tenantId: string }) {
 
 /** Our verdict in a few words. `is_verified` is the server's predicate, never recomputed. */
 function OurPill({ record }: { record: KycRecord }) {
-  if (!record.recorded) return <TonePill tone="neutral">Our check: nothing on file</TonePill>;
+  if (!record.recorded) return <StatusPill tone="neutral">Our check: nothing on file</StatusPill>;
   const status = record.status;
   const copy = status !== null && isKnownKycStatus(status) ? KYC_STATUS_COPY[status] : null;
   return (
-    <TonePill tone={record.is_verified ? "ok" : (copy?.tone ?? "warn")}>
+    <StatusPill tone={record.is_verified ? "ok" : (copy?.tone ?? "warn")}>
       Our check: {copy?.label ?? status ?? "unknown"} ·{" "}
       {record.is_verified ? "gates open" : "gates closed"}
-    </TonePill>
+    </StatusPill>
   );
 }
 
@@ -174,7 +175,7 @@ function OnFile({ record }: { record: KycRecord }) {
     return (
       <div>
         <SubHeading>Nothing on file</SubHeading>
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           The normal state of a new account. This client&apos;s dial gate reads it as a
           missing verification. Their own operator will ask for the same documents before it
           issues them a connection.

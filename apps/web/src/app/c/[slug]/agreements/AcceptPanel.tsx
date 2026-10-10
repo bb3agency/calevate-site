@@ -26,7 +26,7 @@ export function AcceptPanel({ readiness }: { readiness: LegalReadiness }) {
 
   if (outstanding.length === 0) {
     return (
-      <p className="mt-3 flex items-center gap-2 text-sm text-ink-muted">
+      <p className="mt-4 flex items-center gap-2 text-body text-ink-muted">
         <CircleCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
         Every agreement here has been accepted at its current version. We will
         ask again when one of them changes in a way that needs it.
@@ -73,8 +73,15 @@ export function AcceptPanel({ readiness }: { readiness: LegalReadiness }) {
   };
 
   return (
-    <div className="mt-4">
-      <label className="flex items-start gap-3 text-sm text-ink">
+    <form
+      noValidate
+      className="mt-6"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (ticked && !accept.isPending) void submit();
+      }}
+    >
+      <label className="flex items-start gap-3 text-body text-ink">
         <input
           type="checkbox"
           checked={ticked}
@@ -83,28 +90,21 @@ export function AcceptPanel({ readiness }: { readiness: LegalReadiness }) {
         />
         <span>{readiness.acceptance_statement}</span>
       </label>
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          disabled={!ticked || accept.isPending}
-          onClick={() => void submit()}
-          className={PRIMARY_BUTTON}
-        >
-          <CircleCheck className="h-4 w-4" aria-hidden="true" />
+      {accept.error ? (
+        <div className="mt-4">
+          <ProblemNotice error={accept.error} />
+        </div>
+      ) : null}
+      <div className="mt-5 flex flex-wrap items-center justify-end gap-x-5 gap-y-3">
+        <p className="mr-auto text-meta text-ink-muted">
+          We record which documents you accepted, at which version, and when.
+        </p>
+        <button type="submit" disabled={!ticked || accept.isPending} className={PRIMARY_BUTTON}>
           {accept.isPending
             ? "Recording…"
             : `Accept ${outstanding.length} agreement${outstanding.length === 1 ? "" : "s"}`}
         </button>
-        <span className="text-xs text-ink-faint">
-          We record which documents you accepted, at which version, and when.
-        </span>
       </div>
-      {accept.error ? (
-        <div className="mt-3">
-          <ProblemNotice error={accept.error} />
-        </div>
-      ) : null}
-    </div>
+    </form>
   );
 }
-

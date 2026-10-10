@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { ChevronLeft, ChevronRight, Eye } from "lucide-react";
 
+import { StatusPill } from "@/components/admin/kit";
 import {
-  NOTICE_TONES,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
@@ -52,12 +52,11 @@ function who(entry: ActivityEntry): string {
  */
 function ViewAsMark() {
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${NOTICE_TONES.warn}`}
-      title="Done from a view-as session: one of us, acting inside the client's console"
-    >
-      <Eye aria-hidden className="h-3 w-3" />
-      as the client
+    <span title="Done from a view-as session: one of us, acting inside the client's console">
+      <StatusPill tone="warn" className="gap-1">
+        <Eye aria-hidden className="h-3 w-3" />
+        as the client
+      </StatusPill>
     </span>
   );
 }
@@ -84,7 +83,7 @@ const COLUMNS: DataColumn<ActivityEntry>[] = [
     id: "at",
     header: "When (IST)",
     hideBelow: "sm",
-    className: "whitespace-nowrap text-xs text-ink-muted",
+    className: "whitespace-nowrap text-meta text-ink-muted",
     cell: (entry) => formatIST(entry.at),
   },
   {
@@ -98,11 +97,11 @@ const COLUMNS: DataColumn<ActivityEntry>[] = [
           <span className="break-all font-mono text-xs text-ink">{entry.action}</span>
           {entry.via_grant_id && <ViewAsMark />}
         </div>
-        <p className="mt-1 text-xs text-ink-muted sm:hidden">
+        <p className="mt-1 text-meta text-ink-muted sm:hidden">
           {who(entry)} · {formatIST(entry.at)}
         </p>
         {entry.object_type && (
-          <p className="mt-0.5 text-xs text-ink-faint sm:hidden">On {onText(entry)}</p>
+          <p className="mt-0.5 text-meta text-ink-muted sm:hidden">On {onText(entry)}</p>
         )}
       </div>
     ),
@@ -111,14 +110,14 @@ const COLUMNS: DataColumn<ActivityEntry>[] = [
     id: "who",
     header: "Who",
     hideBelow: "sm",
-    className: "text-xs text-ink-muted",
+    className: "text-meta text-ink-muted",
     cell: (entry) => who(entry),
   },
   {
     id: "on",
     header: "On",
     hideBelow: "sm",
-    className: "text-xs text-ink-faint",
+    className: "text-meta text-ink-muted",
     cell: (entry) => onText(entry),
   },
 ];
@@ -179,7 +178,7 @@ export function ActivityScreen({ tenantId }: { tenantId: string }) {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-5xl space-y-8">
       <PageHeader
         title="Activity"
         description={
@@ -246,7 +245,7 @@ export function ActivityScreen({ tenantId }: { tenantId: string }) {
       )}
 
       {page && page.total > entries.length && (
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-ink-muted">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-meta text-ink-muted">
           <span aria-live="polite">
             Showing {formatCount(page.offset + 1)}–{formatCount(page.offset + entries.length)} of{" "}
             {formatCount(page.total)}

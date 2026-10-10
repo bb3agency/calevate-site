@@ -12,7 +12,7 @@ import {
 } from "@/lib/api/firstCampaign";
 import { viewAsHref } from "@/lib/api/session";
 
-import { TonePill } from "../tonePill";
+import { StatusPill } from "@/components/admin/kit";
 
 /**
  * The five states in the operator's words, with the tone and icon the client's own
@@ -60,7 +60,7 @@ const OPERATOR_VERDICTS: Record<
 /** The header's one-glance state, from the same reading as the panel below it. */
 export function HoldPill({ hold }: { hold: FirstCampaignHold }) {
   const verdict = OPERATOR_VERDICTS[firstCampaignState(hold)];
-  return <TonePill tone={verdict.tone}>{verdict.pill}</TonePill>;
+  return <StatusPill tone={verdict.tone}>{verdict.pill}</StatusPill>;
 }
 
 /**
@@ -85,17 +85,17 @@ export function WhereItStands({
   return (
     <NoticeBox tone={verdict.tone} icon={<Icon className="h-5 w-5" />} title={verdict.headline}>
       {state === "never_applied" && (
-        <p className="mt-1 text-xs opacity-90">
+        <p className="mt-1 text-meta opacity-90">
           The hold is scoped to the self-serve and trial motions. {tenantName} was onboarded
           by a person, so no campaign of theirs is held by this rule — recording a decision
           here is possible and changes nothing about their calling.
         </p>
       )}
       {state === "held_unknown" && hold.reason && (
-        <p className="mt-1 text-xs opacity-90">{hold.reason}</p>
+        <p className="mt-1 text-meta opacity-90">{hold.reason}</p>
       )}
 
-      <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+      <dl className="mt-3 grid gap-2 text-meta sm:grid-cols-2">
         <div>
           <dt className="opacity-70">Decision on file</dt>
           <dd className="mt-0.5 font-medium">{hold.status ?? "none — nobody has looked"}</dd>
@@ -123,7 +123,7 @@ export function WhereItStands({
 
       {/* The view-as marker, not a bare client-realm link: without it the client shell
           would build a client session this operator does not have (lib/api/session.tsx). */}
-      <p className="mt-3 text-xs opacity-80">
+      <p className="mt-3 text-meta opacity-80">
         <Link
           href={viewAsHref(slug, "/campaign-review")}
           className="inline-flex items-center gap-1 rounded-sm font-medium underline touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"

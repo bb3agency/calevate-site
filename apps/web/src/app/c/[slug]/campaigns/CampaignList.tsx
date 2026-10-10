@@ -5,6 +5,7 @@ import { Pause, Play } from "lucide-react";
 
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
+import { EmptySketch } from "@/components/console/emptySketch";
 import {
   ProblemNotice,
   SECONDARY_BUTTON_SM,
@@ -62,7 +63,11 @@ export function CampaignList({
   }
   if (campaigns.data.length === 0) {
     return (
-      <EmptyState message="No campaigns yet. Start one with New campaign." />
+      <EmptyState
+        illustration={<EmptySketch kind="campaigns" />}
+        message="No campaigns yet."
+        hint="Start one with New campaign: your agent calls the list you give it."
+      />
     );
   }
 

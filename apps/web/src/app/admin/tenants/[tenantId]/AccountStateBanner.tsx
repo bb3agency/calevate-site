@@ -36,7 +36,7 @@ export function AccountStateBanner({ tenantId, status }: { tenantId: string; sta
         icon={<PauseCircle className="h-5 w-5" />}
         title="This account is suspended."
       >
-        <p className="mt-1 text-xs opacity-90">
+        <p className="mt-1">
           Its outbound dialling is refused at the next dial — campaigns included. Inbound
           answering is deliberately untouched: their own customers still get through.
           Reactivating is one click on{" "}
@@ -59,7 +59,7 @@ export function AccountStateBanner({ tenantId, status }: { tenantId: string; sta
         icon={<AlertTriangle className="h-5 w-5" />}
         title="This account is closed."
       >
-        <p className="mt-1 text-xs opacity-90">
+        <p className="mt-1">
           Nobody at the client can sign in, no call or campaign runs, and no agent can be
           published. Whether their records have been erased yet — and the date they go —
           is on{" "}

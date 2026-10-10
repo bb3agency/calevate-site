@@ -500,7 +500,9 @@ describe("what the screen says the agent does with the text", () => {
     // up while a caller is on the line — and that is still asserted, twice.
     //
     // The one file sentence worth pinning positively is the limit, because a client who
-    // learns it from a 413 has already spent the upload.
-    expect(text).toMatch(/20 MB/);
+    // learns it from a 413 has already spent the upload. It is on the Files tab since
+    // REDESIGN-2, beside the upload it limits.
+    fireEvent.click(screen.getByRole("tab", { name: "Files" }));
+    expect(container.textContent).toMatch(/20 MB/);
   });
 });

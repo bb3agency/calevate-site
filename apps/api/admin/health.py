@@ -576,6 +576,30 @@ async def tenant_health(
     )
 
 
+_ONE_ACCOUNT = (
+    "SELECT id, name, slug, status, plan_tier, created_at FROM organizations "
+    "WHERE deleted_at IS NULL AND id = :tid"
+)
+
+
+async def read_account(directory: AsyncSession, *, tenant_id: UUID) -> Account | None:
+    """One client's directory half, on an `admin_session()` — or None for an id that names
+    no live organisation. The per-client summary's twin of the board's `_DIRECTORY` read;
+    unlike the board it does not skip ended accounts, because an operator who opens a
+    closed client's page is owed its state, not a 404."""
+    org = (await directory.execute(text(_ONE_ACCOUNT), {"tid": tenant_id})).first()
+    if org is None:
+        return None
+    return Account(
+        tenant_id=UUID(str(org[0])),
+        name=str(org[1]),
+        slug=str(org[2]),
+        status=str(org[3]),
+        plan_tier=str(org[4]),
+        created_at=org[5],
+    )
+
+
 async def client_health(directory: AsyncSession) -> list[ClientHealth]:
     """Every live account with at least one signal, worst first.
 

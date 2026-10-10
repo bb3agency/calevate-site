@@ -1,11 +1,12 @@
 "use client";
 
+import { Section } from "@/components/console/section";
+
 import { ListPlus, Pause, Play } from "lucide-react";
 
 import { PageHeader } from "@/components/console/pageHeader";
 import { ProgressBar } from "@/components/interior/progress-bar";
 import {
-  Card,
   Disclosure,
   ProblemNotice,
   SECONDARY_BUTTON,
@@ -198,7 +199,7 @@ export function CampaignDetail({
       )}
 
       {progress.data && status !== null && ["running", "paused", "completed"].includes(status) && (
-        <Card title="Progress">
+        <Section title="Progress">
           {progress.data.total ? (
             <div className="space-y-5">
               <ProgressBar
@@ -227,7 +228,7 @@ export function CampaignDetail({
           ) : (
             <p className="text-sm text-ink-muted">No contacts yet.</p>
           )}
-        </Card>
+        </Section>
       )}
     </div>
   );

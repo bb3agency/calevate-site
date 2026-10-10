@@ -83,7 +83,7 @@ async function renderKnowledge(
   uploads: UploadWire[] | ReturnType<typeof problem>,
   over: Routes = {},
 ) {
-  return await renderClientPage(<KnowledgePage />, {
+  const rendered = await renderClientPage(<KnowledgePage />, {
     "/v1/me": ME,
     "/v1/kb/sources": [],
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
@@ -98,6 +98,9 @@ async function renderKnowledge(
       : {}),
     ...over,
   });
+  // Files are their own tab since REDESIGN-2 (Facts opens first).
+  fireEvent.click(await screen.findByRole("tab", { name: "Files" }));
+  return rendered;
 }
 
 /** One XHR the screen sent, as the network saw it. */

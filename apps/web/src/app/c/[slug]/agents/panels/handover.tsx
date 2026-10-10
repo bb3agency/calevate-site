@@ -44,6 +44,7 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
 import {
@@ -164,7 +165,7 @@ export function Handover({ agent }: { agent: Agent }) {
   return (
     <section>
       <div className="flex items-center gap-1">
-        <h3 className="text-[15px] font-semibold text-ink">Putting a caller through to a person</h3>
+        <h3 className="text-heading text-ink">Putting a caller through to a person</h3>
         <InfoTip label="Putting a caller through">
           <p>
             When someone asks to speak to a person, your agent rings the first person on this
@@ -216,7 +217,7 @@ export function Handover({ agent }: { agent: Agent }) {
         </div>
 
         {data.unavailable_reason ? (
-          <div className="mt-4 rounded-lg border border-warn-line bg-warn-soft px-3 py-2 text-sm text-ink">
+          <div className="mt-4 rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-sm text-ink">
             <p className="font-medium">Nobody is available to take a call right now.</p>
             {data.remediation && <p className="mt-1">{data.remediation}</p>}
           </div>
@@ -233,7 +234,7 @@ export function Handover({ agent }: { agent: Agent }) {
         {data.platform_note && <p className="mt-2 text-sm text-ink-muted">{data.platform_note}</p>}
 
         {profile.data.contacts.length === 0 ? (
-          <EmptyState
+          <EmptyState illustration={<EmptySketch kind="numbers" />}
             className="mt-4"
             message="Nobody can take calls yet."
             hint="Add the people who can take a call to your business profile, then choose them here."
@@ -244,7 +245,7 @@ export function Handover({ agent }: { agent: Agent }) {
             }
           />
         ) : (
-          <ul className="mt-4 space-y-3">
+          <ul className="mt-4 divide-y divide-line border-y border-line">
             {rows.map((row, index) => (
               <HandoverRow
                 key={row.key}
@@ -320,7 +321,7 @@ export function Handover({ agent }: { agent: Agent }) {
           <h4 className="text-sm font-semibold text-ink">Recent handovers</h4>
           <ul className="mt-2 space-y-2 text-sm">
             {data.recent.map((attempt) => (
-              <li key={attempt.id} className="rounded-md border border-line px-3 py-2">
+              <li key={attempt.id} className="border-b border-line py-2 last:border-b-0">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <span className="font-medium">{attempt.member ?? "Someone since removed"}</span>
                   <span className="text-xs text-ink-faint">{formatIST(attempt.started_at)}</span>

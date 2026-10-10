@@ -25,7 +25,11 @@
 
 import { useState } from "react";
 
+import { Section, TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
+import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
+  FIELD,
+  FIELD_LABEL,
   NoticeBox,
   PRIMARY_BUTTON,
   ProblemNotice,
@@ -40,10 +44,9 @@ import {
 } from "@/lib/api/autodialerNotice";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
+import type { LegalReadiness } from "@/lib/api/agreements";
 
-const FIELD =
-  "mt-1 w-full touch:min-h-11 rounded-input border border-line bg-surface px-3 py-2 " +
-  "text-sm text-ink focus:border-accent focus:outline-none";
+import { useAutodialerNoticeCopilot, type NoticeDraft } from "./copilot";
 
 function stateLine(notice: AutodialerNotice): {
   tone: "ok" | "warn";
@@ -103,7 +106,7 @@ function withEveryCallingNumber(typed: string[], notice: AutodialerNotice): stri
   return out;
 }
 
-export function AutodialerNoticePanel() {
+export function AutodialerNoticePanel({ readiness }: { readiness?: LegalReadiness }) {
   const session = useClientSession();
   const notice = useAutodialerNotice(session);
   const record = useRecordAutodialerNotice(session);
@@ -121,7 +124,52 @@ export function AutodialerNoticePanel() {
   if (notice.error) return <ProblemNotice error={notice.error} />;
   if (!notice.data) return null;
 
-  const current = notice.data;
+  return (
+    <NoticeForm
+      readiness={readiness}
+      current={notice.data}
+      canWrite={write.allowed}
+      writeReason={write.reason}
+      record={record}
+      draft={{ accessProvider, objective, notifiedOn, numbers }}
+      setDraft={(patch) => {
+        if (patch.accessProvider !== undefined) setAccessProvider(patch.accessProvider);
+        if (patch.objective !== undefined) setObjective(patch.objective);
+        if (patch.notifiedOn !== undefined) setNotifiedOn(patch.notifiedOn);
+        if (patch.numbers !== undefined) setNumbers(patch.numbers);
+      }}
+    />
+  );
+}
+
+/**
+ * The panel over a notice that has loaded. Split from the reader so the assistant's
+ * declaration (a hook) is made only once there is a notice to describe.
+ */
+function NoticeForm({
+  readiness,
+  current,
+  canWrite,
+  writeReason,
+  record,
+  draft,
+  setDraft,
+}: {
+  readiness?: LegalReadiness;
+  current: AutodialerNotice;
+  canWrite: boolean;
+  writeReason: string | null;
+  record: ReturnType<typeof useRecordAutodialerNotice>;
+  draft: NoticeDraft;
+  setDraft: (patch: Partial<NoticeDraft>) => void;
+}) {
+  const { accessProvider, objective, notifiedOn, numbers } = draft;
+  const setAccessProvider = (v: string) => setDraft({ accessProvider: v });
+  const setObjective = (v: string) => setDraft({ objective: v });
+  const setNotifiedOn = (v: string) => setDraft({ notifiedOn: v });
+  const setNumbers = (v: string) => setDraft({ numbers: v });
+  useAutodialerNoticeCopilot({ readiness, notice: current, draft, apply: setDraft, canWrite });
+
   const line = stateLine(current);
   const declared = parseDeclaredNumbers(numbers);
   const canSubmit =
@@ -131,86 +179,74 @@ export function AutodialerNoticePanel() {
     declared.length > 0;
 
   return (
-    <section id="autodialer-notice" aria-labelledby="autodialer-notice-heading" className="scroll-mt-4">
-      <h2 id="autodialer-notice-heading" className="text-[15px] font-semibold text-ink">
-        Your notice to your telecom access provider
-      </h2>
-      <p className="mt-1 max-w-prose text-[13px] leading-relaxed text-ink-muted">
-        Every outgoing call we place for you is dialled automatically. The rules
-        put one duty on the business whose calls they are: tell your own telecom
-        operator, in writing and before the calls start, that you use an
-        automated dialler and what the calls are for. That letter is yours to
-        send — we cannot send it for you, because the operator holds your
-        business to it, not us. It must also name every number the calls will
-        come from. Send it, then record it here.
-      </p>
+    // The jump target of the checklist's "Record it below".
+    <div id="autodialer-notice" className="scroll-mt-4">
+      <Section title="Your notice to your telecom access provider">
+        <p className="max-w-prose text-body text-ink-muted">
+          Every outgoing call we place for you is dialled automatically. The rules
+          put one duty on the business whose calls they are: tell your own telecom
+          operator, in writing and before the calls start, that you use an
+          automated dialler and what the calls are for. That letter is yours to
+          send — we cannot send it for you, because the operator holds your
+          business to it, not us. It must also name every number the calls will
+          come from. Send it, then record it here.
+        </p>
 
-      <NoticeBox tone={line.tone} className="mt-4">
-        {line.text}
-      </NoticeBox>
+        <NoticeBox tone={line.tone} className="mt-4">
+          {line.text}
+        </NoticeBox>
 
-      {current.recorded && (
-        <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
-          <div>
-            <dt className="text-ink-muted">Operator you told</dt>
-            <dd className="text-ink">{current.access_provider}</dd>
+        {current.recorded && (
+          <SettingRows className="mt-4 border-y border-line">
+            <SettingRow label="Operator you told" value={current.access_provider} />
+            <SettingRow label="What the calls are for" value={current.objective} />
+            <SettingRow label="Date on the letter" value={current.notified_on} />
+            <SettingRow
+              label="Numbers it names"
+              value={current.declared_clis.length > 0 ? current.declared_clis.join(", ") : "None"}
+            />
+          </SettingRows>
+        )}
+
+        {current.undeclared_clis.length > 0 && (
+          <div className="mt-4 text-body">
+            <p className="text-ink">
+              Your agents call from these numbers, which your notice does not name:
+            </p>
+            <ul className="mt-1 list-disc pl-5 text-ink">
+              {current.undeclared_clis.map((number) => (
+                <li key={number}>{number}</li>
+              ))}
+            </ul>
           </div>
-          <div>
-            <dt className="text-ink-muted">What the calls are for</dt>
-            <dd className="text-ink">{current.objective}</dd>
-          </div>
-          <div>
-            <dt className="text-ink-muted">Date on the letter</dt>
-            <dd className="text-ink">{current.notified_on}</dd>
-          </div>
-          <div className="sm:col-span-3">
-            <dt className="text-ink-muted">Numbers it names</dt>
-            <dd className="text-ink">
-              {current.declared_clis.length > 0
-                ? current.declared_clis.join(", ")
-                : "None"}
-            </dd>
-          </div>
-        </dl>
-      )}
+        )}
 
-      {current.undeclared_clis.length > 0 && (
-        <div className="mt-4 text-sm">
-          <p className="text-ink">
-            Your agents call from these numbers, which your notice does not name:
-          </p>
-          <ul className="mt-1 list-disc pl-5 text-ink">
-            {current.undeclared_clis.map((number) => (
-              <li key={number}>{number}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+        {writeReason && (
+          <div className="mt-4">
+            <RestrictionNote reason={writeReason} />
+          </div>
+        )}
 
-      {write.reason && (
-        <div className="mt-4">
-          <RestrictionNote reason={write.reason} />
-        </div>
-      )}
-
-      <form
-        noValidate
-        className="mt-5"
-        onSubmit={(event) => {
-          event.preventDefault();
-          record.mutate({
-            accessProvider,
-            objective,
-            notifiedOn,
-            declaredClis: declared,
-          });
-        }}
-      >
-        {/* A disabled <fieldset> closes every field and both buttons at once. */}
-        <fieldset disabled={!write.allowed} className="min-w-0 space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-sm">
-              <span className="text-ink">Which operator did you tell?</span>
+        <form
+          noValidate
+          className="mt-6"
+          onSubmit={(event) => {
+            event.preventDefault();
+            record.mutate({
+              accessProvider,
+              objective,
+              notifiedOn,
+              declaredClis: declared,
+            });
+          }}
+        >
+          {/* A disabled <fieldset> closes every field and both buttons at once. */}
+          <fieldset disabled={!canWrite} className="min-w-0 space-y-4">
+            <h3 className="text-body font-medium text-ink">
+              {current.recorded ? "Record a new notice" : "Record your notice"}
+            </h3>
+            <label className="block max-w-md">
+              <span className={FIELD_LABEL}>Which operator did you tell?</span>
               <input
                 className={FIELD}
                 value={accessProvider}
@@ -218,8 +254,8 @@ export function AutodialerNoticePanel() {
                 placeholder="The operator that supplies your outgoing line"
               />
             </label>
-            <label className="block text-sm">
-              <span className="text-ink">What is the date on your letter?</span>
+            <label className="block max-w-[12rem]">
+              <span className={FIELD_LABEL}>What is the date on your letter?</span>
               <input
                 className={FIELD}
                 type="date"
@@ -227,73 +263,73 @@ export function AutodialerNoticePanel() {
                 onChange={(event) => setNotifiedOn(event.target.value)}
               />
             </label>
-          </div>
-          <label className="block text-sm">
-            <span className="text-ink">
-              What did you tell them the calls are for?
-            </span>
-            <input
-              className={FIELD}
-              value={objective}
-              onChange={(event) => setObjective(event.target.value)}
-              placeholder="In your own words, as your letter puts it"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-ink">
-              Which numbers did your letter say the calls come from?
-            </span>
-            <textarea
-              className={FIELD}
-              rows={3}
-              value={numbers}
-              onChange={(event) => setNumbers(event.target.value)}
-              placeholder="One per line, for example +91 98480 22338 or a 140 or 160 number"
-            />
-          </label>
-          {current.undeclared_clis.length > 0 && (
-            <button
-              type="button"
-              className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 text-sm text-brand-strong underline"
-              onClick={() => setNumbers(withEveryCallingNumber(declared, current).join("\n"))}
-            >
-              {"Add my agents' numbers"}
-            </button>
-          )}
+            <label className="block">
+              <span className={FIELD_LABEL}>What did you tell them the calls are for?</span>
+              <input
+                className={FIELD}
+                value={objective}
+                onChange={(event) => setObjective(event.target.value)}
+                placeholder="In your own words, as your letter puts it"
+              />
+            </label>
+            <div>
+              <label className="block">
+                <span className={FIELD_LABEL}>
+                  Which numbers did your letter say the calls come from?
+                </span>
+                <textarea
+                  className={FIELD}
+                  rows={3}
+                  value={numbers}
+                  onChange={(event) => setNumbers(event.target.value)}
+                  placeholder="One per line, for example +91 98480 22338 or a 140 or 160 number"
+                />
+              </label>
+              {current.undeclared_clis.length > 0 && (
+                <button
+                  type="button"
+                  className={`${TEXT_ACTION} mt-1`}
+                  onClick={() => setNumbers(withEveryCallingNumber(declared, current).join("\n"))}
+                >
+                  {"Add my agents' numbers"}
+                </button>
+              )}
+            </div>
 
-          {record.error && <ProblemNotice error={record.error} />}
+            {record.error && <ProblemNotice error={record.error} />}
 
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="submit"
-              className={PRIMARY_BUTTON}
-              disabled={!canSubmit || record.isPending}
-            >
-              {record.isPending ? "Recording…" : "Record this notice"}
-            </button>
-            {current.recorded && current.state === "notified" && (
+            <div className="flex flex-wrap items-center justify-end gap-x-5 gap-y-3 pt-2">
+              {current.recorded && current.state === "notified" && (
+                <button
+                  type="button"
+                  className={`${TEXT_ACTION_DANGER} mr-auto`}
+                  disabled={record.isPending}
+                  onClick={() =>
+                    record.mutate({
+                      // A withdrawal names the notice it retracts, so it carries that notice's
+                      // own three facts rather than whatever is typed in the form above.
+                      accessProvider: current.access_provider ?? "",
+                      objective: current.objective ?? "",
+                      notifiedOn: current.notified_on ?? "",
+                      declaredClis: current.declared_clis,
+                      withdraw: true,
+                    })
+                  }
+                >
+                  I have withdrawn this notice
+                </button>
+              )}
               <button
-                type="button"
-                className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 text-sm text-ink-muted underline disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={record.isPending}
-                onClick={() =>
-                  record.mutate({
-                    // A withdrawal names the notice it retracts, so it carries that notice's
-                    // own three facts rather than whatever is typed in the form above.
-                    accessProvider: current.access_provider ?? "",
-                    objective: current.objective ?? "",
-                    notifiedOn: current.notified_on ?? "",
-                    declaredClis: current.declared_clis,
-                    withdraw: true,
-                  })
-                }
+                type="submit"
+                className={PRIMARY_BUTTON}
+                disabled={!canSubmit || record.isPending}
               >
-                I have withdrawn this notice
+                {record.isPending ? "Recording…" : "Record this notice"}
               </button>
-            )}
-          </div>
-        </fieldset>
-      </form>
-    </section>
+            </div>
+          </fieldset>
+        </form>
+      </Section>
+    </div>
   );
 }

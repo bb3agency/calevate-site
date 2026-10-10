@@ -42,7 +42,7 @@ export function VoiceCostModel({ board }: { board: FleetSpend | undefined }) {
       <div className="space-y-6">
         <TtsPlanSection board={board} />
         <section className="space-y-3">
-          <h3 className="text-sm font-semibold text-ink">TTS speaking rate — measured</h3>
+          <h3 className="text-body font-semibold text-ink">TTS speaking rate — measured</h3>
           {query.error ? (
             <ProblemNotice error={query.error} onRetry={() => void query.refetch()} />
           ) : !rate ? (
@@ -70,12 +70,12 @@ function TtsPlanSection({ board }: { board: FleetSpend | undefined }) {
   const rows = board.tts_plan?.length ? board.tts_plan : null;
   return (
     <section className="space-y-3">
-      <h3 className="text-sm font-semibold text-ink">
+      <h3 className="text-body font-semibold text-ink">
         Voice vendors — plan spend against attributed
       </h3>
       {rows === null ? (
         // "No plan spend was published" is not "the voices cost us nothing".
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           This deployment did not publish what the voice vendors billed, so
           nothing is shown rather than a zero. The client figures above are
           unaffected — they are what the calls were charged; this card is what
@@ -99,31 +99,31 @@ function TtsPlanRow({ row }: { row: TtsPlanSpend }) {
     <div>
       {/* VENDOR FIRST: an operator reconciling this holds an invoice with the vendor's name
           at the top of it. */}
-      <p className="text-sm font-medium text-ink">
+      <p className="text-body font-medium text-ink">
         {vendorName(row.provider)} · {row.tier_label} · {row.month}
       </p>
-      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
+      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-meta sm:grid-cols-4">
         <div>
-          <dt className="text-ink-faint">Plan spend</dt>
+          <dt className="text-ink-muted">Plan spend</dt>
           <dd className="tabular-nums text-ink">{formatINR(row.plan_inr)}</dd>
         </div>
         <div>
-          <dt className="text-ink-faint">Attributed to calls</dt>
+          <dt className="text-ink-muted">Attributed to calls</dt>
           <dd className="tabular-nums text-ink">{formatINR(row.attributed_inr)}</dd>
         </div>
         <div>
-          <dt className="text-ink-faint">Allotment unused</dt>
+          <dt className="text-ink-muted">Allotment unused</dt>
           {/* The SERVER's subtraction; "—" where it sent none. */}
           <dd className="tabular-nums text-ink-muted">
             {row.unused_inr === null ? "—" : formatINR(row.unused_inr)}
           </dd>
         </div>
         <div>
-          <dt className="text-ink-faint">Characters spoken</dt>
+          <dt className="text-ink-muted">Characters spoken</dt>
           <dd className="tabular-nums text-ink-muted">{row.chars}</dd>
         </div>
       </dl>
-      <p className="mt-2 text-xs text-ink-faint">
+      <p className="mt-2 text-meta text-ink-muted">
         {row.inr_per_1k_chars
           ? `Attributed at the confirmed ${formatRupeeRate(row.inr_per_1k_chars)} per 1,000 characters, counted from our own transcripts.`
           : "No price is confirmed for this vendor, so its calls attribute no cost at all — confirm the price on the ops model-prices panel before reading this row as a margin."}
@@ -159,7 +159,7 @@ function RatePoint({ point }: { point: SpeakingRatePoint }) {
 function SpeakingRate({ rate }: { rate: TtsSpeakingRate }) {
   if (rate.measured && rate.p50 && rate.p95 && rate.pooled) {
     return (
-      <div className="space-y-3 text-sm text-ink-muted">
+      <div className="space-y-3 text-body text-ink-muted">
         <p>
           <span className="font-semibold text-ink">{formatCount(rate.calls)}</span> calls with a
           transcript across{" "}
@@ -169,19 +169,19 @@ function SpeakingRate({ rate }: { rate: TtsSpeakingRate }) {
         </p>
         <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-3">
           <div>
-            <dt className="text-[13px] font-medium">Pooled (Σ chars ÷ Σ minutes)</dt>
+            <dt className="text-meta font-medium">Pooled (Σ chars ÷ Σ minutes)</dt>
             <dd>
               <RatePoint point={rate.pooled} />
             </dd>
           </div>
           <div>
-            <dt className="text-[13px] font-medium">Typical call (p50)</dt>
+            <dt className="text-meta font-medium">Typical call (p50)</dt>
             <dd>
               <RatePoint point={rate.p50} />
             </dd>
           </div>
           <div>
-            <dt className="text-[13px] font-medium">Talkative tail (p95)</dt>
+            <dt className="text-meta font-medium">Talkative tail (p95)</dt>
             <dd>
               <RatePoint point={rate.p95} />
             </dd>
@@ -199,7 +199,7 @@ function SpeakingRate({ rate }: { rate: TtsSpeakingRate }) {
     );
   }
   return (
-    <div className="space-y-3 text-sm text-ink-muted">
+    <div className="space-y-3 text-body text-ink-muted">
       <p>
         <span className="font-semibold text-ink">Not enough calls to measure yet:</span>{" "}
         {formatCount(rate.calls)} of {formatCount(rate.minimum_calls)} needed
@@ -257,8 +257,8 @@ function SpeakingRateByVendor({ rate }: { rate: TtsSpeakingRate }) {
   if (rows.length === 0) return null;
   return (
     <div className="border-t border-line pt-3">
-      <p className="text-[13px] font-medium text-ink">What that rate costs on each voice</p>
-      <ul className="mt-1 space-y-1 text-sm text-ink-muted">
+      <p className="text-meta font-medium text-ink">What that rate costs on each voice</p>
+      <ul className="mt-1 space-y-1 text-body text-ink-muted">
         {rows.map((row) => (
           <li key={row.provider}>
             <VendorRateLine row={row} />

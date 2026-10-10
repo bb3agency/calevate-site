@@ -4,7 +4,7 @@ import { useState } from "react";
 import { CircleCheck, KeyRound, PowerOff, TriangleAlert } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
-import { Card, NoticeBox, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatCount } from "@/components/ui";
+import { NoticeBox, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatCount } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
 import {
   useDisableStudioVoices,
@@ -28,17 +28,17 @@ export function StudioVoicesCard() {
   const last = enable.data ?? disable.data;
 
   return (
-    <Card>
+    <div>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
-          <h2 className="text-[15px] font-semibold text-ink">Studio voices (our Cartesia key)</h2>
+          <h2 className="text-body font-semibold text-ink">Studio voices (our Cartesia key)</h2>
           {studio.error != null ? (
             <ProblemNotice error={studio.error} onRetry={() => void studio.refetch()} />
           ) : !studio.data ? (
             <Skeleton rows={2} label="Reading whether Studio voices are on" />
           ) : (
             <>
-              <p className="flex items-center gap-1.5 text-sm font-medium">
+              <p className="flex items-center gap-1.5 text-body font-medium">
                 {studio.data.ready ? (
                   <>
                     <CircleCheck aria-hidden className="h-4 w-4 text-brand-strong" />
@@ -51,9 +51,9 @@ export function StudioVoicesCard() {
                   </>
                 )}
               </p>
-              <p className="text-sm text-ink-muted">{studio.data.note}</p>
-              <p className="text-xs text-ink-muted">{studio.data.explanation}</p>
-              <dl className="mt-1 grid gap-x-4 gap-y-0.5 text-xs text-ink-muted sm:grid-cols-[auto_1fr]">
+              <p className="text-body text-ink-muted">{studio.data.note}</p>
+              <p className="text-meta text-ink-muted">{studio.data.explanation}</p>
+              <dl className="mt-1 grid gap-x-4 gap-y-0.5 text-meta text-ink-muted sm:grid-cols-[auto_1fr]">
                 <dt className="font-medium">Voice key</dt>
                 <dd>
                   {[
@@ -104,7 +104,7 @@ export function StudioVoicesCard() {
         )}
       </div>
       {confirming === null && last && (
-        <p role="status" className="mt-2 text-sm text-ink-muted">
+        <p role="status" className="mt-2 text-body text-ink-muted">
           {last.note}
         </p>
       )}
@@ -150,6 +150,6 @@ export function StudioVoicesCard() {
           )}
         </ConfirmDialog>
       )}
-    </Card>
+    </div>
   );
 }

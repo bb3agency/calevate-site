@@ -21,7 +21,7 @@ export function NoOwnerBanner({ tenantId, slug }: { tenantId: string; slug: stri
   if (status.isPending) return null;
   if (status.isError) {
     return (
-      <p className="text-sm text-ink-muted">
+      <p className="text-body text-ink-muted">
         We could not check whether anybody can sign in to this account.
       </p>
     );
@@ -29,7 +29,7 @@ export function NoOwnerBanner({ tenantId, slug }: { tenantId: string; slug: stri
   if (status.data.owner_present) return null;
   if (status.data.invite_pending) {
     return (
-      <p className="text-sm text-ink-muted">
+      <p className="text-body text-ink-muted">
         The owner has been invited and has not joined yet.{" "}
         <Link
           href={`/admin/tenants/${tenantId}/invitations`}

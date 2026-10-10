@@ -1,8 +1,9 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 
-import { Card, FIELD, FIELD_HINT, FIELD_LABEL, RestrictionNote } from "@/components/ui";
+import { FIELD, FIELD_HINT, FIELD_LABEL, RestrictionNote } from "@/components/ui";
 import { ActionButton } from "@/components/actionButton";
 import type { useAdminAccess } from "@/app/admin/access";
 import {
@@ -47,7 +48,7 @@ export function MovePanel({
   const blocked = copy.needsReason && reason.trim().length < 3;
 
   return (
-    <Card title={fixed ? `${copy.action} ${tenantName}` : `Move ${tenantName}`}>
+    <Section title={fixed ? `${copy.action} ${tenantName}` : `Move ${tenantName}`}>
       <form
         className="max-w-xl space-y-4"
         // Our own refusals are written beside each control; `noValidate` keeps a rule added
@@ -61,7 +62,7 @@ export function MovePanel({
         <RestrictionNote reason={write.reason} />
 
         {fixed ? (
-          <p className="text-sm text-ink">{copy.consequence}</p>
+          <p className="text-body text-ink">{copy.consequence}</p>
         ) : (
           <div>
             <label htmlFor="lifecycle-status" className={FIELD_LABEL}>
@@ -123,10 +124,10 @@ export function MovePanel({
             {copy.action}
           </ActionButton>
           {blocked && (
-            <span className="text-xs text-warn">A reason is required before this can be applied.</span>
+            <span className="text-meta text-warn">A reason is required before this can be applied.</span>
           )}
         </div>
       </form>
-    </Card>
+    </Section>
   );
 }

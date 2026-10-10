@@ -2,6 +2,10 @@
 
 import { useRef, useState } from "react";
 
+import { StatusPill } from "@/components/admin/kit";
+import { Section, TEXT_ACTION } from "@/components/console/section";
+import { SettingRow, SettingRows } from "@/components/console/settingRow";
+
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withheld";
 import {
@@ -15,7 +19,6 @@ import {
 } from "lucide-react";
 
 import {
-  Card,
   DANGER_BUTTON,
   FIELD,
   FIELD_LABEL,
@@ -148,14 +151,12 @@ export function SecretsPanel({
   }
 
   return (
-    <Card title="Vendor credentials">
+    <Section
+      title="Vendor credentials"
+      description="The vendor keys this platform holds, shown only by their last four characters."
+      info="You can install a key here and test it with the vendor, but this screen can never show you a stored key. If you need the value itself, get it from your vendor's dashboard — it is never kept anywhere you can read it back."
+    >
       <div className="space-y-4">
-        <p className="text-sm text-ink-muted">
-          The vendor keys this platform holds, shown only by their last four characters. You
-          can install a key here and test it with the vendor, but this screen can never show
-          you a stored key. If you need the value itself, get it from your vendor&apos;s
-          dashboard — it is never kept anywhere you can read it back.
-        </p>
 
         {query.error && <ProblemNotice error={query.error} onRetry={() => query.refetch()} />}
         {state.status === "loading" && <Skeleton rows={3} />}
@@ -175,7 +176,7 @@ export function SecretsPanel({
         )}
 
         {state.status === "read" && (
-          <ul className="space-y-2">
+          <ul className="divide-y divide-line border-y border-line">
             {state.list.secrets.map((secret) => (
               <li key={secret.key}>
                 <SecretRow secret={secret} access={access} />
@@ -184,7 +185,7 @@ export function SecretsPanel({
           </ul>
         )}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -221,35 +222,38 @@ function SecretRow({
   const [stored, setStored] = useState<PlatformSecret | null>(null);
 
   return (
-    <div className="rounded-card border border-line bg-surface p-3">
+    <div className="py-3.5 sm:px-2">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           {/* The plain vendor name first, then the machine key. `break-all` on the key:
               these are unbroken snake_case identifiers with no space for a browser to wrap
               at, so at 320px they painted 15px outside the card. */}
-          <p className="text-sm font-semibold text-ink">{credentialLabel(secret.key)}</p>
-          <p className="mt-0.5 break-all text-xs text-ink-faint">
+          <p className="flex flex-wrap items-center gap-2 text-body font-medium text-ink">
+            {credentialLabel(secret.key)}
+            <StatusPill tone={secret.installed ? "ok" : "neutral"}>
+              {secret.installed ? "Set" : "Not set"}
+            </StatusPill>
+          </p>
+          <p className="mt-0.5 break-all text-meta text-ink-muted">
             <MonoValue>{secret.key}</MonoValue>
           </p>
           {secret.installed ? (
-            <p className="mt-1 text-sm text-ink">
-              Ends <MonoValue className="font-semibold">…{secret.last_four}</MonoValue>{" "}
-              <span className="text-ink-faint">
-                (version <MonoValue>{secret.version}</MonoValue>
-                {secret.versions > 1 && <> of {formatCount(secret.versions)}</>}) ·{" "}
-                set by {secret.created_by ?? "unknown"} · {formatIST(secret.created_at)}
-              </span>
+            <p className="mt-1 text-meta text-ink-muted">
+              Ends <MonoValue className="font-semibold text-ink">…{secret.last_four}</MonoValue>{" "}
+              (version <MonoValue>{secret.version}</MonoValue>
+              {secret.versions > 1 && <> of {formatCount(secret.versions)}</>}) · last set{" "}
+              {formatIST(secret.created_at)} by {secret.created_by ?? "unknown"}
             </p>
           ) : (
             // NOT an empty row: "nothing is installed" is a fact an operator acts on.
-            <p className="mt-1 text-sm text-ink-muted">
+            <p className="mt-1 text-meta text-ink-muted">
               Not installed — this deployment has never stored one here.
             </p>
           )}
           {secret.shadowed_by_env && (
             // The escape hatch that would otherwise make a rotation on this screen silently
             // do nothing: the same key is set on the server itself, and that always wins.
-            <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700">
+            <p className="mt-1 flex items-start gap-1.5 text-meta text-warn">
               <TriangleAlert aria-hidden className="mt-0.5 h-3 w-3 shrink-0" />
               <span>
                 This key is also set on the server itself (as{" "}
@@ -269,9 +273,9 @@ function SecretRow({
           }}
           disabled={!access.allowed}
           title={access.reason ?? undefined}
-          className={SECONDARY_BUTTON_SM}
+          aria-expanded={open}
+          className={TEXT_ACTION}
         >
-          <KeyRound aria-hidden className="h-3.5 w-3.5" />
           {open ? "Cancel" : secret.installed ? "Rotate" : "Install"}
         </button>
       </div>
@@ -303,7 +307,7 @@ function SecretRow({
 function StoredReceipt({ stored }: { stored: PlatformSecret }) {
   return (
     <div className="mt-3 border-t border-line pt-3">
-      <p role="status" className="flex items-start gap-2 text-sm text-ink">
+      <p role="status" className="flex items-start gap-2 text-body text-ink">
         <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
         <span>
           Stored. <MonoValue>{stored.key}</MonoValue> now ends{" "}
@@ -445,7 +449,7 @@ function SecretForm({
           "we can't test this one" are real answers you must be able to store past — so the
           nudge is a sentence, not a disabled button. */}
       {value.length > 0 && !test.data && !test.isPending && (
-        <p className="flex items-start gap-1.5 text-xs text-amber-700">
+        <p className="flex items-start gap-1.5 text-meta text-warn">
           <TriangleAlert aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           This key has not been checked with the vendor. Test it first — a wrong key stored
           here is not refused; it is discovered when a call drops.
@@ -454,7 +458,7 @@ function SecretForm({
       {!secret.testable && (
         // Was a `title` on the button: invisible to a keyboard and to a screen reader,
         // which is where this panel's operators most need it.
-        <p className="text-xs text-ink-muted">
+        <p className="text-meta text-ink-muted">
           There is no automatic check for this vendor, so the test will say it wasn&apos;t
           checked rather than pass or fail. It is still safe to store — it just won&apos;t be
           verified until the platform first uses it.
@@ -479,7 +483,7 @@ function SecretForm({
         </button>
       </div>
 
-      <p className="text-xs text-ink-faint">
+      <p className="text-meta text-ink-muted">
         Recorded in the audit log against your admin account, and an alert is sent — an
         installed credential is what an attacker with an admin session would replace, so
         every one of these is watched.
@@ -574,15 +578,20 @@ export function KeyManagementPanel({
   }
 
   return (
-    <Card title="Key management">
-      <div className="space-y-4">
-        <p className="text-sm text-ink-muted">
+    <Section
+      title="Key management"
+      description="Which master key locks the stored keys, and how many still use an older one."
+      info={
+        <p>
           Each stored key is encrypted with its own key, and those keys are locked by this
           platform&apos;s master key — the one key that locks all the others. The master key
           lives on the server (as <MonoValue>PLATFORM_KEK</MonoValue>), never in the
           database. Re-locking updates every stored key to the current master key; your
           vendor keys are never unlocked or read to do it.
         </p>
+      }
+    >
+      <div className="space-y-4">
 
         {query.error && <ProblemNotice error={query.error} onRetry={() => query.refetch()} />}
         {query.isLoading && <Skeleton rows={2} />}
@@ -610,35 +619,17 @@ export function KeyManagementPanel({
 
         {kek && totals && (
           <>
-            <dl className="grid gap-3 sm:grid-cols-3">
-              <div>
-                {/* A key ID (a short code identifying the key without revealing it), NOT a
-                    counter (D-96). Shown as an ID, because "#1633907231" invites an operator
-                    to read it as a version number and conclude a rotation went badly wrong. */}
-                <dt className="text-xs font-medium text-ink-faint">
-                  Active master key ID
-                </dt>
-                <dd className="mt-0.5 text-sm text-ink">
-                  <MonoValue>{kek.active_kek_id}</MonoValue>
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium text-ink-faint">
-                  Locked with it
-                </dt>
-                <dd className="mt-0.5 text-sm text-ink">
-                  {formatCount(totals.current)} of {formatCount(totals.total)}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium text-ink-faint">
-                  Previous master key set
-                </dt>
-                <dd className="mt-0.5 text-sm text-ink">
-                  {kek.has_retired_kek ? "yes" : "no"}
-                </dd>
-              </div>
-            </dl>
+            <SettingRows className="border-y border-line">
+              {/* A key ID (a short code identifying the key without revealing it), NOT a
+                  counter (D-96). Shown as an ID, because "#1633907231" invites an operator
+                  to read it as a version number and conclude a rotation went badly wrong. */}
+              <SettingRow label="Active master key ID" value={<MonoValue>{kek.active_kek_id}</MonoValue>} />
+              <SettingRow
+                label="Locked with it"
+                value={`${formatCount(totals.current)} of ${formatCount(totals.total)}`}
+              />
+              <SettingRow label="Previous master key set" value={kek.has_retired_kek ? "yes" : "no"} />
+            </SettingRows>
 
             {!totals.complete ? (
               <NoticeBox
@@ -708,7 +699,7 @@ export function KeyManagementPanel({
                   previous master key (<MonoValue>PLATFORM_KEK_RETIRED</MonoValue>) before
                   doing anything else.
                 </p>
-                <ul className="mt-2 space-y-0.5 text-xs">
+                <ul className="mt-2 space-y-0.5 text-meta">
                   {relocked.unreadable.map((entry) => (
                     <li key={entry}>
                       <MonoValue>{entry}</MonoValue>
@@ -780,13 +771,13 @@ export function KeyManagementPanel({
             {rewrap.isPending ? "Re-locking…" : "Re-lock every key"}
           </button>
           {!access.allowed && access.reason && (
-            <p className="flex items-start gap-2 text-xs text-ink-muted">
+            <p className="flex items-start gap-2 text-meta text-ink-muted">
               <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               {access.reason}
             </p>
           )}
         </form>
       </div>
-    </Card>
+    </Section>
   );
 }

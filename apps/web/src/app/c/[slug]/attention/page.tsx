@@ -2,6 +2,7 @@
 
 import { use, useState } from "react";
 
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
 import { SegmentedControl } from "@/components/interior/segmented-control";
@@ -12,7 +13,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
 import { useAttentionCopilot } from "./copilot";
-import { KIND_COPY, Row } from "./rows";
+import { KIND_COPY, Row, byUrgency } from "./rows";
 
 const ALL = "all";
 
@@ -44,8 +45,11 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
    * Nothing is refused while `/v1/me` is in flight, and nothing is refused if it failed —
    * we do not know, so the request goes out and the API's own answer renders.
    */
-  useAttentionCopilot(queue, me);
-
+  const data = queue.data;
+  const counts: Record<string, number> = data?.counts ?? {};
+  const countOf = (kind: AttentionKind): number => lookup(counts, kind) ?? 0;
+  const kinds = (Object.keys(KIND_COPY) as AttentionKind[]).filter((kind) => countOf(kind) > 0);
+  useAttentionCopilot(queue, me, { value: filter, all: ALL, kinds, set: setFilter });
 
   const refused = me.data !== undefined && !me.data.permissions.includes("leads:read");
   if (refused) {
@@ -54,15 +58,13 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
     );
   }
 
-  const data = queue.data;
-  const counts: Record<string, number> = data?.counts ?? {};
-  const countOf = (kind: AttentionKind): number => lookup(counts, kind) ?? 0;
-  const kinds = (Object.keys(KIND_COPY) as AttentionKind[]).filter((kind) => countOf(kind) > 0);
-  const shown = data ? (filter === ALL ? data.items : data.items.filter((item) => item.kind === filter)) : [];
+  // Most urgent first (calls going unanswered before a number we safely did not ring);
+  // the server sends newest first, and newest-first is kept within one kind.
+  const shown = data ? byUrgency(filter === ALL ? data.items : data.items.filter((item) => item.kind === filter)) : [];
 
   return (
-    <div className="space-y-5 pb-12">
-      <PageHeader description="Everything the platform stopped, and what to do next." />
+    <div className="max-w-4xl space-y-6 pb-12">
+      <PageHeader description="What we stopped on your behalf, most urgent first, and what to do next." />
 
       {queue.error && <ProblemNotice error={queue.error} onRetry={() => void queue.refetch()} />}
 
@@ -85,7 +87,7 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
         </div>
       )}
       {kinds.length === 1 && (
-        <p role="group" aria-label="Queue summary" className="text-[13px] text-ink-muted">
+        <p role="group" aria-label="Queue summary" className="text-meta text-ink-muted">
           {KIND_COPY[kinds[0]].label} <span className="font-semibold tabular-nums text-ink">{formatCount(countOf(kinds[0]))}</span>
         </p>
       )}
@@ -95,18 +97,15 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
       {!data ? (
         queue.isLoading ? <Skeleton rows={5} /> : null
       ) : data.total === 0 ? (
-        <div className="rounded-card border border-line bg-surface">
+        <div className="border-y border-line">
           <EmptyState
+            illustration={<EmptySketch kind="attention" />}
             message="Nothing needs you right now."
-            action={
-              <p className="text-[13px] text-ink-faint">
-                Blocked calls, failed deliveries and stalled campaigns will appear here.
-              </p>
-            }
+            hint="Blocked calls, failed deliveries and stalled campaigns will appear here."
           />
         </div>
       ) : (
-        <div className="rounded-card border border-line bg-surface">
+        <div className="border-y border-line">
           <ul className="divide-y divide-line">
             {shown.map((item) => (
               <Row key={`${item.kind}-${item.id}-${item.occurred_at}`} item={item} to={item.href ? href(`/c/${slug}${item.href}`) : null} />
@@ -115,7 +114,7 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
           {/* The API sorts newest first before it slices, so the rows that fall off are the
               OLDEST; `total` is the server's count of the whole set, never `items.length`. */}
           {data.total > data.items.length && (
-            <p className="border-t border-line px-4 py-3 text-xs text-ink-faint">
+            <p className="border-t border-line py-3 text-meta text-ink-faint">
               Showing the {formatCount(data.items.length)} most recent of {formatCount(data.total)}. Older
               items are not listed.
             </p>

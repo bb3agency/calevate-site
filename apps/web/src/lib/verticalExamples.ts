@@ -71,6 +71,10 @@ export interface VerticalExamples {
   readonly endCallRules: string;
   /** What a caller asked for, as typed into the lead search. */
   readonly leadSearch: string;
+  /** The booking job's name in an agent's Actions (REDESIGN-2): only a clinic books appointments. */
+  readonly bookingJobTitle: string;
+  /** The booking job's one line, in this trade's words. */
+  readonly bookingJobLine: string;
 }
 
 const CLINIC: VerticalExamples = {
@@ -99,6 +103,8 @@ const CLINIC: VerticalExamples = {
   extractionOptions: "New, Follow-up, Emergency",
   endCallRules: "Never promise a same-day appointment.\nAlways offer a callback if unsure.",
   leadSearch: "teeth cleaning on Saturday",
+  bookingJobTitle: "Book appointments",
+  bookingJobLine: "Your agent can check your Google Calendar and book callers in.",
 };
 
 const REAL_ESTATE: VerticalExamples = {
@@ -128,6 +134,8 @@ const REAL_ESTATE: VerticalExamples = {
   extractionOptions: "Ready to move, Under construction, Plot",
   endCallRules: "Never quote a final price on the phone.\nAlways offer a site visit if unsure.",
   leadSearch: "3BHK in Gachibowli",
+  bookingJobTitle: "Book site visits",
+  bookingJobLine: "Your agent can check your Google Calendar and book site visits for callers.",
 };
 
 const INSURANCE: VerticalExamples = {
@@ -158,6 +166,8 @@ const INSURANCE: VerticalExamples = {
   endCallRules:
     "Never confirm a premium without the policy number.\nAlways offer an advisor callback if unsure.",
   leadSearch: "renewal due this month",
+  bookingJobTitle: "Book meetings",
+  bookingJobLine: "Your agent can check your Google Calendar and book callers a meeting with you.",
 };
 
 const EDUCATION: VerticalExamples = {
@@ -187,6 +197,8 @@ const EDUCATION: VerticalExamples = {
   extractionOptions: "Enquiry, Demo booked, Admitted",
   endCallRules: "Never promise a seat in a batch that is full.\nAlways offer a callback if unsure.",
   leadSearch: "NEET weekend batch",
+  bookingJobTitle: "Book counselling sessions",
+  bookingJobLine: "Your agent can check your Google Calendar and book counselling sessions for callers.",
 };
 
 /**
@@ -211,7 +223,7 @@ const CUSTOM: VerticalExamples = {
   bookingRules:
     "How bookings or orders are taken, how far ahead, and what your agent must never promise without checking.",
   contactName: "Front desk",
-  knowledgeTitle: "Opening hours",
+  knowledgeTitle: "Your price list",
   knowledgeAnswer: "The answer a caller should have been given.",
   extractionReason: "so we can call back the enquiries that matter most first",
   scriptBrief:
@@ -220,7 +232,9 @@ const CUSTOM: VerticalExamples = {
   extractionOptions: "New enquiry, Repeat customer, Complaint",
   endCallRules:
     "Never promise a delivery date or a price without checking.\nAlways offer a callback if unsure.",
-  leadSearch: "home delivery on Sunday",
+  leadSearch: "a booking for Saturday",
+  bookingJobTitle: "Take bookings",
+  bookingJobLine: "Your agent can check your Google Calendar and book callers in.",
 };
 
 const BY_VERTICAL: Readonly<Record<Vertical, VerticalExamples>> = {

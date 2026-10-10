@@ -1,5 +1,7 @@
 "use client";
 
+import { TEXT_ACTION } from "@/components/console/section";
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 
 import {
@@ -11,14 +13,12 @@ import { WriteFailure } from "@/app/admin/writeFailure";
 import {
   BadgeCheck,
   CircleHelp,
-  Coins,
   Save,
   TriangleAlert,
 } from "lucide-react";
 
 import { lookup } from "@/lib/lookup";
 import {
-  Card,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -146,8 +146,9 @@ export function ModelPricingPanel({
   }
 
   return (
-    <Card
+    <Section
       title="Model prices"
+      description="The price per million tokens that billing charges for each model, in US dollars. A model becomes available to customers only once its vendor key is installed and its price is confirmed."
       info={
         <p>
           Enter what your own vendor invoice or dashboard says — that figure is the only one
@@ -156,11 +157,6 @@ export function ModelPricingPanel({
       }
     >
       <div className="space-y-4">
-        <p className="text-sm text-ink-muted">
-          The price per million tokens that billing charges for each model, in US dollars. A
-          model becomes available to customers only once its vendor key is installed and its
-          price is confirmed.
-        </p>
 
         {query.error && (
           <ProblemNotice error={query.error} onRetry={() => query.refetch()} />
@@ -182,7 +178,7 @@ export function ModelPricingPanel({
         )}
 
         {state.status === "read" && (
-          <ul className="space-y-2">
+          <ul className="divide-y divide-line border-y border-line">
             {state.list.prices.map((price) => (
               <li key={price.model}>
                 <ModelPriceRow price={price} access={access} />
@@ -208,7 +204,7 @@ export function ModelPricingPanel({
           <EmbeddingPricesSection rows={state.list.embedding_prices} access={access} />
         )}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -247,22 +243,22 @@ function ModelPriceRow({
     v.tone === "ok"
       ? "text-brand"
       : v.tone === "warn"
-        ? "text-amber-600"
+        ? "text-warn"
         : "text-ink-faint";
 
   return (
-    <div className="rounded-md border border-line p-3">
+    <div className="py-3.5 sm:px-2">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-sm text-ink">
+          <p className="text-body text-ink">
             <MonoValue>{price.model}</MonoValue>
           </p>
-          <p className="mt-0.5 text-xs text-ink-faint">
+          <p className="mt-0.5 text-meta text-ink-muted">
             {providerLabel(price.provider)}
           </p>
         </div>
         <span
-          className={`inline-flex items-center gap-1 text-xs font-medium ${toneClass}`}
+          className={`inline-flex items-center gap-1 text-meta font-medium ${toneClass}`}
         >
           {price.offerable ? (
             <BadgeCheck aria-hidden className="h-3.5 w-3.5" />
@@ -273,28 +269,28 @@ function ModelPriceRow({
         </span>
       </div>
 
-      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-        <dt className="text-ink-faint">Input price (US$ per million tokens)</dt>
+      <dl className="mt-2 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-0.5 text-meta">
+        <dt className="text-ink-muted">Input price (US$ per million tokens)</dt>
         <dd className="text-ink">
           {/* The confirmed figure as an exact string; the recorded price greyed when
               there is no confirmed one yet. Never Number()d. */}
           {price.input_usd_per_mtok ? (
             <MonoValue>{price.input_usd_per_mtok}</MonoValue>
           ) : (
-            <span className="text-ink-faint">
+            <span className="text-ink-muted">
               <MonoValue>{price.reference_input_usd_per_mtok}</MonoValue>{" "}
               (recorded)
             </span>
           )}
         </dd>
-        <dt className="text-ink-faint">
+        <dt className="text-ink-muted">
           Output price (US$ per million tokens)
         </dt>
         <dd className="text-ink">
           {price.output_usd_per_mtok ? (
             <MonoValue>{price.output_usd_per_mtok}</MonoValue>
           ) : (
-            <span className="text-ink-faint">
+            <span className="text-ink-muted">
               <MonoValue>{price.reference_output_usd_per_mtok}</MonoValue>{" "}
               (recorded)
             </span>
@@ -302,7 +298,7 @@ function ModelPriceRow({
         </dd>
         {price.attested_at && (
           <>
-            <dt className="text-ink-faint">Confirmed</dt>
+            <dt className="text-ink-muted">Confirmed</dt>
             <dd className="text-ink">
               {formatIST(price.attested_at)}
               {price.attested_by ? ` · ${price.attested_by}` : ""}
@@ -311,7 +307,7 @@ function ModelPriceRow({
         )}
         {price.source_note && (
           <>
-            <dt className="text-ink-faint">Source</dt>
+            <dt className="text-ink-muted">Source</dt>
             <dd className="text-ink">{price.source_note}</dd>
           </>
         )}
@@ -329,17 +325,17 @@ function ModelPriceRow({
           engine line numbers, and a screen that summarised them would be the version people
           argue with. */}
       {price.withheld_reason != null ? (
-        <div className="mt-2 rounded-lg border border-line bg-app px-3 py-2">
-          <p className="text-xs font-medium text-ink">
+        <div className="mt-2 border-l-2 border-line py-1 pl-3">
+          <p className="text-meta font-medium text-ink">
             Not offered on this platform — a price will not change that
           </p>
-          <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+          <p className="mt-1 text-meta leading-relaxed text-ink-muted">
             {price.withheld_reason}
           </p>
         </div>
       ) : (
         !price.price_attested && (
-          <p className="mt-2 text-xs text-ink-faint">
+          <p className="mt-2 text-meta text-ink-muted">
             {price.reference_verified
               ? "This model already has a recorded price from the vendor, so confirming it yourself is optional."
               : "This model becomes available to customers only once you confirm a price. The recorded price above is unverified — check it against your vendor invoice first."}
@@ -354,16 +350,16 @@ function ModelPriceRow({
           ) : (
             <button
               type="button"
-              className={SECONDARY_BUTTON_SM}
+              className={TEXT_ACTION}
+              aria-expanded={false}
               onClick={() => setOpen(true)}
             >
-              <Coins aria-hidden className="h-3.5 w-3.5" />
               {price.price_attested ? "Update price" : "Confirm price"}
             </button>
           )}
         </div>
       ) : (
-        <p className="mt-3 text-xs text-ink-faint">
+        <p className="mt-3 text-meta text-ink-muted">
           {access.reason ??
             "Your admin account cannot change platform configuration."}
         </p>
@@ -531,8 +527,8 @@ function EmbeddingPricesSection({
   return (
     <section className="space-y-2 border-t border-line pt-4">
       <div>
-        <h3 className="text-sm font-semibold text-ink">Knowledge indexing prices</h3>
-        <p className="text-xs text-ink-faint">
+        <h3 className="text-body font-semibold text-ink">Knowledge indexing prices</h3>
+        <p className="text-meta text-ink-muted">
           What it costs us to turn a client&apos;s uploaded documents into something an
           agent can search by meaning, in US dollars per million tokens. There is no
           output price on these — they return a list of numbers, not words, and the vendor
@@ -556,7 +552,7 @@ function EmbeddingPricesSection({
           </p>
         </NoticeBox>
       ) : (
-        <ul className="space-y-2">
+        <ul className="divide-y divide-line border-y border-line">
           {rows.map((row) => (
             <li key={row.model}>
               <EmbeddingPriceRow price={row} access={access} />
@@ -593,19 +589,19 @@ function EmbeddingPriceRow({
   const v = embeddingVerdict(price);
 
   return (
-    <div className="rounded-md border border-line p-3">
+    <div className="py-3.5 sm:px-2">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-sm text-ink">
+          <p className="text-body text-ink">
             <MonoValue>{price.model}</MonoValue>
           </p>
-          <p className="mt-0.5 text-xs text-ink-faint">
+          <p className="mt-0.5 text-meta text-ink-muted">
             {providerLabel(price.provider)} · {price.dimensions}-number vectors
           </p>
         </div>
         <span
-          className={`inline-flex items-center gap-1 text-xs font-medium ${
-            v.tone === "ok" ? "text-brand" : "text-amber-600"
+          className={`inline-flex items-center gap-1 text-meta font-medium ${
+            v.tone === "ok" ? "text-brand" : "text-warn"
           }`}
         >
           {price.usable ? (
@@ -617,22 +613,22 @@ function EmbeddingPriceRow({
         </span>
       </div>
 
-      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-        <dt className="text-ink-faint">Used for</dt>
+      <dl className="mt-2 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-0.5 text-meta">
+        <dt className="text-ink-muted">Used for</dt>
         <dd className="text-ink">{price.used_for}</dd>
-        <dt className="text-ink-faint">Input price (US$ per million tokens)</dt>
+        <dt className="text-ink-muted">Input price (US$ per million tokens)</dt>
         <dd className="text-ink">
           {price.input_usd_per_mtok ? (
             <MonoValue>{price.input_usd_per_mtok}</MonoValue>
           ) : (
-            <span className="text-ink-faint">
+            <span className="text-ink-muted">
               <MonoValue>{price.reference_input_usd_per_mtok}</MonoValue> (recorded)
             </span>
           )}
         </dd>
         {price.attested_at && (
           <>
-            <dt className="text-ink-faint">Confirmed</dt>
+            <dt className="text-ink-muted">Confirmed</dt>
             <dd className="text-ink">
               {formatIST(price.attested_at)}
               {price.attested_by ? ` · ${price.attested_by}` : ""}
@@ -641,7 +637,7 @@ function EmbeddingPriceRow({
         )}
         {price.source_note && (
           <>
-            <dt className="text-ink-faint">Source</dt>
+            <dt className="text-ink-muted">Source</dt>
             <dd className="text-ink">{price.source_note}</dd>
           </>
         )}
@@ -652,11 +648,11 @@ function EmbeddingPriceRow({
           alone — which is the whole cost of leaving this row alone, and the sentence they
           need in order to decide whether to go and find the invoice. */}
       {!price.usable && (
-        <div className="mt-2 rounded-lg border border-line bg-app px-3 py-2">
-          <p className="text-xs font-medium text-ink">
+        <div className="mt-2 border-l-2 border-line py-1 pl-3">
+          <p className="text-meta font-medium text-ink">
             Uploads are being indexed by word-matching only
           </p>
-          <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+          <p className="mt-1 text-meta leading-relaxed text-ink-muted">
             Until this is confirmed we buy nothing and charge nothing for it, and{" "}
             {price.used_for} stays off. A question typed in a different script than the
             document it should find will usually not find it.
@@ -673,16 +669,16 @@ function EmbeddingPriceRow({
           ) : (
             <button
               type="button"
-              className={SECONDARY_BUTTON_SM}
+              className={TEXT_ACTION}
+              aria-expanded={false}
               onClick={() => setOpen(true)}
             >
-              <Coins aria-hidden className="h-3.5 w-3.5" />
               {price.price_attested ? "Update price" : "Confirm price"}
             </button>
           )}
         </div>
       ) : (
-        <p className="mt-3 text-xs text-ink-faint">
+        <p className="mt-3 text-meta text-ink-muted">
           {access.reason ?? "Your admin account cannot change platform configuration."}
         </p>
       )}
@@ -822,8 +818,8 @@ function TtsPricesSection({
   return (
     <section className="space-y-2 border-t border-line pt-4">
       <div>
-        <h3 className="text-sm font-semibold text-ink">Voice prices</h3>
-        <p className="text-xs text-ink-faint">
+        <h3 className="text-body font-semibold text-ink">Voice prices</h3>
+        <p className="text-meta text-ink-muted">
           What 1,000 spoken characters cost us on each voice, in rupees. On a monthly plan
           this is the plan&apos;s marginal rate — the committed spend divided by the
           characters it buys — which only you, holding the invoice, can work out.
@@ -850,7 +846,7 @@ function TtsPricesSection({
           </p>
         </NoticeBox>
       ) : (
-        <ul className="space-y-2">
+        <ul className="divide-y divide-line border-y border-line">
           {rows.map((row) => (
             <li key={row.provider}>
               <TtsPriceRow price={row} access={access} />
@@ -883,22 +879,22 @@ function TtsPriceRow({
   const v = ttsVerdict(price);
 
   return (
-    <div className="rounded-md border border-line p-3">
+    <div className="py-3.5 sm:px-2">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           {/* VENDOR, then the tier the client reads, then the synthesizer model. Three
               facts an operator needs together: whose invoice, which product, which model
               id the engine is actually asked for. */}
-          <p className="text-sm text-ink">
+          <p className="text-body text-ink">
             {providerLabel(price.provider)} · {price.tier_label}
           </p>
-          <p className="mt-0.5 text-xs text-ink-faint">
+          <p className="mt-0.5 text-meta text-ink-muted">
             <MonoValue>{price.tts_model}</MonoValue>
           </p>
         </div>
         <span
-          className={`inline-flex items-center gap-1 text-xs font-medium ${
-            v.tone === "ok" ? "text-brand" : "text-amber-600"
+          className={`inline-flex items-center gap-1 text-meta font-medium ${
+            v.tone === "ok" ? "text-brand" : "text-warn"
           }`}
         >
           {v.tone === "ok" ? (
@@ -910,18 +906,18 @@ function TtsPriceRow({
         </span>
       </div>
 
-      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-        <dt className="text-ink-faint">Price (₹ per 1,000 characters)</dt>
+      <dl className="mt-2 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-0.5 text-meta">
+        <dt className="text-ink-muted">Price (₹ per 1,000 characters)</dt>
         <dd className="text-ink">
           {price.inr_per_1k_chars ? (
             <MonoValue>{price.inr_per_1k_chars}</MonoValue>
           ) : (
-            <span className="text-ink-faint">not confirmed</span>
+            <span className="text-ink-muted">not confirmed</span>
           )}
         </dd>
         {price.attested_at && (
           <>
-            <dt className="text-ink-faint">Confirmed</dt>
+            <dt className="text-ink-muted">Confirmed</dt>
             <dd className="text-ink">
               {formatIST(price.attested_at)}
               {price.attested_by ? ` · ${price.attested_by}` : ""}
@@ -930,7 +926,7 @@ function TtsPriceRow({
         )}
         {price.source_note && (
           <>
-            <dt className="text-ink-faint">Source</dt>
+            <dt className="text-ink-muted">Source</dt>
             <dd className="text-ink">{price.source_note}</dd>
           </>
         )}
@@ -941,15 +937,15 @@ function TtsPriceRow({
           meter at nothing. A leg that needs no attestation says WHY in the server's words
           rather than looking like an oversight. */}
       {price.billable_without_attestation_reason ? (
-        <p className="mt-2 text-xs text-ink-faint">
+        <p className="mt-2 text-meta text-ink-muted">
           {price.billable_without_attestation_reason}
         </p>
       ) : !price.price_attested ? (
-        <div className="mt-2 rounded-lg border border-line bg-app px-3 py-2">
-          <p className="text-xs font-medium text-ink">
+        <div className="mt-2 border-l-2 border-line py-1 pl-3">
+          <p className="text-meta font-medium text-ink">
             This voice cannot be sold until its price is confirmed
           </p>
-          <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+          <p className="mt-1 text-meta leading-relaxed text-ink-muted">
             We pay {providerLabel(price.provider)} directly for this voice, so the call
             platform reports its cost as ₹0. Without your figure every minute on it would be
             metered as free and the margin board would show a profit that is not there —
@@ -965,16 +961,16 @@ function TtsPriceRow({
           ) : (
             <button
               type="button"
-              className={SECONDARY_BUTTON_SM}
+              className={TEXT_ACTION}
+              aria-expanded={false}
               onClick={() => setOpen(true)}
             >
-              <Coins aria-hidden className="h-3.5 w-3.5" />
               {price.price_attested ? "Update price" : "Confirm price"}
             </button>
           )}
         </div>
       ) : (
-        <p className="mt-3 text-xs text-ink-faint">
+        <p className="mt-3 text-meta text-ink-muted">
           {access.reason ?? "Your admin account cannot change platform configuration."}
         </p>
       )}

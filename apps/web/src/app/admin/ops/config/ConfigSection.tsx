@@ -57,7 +57,7 @@ export function ConfigSectionBody({
       )}
       {fields.length === 0 && section.panels_before.length + section.panels_after.length === 0 && (
         // A statement from a read that ARRIVED.
-        <p className="rounded-card border border-line px-4 py-6 text-center text-sm text-ink-muted">
+        <p className="border-y border-line py-6 text-center text-body text-ink-muted">
           This deployment has no settings in this section.
         </p>
       )}
@@ -72,7 +72,7 @@ function SettingsGroup({ group, access }: { group: FieldGroup; access: Access })
   const headingId = `config-group-${group.id}`;
   return (
     <section aria-labelledby={headingId} className="space-y-2">
-      <h3 id={headingId} className="text-sm font-semibold text-ink">
+      <h3 id={headingId} className="text-body font-semibold text-ink">
         {group.label}
       </h3>
       <SettingsList fields={group.fields} access={access} />
@@ -94,7 +94,7 @@ export function SettingsList({
     <div
       role={label ? "group" : undefined}
       aria-label={label}
-      className="rounded-card border border-line bg-surface px-4 sm:px-5"
+      className="border-y border-line"
     >
       <SettingRows>
         {fields.map((field) => (

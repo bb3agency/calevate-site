@@ -98,7 +98,7 @@ export function CorrectionForm({
     // Not a disabled form: a form over an empty ledger reads as "a correction is a thing
     // you make up".
     return (
-      <p className="text-sm text-ink-muted">
+      <p className="text-body text-ink-muted">
         Nothing has been written to this ledger, so there is nothing to correct. A
         correction always names the entry it cancels.
       </p>
@@ -107,14 +107,14 @@ export function CorrectionForm({
 
   return (
     <div>
-      <p className="text-xs text-ink-muted">
+      <p className="text-meta text-ink-muted">
         For an entry that should not have been made — a payment credited to the wrong
         client, or for more than arrived. The entry stays on the ledger; a new one with
         the opposite sign cancels it.
       </p>
 
       {options.length === 0 ? (
-        <p className="mt-4 text-sm text-ink-muted">
+        <p className="mt-4 text-body text-ink-muted">
           Every entry on this wallet has already been taken back in full, so there is
           nothing left to correct here.
         </p>
@@ -164,7 +164,7 @@ export function CorrectionForm({
               icon={<Info aria-hidden className="h-5 w-5" />}
               title={`${formatINR(entry.reversible_inr)} of this entry can still be taken back`}
             >
-              <p className="mt-1 text-xs">
+              <p className="mt-1">
                 It moved {entry.delta_inr.startsWith("-") ? "" : "+"}
                 {formatINR(entry.delta_inr)} on {formatIST(entry.occurred_at)}
                 {entry.ref ? (
@@ -256,7 +256,7 @@ export function CorrectionForm({
 
           {/* WHAT THE BUTTON DOES, ABOVE THE BUTTON: the act, that it cannot be undone, the
               consequence nobody can preview, then that it is recorded. */}
-          <div className="flex gap-3 rounded-card border border-line bg-surface p-4 text-sm">
+          <div className="flex gap-3 border-l-2 border-danger py-1 pl-4 text-body">
             <TriangleAlert
               aria-hidden
               className={`mt-0.5 h-4 w-4 shrink-0 ${debit ? "text-danger" : "text-ink-faint"}`}
@@ -287,7 +287,7 @@ export function CorrectionForm({
                 managed client is invoiced against their retainer and keeps calling. The
                 answer comes back with the result rather than being guessed here.
               </p>
-              <p className="mt-1 text-xs text-ink-faint">
+              <p className="mt-1 text-meta text-ink-muted">
                 Recorded in the audit log against your admin account with the reason you
                 type above, in the same transaction as the money.
                 {debit
@@ -320,7 +320,7 @@ export function CorrectionForm({
           <RestrictionNote reason={write.reason} />
 
           {write.allowed && (
-            <p className="flex items-start gap-2 text-xs text-ink-muted">
+            <p className="flex items-start gap-2 text-meta text-ink-muted">
               <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               {!entry
                 ? "Pick the entry that was wrong — a correction always cancels a specific line."
@@ -371,12 +371,12 @@ function CorrectionOutcome({
       >
         {result.recorded ? (
           <>
-            <p className="mt-1 text-xs">
+            <p className="mt-1">
               Against entry <span className="font-mono">{result.corrects_entry_id}</span>.
               The wallet now holds {formatINR(result.balance_inr)}
               {result.is_low ? ", which is under the low-balance line." : "."}
             </p>
-            <p className="mt-2 text-xs">
+            <p className="mt-2 text-meta">
               The compensating entry is{" "}
               <span className="font-mono">{result.entry_id}</span>, on the ledger below
               and there permanently. The entry it cancels is still there too.
@@ -386,7 +386,7 @@ function CorrectionOutcome({
             <LotReceipt lot={result.lot} lead="It opened lot" />
           </>
         ) : (
-          <p className="mt-1 text-xs">
+          <p className="mt-1">
             A correction of exactly this amount against this entry was already on the
             ledger (<span className="font-mono">{result.entry_id}</span>), so no second
             one was written and the balance did not move. It stands at{" "}
@@ -409,7 +409,7 @@ function CorrectionOutcome({
           {/* Inbound is NOT unaffected: at or below zero every answering agent is silenced
               at the engine and callers hear a short apology
               (`agents/service.py::reconcile_inbound_answering`, D-551). */}
-          <p className="mt-1 text-xs">
+          <p className="mt-1">
             The balance is at or below zero and this account pays from a wallet, so the
             compliance gate refuses every outbound call and their agents have stopped
             answering incoming ones — callers hear a short apology that gives no reason and

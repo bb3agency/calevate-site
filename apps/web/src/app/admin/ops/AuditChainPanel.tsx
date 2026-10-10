@@ -1,9 +1,9 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { CheckCircle2, FileSearch, Lock, ShieldAlert } from "lucide-react";
 
 import {
-  Card,
   NoticeBox,
   ProblemNotice,
   SECONDARY_BUTTON,
@@ -75,9 +75,9 @@ export function AuditChainPanel({ access }: { access: OpsAccess }) {
   const asOf = verify.data ? formatIST(new Date(verify.submittedAt).toISOString()) : null;
 
   return (
-    <Card title="Activity-log tamper check">
+    <Section title="Activity-log tamper check">
       <div className="space-y-4">
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           Every entry in the activity log is sealed against the one before it, so any entry
           that was edited, deleted or reordered shows up as a broken seal. This re-checks
           the whole log and reports every break, not just the first — it&apos;s the check
@@ -109,7 +109,7 @@ export function AuditChainPanel({ access }: { access: OpsAccess }) {
             {verify.data.breaks.length > 0 ? (
               <ul className="mt-2 space-y-1">
                 {verify.data.breaks.map((entry) => (
-                  <li key={entry.entry_id} className="text-sm">
+                  <li key={entry.entry_id} className="text-body">
                     <span className="font-mono font-semibold">{entry.entry_id}</span>
                     {" — "}
                     {entry.kind === "content"
@@ -145,7 +145,7 @@ export function AuditChainPanel({ access }: { access: OpsAccess }) {
               rows — the break itself is the evidence.
             </p>
             <WeaklyAttestedNote count={verify.data.entries_under_retired_key} />
-            <p className="mt-2 text-xs">
+            <p className="mt-2 text-meta">
               {verify.data.complete
                 ? `Whole log checked — ${formatCount(verify.data.entries_checked)} entries. Checked at ${asOf}.`
                 : `Covers ${formatCount(verify.data.entries_checked)} entries only, so there may be more beyond them. Checked at ${asOf}.`}
@@ -173,7 +173,7 @@ export function AuditChainPanel({ access }: { access: OpsAccess }) {
                 : `This covers ${formatCount(verify.data.entries_checked)} entries only, so it says nothing about the rest of the log.`}
             </p>
             <WeaklyAttestedNote count={verify.data.entries_under_retired_key} />
-            <p className="mt-2 text-xs">Checked at {asOf}.</p>
+            <p className="mt-2 text-meta">Checked at {asOf}.</p>
           </NoticeBox>
         )}
 
@@ -188,17 +188,17 @@ export function AuditChainPanel({ access }: { access: OpsAccess }) {
             <FileSearch aria-hidden className="h-4 w-4" />
             {verify.isPending ? "Checking…" : "Run the tamper check"}
           </button>
-          <p className="mt-2 text-xs text-ink-faint">
+          <p className="mt-2 text-meta text-ink-muted">
             This only reads and reports — it changes nothing.
           </p>
           {!access.allowed && access.reason && (
-            <p className="mt-2 flex items-start gap-2 text-xs text-ink-muted">
+            <p className="mt-2 flex items-start gap-2 text-meta text-ink-muted">
               <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               {access.reason}
             </p>
           )}
         </div>
       </div>
-    </Card>
+    </Section>
   );
 }

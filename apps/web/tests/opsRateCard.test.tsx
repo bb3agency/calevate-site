@@ -701,7 +701,7 @@ describe("the voice price that decides whether a tier can be sold", () => {
     // below the voices), so a positional pick silently opened the wrong form.
     const cartesiaRow = screen
       .getByText("sonic-3.5")
-      .closest("div.rounded-md") as HTMLElement;
+      .closest("li") as HTMLElement;
     fireEvent.click(
       within(cartesiaRow).getByRole("button", { name: /Confirm price/ }),
     );

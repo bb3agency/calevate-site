@@ -3,8 +3,8 @@
 import { CircleAlert, CircleCheck, Clock, HelpCircle } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { Section } from "@/components/console/section";
 import {
-  Card,
   MonoValue,
   ProblemNotice,
   Skeleton,
@@ -54,9 +54,9 @@ export function UnfinishedPayments({ session }: { session: Session }) {
   // this panel is the one claim it exists to avoid making (§52).
   if (attempts.error || !attempts.data) {
     return (
-      <Card title="Payments in progress">
+      <Section title="Payments in progress">
         <ProblemNotice error={attempts.error} onRetry={() => void attempts.refetch()} />
-      </Card>
+      </Section>
     );
   }
   // Captured attempts belong on the ledger, not here. Nothing outstanding means no card.
@@ -64,23 +64,20 @@ export function UnfinishedPayments({ session }: { session: Session }) {
   if (open.length === 0) return null;
 
   return (
-    <Card title="Payments that have not finished">
-      <ul className="space-y-3">
+    <Section title="Payments that have not finished">
+      <ul className="divide-y divide-line border-y border-line">
         {open.map((attempt) => (
-          <li
-            key={attempt.id}
-            className="rounded-card border border-line bg-app p-3 text-sm sm:p-4"
-          >
+          <li key={attempt.id} className="py-3.5 text-body">
             <AttemptRow attempt={attempt} />
           </li>
         ))}
       </ul>
-      <p className="mt-4 text-xs text-ink-muted">
+      <p className="mt-3 max-w-prose text-meta text-ink-muted">
         To try again, choose an amount below and pay as usual — starting a new payment here
         is always safe, because credit is only ever added once per payment that actually
         goes through.
       </p>
-    </Card>
+    </Section>
   );
 }
 
@@ -136,21 +133,21 @@ function AttemptRow({ attempt }: { attempt: TopUpAttempt }) {
     <>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="flex items-center gap-2 font-semibold text-ink">
-          <span className="text-brand" aria-hidden>
+          <span className="text-ink-muted" aria-hidden>
             {copy?.icon ?? <HelpCircle className="h-4 w-4" />}
           </span>
           {formatINR(attempt.amount_inr)}
-          <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-brand-strong">
+          <span className="text-meta font-normal text-ink-muted">
             {copy?.title ?? attempt.outcome}
           </span>
         </p>
-        <p className="text-xs text-ink-faint">Started {formatIST(attempt.started_at)}</p>
+        <p className="text-meta text-ink-muted">Started {formatIST(attempt.started_at)}</p>
       </div>
-      <p className="mt-2 text-ink-muted">
+      <p className="mt-1 text-ink-muted">
         {copy?.body ??
           "We do not have a final answer about this payment yet. Send us the reference below and we will check it."}
       </p>
-      <p className="mt-2 text-xs text-ink-faint">
+      <p className="mt-1 text-meta text-ink-muted">
         ref <MonoValue>{attempt.receipt}</MonoValue>
       </p>
     </>

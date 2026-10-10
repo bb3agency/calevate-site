@@ -1,15 +1,17 @@
 "use client";
 
+import { EmptySketch } from "@/components/console/emptySketch";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptyState } from "@/components/console/emptyState";
 import { useFormValidation } from "@/components/formValidation";
+import { HAIRLINE_LIST, StatusPill } from "@/components/admin/kit";
+import { Section } from "@/components/console/section";
 import {
-  Card,
   FIELD,
   FIELD_LABEL,
-  PRIMARY_BUTTON_LG,
+  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -69,12 +71,12 @@ export function ScriptSection({
   const [confirming, setConfirming] = useState<PromptVersion | null>(null);
 
   return (
-    <div className="space-y-5">
-      <Card title="New version" className="border-2 border-brand">
+    <div className="space-y-10">
+      <Section title="New version" headingLevel={3}>
         <RestrictionNote reason={write.reason} />
         {newVersion.error && <ProblemNotice error={newVersion.error} />}
         <form
-          className="space-y-3"
+          className="space-y-4"
           noValidate
           onSubmit={valid.onSubmit(() => {
             newVersion.mutate(
@@ -100,7 +102,7 @@ export function ScriptSection({
               disabled={!write.allowed}
               onChange={(ev) => onBody(ev.target.value)}
               placeholder="The full system prompt for this agent (min 20 characters)."
-              className={`${FIELD} font-mono text-[13px] leading-relaxed`}
+              className={`${FIELD} font-mono text-meta leading-relaxed`}
             />
           </label>
           {valid.error("body")}
@@ -115,31 +117,30 @@ export function ScriptSection({
               className={FIELD}
             />
           </label>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-end">
             <button
               type="submit"
               /* The 20-character rule is the field's, so the button stays live and a press
                  produces a sentence rather than nothing. */
               disabled={newVersion.isPending || !write.allowed}
-              className={`${PRIMARY_BUTTON_LG} max-sm:w-full max-sm:justify-center`}
+              className={`${PRIMARY_BUTTON} max-sm:justify-center`}
             >
               {newVersion.isPending ? "Saving…" : "Save as new version"}
             </button>
             {/* Under two-speed publishing a save STAGES, it does not go live — the single
                 most expensive thing this screen could get wrong, so it is said beside the
                 button rather than behind an ⓘ. */}
-            <p className="text-xs text-ink-muted">
+            <p className="text-meta text-ink-muted">
               Saving stages the version. Callers keep hearing the live one until you press
               Apply to live calls, in Live.
             </p>
           </div>
         </form>
-      </Card>
+      </Section>
 
       {rollback.error && <ProblemNotice error={rollback.error} />}
 
-      <Card title="Version history" density="compact">
-        <p className="-mt-1 mb-3 text-xs text-ink-muted">{ROLLBACK_RULE}</p>
+      <Section title="Version history" headingLevel={3} description={ROLLBACK_RULE}>
         <RestrictionNote reason={write.reason} />
         {history.isLoading ? (
           <Skeleton rows={4} />
@@ -153,14 +154,14 @@ export function ScriptSection({
             onRetry={() => history.refetch()}
           />
         ) : history.data.length ? (
-          <ul className="divide-y divide-line">
+          <ul className={HAIRLINE_LIST}>
             {history.data.map((entry) => (
-              <li key={entry.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5">
-                <span className="font-mono text-sm font-semibold text-ink">v{entry.version}</span>
+              <li key={entry.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5 sm:px-2">
+                <span className="font-mono text-body font-semibold text-ink">v{entry.version}</span>
                 <VersionBadges entry={entry} pending={pending} />
-                <span className="text-xs text-ink-muted">{formatIST(entry.created_at)}</span>
+                <span className="text-meta text-ink-muted">{formatIST(entry.created_at)}</span>
                 {entry.notes && (
-                  <span className="min-w-0 basis-full text-xs text-ink-muted sm:basis-auto">
+                  <span className="min-w-0 basis-full text-meta text-ink-muted sm:basis-auto">
                     {entry.notes}
                   </span>
                 )}
@@ -181,9 +182,14 @@ export function ScriptSection({
             ))}
           </ul>
         ) : (
-          <EmptyState message="No prompt versions yet. Write the first one above." />
+          <EmptyState
+            message="No prompt versions yet. Write the first one above."
+            illustration={
+              <EmptySketch kind="knowledge" />
+            }
+          />
         )}
-      </Card>
+      </Section>
 
       {confirming && (
         <ConfirmDialog
@@ -243,21 +249,9 @@ export function VersionBadges({
 
   return (
     <>
-      {isLive && (
-        <span className="rounded bg-brand-strong px-1.5 py-0.5 text-xs font-medium text-white">
-          live
-        </span>
-      )}
-      {isStaged && (
-        <span className="rounded border border-warn-line bg-warn-soft px-1.5 py-0.5 text-xs font-medium text-warn">
-          staged
-        </span>
-      )}
-      {entry.active && !isLive && !isStaged && (
-        <span className="rounded bg-brand-soft px-1.5 py-0.5 text-xs font-medium text-brand-strong">
-          draft
-        </span>
-      )}
+      {isLive && <StatusPill tone="ok">Live</StatusPill>}
+      {isStaged && <StatusPill tone="warn">Staged</StatusPill>}
+      {entry.active && !isLive && !isStaged && <StatusPill tone="neutral">Draft</StatusPill>}
     </>
   );
 }

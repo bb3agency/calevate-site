@@ -79,7 +79,7 @@ export function AddVoiceDrawer({
           <div className="mt-2 space-y-2">
             {form.providers.map((option) => (
               <div key={option.provider}>
-                <label className="flex items-center gap-2 text-sm touch:min-h-11">
+                <label className="flex items-center gap-2 text-body touch:min-h-11">
                   <input
                     type="radio"
                     name="voice-provider"
@@ -91,14 +91,14 @@ export function AddVoiceDrawer({
                   <span className={option.selectable ? "" : "text-ink-faint"}>
                     {option.provider}
                     {option.tier_label && (
-                      <span className="ml-1 text-xs text-ink-faint">
+                      <span className="ml-1 text-meta text-ink-muted">
                         &mdash; the {option.tier_label} tier
                       </span>
                     )}
                   </span>
                 </label>
                 {option.unavailable_reason && (
-                  <p className="ml-6 mt-0.5 text-xs text-warn">{option.unavailable_reason}</p>
+                  <p className="ml-6 mt-0.5 text-meta text-warn">{option.unavailable_reason}</p>
                 )}
               </div>
             ))}
@@ -144,7 +144,7 @@ export function AddVoiceDrawer({
             <legend className={FIELD_LABEL}>Languages</legend>
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
               {form.languages.map((language) => (
-                <label key={language} className="flex items-center gap-1.5 text-sm touch:min-h-11">
+                <label key={language} className="flex items-center gap-1.5 text-body touch:min-h-11">
                   <input
                     type="checkbox"
                     checked={languages.includes(language)}

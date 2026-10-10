@@ -96,10 +96,10 @@ export function SenderAttestation({ numberId }: { numberId: string }) {
 
   return (
     <section className="border-t border-line pt-4">
-      <h3 className="text-sm font-semibold text-ink">
+      <h3 className="text-body font-semibold text-ink">
         Calling out from this number
       </h3>
-      <p className="mt-1 text-sm text-ink-muted">
+      <p className="mt-1 text-body text-ink-muted">
         This is an ordinary phone number, not a registered{" "}
         <Term id="series140" term="140-series" /> or{" "}
         <Term id="series160" term="160-series" /> voice header. TRAI requires
@@ -113,7 +113,7 @@ export function SenderAttestation({ numberId }: { numberId: string }) {
       {attested ? (
         <>
           <p
-            className={`mt-3 flex items-start gap-2 rounded-lg border p-3 text-sm ${NOTICE_TONES.ok}`}
+            className={`mt-3 flex items-start gap-2 rounded-lg border p-3 text-body ${NOTICE_TONES.ok}`}
           >
             <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
@@ -123,7 +123,7 @@ export function SenderAttestation({ numberId }: { numberId: string }) {
               changes that.
             </span>
           </p>
-          <p className="mt-3 rounded-lg border border-line p-3 text-sm text-ink">
+          <p className="mt-3 border-l-2 border-brand pl-4 text-body text-ink">
             {statement}
           </p>
           <div className="mt-3">
@@ -138,7 +138,7 @@ export function SenderAttestation({ numberId }: { numberId: string }) {
           >
             Withdraw this confirmation
           </button>
-          <p className="mt-2 text-xs text-ink-muted">
+          <p className="mt-2 text-meta text-ink-muted">
             You can withdraw at any time. Withdrawing records that you have changed
             your mind from that moment and stops this number carrying new campaigns.
             It does not remove the confirmation you gave — both stay on your
@@ -147,7 +147,7 @@ export function SenderAttestation({ numberId }: { numberId: string }) {
         </>
       ) : (
         <>
-          <p className="mt-3 text-sm text-ink-muted">
+          <p className="mt-3 text-body text-ink-muted">
             If you want service and reminder campaigns to dial from this number,
             confirm the statement below. It records, against this number and your
             name, that your business is the sender and accepts responsibility for
@@ -155,7 +155,7 @@ export function SenderAttestation({ numberId }: { numberId: string }) {
             are not sure whether this is right for your business, take your own
             advice before confirming — and you can withdraw it later.
           </p>
-          <p className="mt-3 rounded-lg border border-line p-3 text-sm text-ink">
+          <p className="mt-3 border-l-2 border-brand pl-4 text-body text-ink">
             {statement}
           </p>
           <div className="mt-3">
@@ -167,7 +167,7 @@ export function SenderAttestation({ numberId }: { numberId: string }) {
               the remedy, and it is a smaller one than losing the page. */}
           {stale ? (
             <p
-              className={`mt-3 flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm ${NOTICE_TONES.warn}`}
+              className={`mt-3 flex flex-wrap items-center gap-3 rounded-lg border p-3 text-body ${NOTICE_TONES.warn}`}
             >
               <span>
                 The statement on this page is out of date. Load the current wording
@@ -189,7 +189,7 @@ export function SenderAttestation({ numberId }: { numberId: string }) {
             record.error && <ProblemNotice error={record.error} />
           )}
 
-          <label className="mt-3 flex items-start gap-2 text-sm text-ink">
+          <label className="mt-3 flex items-start gap-2 text-body text-ink">
             <input
               type="checkbox"
               className="mt-0.5"

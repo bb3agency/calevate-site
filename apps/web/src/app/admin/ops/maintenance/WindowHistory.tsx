@@ -14,7 +14,7 @@ const COLUMNS: DataColumn<MaintenanceWindow>[] = [
     cell: (row) => (
       <div className="flex flex-col items-start gap-1">
         <StatePill tone={STATE_COPY[row.state].tone}>{STATE_COPY[row.state].label}</StatePill>
-        {row.forced && <span className="text-xs text-ink-muted">Forced on the deadline</span>}
+        {row.forced && <span className="text-meta text-ink-muted">Forced on the deadline</span>}
       </div>
     ),
   },
@@ -25,7 +25,7 @@ const COLUMNS: DataColumn<MaintenanceWindow>[] = [
     cell: (row) => (
       <span className="whitespace-nowrap tabular-nums text-ink">
         {formatIST(row.starts_at)}
-        <span className="text-ink-faint"> → {formatIST(row.ends_at)}</span>
+        <span className="text-ink-muted"> → {formatIST(row.ends_at)}</span>
       </span>
     ),
   },
@@ -45,7 +45,7 @@ const COLUMNS: DataColumn<MaintenanceWindow>[] = [
 export function WindowHistory({ history }: { history: MaintenanceWindow[] }) {
   return (
     <section aria-labelledby="maintenance-history" className="space-y-2">
-      <h2 id="maintenance-history" className="text-[17px] font-semibold text-ink">
+      <h2 id="maintenance-history" className="text-heading text-ink">
         Recent windows
       </h2>
       {history.length === 0 ? (

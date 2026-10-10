@@ -1,5 +1,6 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 import {
   CheckCircle2,
@@ -12,7 +13,6 @@ import {
 
 import { WriteFailure } from "@/app/admin/writeFailure";
 import {
-  Card,
   DANGER_BUTTON,
   FIELD,
   FIELD_HINT,
@@ -135,9 +135,9 @@ export function OutboxReplayPanel({
           : null;
 
   return (
-    <Card title="Stuck outbound messages">
+    <Section title="Stuck outbound messages">
       <div className="space-y-4">
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           Messages that failed to send after several tries and are now stuck — things like
           a lead sent to a client&apos;s own system, or a hot-lead alert. Resending puts
           them back in line to be tried again, for every client at once, oldest first, up
@@ -234,8 +234,8 @@ export function OutboxReplayPanel({
                 and inside the shell's `overflow-hidden` the excess was CLIPPED rather
                 than scrollable — the "Oldest" column was simply unreachable. */}
             <ScrollRegion label="Stuck message types" className="mt-3">
-            <table className="w-full text-left text-xs">
-              <thead className="text-ink-faint">
+            <table className="w-full text-left text-meta">
+              <thead className="text-ink-muted">
                 <tr>
                   <th className="pb-1 font-medium">Type</th>
                   <th className="pb-1 text-right font-medium">Stuck</th>
@@ -280,7 +280,7 @@ export function OutboxReplayPanel({
             {/* The scope the SERVER applied, not the one this form thinks it sent: a
                 `replayed: 0` under a mistyped job is an operator's typo, and reading it
                 back is what makes that visible rather than "the queue was empty". */}
-            <p className="mt-2 text-xs">
+            <p className="mt-2 text-meta">
               Resent: <span className="font-mono">{replay.data.job ?? "every type"}</span>
             </p>
             {/* The run is capped at 100 (`replay_dead_letters`), so a full batch is the
@@ -344,8 +344,8 @@ export function OutboxReplayPanel({
             </label>
           )}
 
-          <div className="flex gap-3 rounded-card border border-line bg-surface p-4 text-sm">
-            <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+          <div className="flex gap-3 border-l-2 border-danger py-1 pl-4 text-body">
+            <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
             <div className="min-w-0">
               <p className="font-semibold text-ink">
                 This resends stuck messages for EVERY client, not one
@@ -369,7 +369,7 @@ export function OutboxReplayPanel({
                   messages, oldest first.
                 </p>
               )}
-              <p className="mt-1 text-xs text-ink-faint">
+              <p className="mt-1 text-meta text-ink-muted">
                 Recorded in the activity log with how many were resent and which type. The
                 word you type below is also sent to confirm this exact action, so it
                 can&apos;t be triggered from outside this form.
@@ -396,13 +396,13 @@ export function OutboxReplayPanel({
           </button>
 
           {deadReason && !ready && (
-            <p className="flex items-start gap-2 text-xs text-ink-muted">
+            <p className="flex items-start gap-2 text-meta text-ink-muted">
               <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               {deadReason}
             </p>
           )}
         </form>
       </div>
-    </Card>
+    </Section>
   );
 }

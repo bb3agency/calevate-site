@@ -239,7 +239,7 @@ export function ScheduleWindowDrawer({
             className={FIELD}
           />
           <span className={FIELD_HINT}>
-            Written for a clinic owner, not an engineer. It is the email and the lockout page.
+            Written for a business owner, not an engineer. It is the email and the lockout page.
           </span>
         </label>
         <DrainField

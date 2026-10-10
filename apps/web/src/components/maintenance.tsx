@@ -81,7 +81,7 @@ export function MaintenanceBanner() {
   return (
     <div
       role="status"
-      className="flex items-start gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 lg:px-8"
+      className="flex items-start gap-3 border-b border-warn-line bg-warn-soft px-4 py-2 text-sm text-warn lg:px-8"
     >
       <CalendarClock className="mt-0.5 h-4 w-4 shrink-0" />
       <p className="min-w-0">
@@ -103,7 +103,7 @@ export function MaintenanceBanner() {
             allowed to finish. Back by {formatIST(window.data?.ends_at)}.
           </>
         )}{" "}
-        {reason !== "" && <span className="text-amber-800 dark:text-amber-300">{reason}</span>}
+        {reason !== "" && <span className="text-warn">{reason}</span>}
       </p>
     </div>
   );

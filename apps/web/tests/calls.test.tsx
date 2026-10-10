@@ -1,10 +1,10 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import CallsPage from "@/app/c/[slug]/calls/page";
 import type { CallSummary, Me } from "@/lib/api/client";
 
-import { browserOffline, problem, renderClientPage } from "./harness";
+import { browserOffline, csv, problem, renderClientPage, stubDownloads } from "./harness";
 
 /**
  * The call log — the screen a client opens when they want to know what actually
@@ -151,15 +151,9 @@ describe("the call log", () => {
 
     await renderClientPage(page, routes([call()]));
 
-    for (const label of [
-      "All",
-      "Completed",
-      "No answer",
-      "Busy",
-      "Voicemail",
-      "Failed",
-      "In progress",
-    ]) {
+    // REDESIGN-2: the log filters by how a call ENDED (the founder's four outcomes); a
+    // status arrives only by link and shows as a chip.
+    for (const label of ["All", "Resolved", "Needs follow-up", "Transferred", "Dropped"]) {
       // A segmented control now (D-655: one filter over one list), so each option is a
       // radio rather than a toggle button.
       expect(
@@ -169,20 +163,18 @@ describe("the call log", () => {
     }
   });
 
-  it("asks the server for the status the chip names", async () => {
+  it("asks the server for the outcome the chip names", async () => {
     const { calls } = await renderClientPage(
       page,
-      routes([call()], { "/v1/calls?status=voicemail&limit=100": [] }),
+      routes([call()], { "/v1/calls?outcome=dropped&limit=100": [] }),
     );
 
-    fireEvent.click(await screen.findByRole("radio", { name: "Voicemail" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Dropped" }));
     await screen.findByText("No calls match this filter");
 
     // Server-side, not a client-side slice of a capped list — the difference decides
     // whether row 101 is findable at all.
-    expect(
-      calls.some((c) => c.path === "/v1/calls?status=voicemail&limit=100"),
-    ).toBe(true);
+    expect(calls.some((c) => c.path === "/v1/calls?outcome=dropped&limit=100")).toBe(true);
   });
 
   it("renders a status it has never seen rather than dropping the row", async () => {
@@ -217,5 +209,30 @@ describe("the call log", () => {
 
     expect(container.textContent).not.toContain("No calls yet");
     expect(container.textContent).toContain("No reply reached this page");
+  });
+});
+
+describe("exporting the call log (REDESIGN-2)", () => {
+  it("downloads the same filtered log, for an owner who may read raw calls", async () => {
+    stubDownloads();
+    const owner: Me = { ...ME, permissions: ["calls:read", "calls:read_raw"] };
+    const { calls } = await renderClientPage(page, {
+      "/v1/me": owner,
+      "/v1/calls?limit=100": [call()],
+      "/v1/calls?direction=inbound&limit=100": [call()],
+      "/v1/calls/export.csv?direction=inbound": csv("Started (India time),Direction\n"),
+    });
+
+    fireEvent.click(await screen.findByRole("radio", { name: "Incoming" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Export CSV" }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.path === "/v1/calls/export.csv?direction=inbound")).toBe(true),
+    );
+  });
+
+  it("offers no export to someone the server would refuse", async () => {
+    await renderClientPage(page, routes([call()]));
+    await screen.findByText("+91 98765 43210");
+    expect(screen.queryByRole("button", { name: "Export CSV" })).toBeNull();
   });
 });

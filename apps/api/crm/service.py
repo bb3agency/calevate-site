@@ -14,7 +14,7 @@ import io
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Literal, NamedTuple, get_args
 from uuid import UUID
 
@@ -181,6 +181,47 @@ def redacted_summary(value: str | None) -> str | None:
 # --- calls --------------------------------------------------------------------
 
 
+CallDirection = Literal["inbound", "outbound"]
+
+
+@dataclass(frozen=True, slots=True)
+class CallFilters:
+    """What the Calls screen narrows by; the list and its CSV export read the same one, so
+    "export what I am looking at" means exactly that."""
+
+    status: str | None = None
+    agent_id: UUID | None = None
+    outcome: OutcomeTag | None = None
+    direction: CallDirection | None = None
+    #: Half-open `[since, until)` on `started_at`; aware instants.
+    since: datetime | None = None
+    until: datetime | None = None
+
+
+def _call_where(filters: CallFilters) -> tuple[str, dict[str, Any]]:
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    if filters.status:
+        clauses.append("c.status = :status")
+        params["status"] = filters.status
+    if filters.agent_id:
+        clauses.append("c.agent_id = :agent_id")
+        params["agent_id"] = filters.agent_id
+    if filters.outcome:
+        clauses.append("c.outcome_tag = :outcome")
+        params["outcome"] = filters.outcome
+    if filters.direction:
+        clauses.append("c.direction = :direction")
+        params["direction"] = filters.direction
+    if filters.since:
+        clauses.append("c.started_at >= :since")
+        params["since"] = filters.since
+    if filters.until:
+        clauses.append("c.started_at < :until")
+        params["until"] = filters.until
+    return (f"WHERE {' AND '.join(clauses)}" if clauses else ""), params
+
+
 async def list_calls(
     session: AsyncSession,
     *,
@@ -188,16 +229,10 @@ async def list_calls(
     offset: int = 0,
     status: str | None = None,
     agent_id: UUID | None = None,
+    filters: CallFilters | None = None,
 ) -> list[CallSummaryOut]:
-    clauses = []
-    params: dict[str, Any] = {"limit": min(limit, MAX_PAGE), "offset": offset}
-    if status:
-        clauses.append("c.status = :status")
-        params["status"] = status
-    if agent_id:
-        clauses.append("c.agent_id = :agent_id")
-        params["agent_id"] = agent_id
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    where, params = _call_where(filters or CallFilters(status=status, agent_id=agent_id))
+    params |= {"limit": min(limit, MAX_PAGE), "offset": offset}
 
     rows = (
         await session.execute(
@@ -1560,6 +1595,79 @@ async def apply_bulk_leads(
         unchanged=unchanged,
         failures=failures,
     )
+
+
+#: The calls export's columns, in order. The number is the caller's (inbound) or the
+#: person called (outbound), in full: the file exists to ring people back.
+CALL_EXPORT_HEADER: tuple[str, ...] = (
+    "Started (India time)",
+    "Direction",
+    "Number",
+    "Agent",
+    "Duration (seconds)",
+    "Status",
+    "Outcome",
+    "Sentiment",
+    "Summary",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class CallExport:
+    csv: str
+    row_count: int
+
+
+async def export_calls_csv(session: AsyncSession, filters: CallFilters) -> CallExport:
+    """The Calls screen's filtered list as a CSV, newest first, capped at
+    `MAX_EXPORT_ROWS`. The summary is the redacted one, as on the screen: it is
+    transcript-derived, and a full transcript has its own gated route."""
+    where, params = _call_where(filters)
+    params["limit"] = MAX_EXPORT_ROWS + 1
+    rows = (
+        await session.execute(
+            text(
+                "SELECT c.started_at, c.direction, c.from_e164, c.to_e164, a.name, "
+                "c.duration_s, c.status, c.outcome_tag, c.sentiment, c.summary "
+                f"FROM calls c JOIN agents a ON a.id = c.agent_id {where} "
+                "ORDER BY c.started_at DESC NULLS LAST, c.id DESC LIMIT :limit"
+            ),
+            params,
+        )
+    ).all()
+    if len(rows) > MAX_EXPORT_ROWS:
+        raise ProblemError.business_rule(
+            "call_export_too_large",
+            f"This export is over the {MAX_EXPORT_ROWS:,}-call limit for a single file.",
+            remediation="Pick a shorter date range or an outcome on the Calls screen and "
+            "export again.",
+        )
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, quoting=csv.QUOTE_ALL)
+    writer.writerow([_csv_value(h) for h in CALL_EXPORT_HEADER])
+    for r in rows:
+        started = r[0].astimezone(_EXPORT_IST).strftime("%Y-%m-%d %H:%M") if r[0] else ""
+        number = r[2] if r[1] == "inbound" else r[3]
+        writer.writerow(
+            [
+                _csv_value(v)
+                for v in (
+                    started,
+                    "Incoming" if r[1] == "inbound" else "Outgoing",
+                    number,
+                    r[4],
+                    r[5],
+                    r[6],
+                    r[7],
+                    r[8],
+                    redacted_summary(r[9]),
+                )
+            ]
+        )
+    return CallExport(csv=buffer.getvalue(), row_count=len(rows))
+
+
+_EXPORT_IST = timezone(timedelta(hours=5, minutes=30))
 
 
 @dataclass(frozen=True, slots=True)

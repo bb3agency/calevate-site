@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Panel } from "@/components/console/panel";
+import { Section } from "@/components/console/section";
 import { Disclosure, formatRupeeRate } from "@/components/ui";
 import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
 import type { CreditPacks } from "@/lib/api/billing";
@@ -116,8 +116,8 @@ export function WhatCallsCost({
 }) {
   const band = card && labels ? rateBand(card) : undefined;
   return (
-    <Panel title="What calls cost">
-      <p className="text-sm text-ink-muted">
+    <Section title="What calls cost">
+      <p className="text-body text-ink-muted">
         Calling is charged out of your credit as you use it, and 1 credit is ₹1.
         {band &&
           " What a minute costs depends on the voice the agent speaks with, and on"}
@@ -128,7 +128,7 @@ export function WhatCallsCost({
           sits under the name of the quality it prices — never two bare numbers side by
           side, which a reader assigns to whichever voice they had in mind. */}
       {band && labels && (
-        <dl className="mt-2 space-y-1 text-sm">
+        <dl className="mt-2 space-y-1 text-body">
           {VOICE_TIERS.map((tier) => (
             <div key={tier} className="flex flex-wrap items-baseline gap-x-2">
               <dt className="font-medium text-ink">{labels[tier]}</dt>
@@ -243,7 +243,7 @@ export function WhatCallsCost({
           able to.
         </Fact>
       </div>
-    </Panel>
+    </Section>
   );
 }
 

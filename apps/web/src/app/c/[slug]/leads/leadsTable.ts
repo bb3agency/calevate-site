@@ -11,9 +11,6 @@ import { STATUSES } from "./StatusSelect";
  * without a render." One subject: how a cell is measured, styled and read. Extracted from
  * `page.tsx` unchanged.
  */
-/** Two ways to look at the same leads: the table for scanning detail columns, the
- *  board for working the pipeline stage by stage (parity with what competitors ship). */
-export type ViewMode = "list" | "board";
 
 /**
  * The two controls a client touches most — move a lead's stage, reassign its owner — at

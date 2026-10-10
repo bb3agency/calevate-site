@@ -26,13 +26,13 @@ export function HoldsBanner({ tenantId, holds }: { tenantId: string; holds: stri
       icon={<AlertTriangle className="h-5 w-5" />}
       title="This account is waiting on us."
     >
-      <ul className="mt-2 space-y-2 text-xs">
+      <ul className="mt-2 space-y-1.5">
         {holds.map((rule) => {
           const copy = holdRule(rule);
           return (
             <li key={rule} className="flex flex-wrap items-baseline gap-2">
               <span className="font-medium">{copy?.label ?? rule}</span>
-              <span className="opacity-80">
+              <span>
                 {copy?.blocks ??
                   "We do not have a plain description for this hold, but the check that set it does."}
               </span>

@@ -179,7 +179,7 @@ export function TermsForm({
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-ink-muted">
+      <p className="text-meta text-ink-muted">
         This records a NEW dated agreement. Leave the dates empty for terms that apply now
         and until further notice; set a start date to prepare a change that takes effect
         then and not before. A date inside a closed billing month is refused — that
@@ -246,7 +246,7 @@ export function TermsForm({
           /* The dangerous direction, called out where it is decided: the API requires a
              superadmin AND the confirmation header for this write. */
           <NoticeBox tone="warn" icon={<AlertTriangle className="h-4 w-4" />}>
-            <p className="text-xs">
+            <p>
               This raises or removes the <span className="font-medium">{loosened.join(" and ")}</span>.
               That is a superadmin action and it is confirmed explicitly — this console
               sends the confirmation with the request. Tightening a ceiling, or setting a
@@ -256,7 +256,7 @@ export function TermsForm({
         )}
 
         {inEffect && (
-          <p className="text-xs text-ink-muted">
+          <p className="text-meta text-ink-muted">
             The client&apos;s own spend cap does not carry over: a new agreement is terms
             they have not seen, so the limit they set against the old one stays on the old
             row. They can set it again from their own screen.
@@ -266,7 +266,7 @@ export function TermsForm({
         {save.error != null && <WriteFailure error={save.error} actionLabel="Record new terms" />}
         {save.data && (
           <NoticeBox tone={save.data.changed ? "ok" : "neutral"} icon={<CheckCircle2 className="h-5 w-5" />}>
-            <p className="text-xs">
+            <p>
               {save.data.changed
                 ? "Recorded as a new dated agreement. Nothing already billed was altered."
                 : "These are already the terms in effect — nothing was written, and no audit row was added."}

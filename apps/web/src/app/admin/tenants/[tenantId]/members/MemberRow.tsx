@@ -67,29 +67,29 @@ export function MemberRow({
   const who = member.name ?? member.email;
 
   return (
-    <li className="space-y-2 px-4 py-3.5">
+    <li className="space-y-2 py-3.5 sm:px-2">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1 basis-56">
           {/* NOT falling back to the address when the name is null: the address is printed
               beneath anyway, and a fallback that duplicates it reads as two people. */}
-          <p className="text-sm font-medium text-ink">{member.name ?? "Unnamed member"}</p>
-          <p className="truncate text-xs text-ink-muted" title={member.email}>
+          <p className="text-body font-medium text-ink">{member.name ?? "Unnamed member"}</p>
+          <p className="truncate text-meta text-ink-muted" title={member.email}>
             {member.email}
           </p>
-          <p className="mt-0.5 text-xs text-ink-faint">
+          <p className="mt-0.5 text-meta text-ink-muted">
             Joined {formatIST(member.joined_at)} ·{" "}
             {member.leads_assigned === 0
               ? "no leads assigned"
               : `${member.leads_assigned} lead${member.leads_assigned === 1 ? "" : "s"} assigned`}
           </p>
           {!member.email_verified && (
-            <p className="mt-0.5 text-xs text-warn">
+            <p className="mt-0.5 text-meta text-warn">
               This address has never been verified by them — our notices may not be reaching
               it.
             </p>
           )}
           {member.deactivated && (
-            <p className="mt-0.5 text-xs text-warn">
+            <p className="mt-0.5 text-meta text-warn">
               This person is deactivated platform-wide, so they are refused at sign-in. They
               still hold a membership here, and it still counts as an owner.
             </p>
@@ -150,7 +150,7 @@ export function MemberRow({
         <div className="space-y-4">
           {lastOwner ? (
             <NoticeBox tone="stop" icon={<AlertTriangle className="h-5 w-5" />}>
-              <p className="text-xs">
+              <p>
                 This is the only owner on the account, so their access cannot be removed —
                 an account with no owner can never invite anybody, change a role or manage
                 its own settings again. Make somebody else an owner first, or invite a new
@@ -159,7 +159,7 @@ export function MemberRow({
             </NoticeBox>
           ) : remove.data != null ? (
             <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
-              <p className="text-xs">
+              <p>
                 Their access to this account is gone.{" "}
                 {remove.data.leads_still_assigned === 0
                   ? "They were carrying no leads."
@@ -168,7 +168,7 @@ export function MemberRow({
             </NoticeBox>
           ) : (
             <>
-              <p className="text-sm text-ink-muted">
+              <p className="text-body text-ink-muted">
                 They stop being able to sign in to this account on their very next request.
                 Their user account, their leads and every timeline entry naming them all
                 survive —{" "}
@@ -196,7 +196,7 @@ export function MemberRow({
                   Remove their access
                 </ActionButton>
                 {wordMissing && (
-                  <span className="text-xs text-warn">Type REMOVE above to confirm.</span>
+                  <span className="text-meta text-warn">Type REMOVE above to confirm.</span>
                 )}
               </div>
               {/* `WriteFailure`, not `ProblemNotice`: this write SENDS a confirmation header,

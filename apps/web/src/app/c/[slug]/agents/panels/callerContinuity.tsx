@@ -33,7 +33,7 @@
 import { ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
-import { ProblemNotice, RestrictionNote, ToggleSwitch } from "@/components/ui";
+import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote, ToggleSwitch } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
 import { useSetCallerMemory, type Agent } from "@/lib/api/agents";
 import { useActAccess } from "@/lib/api/hooks";
@@ -85,7 +85,7 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
   return (
     <section>
       <div className="flex items-center gap-1">
-        <h3 className="text-[15px] font-semibold text-ink">
+        <h3 className="text-heading text-ink">
           Remembering callers, and calling them back
         </h3>
         <InfoTip label="Remembering callers">
@@ -97,7 +97,7 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
           </p>
         </InfoTip>
       </div>
-      <p className="mt-1 text-sm text-ink-muted">
+      <p className="mt-1 text-body text-ink-muted">
         Greets returning callers with what they asked last time, and books the call-backs
         they ask for.
       </p>
@@ -155,16 +155,16 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
           note. A statement composed here could drift from the one the API enforces, and
           the drift would be a promise a client made about words nobody checked. */}
       {statement && (
-        <div className="mt-4 rounded-card border border-line bg-app p-4">
-          <p className="text-sm font-medium text-ink">
+        <div className="mt-6 border-t border-line pt-5">
+          <p className="text-body font-semibold text-ink">
             Confirm what these calls collect
           </p>
           <p className="mt-0.5 text-xs text-ink-muted">
             Asked once for your whole account, not once per agent.
           </p>
-          <p className="mt-3 rounded-lg border border-line p-3 text-sm text-ink">
+          <blockquote className="mt-3 border-l-2 border-brand pl-4 text-body text-ink">
             {statement}
-          </p>
+          </blockquote>
           <div className="mt-3">
             <RestrictionNote reason={attest.reason} />
           </div>
@@ -180,7 +180,7 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
           </label>
           <button
             type="button"
-            className="press mt-3 rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:enabled:hover:bg-white/5"
+            className={`${PRIMARY_BUTTON} mt-4`}
             disabled={!attest.allowed || !readStatement || setCallerMemory.isPending}
             title={attest.reason ?? undefined}
             onClick={() => setCallerMemory.mutate({ enabled: true, accept: true })}

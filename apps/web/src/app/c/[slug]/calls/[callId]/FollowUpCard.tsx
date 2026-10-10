@@ -71,7 +71,7 @@ export function FollowUpCard({
             </NoticeBox>
           ) : eligibility.data.eligible && write.allowed ? (
             <div className="space-y-3">
-              <p className="text-[13px] text-ink-muted">
+              <p className="text-meta text-ink-muted">
                 The agent calls back and picks up where this conversation stopped.
               </p>
               <button
@@ -91,7 +91,7 @@ export function FollowUpCard({
                   read-only both end in the same dead button, and both belong NEXT to
                   it — the eligibility query exists so this button never answers with a
                   403, and the read-only sweep would have reintroduced exactly that. */}
-              <p className="text-[13px] text-ink-muted">
+              <p className="text-meta text-ink-muted">
                 {eligibility.data.eligible
                   ? (write.reason ?? "Checking what you can do in this account…")
                   : eligibility.data.reason}

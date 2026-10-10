@@ -99,7 +99,7 @@ export function InlineName({
           }}
           className="w-full rounded-md border border-line bg-surface px-1.5 py-0.5 text-sm text-ink"
         />
-        <span className="mt-0.5 block text-[11px] font-normal text-ink-faint">
+        <span className="mt-0.5 block text-meta font-normal text-ink-faint">
           Enter to save, Escape to cancel
         </span>
       </span>
@@ -136,7 +136,7 @@ export function InlineName({
         )}
       </span>
       {saving && (
-        <span className="mt-0.5 block text-[11px] font-normal text-ink-faint">Saving…</span>
+        <span className="mt-0.5 block text-meta font-normal text-ink-faint">Saving…</span>
       )}
     </span>
   );

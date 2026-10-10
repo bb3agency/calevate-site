@@ -315,7 +315,7 @@ export function KycRecordForm({
           when the wrong row was picked. */}
       {record.is_verified && draft.status !== "verified" && (
         <NoticeBox tone="warn" icon={<AlertTriangle className="h-4 w-4" />}>
-          <p className="text-xs">
+          <p>
             <span className="font-medium">{tenantName} is verified today.</span> Recording
             this stops outbound dialling on a self-serve or trial account, on every tier.
             Inbound answering is unaffected either way.
@@ -335,7 +335,7 @@ export function KycRecordForm({
         </button>
         {/* The refusal before the click rather than a 422 — or, for the two rules the
             route does not pre-empt, a 500 out of an IntegrityError. */}
-        {blocked && <span className="text-xs text-warn">{blocked}</span>}
+        {blocked && <span className="text-meta text-warn">{blocked}</span>}
       </div>
     </form>
   );
@@ -345,29 +345,29 @@ export function KycRecordForm({
 function WillRecord({ draft, tenantName }: { draft: KycRecordIn; tenantName: string }) {
   const verified = draft.status === "verified";
   return (
-    <div className="rounded-card border border-line bg-app p-3 text-xs text-ink-muted">
+    <div className="border-l-2 border-line py-1 pl-3 text-meta text-ink-muted">
       <p className="font-medium text-ink">This will record, against {tenantName}:</p>
       <ul className="mt-1.5 space-y-1">
         <li>
-          <span className="text-ink-faint">Outcome</span> —{" "}
+          <span className="text-ink-muted">Outcome</span> —{" "}
           {KYC_STATUS_COPY[draft.status].label.toLowerCase()}
           {verified
             ? ", which clears the identity gate on every tier and opens outbound dialling on self-serve and trial accounts."
             : ". Any verification date and verifier on file are cleared."}
         </li>
         <li>
-          <span className="text-ink-faint">Checked against</span> —{" "}
+          <span className="text-ink-muted">Checked against</span> —{" "}
           {draft.document_kind
             ? `${DOCUMENT_KINDS[draft.document_kind].label} ${(draft.document_ref ?? "").trim() || "(no reference yet)"}.`
             : "nothing named yet; blank leaves whatever is already filed."}
         </li>
         <li>
-          <span className="text-ink-faint">Verified by</span> — the admin account sending this
+          <span className="text-ink-muted">Verified by</span> — the admin account sending this
           request. Taken from your session, not from this form.
           {verified && " The time is stamped by the database."}
         </li>
         <li>
-          <span className="text-ink-faint">Audit</span> — one entry with the status and the
+          <span className="text-ink-muted">Audit</span> — one entry with the status and the
           registry reference; the signatory&apos;s name is not copied into it. Blank optional
           fields leave what is filed alone; only the rejection reason is replaced outright.
         </li>

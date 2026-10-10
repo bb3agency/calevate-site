@@ -19,7 +19,7 @@ import type { EngineDriftState } from "./opsSurfaceState";
  * table we own agreeing with itself and wrong, and until the half-hourly sweep existed
  * they were found only by whoever thought to open one agent's screen.
  *
- * ⚠ **"TWO DIVERGENCES, BOTH AT A VENDOR" WAS THE WHOLE LIST AND IS NO LONGER (D-592).**
+ * **"TWO DIVERGENCES, BOTH AT A VENDOR" WAS THE WHOLE LIST AND IS NO LONGER (D-592).**
  * On an `owned_runtime` engine there is no vendor and no vendor console: the far side of
  * this comparison is `apps/voice-worker`, and `VoiceEngine.get_agent`'s contract says so
  * in as many words — *"the running worker recomputes the prompt digest from what is in
@@ -69,7 +69,7 @@ export function EngineDriftPanel({ drift }: { drift: EngineDriftState }) {
   return (
     <section aria-labelledby="engine-drift-heading" className="space-y-3">
       <div className="flex items-center gap-1">
-        <h3 id="engine-drift-heading" className="text-sm font-semibold text-ink">
+        <h3 id="engine-drift-heading" className="text-body font-semibold text-ink">
           Configuration
         </h3>
         <InfoTip label="Configuration drift">
@@ -146,7 +146,7 @@ export function EngineDriftPanel({ drift }: { drift: EngineDriftState }) {
         )}
 
         {read !== null && (
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-left text-meta">
             <caption className="sr-only">Live agents by configuration check</caption>
             <tbody>
               <tr>

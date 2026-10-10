@@ -1,5 +1,7 @@
 "use client";
 
+import { Section } from "@/components/console/section";
+
 import { useState } from "react";
 import Link from "next/link";
 import { LifeBuoy, PhoneCall } from "lucide-react";
@@ -8,7 +10,6 @@ import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
 import {
-  Card,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -70,7 +71,7 @@ function BackupPhone({ session, allowed }: { session: Realm["session"]; allowed:
   const invalid = value.trim() !== "" && !INDIA_MOBILE.test(normalised);
 
   return (
-    <Card title="Backup phone">
+    <Section title="Backup phone">
       {phone.error != null && <ProblemNotice error={phone.error} onRetry={() => phone.refetch()} />}
       {phone.isLoading ? (
         <Skeleton rows={2} label="Loading your backup phone" />
@@ -84,7 +85,7 @@ function BackupPhone({ session, allowed }: { session: Realm["session"]; allowed:
             save.mutate(normalised, { onSuccess: () => setDraft(null) });
           }}
         >
-          <p className="text-sm text-ink-muted">
+          <p className="text-body text-ink-muted">
             {phone.data?.forwarding_supported
               ? "If your agent stops taking calls properly, we pass your callers to this phone while we fix it."
               : "If your agent stops taking calls properly, callers hear a short message asking them to try again later."}{" "}
@@ -133,7 +134,7 @@ function BackupPhone({ session, allowed }: { session: Realm["session"]; allowed:
           </div>
         </form>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -153,7 +154,7 @@ function Problems({
   const [confirming, setConfirming] = useState<LineIncident | null>(null);
 
   return (
-    <Card title="Problems with your lines">
+    <Section title="Problems with your lines">
       {incidents.error != null && (
         <ProblemNotice error={incidents.error} onRetry={() => incidents.refetch()} />
       )}
@@ -166,27 +167,27 @@ function Problems({
           {incidents.data.items.map((item) => (
             <li key={item.id} className="space-y-2 py-4 first:pt-0 last:pb-0">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-[15px] font-semibold text-ink">{item.headline}</h3>
+                <h3 className="text-body font-semibold text-ink">{item.headline}</h3>
                 <StatePill open={item.state === "open"} />
               </div>
-              <p className="text-xs text-ink-faint">
+              <p className="text-meta text-ink-faint">
                 {item.state === "open" ? "Since" : "From"} {formatIST(item.opened_at)}
                 {item.resolved_at && <> to {formatIST(item.resolved_at)}</>}
               </p>
-              <dl className="space-y-1 text-sm">
+              <dl className="space-y-1 text-body">
                 <Sentence term="What happened" text={item.what_happened} />
                 <Sentence term="What we did" text={item.what_we_did} />
                 <Sentence term="What you need to do" text={item.your_part} />
               </dl>
               {item.call_backs.length > 0 && (
                 <div>
-                  <p className="text-sm font-medium text-ink">Callers to ring back</p>
+                  <p className="text-body font-medium text-ink">Callers to ring back</p>
                   <ul className="mt-1 space-y-1">
                     {item.call_backs.map((call) => (
                       <li key={call.call_id}>
                         <Link
                           href={href(`/c/${slug}/calls/${call.call_id}`)}
-                          className="inline-flex items-center gap-1.5 text-sm text-brand-strong underline underline-offset-2"
+                          className="inline-flex items-center gap-1.5 text-body text-brand-strong underline underline-offset-2"
                         >
                           <PhoneCall aria-hidden className="h-3.5 w-3.5" />
                           Call at {formatIST(call.at)}
@@ -226,7 +227,7 @@ function Problems({
           checking it. If calls go wrong again we will step back in.
         </ConfirmDialog>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -242,7 +243,7 @@ function Sentence({ term, text }: { term: string; text: string }) {
 function StatePill({ open }: { open: boolean }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[13px] font-medium ${
+      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-meta font-medium ${
         open ? "border-warn-line bg-warn-soft text-warn" : "border-line bg-ink/[0.04] text-ink-muted"
       }`}
     >
@@ -279,18 +280,18 @@ function Suggestions({
       : href(`/c/${slug}/agents/${p.agent_id}`);
 
   return (
-    <Card title="Suggested fixes">
+    <Section title="Suggested fixes">
       <NoticeBox tone="neutral" icon={<LifeBuoy aria-hidden className="h-5 w-5" />}>
         <p>Nothing changes until you approve it.</p>
       </NoticeBox>
       <ul className="mt-4 divide-y divide-line">
         {pending.map((p) => (
           <li key={p.id} className="space-y-2 py-4 first:pt-0 last:pb-0">
-            <h3 className="text-[15px] font-semibold text-ink">
+            <h3 className="text-body font-semibold text-ink">
               {p.title}
               {p.agent_name && <span className="font-normal text-ink-muted"> · {p.agent_name}</span>}
             </h3>
-            <p className="text-sm text-ink-muted">{p.body}</p>
+            <p className="text-body text-ink-muted">{p.body}</p>
             <div className="flex flex-wrap gap-2">
               {p.can_apply ? (
                 <button
@@ -337,6 +338,6 @@ function Suggestions({
           {confirming.body}
         </ConfirmDialog>
       )}
-    </Card>
+    </Section>
   );
 }

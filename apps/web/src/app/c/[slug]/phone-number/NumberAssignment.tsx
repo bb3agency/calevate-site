@@ -93,7 +93,7 @@ export function NumberAssignment({
 
   return (
     <section className="border-t border-line pt-4">
-      <h3 className="text-sm font-semibold text-ink">Put this number on an agent</h3>
+      <h3 className="text-body font-semibold text-ink">Put this number on an agent</h3>
 
       <div className="mt-3">
         <label className={FIELD_LABEL} htmlFor={`agent-${numberId}`}>
@@ -124,7 +124,7 @@ export function NumberAssignment({
         <legend className={FIELD_LABEL}>What it is for</legend>
         <div className="mt-2 space-y-2">
           {DIRECTIONS.map((option) => (
-            <label key={option.value} className="flex items-start gap-2 text-sm text-ink">
+            <label key={option.value} className="flex items-start gap-2 text-body text-ink">
               <input
                 type="radio"
                 className="mt-1"
@@ -135,7 +135,7 @@ export function NumberAssignment({
               />
               <span>
                 {option.label}
-                <span className="block text-xs text-ink-muted">{option.hint}</span>
+                <span className="block text-meta text-ink-muted">{option.hint}</span>
               </span>
             </label>
           ))}

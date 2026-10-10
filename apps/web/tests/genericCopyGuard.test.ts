@@ -11,7 +11,21 @@ import { copyUnder } from "./copyScan";
  * Marketing pages are not read: there a clinic is one named industry among several.
  */
 
-const SURFACES = ["src/app/c", "src/components", "src/lib"];
+const SURFACES = [
+  "src/app/c",
+  "src/app/admin",
+  "src/components",
+  "src/lib",
+  // The client's own way in (REDESIGN-2): every business signs up and signs in here.
+  "src/app/(auth)/auth/sign-in",
+  "src/app/(auth)/auth/accept-invitation",
+  "src/app/(auth)/auth/account",
+  "src/app/(auth)/auth/forgot-password",
+  "src/app/(auth)/auth/reset-password",
+  "src/app/(auth)/auth/google",
+  "src/app/signup",
+  "src/app/invite",
+];
 
 const EXEMPT = [
   "src/components/marketing",
@@ -27,15 +41,19 @@ const CLINIC_ONLY = /\b(?:clinics?|hospitals?|patients?|doctors?|dentists?|denta
 /** Places where the word names the clinic business type itself, with the reason. */
 const ALLOWED: ReadonlyArray<{ file: string; text: RegExp; reason: string }> = [
   {
+    file: "src/app/admin/new/shared.ts",
+    text: /^Clinic$/,
+    reason: "the clinic business type's own label in the operator's new-client picker",
+  },
+  {
+    file: "src/app/admin/new/shared.ts",
+    text: /^Appointments, department, patient name$/,
+    reason: "the lead fields the clinic business type seeds, shown only beside that type",
+  },
+  {
     file: "src/lib/api/signup.ts",
     text: /^Clinic or hospital$/,
     reason: "the clinic business type's own label in the signup picker",
-  },
-  {
-    file: "src/app/c/[slug]/agents/actions/jobs.ts",
-    text: /^Book appointments$/,
-    reason:
-      "the founder-approved name of the booking job (REDESIGN-2); salons, offices and schools book appointments too",
   },
 ];
 

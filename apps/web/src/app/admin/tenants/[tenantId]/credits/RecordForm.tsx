@@ -166,7 +166,7 @@ export function RecordForm({
 
   return (
     <div>
-      <p className="text-xs text-ink-muted">
+      <p className="text-meta text-ink-muted">
         For money that has already arrived — a NEFT or UPI transfer read off the bank
         statement. This does not take a payment; it records one.
       </p>
@@ -277,7 +277,7 @@ export function RecordForm({
 
         {caution && (
           <NoticeBox tone="warn" icon={<TriangleAlert aria-hidden className="h-4 w-4" />}>
-            <p className="text-xs">{caution}</p>
+            <p className="text-meta">{caution}</p>
           </NoticeBox>
         )}
 
@@ -287,7 +287,7 @@ export function RecordForm({
             icon={<Info aria-hidden className="h-5 w-5" />}
             title="That reference is already on this ledger"
           >
-            <p className="mt-1 text-xs">
+            <p className="mt-1">
               It credited {formatINR(alreadyOnLedger.delta_inr)} on{" "}
               {formatIST(alreadyOnLedger.occurred_at)}. Sending it again credits nothing —
               the server returns the entry that already exists. If this is a second,
@@ -300,7 +300,7 @@ export function RecordForm({
         {/* WHAT THE BUTTON DOES, ABOVE THE BUTTON: the act, then that it cannot be undone,
             then that it is recorded — an operator who reads only the first line has read
             the part that matters. */}
-        <div className="flex gap-3 rounded-card border border-line bg-surface p-4 text-sm">
+        <div className="flex gap-3 border-l-2 border-danger py-1 pl-4 text-body">
           <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
           <div className="min-w-0">
             <p className="font-semibold text-ink">
@@ -320,7 +320,7 @@ export function RecordForm({
               lines stay on the ledger for ever, and the client may already have spent the
               money.
             </p>
-            <p className="mt-1 text-xs text-ink-faint">
+            <p className="mt-1 text-meta text-ink-muted">
               Recorded in the audit log against your admin account, in the same
               transaction as the money: a credit with no audit row is not a possible
               state.
@@ -347,7 +347,7 @@ export function RecordForm({
         <RestrictionNote reason={write.reason} />
 
         {outstanding && (
-          <p className="flex items-start gap-2 text-xs text-ink-muted">
+          <p className="flex items-start gap-2 text-meta text-ink-muted">
             <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             {outstanding}
           </p>
@@ -370,7 +370,7 @@ function Outcome({ result }: { result: TopUpResult }) {
         icon={<Info aria-hidden className="h-5 w-5" />}
         title="Already recorded — nothing was credited"
       >
-        <p className="mt-1 text-xs">
+        <p className="mt-1">
           <span className="font-mono">{result.payment_ref}</span> was already on this
           wallet for {formatINR(result.amount_inr)}, so no second entry was written and
           the balance did not move. It stands at {formatINR(result.balance_inr)}.{" "}
@@ -378,7 +378,7 @@ function Outcome({ result }: { result: TopUpResult }) {
             This client has not been credited twice — this is the reference doing its job.
           </span>
         </p>
-        <p className="mt-2 text-xs">
+        <p className="mt-2 text-meta">
           The entry that already existed:{" "}
           <span className="font-mono">{result.entry_id}</span>. If you expected a NEW
           payment here, the two transfers share a reference on your statement — check it
@@ -393,12 +393,12 @@ function Outcome({ result }: { result: TopUpResult }) {
       icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
       title={`Recorded — ${formatINR(result.amount_inr)} credited`}
     >
-      <p className="mt-1 text-xs">
+      <p className="mt-1">
         Against <span className="font-mono">{result.payment_ref}</span>. The wallet now
         holds {formatINR(result.balance_inr)}
         {result.is_low ? ", which is still under the low-balance line." : "."}
       </p>
-      <p className="mt-2 text-xs">
+      <p className="mt-2 text-meta">
         Entry <span className="font-mono">{result.entry_id}</span>, on the ledger below
         and there permanently.
       </p>

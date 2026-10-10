@@ -227,7 +227,7 @@ export function VoicePicker({
                skimming this list must not have to work out which rows are real. */
             <span
               id={reasonId}
-              className="mt-0.5 block pl-6 text-xs font-medium text-amber-700 dark:text-amber-400"
+              className="mt-0.5 block pl-6 text-xs font-medium text-warn"
             >
               Cannot be chosen —{" "}
               {voice.unavailable_reason ?? "this voice is not available here."}
@@ -327,7 +327,7 @@ export function VoicePicker({
               key={tier.provider}
               className="rounded-card border border-dashed border-line p-3 text-xs text-ink-muted"
             >
-              <span className="font-semibold uppercase tracking-wide text-ink-faint">
+              <span className="text-meta font-semibold text-ink-muted">
                 {tier.label} voice
               </span>
               {" — "}
@@ -347,7 +347,7 @@ export function VoicePicker({
               <div className="flex flex-wrap items-baseline justify-between gap-2 pb-1">
                 <p
                   id={headingId}
-                  className="text-xs font-semibold uppercase tracking-wide text-ink-faint"
+                  className="text-meta font-semibold text-ink-muted"
                 >
                   {group.label} voice
                 </p>

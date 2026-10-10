@@ -1,5 +1,6 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 import { CheckCircle2, CircleAlert, Lock } from "lucide-react";
 
@@ -13,7 +14,6 @@ import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withhel
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { useFormValidation } from "@/components/formValidation";
 import {
-  Card,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -59,9 +59,9 @@ export function TtsPlanFeePanel({ access }: { access: Access }) {
   const shown = fees.data?.month ?? month ?? "";
 
   return (
-    <Card title="Voice plan fee">
+    <Section title="Voice plan fee">
       <div className="space-y-4">
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           What a voice vendor on a monthly plan billed us for a month, from its invoice. The
           spend board compares it with what our calls used.
         </p>
@@ -80,7 +80,7 @@ export function TtsPlanFeePanel({ access }: { access: Access }) {
         {fees.isLoading && <Skeleton rows={2} />}
 
         {!access.allowed && access.reason && (
-          <p className="flex items-start gap-2 text-xs text-ink-muted">
+          <p className="flex items-start gap-2 text-meta text-ink-muted">
             <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             {access.reason}
           </p>
@@ -91,7 +91,7 @@ export function TtsPlanFeePanel({ access }: { access: Access }) {
             <PlanFeeSlot key={slot.provider} slot={slot} month={shown} access={access} />
           ))}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -117,7 +117,7 @@ function PlanFeeSlot({
   return (
     <section className="space-y-3 border-t border-line pt-4" aria-label={vendor}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-ink">{vendor}</h3>
+        <h3 className="text-body font-semibold text-ink">{vendor}</h3>
         {!editing && (
           <button
             type="button"
@@ -144,23 +144,23 @@ function PlanFeeSlot({
       {current && (
         <dl className="grid gap-3 sm:grid-cols-3">
           <div>
-            <dt className="text-xs font-medium text-ink-faint">Billed for {current.month}</dt>
-            <dd className="mt-0.5 text-sm font-semibold text-ink">{formatINR(current.plan_inr)}</dd>
+            <dt className="text-meta font-medium text-ink-muted">Billed for {current.month}</dt>
+            <dd className="mt-0.5 text-body font-semibold text-ink">{formatINR(current.plan_inr)}</dd>
           </div>
           <div>
-            <dt className="text-xs font-medium text-ink-faint">Read from</dt>
-            <dd className="mt-0.5 text-sm break-words text-ink">{current.source_note}</dd>
+            <dt className="text-meta font-medium text-ink-muted">Read from</dt>
+            <dd className="mt-0.5 text-body break-words text-ink">{current.source_note}</dd>
           </div>
           <div>
-            <dt className="text-xs font-medium text-ink-faint">Recorded</dt>
-            <dd className="mt-0.5 text-sm text-ink">{formatIST(current.attested_at)}</dd>
+            <dt className="text-meta font-medium text-ink-muted">Recorded</dt>
+            <dd className="mt-0.5 text-body text-ink">{formatIST(current.attested_at)}</dd>
           </div>
         </dl>
       )}
 
       {attest.error && <WriteFailure error={attest.error} actionLabel={actionLabel} />}
       {attest.isSuccess && !editing && (
-        <p className="flex items-start gap-2 text-sm text-ink-muted">
+        <p className="flex items-start gap-2 text-body text-ink-muted">
           <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
           <span>Recorded. The spend board now compares this fee with the month&apos;s usage.</span>
         </p>

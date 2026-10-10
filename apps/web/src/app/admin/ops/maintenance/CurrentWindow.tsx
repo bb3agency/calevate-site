@@ -50,7 +50,7 @@ function InFlightPanel({
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-1">
-        <h3 className="text-[15px] font-semibold text-ink">{title}</h3>
+        <h3 className="text-body font-semibold text-ink">{title}</h3>
         {info && <InfoTip label={title}>{info}</InfoTip>}
       </div>
       <div className="grid max-w-md grid-cols-2 gap-4">
@@ -65,7 +65,7 @@ function InFlightPanel({
           flashValue={String(inFlight.jobs)}
         />
       </div>
-      <p className="text-xs text-ink-muted">
+      <p className="text-meta text-ink-muted">
         {hint} Measured {formatIST(inFlight.measured_at)}.
       </p>
       {/* A walk that ran out of time has not asked everybody, so zeros here are not a drain.
@@ -91,8 +91,8 @@ function InFlightPanel({
 function WhenFact({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[13px] font-medium text-ink-muted">{label}</dt>
-      <dd className="mt-1 text-[15px] font-semibold tabular-nums text-ink">{value}</dd>
+      <dt className="text-meta font-medium text-ink-muted">{label}</dt>
+      <dd className="mt-1 text-body font-semibold tabular-nums text-ink">{value}</dd>
     </div>
   );
 }
@@ -126,7 +126,7 @@ export function CurrentWindow({ window: current }: { window: MaintenanceWindow }
           <StatePill tone="stop">Activated on the deadline, not on a clean drain</StatePill>
         )}
       </CurrentWindowHeading>
-      <p className="max-w-prose text-sm text-ink-muted">{copy.what}</p>
+      <p className="max-w-prose text-body text-ink-muted">{copy.what}</p>
 
       {current.state === "draining" && current.in_flight !== null && (
         <InFlightPanel
@@ -159,8 +159,8 @@ export function CurrentWindow({ window: current }: { window: MaintenanceWindow }
       )}
 
       <div className="border-l-2 border-line pl-3">
-        <p className="text-[13px] font-medium text-ink-muted">What clients are being told</p>
-        <p className="mt-1 text-sm text-ink">{current.reason}</p>
+        <p className="text-meta font-medium text-ink-muted">What clients are being told</p>
+        <p className="mt-1 text-body text-ink">{current.reason}</p>
       </div>
 
       <div className="space-y-2 border-t border-line pt-4">
@@ -176,7 +176,7 @@ export function CurrentWindow({ window: current }: { window: MaintenanceWindow }
             {stopLabel}
           </button>
         </div>
-        {!scheduled && <p className="max-w-prose text-xs text-ink-muted">{ENDING_RESTORES}</p>}
+        {!scheduled && <p className="max-w-prose text-meta text-ink-muted">{ENDING_RESTORES}</p>}
       </div>
 
       {editing && <AmendWindowDrawer window={current} onClose={() => setEditing(false)} />}

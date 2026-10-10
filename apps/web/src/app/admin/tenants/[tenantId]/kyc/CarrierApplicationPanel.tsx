@@ -1,10 +1,10 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
 import {
-  Card,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -28,7 +28,7 @@ import {
   type CarrierDecisionIn,
 } from "@/lib/api/kyc";
 
-import { TonePill } from "../tonePill";
+import { StatusPill } from "@/components/admin/kit";
 import { FactList, SubHeading } from "./FactList";
 
 /**
@@ -38,15 +38,15 @@ import { FactList, SubHeading } from "./FactList";
  */
 export function CarrierPill({ application }: { application: CarrierApplication }) {
   // The current carrier needs no per-client application (Vobiz, D-666), so no gate reads it.
-  if (!application.required) return <TonePill tone="neutral">Carrier: not required</TonePill>;
-  if (!application.recorded) return <TonePill tone="neutral">Carrier: nothing sent</TonePill>;
+  if (!application.required) return <StatusPill tone="neutral">Carrier: not required</StatusPill>;
+  if (!application.recorded) return <StatusPill tone="neutral">Carrier: nothing sent</StatusPill>;
   const status = asCarrierStatus(application.status);
   const tone = application.is_accepted ? "ok" : status ? CARRIER_STATUS_COPY[status].tone : "warn";
   return (
-    <TonePill tone={tone}>
+    <StatusPill tone={tone}>
       Carrier: {carrierStatusLabel(application.status) ?? "unknown"} ·{" "}
       {application.is_accepted ? "numbers open" : "numbers closed"}
-    </TonePill>
+    </StatusPill>
   );
 }
 
@@ -77,7 +77,7 @@ export function CarrierApplicationPanel({
   const write = useAdminAccess("admin:tenants", "record a carrier decision");
 
   return (
-    <Card
+    <Section
       title="Carrier's decision"
       info={
         <p>
@@ -89,7 +89,7 @@ export function CarrierApplicationPanel({
         </p>
       }
     >
-      <p className="-mt-1 text-sm text-ink-muted">
+      <p className="-mt-1 text-body text-ink-muted">
         {application.data && !application.data.required
           ? "The current carrier does not approve client businesses separately, so nothing here gates this client's numbers or calls. A decision recorded here applies only if the carrier is switched back to Plivo."
           : "Until it says accepted, no number can be provisioned for this client however their identity verification above stands."}
@@ -110,7 +110,7 @@ export function CarrierApplicationPanel({
             icon={<AlertTriangle className="h-5 w-5" />}
             title="Cannot record a decision while the application is unreadable"
           >
-            <p className="mt-1 text-xs opacity-90">
+            <p className="mt-1 text-meta opacity-90">
               We could not read what the carrier has on file for this client. Retry the read
               above; the form comes back with it.
             </p>
@@ -130,7 +130,7 @@ export function CarrierApplicationPanel({
             {record.error != null && <ProblemNotice error={record.error} />}
             {record.data && (
               <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
-                <p className="text-xs">
+                <p>
                   {record.data.changed
                     ? `Recorded as ${carrierStatusLabel(record.data.status)}.`
                     : `This application was already ${carrierStatusLabel(record.data.status)}, so nothing moved.`}{" "}
@@ -141,7 +141,7 @@ export function CarrierApplicationPanel({
           </>
         )}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -162,7 +162,7 @@ function OnFile({ application }: { application: CarrierApplication }) {
     return (
       <div>
         <SubHeading>Nothing sent to the carrier yet</SubHeading>
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           The normal state of a new account, and not something this screen can move: the
           client uploads their own registration documents from their verification screen,
           because only they hold them. There is nothing to record until they have.
@@ -177,7 +177,7 @@ function OnFile({ application }: { application: CarrierApplication }) {
   return (
     <div>
       <SubHeading>Application on file</SubHeading>
-      <p className="mb-3 text-sm text-ink-muted">
+      <p className="mb-3 text-body text-ink-muted">
         {copy
           ? copy.meaning
           : /* FAIL VISIBLE: a state this build has no word for is the one worth reading,
@@ -324,7 +324,7 @@ function DecisionForm({
 
       {blocked && (
         <NoticeBox tone="warn" icon={<AlertTriangle className="h-5 w-5" />}>
-          <p className="text-xs">{blocked}</p>
+          <p>{blocked}</p>
         </NoticeBox>
       )}
 

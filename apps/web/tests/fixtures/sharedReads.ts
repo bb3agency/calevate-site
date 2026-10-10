@@ -1,3 +1,4 @@
+import { noReply } from "../harness";
 import type { LegalReadiness } from "@/lib/api/agreements";
 import type { TenantSummary } from "@/lib/api/admin";
 import type { Agent, HandoffOut } from "@/lib/api/agents";
@@ -511,3 +512,23 @@ export const OWN_NUMBERS_OFF = {
   can_send_business_details: false,
   inr_per_month: null,
 } satisfies OwnNumbersStatus;
+
+/**
+ * The reads the admin client overview's HEALTH SUMMARY makes (redesign #2): the per-client
+ * judgement, healthy; the wallet and the line incidents left unanswered (they are not the
+ * subject of the files that spread this in); no recent calls.
+ */
+export function adminOverviewSummaryReads(tenantId: string) {
+  return {
+    [`/v1/admin/client-health/${tenantId}`]: {
+      tenant_id: tenantId,
+      severity: null,
+      signals: [],
+      spend_used_inr: null,
+      spend_cap_inr: null,
+    },
+    "/v1/billing/wallet": noReply(),
+    "/v1/healer/incidents?days=30&limit=20": noReply(),
+    "/v1/calls?limit=5": [],
+  };
+}

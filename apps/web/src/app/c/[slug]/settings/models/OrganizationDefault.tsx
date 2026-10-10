@@ -6,7 +6,7 @@ import { Info, IndianRupee, Save, Sparkles } from "lucide-react";
 
 import { Disclosure, FIELD_HINT, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { ActionButton } from "@/components/actionButton";
-import { useToast } from "@/components/interior/toaster";
+import { SavedTick } from "@/components/console/savedTick";
 import { ModelPicker, type ModelChoice } from "@/components/llmModelPicker";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
@@ -40,7 +40,6 @@ export function OrganizationDefault({
   const session = useClientSession();
   const save = useSetOrganizationLlmDefault(session);
   // Transient confirmation of the write; the refetched list is what proves the new state.
-  const { toast } = useToast();
   /**
    * `org:manage` — the owner's own permission, the one that already governs the account's
    * settings and its spending limit. An operator in view-as holds it too (D-587).
@@ -89,16 +88,13 @@ export function OrganizationDefault({
         onSubmit={(event) => {
           event.preventDefault();
           if (!changed) return;
-          save.mutate(
-            { default_llm_tier: selected },
-            { onSuccess: () => toast({ tone: "success", title: "AI model saved" }) },
-          );
+          save.mutate({ default_llm_tier: selected });
         }}
       >
         {/* The tier marked as running is the one we INTEND to run; this says when it is not
             the one answering yet. A warning, not help text: it changes what a call runs on. */}
         {!defaults.effective_is_available && (
-          <p className="rounded-lg border border-warn-line bg-warn-soft px-3 py-2 text-sm text-ink">
+          <p className="rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-body text-ink">
             {defaults.effective_tier_label} is not switched on for your account yet, so your
             calls run our standard model until it is — ask your Calevate team to enable it.
           </p>
@@ -143,6 +139,7 @@ export function OrganizationDefault({
             <Save aria-hidden className="h-4 w-4" />
             Save model
           </ActionButton>
+          <SavedTick at={save.isSuccess ? save.submittedAt : 0} />
           <span className={FIELD_HINT}>
             This takes effect on the next call. Calls already running finish on the model
             they started on.
@@ -154,7 +151,7 @@ export function OrganizationDefault({
         title="How the model is billed"
         subtitle="A tier's figure is added to your plan's per-minute rate, as its own line on your statement."
       >
-        <ul className="space-y-2 text-sm text-ink-muted">
+        <ul className="space-y-2 text-body text-ink-muted">
           <li className="flex gap-2">
             <Sparkles aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
             The voice your callers hear is a separate setting, and changing the model does

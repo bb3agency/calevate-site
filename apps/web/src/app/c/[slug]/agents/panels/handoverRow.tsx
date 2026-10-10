@@ -28,7 +28,7 @@ export function HandoverRow({
 }) {
   const name = contact?.label ?? "Someone since removed";
   return (
-    <li className="rounded-lg border border-line p-3">
+    <li className="py-3.5">
       <div className="flex items-start gap-3">
         <span className="mt-0.5 text-xs font-semibold text-ink-faint">{index + 1}</span>
         <div className="min-w-0 flex-1">

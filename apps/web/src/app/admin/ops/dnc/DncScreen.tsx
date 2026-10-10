@@ -1,5 +1,7 @@
 "use client";
 
+import { SavedNote } from "@/components/admin/kit";
+import { Section } from "@/components/console/section";
 import { useMemo, useState } from "react";
 import { ListPlus, Search } from "lucide-react";
 
@@ -13,7 +15,6 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { RowMenu } from "@/components/console/rowMenu";
 import { CopyButton } from "@/components/interior/copy-button";
 import {
-  Card,
   FIELD_INLINE_ICON,
   PRIMARY_BUTTON,
   ProblemNotice,
@@ -71,6 +72,8 @@ export function DncScreen() {
   const write = useAdminAccess("ops:manage", "change the platform-wide do-not-call list");
   const [adding, setAdding] = useState(false);
   const [releasingId, setReleasingId] = useState<string | null>(null);
+  // The last release, acknowledged on the page: its row has left the list.
+  const [released, setReleased] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
   // `entries.data`, never `?? []`: "the server said none" and "the server did not answer"
@@ -152,7 +155,7 @@ export function DncScreen() {
   );
 
   return (
-    <div className="max-w-3xl space-y-5">
+    <div className="max-w-3xl space-y-10">
       <PageHeader
         description={
           <>
@@ -180,27 +183,31 @@ export function DncScreen() {
 
       <RestrictionNote reason={write.allowed ? null : write.reason} />
 
-      <Card
+      <Section
         title="Suppressed for every client"
         action={
           // No count until the server has sent one: "0" while the first request is in
           // flight is a statement about what this platform refuses to dial.
           rows ? (
-            <span className="text-xs text-ink-muted">
+            <span>
               {truncated
                 ? `Showing the ${formatCount(DNC_LIST_LIMIT)} most recently added`
                 : `${formatCount(rows.length)} ${rows.length === 1 ? "entry" : "entries"}`}
             </span>
           ) : undefined
         }
-        bodyClassName="p-0"
       >
+        {released && (
+          <SavedNote className="mb-3">
+            Released {released}. Every client may dial it again from the next dispatch tick.
+          </SavedNote>
+        )}
         {entries.error != null && (
           <div className="space-y-2 px-4 pb-4 pt-2">
             <ProblemNotice error={entries.error} onRetry={() => entries.refetch()} />
             {/* An operator who cannot see the list is the one most likely to assume it is
                 empty, so the refusal says so in this screen's own words. */}
-            <p className="text-sm text-ink-muted">
+            <p className="text-body text-ink-muted">
               This screen will not tell you what is suppressed, and it will not tell you
               nothing is. The suppressions are unaffected — the check runs against them
               directly before every call, not from this screen.
@@ -217,7 +224,7 @@ export function DncScreen() {
             message={
               <>
                 No number is suppressed platform-wide.
-                <span className="mt-1 block text-[13px] text-ink-faint">
+                <span className="mt-1 block text-meta text-ink-muted">
                   Clients&apos; own do-not-call lists are separate and are not shown here.
                 </span>
               </>
@@ -230,7 +237,7 @@ export function DncScreen() {
                 <span className="sr-only">Find a number</span>
                 <Search
                   aria-hidden
-                  className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint"
+                  className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted"
                 />
                 <input
                   type="search"
@@ -263,7 +270,7 @@ export function DncScreen() {
             )}
           </>
         )}
-      </Card>
+      </Section>
 
       <Drawer
         open={adding}
@@ -284,7 +291,10 @@ export function DncScreen() {
             key={releasingEntry.id}
             entry={releasingEntry}
             mutation={release}
-            onDone={() => setReleasingId(null)}
+            onDone={() => {
+              setReleased(formatPhone(releasingEntry.phone_e164));
+              setReleasingId(null);
+            }}
           />
         )}
       </Drawer>
@@ -323,7 +333,7 @@ function buildColumns(
             </MonoValue>
             <CopyButton value={entry.phone_e164} label={`Copy ${formatPhone(entry.phone_e164)}`} />
           </span>
-          <p className="mt-0.5 text-xs text-ink-muted sm:hidden">
+          <p className="mt-0.5 text-meta text-ink-muted sm:hidden">
             {sourceLabel(entry)} · {formatIST(entry.added_at)}
           </p>
         </div>
@@ -333,7 +343,7 @@ function buildColumns(
       id: "source",
       header: "Source",
       hideBelow: "sm",
-      cell: (entry) => <span className="text-xs text-ink-muted">{sourceLabel(entry)}</span>,
+      cell: (entry) => <span className="text-meta text-ink-muted">{sourceLabel(entry)}</span>,
     },
     {
       id: "added",
@@ -341,7 +351,7 @@ function buildColumns(
       hideBelow: "sm",
       sort: { value: (entry) => entry.added_at, kind: "time", first: "desc" },
       cell: (entry) => (
-        <span className="whitespace-nowrap text-xs text-ink-muted">{formatIST(entry.added_at)}</span>
+        <span className="whitespace-nowrap text-meta text-ink-muted">{formatIST(entry.added_at)}</span>
       ),
     },
   ];

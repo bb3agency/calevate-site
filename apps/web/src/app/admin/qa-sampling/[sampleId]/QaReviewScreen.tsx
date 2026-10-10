@@ -5,8 +5,9 @@ import { ShieldCheck } from "lucide-react";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
+import { ADMIN_PAGE_WIDE, HAIRLINE_LIST } from "@/components/admin/kit";
+import { Section } from "@/components/console/section";
 import {
-  Card,
   MonoValue,
   NoticeBox,
   ProblemNotice,
@@ -121,7 +122,7 @@ export function QaReviewScreen({ sampleId }: { sampleId: string }) {
   });
 
   return (
-    <div className="space-y-5 pb-12">
+    <div className={ADMIN_PAGE_WIDE}>
       <PageHeader
         back={{ href: "/admin/qa-sampling", label: "Call quality checks" }}
         title={sample?.tenant_name}
@@ -133,20 +134,18 @@ export function QaReviewScreen({ sampleId }: { sampleId: string }) {
       />
 
       {detail.isLoading ? (
-        <Card>
-          <Skeleton rows={8} label="Loading the sampled call" />
-        </Card>
+        <Skeleton rows={8} label="Loading the sampled call" />
       ) : detail.error || !detail.data ? (
         /* A refusal, never an empty review: a reviewer shown a blank transcript would
            record a verdict about a call they never read. A paused read (offline) has no
            error and no data, and gets the same sentence. */
-        <Card>
+        <div>
           <ProblemNotice error={detail.error} onRetry={() => void detail.refetch()} />
-          <p className={`text-sm text-ink-muted ${detail.error ? "mt-3" : ""}`}>
+          <p className={`text-body text-ink-muted ${detail.error ? "mt-3" : ""}`}>
             This call could not be read, so it cannot be reviewed. Nothing has been recorded
             against it.
           </p>
-        </Card>
+        </div>
       ) : (
         <Review
           data={detail.data}
@@ -182,11 +181,11 @@ function Review({
       {/* WHY this call, in one sentence a reviewer can repeat to a client. The seed is what
           makes the claim checkable by somebody who does not trust us. */}
       <div className="space-y-1">
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           Drawn #{sample.selection_rank} of {sample.target} from the {sample.population} calls
           this client completed in the week of {sample.week_start}.
         </p>
-        <p className="flex flex-wrap items-center gap-1 text-xs text-ink-muted">
+        <p className="flex flex-wrap items-center gap-1 text-meta text-ink-muted">
           Seed <MonoValue className="break-all text-ink">{sample.selection_seed}</MonoValue>
           <InfoTip label="The seed">
             This call&apos;s place in the draw is fixed by the seed — re-run it and this call
@@ -203,22 +202,25 @@ function Review({
 
       {/* Read before judging: the transcript leads, and on a wide screen the verdict
           stays beside it as the reader scrolls. */}
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
-        <div className="min-w-0 space-y-5">
+      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start">
+        <div className="min-w-0 space-y-10">
           {call.summary && (
-            <Card title="Summary" density="compact">
-              <p className="text-sm text-ink">{call.summary}</p>
-            </Card>
+            <Section title="Summary">
+              <p className="max-w-prose text-body text-ink">{call.summary}</p>
+            </Section>
           )}
-          <Card title="Transcript" density="compact">
+          <Section title="Transcript">
             {call.transcript?.length ? (
               <ol className="space-y-4">
                 {call.transcript.map((turn) => {
                   const speaker = lookup(SPEAKERS, turn.speaker);
                   return (
-                    <li key={turn.idx} className={speaker?.agent ? "border-l-2 border-brand/40 pl-3" : "pl-3.5"}>
-                      <p className="text-xs font-medium text-ink-muted">{speaker?.label ?? turn.speaker}</p>
-                      <p className="mt-0.5 break-words text-sm text-ink">{turn.text}</p>
+                    // A PLAIN SCRIPT (founder, 10 Oct 2026): the speaker's name muted, then the
+                    // line. No bubbles and no rule on one side: the reviewer is reading what
+                    // was said, and a styled side reads as a verdict on who said it.
+                    <li key={turn.idx}>
+                      <p className="text-meta font-medium text-ink-muted">{speaker?.label ?? turn.speaker}</p>
+                      <p className="mt-0.5 max-w-prose break-words text-body text-ink">{turn.text}</p>
                     </li>
                   );
                 })}
@@ -236,7 +238,7 @@ function Review({
                 }
               />
             )}
-          </Card>
+          </Section>
         </div>
         <div className="lg:sticky lg:top-4">
           <Verdicts verdict={verdict} pending={pending} error={error} onChoose={onChoose} />
@@ -253,7 +255,7 @@ const SPEAKERS: Record<string, { label: string; agent: boolean }> = {
 
 /**
  * One click records the verdict, deliberately with no confirm step: the three choices are
- * described cards, and the recorded verdict replaces them at once with what was stored.
+ * described choices, and the recorded verdict replaces them at once with what was stored.
  */
 function Verdicts({
   verdict,
@@ -269,19 +271,19 @@ function Verdicts({
   if (verdict) {
     const recorded = VERDICTS[verdict];
     return (
-      <Card title="Review" density="compact">
-        <p className="text-sm text-ink">
-          Recorded as <strong>{recorded.label}</strong>. {recorded.meaning}
+      <Section title="Review">
+        <p className="text-body text-ink">
+          Recorded as <strong className="font-semibold">{recorded.label}</strong>. {recorded.meaning}
         </p>
-        <p className="mt-2 text-xs text-ink-muted">
+        <p className="mt-2 text-meta text-ink-muted">
           A verdict is written once. Changing our mind about this call is a new decision, made
           deliberately — not an edit that erases the first one.
         </p>
-      </Card>
+      </Section>
     );
   }
   return (
-    <Card title="Review" density="compact">
+    <Section title="Review">
       {/* Above the choices rather than replacing them: a 409 means somebody else reviewed
           this call first, and the reviewer needs that sentence, not a screen gone quiet. */}
       {error !== null && error !== undefined && (
@@ -290,11 +292,11 @@ function Verdicts({
         </div>
       )}
       <fieldset disabled={pending}>
-        <legend className="text-sm text-ink-muted">
+        <legend className="text-meta text-ink-muted">
           What did this call show? The verdict is recorded against your name and cannot be
           overwritten by the next person to open it.
         </legend>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
+        <div className={`mt-3 ${HAIRLINE_LIST}`}>
           {(Object.keys(VERDICTS) as QaVerdict[]).map((choice) => (
             <button
               key={choice}
@@ -302,14 +304,14 @@ function Verdicts({
               onClick={() => onChoose(choice)}
               // Colour-only feedback, no scale: a card this wide shrinking reads as the grid
               // wobbling. `enabled:` so a fieldset disabled mid-submit stops answering.
-              className="min-h-11 rounded-card border border-line bg-surface p-3 text-left transition-[background-color,border-color] duration-(--duration-fast) ease-out enabled:hover:border-ink-faint/40 enabled:hover:bg-ink/[0.025] enabled:active:bg-ink/[0.05] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+              className="block min-h-11 w-full py-3 text-left transition-colors duration-(--duration-fast) ease-out enabled:hover:bg-ink/[0.03] enabled:active:bg-ink/[0.05] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand sm:px-2"
             >
-              <span className="block text-sm font-semibold text-ink">{VERDICTS[choice].label}</span>
-              <span className="mt-0.5 block text-xs text-ink-muted">{VERDICTS[choice].meaning}</span>
+              <span className="block text-body font-medium text-ink">{VERDICTS[choice].label}</span>
+              <span className="mt-0.5 block text-meta text-ink-muted">{VERDICTS[choice].meaning}</span>
             </button>
           ))}
         </div>
       </fieldset>
-    </Card>
+    </Section>
   );
 }

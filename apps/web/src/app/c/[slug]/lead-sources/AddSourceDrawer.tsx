@@ -1,9 +1,11 @@
 "use client";
 
 import { useId, useState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Webhook } from "lucide-react";
 
 import { Drawer, DrawerSubmit } from "@/components/console/drawer";
+import { IconTile } from "@/components/console/iconTile";
+import { ServiceLogo } from "@/components/console/serviceLogo";
 import { FieldMessage, useFormValidation } from "@/components/formValidation";
 import { PasswordInput } from "@/components/passwordInput";
 import {
@@ -19,7 +21,7 @@ import type { useCreateLeadSource } from "@/lib/api/leadSources";
 
 import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { IssuedSecretNotice, type IssuedSecret } from "./IssuedSecretNotice";
-import { META_SOURCE, WEBHOOK_KINDS, sourceLabel } from "./sourceKinds";
+import { META_SOURCE, WEBHOOK_KINDS, sourceLabel, sourceLogo } from "./sourceKinds";
 import { FIELD } from "./styles";
 
 const KINDS = [
@@ -141,8 +143,9 @@ export function AddSourceDrawer({
                     {kind === option.value && (
                       <CheckCircle2 aria-hidden className="absolute right-2 top-2 h-4 w-4 text-brand-strong" />
                     )}
-                    <span className="block pr-6 text-sm font-semibold text-ink">{option.label}</span>
-                    <span className="mt-0.5 block text-xs text-ink-faint">{option.hint}</span>
+                    <IconTile service={sourceLogo(option.value)} icon={Webhook} className="mb-3" />
+                    <span className="block pr-6 text-body font-semibold text-ink">{option.label}</span>
+                    <span className="mt-0.5 block text-meta text-ink-faint">{option.hint}</span>
                   </label>
                 ))}
               </div>
@@ -151,18 +154,21 @@ export function AddSourceDrawer({
             {!isMeta && (
               <label className="block">
                 <span className={FIELD_LABEL}>What sends them</span>
-                <select
-                  aria-label="Lead source kind"
-                  value={webhookKind}
-                  onChange={(e) => setWebhookKind(e.target.value)}
-                  className={`${FIELD} mt-1 block w-full`}
-                >
-                  {WEBHOOK_KINDS.map((option) => (
-                    <option key={option} value={option}>
-                      {sourceLabel(option)}
-                    </option>
-                  ))}
-                </select>
+                <span className="mt-1 flex items-center gap-2">
+                  {sourceLogo(webhookKind) ? <ServiceLogo service={sourceLogo(webhookKind)} className="h-5 w-5" /> : null}
+                  <select
+                    aria-label="Lead source kind"
+                    value={webhookKind}
+                    onChange={(e) => setWebhookKind(e.target.value)}
+                    className={`${FIELD} mt-0 block w-full`}
+                  >
+                    {WEBHOOK_KINDS.map((option) => (
+                      <option key={option} value={option}>
+                        {sourceLabel(option)}
+                      </option>
+                    ))}
+                  </select>
+                </span>
               </label>
             )}
 
@@ -171,7 +177,7 @@ export function AddSourceDrawer({
               {agentsUnread ? (
                 // An empty picker over a failed read offers "don't call" as the only choice,
                 // and a client would build a source that never rings anyone.
-                <p className="mt-1 rounded-md border border-line bg-surface px-3 py-2 text-xs text-ink-muted">
+                <p className="mt-1 rounded-md border border-line bg-surface px-3 py-2 text-meta text-ink-muted">
                   We could not read your agents just now, so this cannot be chosen yet — saving
                   without it would create a source that never rings anyone. Reload the page to try
                   again.
@@ -198,7 +204,7 @@ export function AddSourceDrawer({
             </div>
 
             {isMeta && (
-              <div className="text-xs text-ink-muted">
+              <div className="text-meta text-ink-muted">
                 <span className={FIELD_LABEL}>Your Meta app&apos;s App Secret</span>
                 <PasswordInput
                   inputRef={appSecretTrack.ref}
@@ -224,7 +230,7 @@ export function AddSourceDrawer({
 
             {/* Consent is not a formality on this path: a lead that does not affirm it is
                 saved and never dialled (FLOWS §4). The sentence stays visible. */}
-            <p className="text-xs text-ink-muted">
+            <p className="text-meta text-ink-muted">
               If your form asks permission to call, name that field — a lead that does not
               confirm it is saved and never dialled.
             </p>

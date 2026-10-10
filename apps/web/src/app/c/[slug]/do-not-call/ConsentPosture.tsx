@@ -42,12 +42,12 @@ export function ConsentPosture({ session }: { session: Session }) {
             className="py-3.5"
           />
           <div className="space-y-1 pb-2">
-            <p className="text-[13px] text-ink-muted">
+            <p className="text-meta text-ink-muted">
               {enabled
                 ? "A number with no opt-in on file is refused rather than dialled. Capture the opt-in first — a form, a booking, a reply, or an inbound call from the customer."
                 : "Numbers with no opt-in on file are dialled. Turn this on if this account only contacts its own existing customers about their own bookings."}
             </p>
-            <p className="text-[12px] text-ink-faint">
+            <p className="text-meta text-ink-faint">
               Leaving this off is not permission to call strangers. It means this system stops
               checking, and the responsibility for who is called stays with your business.
             </p>

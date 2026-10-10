@@ -238,6 +238,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/client-health/{tenant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One client's health — what is wrong with this account now
+         * @description The client-health judgement for a single account: the same signals, causes and severities the board ranks, read inside the client's own tenant session. Unlike the board, a healthy account is answered (`severity: null`, no signals) rather than omitted, and ended accounts are answered too. Recorded as a direct admin read of the client (D-483).
+         */
+        get: operations["read_tenant_health_v1_admin_client_health__tenant_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/compliance/holds": {
         parameters: {
             query?: never;
@@ -2590,6 +2610,8 @@ export interface paths {
          * Create an agent (starts as a draft)
          * @description The agent is created in `draft`: it takes no calls and places none until it is activated, and it cannot be activated until it has a script.
          *
+         *     Send `starter` (`answer_calls` or `call_leads`) to start from a ready-made agent for your business type: its script, opening line and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.
+         *
          *     Both opening notices — the AI disclosure and the recording notice — are written for you from the chosen language and are switched on. They cannot be supplied here: every agent on this platform has an AI disclosure on file, the voice platform is verified against it on every publish, and no field on this form can change that.
          */
         post: operations["create_agent_route_v1_agents_post"];
@@ -2654,6 +2676,26 @@ export interface paths {
          *     what this deployment's phone line actually does.
          */
         get: operations["list_lanes_v1_agents_lanes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/starters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview the ready-made agents for this account's business type
+         * @description What `POST /v1/agents` with `starter` would create, for YOUR account's business type: the suggested name, the opening line, the script's step titles and the details the agent captures. `job` narrows it to one job; omitted, both jobs are returned ("Answer my calls" first). Nothing is created by this read.
+         */
+        get: operations["list_starters_v1_agents_starters_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4536,6 +4578,23 @@ export interface paths {
         };
         /** Get Calls */
         get: operations["get_calls_v1_calls_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/calls/export.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** CSV export of calls — full phone numbers, owner-only and audit-logged */
+        get: operations["export_calls_v1_calls_export_csv_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9480,9 +9539,10 @@ export interface components {
          *     called "AI disclosure" on it is how an agent ends up announcing "Hi there!". Changing
          *     the wording is a reviewed surface, not a text input on the new-agent screen.
          *
-         *     NO SCRIPT FIELD either, and that is what `draft` is for: the agent exists, the owner
-         *     writes and trains it, and `publish_agent` refuses to activate one with no prompt
-         *     version by name (`agent_has_no_script`).
+         *     NO SCRIPT FIELD either. Without `starter` the agent is born with no script and
+         *     `publish_agent` refuses to activate it by name (`agent_has_no_script`). With `starter`
+         *     (D-705) the owner picked a job and the agent is born with that job's ready-made script
+         *     for the account's business type, still a draft for them to review.
          */
         AgentCreateIn: {
             /**
@@ -9501,6 +9561,8 @@ export interface components {
             max_call_duration_s?: number | null;
             /** Name */
             name: string;
+            /** Starter */
+            starter?: ("answer_calls" | "call_leads") | null;
         };
         /** AgentDailySpendOut */
         AgentDailySpendOut: {
@@ -13330,6 +13392,18 @@ export interface components {
             reason?: string | null;
             /** Required */
             required: boolean;
+        };
+        /**
+         * DirectoryTierMinutes
+         * @description One voice quality's whole minutes left, as `wallet_routes.TierMinutesOut` states it.
+         */
+        DirectoryTierMinutes: {
+            /** Label */
+            label: string;
+            /** Minutes */
+            minutes: number;
+            /** Voice Tier */
+            voice_tier: string;
         };
         /**
          * DisclosureIn
@@ -20451,6 +20525,37 @@ export interface components {
             /** Redirect Url */
             redirect_url: string;
         };
+        /**
+         * StarterPreviewOut
+         * @description One ready-made agent as the "pick a job" screen shows it before creating (D-705).
+         */
+        StarterPreviewOut: {
+            /** Captured Details */
+            captured_details: string[];
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "inbound" | "outbound" | "both";
+            /**
+             * Job
+             * @enum {string}
+             */
+            job: "answer_calls" | "call_leads";
+            /** Name Suggestion */
+            name_suggestion: string;
+            /** Opening Line */
+            opening_line: string;
+            /** Step Titles */
+            step_titles: string[];
+        };
+        /** StartersOut */
+        StartersOut: {
+            /** Starters */
+            starters: components["schemas"]["StarterPreviewOut"][];
+            /** Vertical */
+            vertical: string;
+        };
         /** StatementListOut */
         StatementListOut: {
             /** Next Before */
@@ -21159,6 +21264,30 @@ export interface components {
             webhook_bodies_erased: number | null;
         };
         /**
+         * TenantHealthOut
+         * @description ONE client's health, for the top of its own admin page.
+         *
+         *     The board's judgement for one account (`health.tenant_health`, the same function the
+         *     board's walk calls), with the healthy case stated rather than absent: `severity` is
+         *     null and `signals` empty when nothing is wrong. Money as paise strings, as on the
+         *     board.
+         */
+        TenantHealthOut: {
+            /** Severity */
+            severity: ("stop" | "warn") | null;
+            /** Signals */
+            signals: components["schemas"]["HealthSignalOut"][];
+            /** Spend Cap Inr */
+            spend_cap_inr: string | null;
+            /** Spend Used Inr */
+            spend_used_inr: string | null;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /**
          * TenantNumberCostOut
          * @description One number and what it costs US — the admin-only view of a client's numbers.
          *
@@ -21362,6 +21491,8 @@ export interface components {
             calls_7d: number;
             /** Capped */
             capped: boolean;
+            /** Credit Inr */
+            credit_inr?: string | null;
             /** Holds */
             holds: string[];
             /**
@@ -21375,6 +21506,8 @@ export interface components {
             leads: number;
             /** Live Agents */
             live_agents: number;
+            /** Minutes Left */
+            minutes_left?: components["schemas"]["DirectoryTierMinutes"][] | null;
             /** Name */
             name: string;
             /** Plan Tier */
@@ -23508,6 +23641,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ClientHealthOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_tenant_health_v1_admin_client_health__tenant_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantHealthOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -27807,6 +27971,37 @@ export interface operations {
             };
         };
     };
+    list_starters_v1_agents_starters_get: {
+        parameters: {
+            query?: {
+                job?: ("answer_calls" | "call_leads") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartersOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     agent_stats_v1_agents_stats_get: {
         parameters: {
             query?: {
@@ -30890,6 +31085,12 @@ export interface operations {
                 offset?: number;
                 status?: string | null;
                 agent_id?: string | null;
+                outcome?: ("resolved" | "needs_follow_up" | "transferred" | "dropped") | null;
+                direction?: ("inbound" | "outbound") | null;
+                /** @description Calls started at or after this instant */
+                since?: string | null;
+                /** @description Calls started before this instant */
+                until?: string | null;
             };
             header?: never;
             path?: never;
@@ -30905,6 +31106,40 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CallSummaryOut"][];
                 };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    export_calls_v1_calls_export_csv_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                agent_id?: string | null;
+                outcome?: ("resolved" | "needs_follow_up" | "transferred" | "dropped") | null;
+                direction?: ("inbound" | "outbound") | null;
+                since?: string | null;
+                until?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {

@@ -308,6 +308,7 @@ RULES: tuple[Rule, ...] = (
     # shape data exfiltration takes", which is this profile's own words. Both shapes share
     # the permission and the `leads.export` audit row; only the limiter diverged.
     Rule("/v1/leads/export.csv", "bulk_read"),
+    Rule("/v1/calls/export.csv", "bulk_read"),
     Rule("/v1/compliance/subject-export", "bulk_read", _m("POST")),
     Rule("/v1/billing/invoice", "bulk_read", _m("GET")),
     # Each row builds a whole statement (`billing/history.statement_page`), up to twelve.

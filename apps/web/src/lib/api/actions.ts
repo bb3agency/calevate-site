@@ -326,6 +326,7 @@ export const RUN_STATUS_LABELS: Record<string, string> = {
   no_end_time: "No end time given",
   unreadable_time: "Time not understood",
   time_in_past: "That time has passed",
+  outside_hours: "Outside your booking hours",
 };
 
 export const RUN_SOURCE_LABELS: Record<string, string> = {

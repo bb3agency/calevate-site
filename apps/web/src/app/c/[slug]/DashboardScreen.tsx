@@ -4,7 +4,7 @@ import Link from "next/link";
 
 import { ProblemNotice, Skeleton, formatCount, formatDuration } from "@/components/ui";
 import { Section } from "@/components/console/section";
-import { Metric } from "@/components/console/metric";
+import { Metric, MetricRow } from "@/components/console/metric";
 import { useAttention } from "@/lib/api/attention";
 import { useCalls, useDashboard, useUsage } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
@@ -12,16 +12,17 @@ import { activeTrial, trialEndsAt, useWallet } from "@/lib/api/wallet";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
-import { AttentionBanner } from "./AttentionBanner";
 import { CallingCreditTile } from "./CallingCreditTile";
 import { DailyCalls } from "./DailyCalls";
 import { KnowledgeGaps } from "./KnowledgeGaps";
 import { LatestCalls } from "./LatestCalls";
 import { LineNotice } from "./LineNotice";
+import { OutcomeSplit } from "./OutcomeSplit";
 import { SentimentSplit } from "./SentimentSplit";
 import { SetupChecklist } from "./SetupChecklist";
 import { SpendThisMonth } from "./SpendThisMonth";
 import { TrialCallPanel } from "./TrialCallPanel";
+import { WhatNeedsYou } from "./WhatNeedsYou";
 
 /**
  * The client's home screen.
@@ -213,18 +214,23 @@ export function DashboardScreen({ slug }: { slug: string }) {
           when there is nothing to say. */}
       <div className="space-y-4 empty:hidden">
         <LineNotice session={session} href={href(`/c/${slug}/settings/line-protection`)} />
-        <AttentionBanner attention={attention} href={href(`/c/${slug}/attention`)} />
         <SetupChecklist />
         <TrialCallPanel slug={slug} />
       </div>
 
-      {/* THE DAY AT A GLANCE — four figures on the page itself, no boxes: the numbers are
-          the content, and a hairline under the strip is all the grouping they need. Each
-          marks itself when a poll changes it. */}
-      <section
-        aria-label="Today at a glance"
-        className="grid grid-cols-2 gap-x-6 gap-y-6 border-b border-line pb-8 md:grid-cols-4"
-      >
+      {/* FIRST, WHAT TO ACT ON (founder, REDESIGN-2): the queue, hot leads, calls that
+          did not connect, and credit — before any figure. */}
+      <WhatNeedsYou
+        data={data}
+        attention={attention}
+        wallet={wallet}
+        href={(path) => href(`/c/${slug}${path}`)}
+      />
+
+      {/* THEN TODAY AND THIS WEEK — four figures on the page itself, no boxes: the numbers
+          are the content, and a hairline under the strip is all the grouping they need.
+          Each marks itself when a poll changes it. */}
+      <MetricRow label="Today at a glance">
         <Metric
           label="Calls today"
           value={formatCount(data.calls_today)}
@@ -255,7 +261,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
           flashValue={String(data.hot_leads_open)}
           hint="Interested and not yet won or lost"
         />
-      </section>
+      </MetricRow>
 
       {/* An unanswered question recurs on every future call until it is taught, so it
           sits high, across ALL the org's agents. It renders its own empty state. */}
@@ -266,6 +272,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
           <Section title="Calls each day">
             <DailyCalls days={data.daily_7d} />
           </Section>
+          <OutcomeSplit split={data.outcome_split ?? {}} />
           <LatestCalls
             recent={recent}
             allHref={href(`/c/${slug}/calls`)}
@@ -298,7 +305,9 @@ export function DashboardScreen({ slug }: { slug: string }) {
           {/* `?? {}` is a PAYLOAD default, not an envelope one: `data` is narrowed above,
               and `sentiment_split` is optional on the wire because it has a server-side
               default. An absent split from a response that arrived means none scored. */}
-          <SentimentSplit split={data.sentiment_split ?? {}} />
+          <Section title="How callers sounded">
+            <SentimentSplit split={data.sentiment_split ?? {}} />
+          </Section>
         </div>
       </div>
     </div>

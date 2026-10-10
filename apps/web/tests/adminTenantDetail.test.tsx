@@ -17,7 +17,7 @@ import type { KbSource, Margin, TenantSummary } from "@/lib/api/admin";
 import type { Routes } from "./harness";
 import { OWNER_JOINED } from "./businessProfileFixture";
 
-import { browserOffline, problem, stubApi } from "./harness";
+import { browserOffline, noReply, problem, stubApi } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { KB_ALL_DELIVERED, WHATSAPP_NEVER_ASKED } from "./fixtures/sharedReads";
 
@@ -183,8 +183,23 @@ function healthy(): Routes {
     },
     "/v1/kb/delivery": KB_ALL_DELIVERED,
     [`${TENANT_PATH}/whatsapp-alerts`]: WHATSAPP_NEVER_ASKED,
+    // The health summary at the top of the page (redesign #2). Healthy by default; the
+    // wallet and the line incidents are not this file's subject, so they stay unanswered.
+    [HEALTH_PATH]: HEALTHY,
+    "/v1/billing/wallet": noReply(),
+    "/v1/healer/incidents?days=30&limit=20": noReply(),
+    "/v1/calls?limit=5": [],
   };
 }
+
+const HEALTH_PATH = `/v1/admin/client-health/${TENANT}`;
+const HEALTHY = {
+  tenant_id: TENANT,
+  severity: null,
+  signals: [],
+  spend_used_inr: null,
+  spend_cap_inr: null,
+};
 
 function render(routes: Partial<Routes> = {}) {
   return renderAdminRoute(
@@ -473,4 +488,48 @@ describe("the client detail screen", () => {
   // The tenant read's refusal is the layout's now (adminTenantLayout.test.tsx): this page
   // is not mounted until the client has been read.
 
+});
+
+/**
+ * The top of the page is a HEALTH SUMMARY (founder, 10 Oct 2026): what is wrong now, from
+ * the server's per-client judgement, never a claim made from a read that failed, and the
+ * quick actions as links to the screens that keep their own confirmations.
+ */
+describe("the client's health summary", () => {
+  it("says nothing is wrong only when the judgement, the line incidents and the calls say so", async () => {
+    render({ "/v1/healer/incidents?days=30&limit=20": { items: [], open: 0 } });
+    expect(await screen.findByText("Nothing is wrong with this account right now.")).toBeTruthy();
+  });
+
+  it("does not call an account healthy while its line incidents are unread", async () => {
+    render();
+    await screen.findByText("Last calls");
+    expect(screen.queryByText("Nothing is wrong with this account right now.")).toBeNull();
+  });
+
+  it("lists what the server found wrong, each with the screen that fixes it", async () => {
+    render({
+      [HEALTH_PATH]: {
+        ...HEALTHY,
+        severity: "stop",
+        signals: [{ rule: "deliveries_failing", severity: "stop", causes: [], count: 3 }],
+      },
+    });
+    expect(await screen.findByText(/3 failed deliveries/)).toBeTruthy();
+    expect(screen.queryByText("Nothing is wrong with this account right now.")).toBeNull();
+  });
+
+  it("refuses in words when the judgement could not be read", async () => {
+    render({ [HEALTH_PATH]: problem(503, { title: "Service unavailable", detail: "Try again." }) });
+    expect(await screen.findByText(/Try again\./)).toBeTruthy();
+    expect(screen.queryByText("Nothing is wrong with this account right now.")).toBeNull();
+  });
+
+  it("offers the quick actions as links to the screens that confirm them", async () => {
+    render();
+    const pause = await screen.findByRole("link", { name: /Pause the account/ });
+    expect(pause.getAttribute("href")).toBe(`/admin/tenants/${TENANT}/lifecycle`);
+    const pay = screen.getByRole("link", { name: /Record a payment/ });
+    expect(pay.getAttribute("href")).toBe(`/admin/tenants/${TENANT}/credits`);
+  });
 });

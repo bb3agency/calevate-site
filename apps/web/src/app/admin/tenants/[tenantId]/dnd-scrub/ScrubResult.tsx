@@ -20,7 +20,7 @@ export function ScrubResult({ result }: { result: PreferenceScrubOut }) {
           : "Recorded, but it does NOT open the gate"
       }
     >
-      <p className="mt-1 text-xs opacity-90">
+      <p className="mt-1 text-meta opacity-90">
         {/* A REPLAY is neither a failure nor a second run: `recorded: false` means this
             provider and reference were already on file. Either extreme sends the operator
             the wrong way — to record it again, or to believe they filed a second piece of
@@ -53,14 +53,14 @@ export function ScrubResult({ result }: { result: PreferenceScrubOut }) {
         <Metric label="Unreadable" value={formatWholeCount(String(result.malformed))} />
       </div>
       {result.malformed > 0 && (
-        <p className="mt-2 text-xs opacity-90">
+        <p className="mt-2 text-meta opacity-90">
           {formatWholeCount(String(result.malformed))} of the numbers you pasted could not be
           read as phone numbers, so they suppressed nothing. Check the report for a header row
           or a truncated column, and record the remainder under a second reference.
         </p>
       )}
       {result.unmatched > 0 && (
-        <p className="mt-2 text-xs opacity-90">
+        <p className="mt-2 text-meta opacity-90">
           {formatWholeCount(String(result.unmatched))} were readable but are not pending on this
           campaign — already dialled, or on a different list. That is ordinary; it is shown so
           the totals add up.

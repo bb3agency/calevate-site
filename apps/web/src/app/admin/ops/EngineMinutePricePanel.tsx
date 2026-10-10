@@ -1,5 +1,6 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 import { CheckCircle2, CircleAlert, Lock } from "lucide-react";
 
@@ -7,7 +8,6 @@ import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withhel
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { useFormValidation } from "@/components/formValidation";
 import {
-  Card,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -89,9 +89,9 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
   );
 
   return (
-    <Card title="Per-minute rates">
+    <Section title="Per-minute rates">
       <div className="space-y-4">
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           What a billed minute costs this account on a voice platform that reports no cost
           for a call. Calls are billed in 30-second steps. Type the figure from your own
           invoice or plan page.
@@ -120,22 +120,22 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
         )}
 
         {rows && rows.length > 0 && (
-          <ul className="divide-y divide-line rounded-card border border-line">
+          <ul className="divide-y divide-line border-y border-line">
             {rows.map((row) => (
-              <li key={rowId(row)} className="flex flex-wrap items-start gap-3 px-3 py-2.5 text-sm">
+              <li key={rowId(row)} className="flex flex-wrap items-start gap-3 px-3 py-2.5 text-body">
                 <div className="min-w-0 flex-1">
                   <p className="font-medium text-ink">
                     {lookup(ENGINE_LABELS, row.engine) ?? row.engine} ·{" "}
                     {lookup(KEY_LABELS, row.rate_key) ?? row.rate_key}
                   </p>
-                  <p className="text-xs text-ink-muted">{saleNote(row)}</p>
+                  <p className="text-meta text-ink-muted">{saleNote(row)}</p>
                   {row.inr_per_min ? (
-                    <p className="text-xs text-ink-muted">
+                    <p className="text-meta text-ink-muted">
                       {formatRupeeRate(row.inr_per_min)} per minute · {row.source_note ?? "—"}
                       {row.attested_at ? ` · recorded ${formatIST(row.attested_at)}` : ""}
                     </p>
                   ) : (
-                    <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                    <p className="text-meta font-medium text-warn">
                       Not recorded — not sold
                     </p>
                   )}
@@ -161,14 +161,14 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
 
         {attest.error && <WriteFailure error={attest.error} actionLabel="Record the rate" />}
         {attest.isSuccess && !editing && (
-          <p className="flex items-start gap-2 text-sm text-ink-muted">
+          <p className="flex items-start gap-2 text-body text-ink-muted">
             <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
             <span>Recorded. Minutes from now on are metered at this rate.</span>
           </p>
         )}
 
         {!access.allowed && access.reason && (
-          <p className="flex items-start gap-2 text-xs text-ink-muted">
+          <p className="flex items-start gap-2 text-meta text-ink-muted">
             <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             {access.reason}
           </p>
@@ -190,7 +190,7 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
               );
             })}
           >
-            <p className="text-sm font-medium text-ink">
+            <p className="text-body font-medium text-ink">
               {lookup(ENGINE_LABELS, editing.engine) ?? editing.engine} ·{" "}
               {lookup(KEY_LABELS, editing.rate_key) ?? editing.rate_key}
             </p>
@@ -249,6 +249,6 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
           </form>
         )}
       </div>
-    </Card>
+    </Section>
   );
 }

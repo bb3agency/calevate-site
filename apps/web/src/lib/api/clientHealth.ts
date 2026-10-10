@@ -45,6 +45,8 @@ type Schemas = components["schemas"];
 export type ClientHealth = Schemas["ClientHealthOut"];
 /** One thing wrong with one account, in machine names. */
 export type HealthSignal = Schemas["HealthSignalOut"];
+/** One client's health, healthy case included (`severity: null`, no signals). */
+export type TenantHealth = Schemas["TenantHealthOut"];
 export type Severity = ClientHealth["severity"];
 // No `CallBasis` alias: `trendClaim` below is the ONLY reader of `calls_basis`, and
 // exporting the union would invite a second one — which is precisely the code path that

@@ -22,10 +22,27 @@ import { asText, noFill } from "@/lib/copilot/types";
 import { DIRECTIONS, DirectionPicker } from "../DirectionChoice";
 import { CallCapField, ComplianceFloor, callCapProblem } from "./BuildAgentForm";
 import { CreatedPanel } from "./CreatedPanel";
+import { StartFromJob } from "./StartFromJob";
 
 /**
- * Build an agent (D-440) — a short step flow: what it does, what it is called, then check
- * and build.
+ * NEW AGENT: PICK A JOB, GET A READY AGENT (founder, REDESIGN-2). The screen opens on the
+ * two jobs (`StartFromJob`); the agent it makes already has a script, an opening line and
+ * the details it captures, for the owner to review. Starting from nothing is one quiet link
+ * away and is the flow below, unchanged, because it is the only way to make an agent that
+ * does both jobs or to set a call limit up front.
+ */
+export function BuildAgent({ slug }: { slug: string }) {
+  const [blank, setBlank] = useState(false);
+  return blank ? (
+    <BlankAgentFlow slug={slug} onBack={() => setBlank(false)} />
+  ) : (
+    <StartFromJob slug={slug} onBlank={() => setBlank(true)} />
+  );
+}
+
+/**
+ * Build an agent from nothing (D-440) — a short step flow: what it does, what it is called,
+ * then check and build.
  *
  * ## What it asks, and what it deliberately does not
  *
@@ -44,7 +61,7 @@ import { CreatedPanel } from "./CreatedPanel";
  * is; name and language share a step because the language default is right for most
  * owners. A refusal is the API's own problem, on the review step, with the inputs kept.
  */
-export function BuildAgent({ slug }: { slug: string }) {
+export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => void }) {
   const session = useClientSession();
   const { href } = useClientRealm();
   const router = useRouter();
@@ -54,8 +71,11 @@ export function BuildAgent({ slug }: { slug: string }) {
      admin-only and would close this for the person it was built for. */
   const write = useWriteAccess(session, "org:manage", "create an agent");
 
-  const [name, setName] = useState("");
-  const [direction, setDirection] = useState<AgentDirection>("inbound");
+  const [typedName, setName] = useState<string | null>(null);
+  const [direction, setDirectionRaw] = useState<AgentDirection>("inbound");
+  // A ready name for the job until the owner types their own (REDESIGN-2: no blank fields).
+  const name = typedName ?? DEFAULT_NAME[direction];
+  const setDirection = (next: AgentDirection) => setDirectionRaw(next);
   const [language, setLanguage] = useState<AgentLanguage>("te-IN");
   const [capMinutes, setCapMinutes] = useState("");
   const [created, setCreated] = useState<Agent | null>(null);
@@ -178,7 +198,7 @@ export function BuildAgent({ slug }: { slug: string }) {
            * otherwise ask on this screen every time because it has writable fields.
            */
           unsaved:
-            name !== "" || capMinutes !== "" || direction !== "inbound" || language !== "te-IN",
+            typedName !== null || capMinutes !== "" || direction !== "inbound" || language !== "te-IN",
         },
   );
 
@@ -192,8 +212,8 @@ export function BuildAgent({ slug }: { slug: string }) {
       {lanes.error && <ProblemNotice error={lanes.error} onRetry={() => void lanes.refetch()} />}
       <StepFlow
         label="New agent"
-        onCancel={() => router.push(href(`/c/${slug}/agents`))}
-        cancelLabel="Cancel and go back to your agents"
+        onCancel={() => (onBack ? onBack() : router.push(href(`/c/${slug}/agents`)))}
+        cancelLabel={onBack ? "Back to the two jobs" : "Cancel and go back to your agents"}
         submitLabel="Build this agent"
         pending={create.isPending}
         error={create.error ? <ProblemNotice error={create.error} /> : undefined}
@@ -234,7 +254,6 @@ export function BuildAgent({ slug }: { slug: string }) {
                     maxLength={80}
                     value={name}
                     onChange={(event) => setName(event.target.value)}
-                    placeholder="e.g. Front desk"
                     className={FIELD}
                   />
                   <span className={FIELD_HINT}>Only you see this. Callers never hear it.</span>
@@ -287,6 +306,13 @@ export function BuildAgent({ slug }: { slug: string }) {
     </div>
   );
 }
+
+/** The name an agent starts with for each job; the owner can change it in the next step. */
+const DEFAULT_NAME: Record<AgentDirection, string> = {
+  inbound: "Reception",
+  outbound: "Outreach",
+  both: "Front desk",
+};
 
 function ReviewRow({ label, children }: { label: string; children: ReactNode }) {
   return (

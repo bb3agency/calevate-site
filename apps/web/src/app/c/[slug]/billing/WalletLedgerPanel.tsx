@@ -3,9 +3,11 @@
 import { useState, type ReactNode } from "react";
 import { Receipt } from "lucide-react";
 
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
-import { Panel } from "@/components/console/panel";
+import { Section } from "@/components/console/section";
 import {
+  FilterChip,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   ScrollRegion,
@@ -25,6 +27,16 @@ import type { Session } from "@/lib/api/client";
 
 import { ReceiptSheet } from "./ReceiptSheet";
 import { readLotSplits, type LotSplit, type TierLabels } from "./lots";
+
+type LedgerKind = "all" | "topups" | "calls" | "corrections";
+
+/** The chips above the ledger, each the server reasons it shows. */
+const LEDGER_KINDS: Record<LedgerKind, { label: string; reasons: readonly string[] }> = {
+  all: { label: "All", reasons: [] },
+  topups: { label: "Top-ups", reasons: ["topup"] },
+  calls: { label: "Calls and rentals", reasons: ["usage"] },
+  corrections: { label: "Corrections and refunds", reasons: ["adjustment", "refund"] },
+};
 
 /**
  * Every movement on the wallet, newest first, with a receipt beside each payment.
@@ -73,9 +85,13 @@ export function WalletLedgerPanel({
   // Which payment's receipt is open, by its reference. `null` is closed — never a
   // boolean beside a value, which is the pair that eventually disagrees.
   const [openReceipt, setOpenReceipt] = useState<string | null>(null);
+  // A TYPE FILTER (founder, REDESIGN-2) over the reason the server records. A rental is a
+  // `usage` row with its own label, so it sits under "Calls and rentals".
+  const [kind, setKind] = useState<LedgerKind>("all");
+  const shown = ledger.data ? ledger.data.entries.filter((entry) => LEDGER_KINDS[kind].reasons.includes(entry.reason) || kind === "all") : [];
 
   return (
-    <Panel title="Credit history" action={action}>
+    <Section title="Credit history" action={action}>
       {ledger.isLoading && <Skeleton rows={5} label="Loading your credit history" />}
       {ledger.error && (
         <ProblemNotice error={ledger.error} onRetry={() => void ledger.refetch()} />
@@ -85,7 +101,7 @@ export function WalletLedgerPanel({
           /* DAY ONE. The first thing a brand-new client sees on this screen, and it is
              designed rather than defaulted: it says what will appear here and why the
              table is empty, instead of showing headers over nothing. */
-          <EmptyState
+          <EmptyState illustration={<EmptySketch kind="deliveries" />}
             message={
               <>
                 <span className="block font-medium text-ink">
@@ -100,13 +116,23 @@ export function WalletLedgerPanel({
           />
         ) : (
           <>
+            <div role="group" aria-label="Show entries of one kind" className="mb-3 flex flex-wrap gap-2">
+              {(Object.keys(LEDGER_KINDS) as LedgerKind[]).map((key) => (
+                <FilterChip key={key} label={LEDGER_KINDS[key].label} active={kind === key} onClick={() => setKind(key)} />
+              ))}
+            </div>
+            {shown.length === 0 ? (
+              <p className="py-6 text-body text-ink-muted">
+                Nothing of this kind in your latest {ledger.data.entries.length} entries.
+              </p>
+            ) : (
             <ScrollRegion label="Credit history">
-              <table className="relative w-full min-w-[34rem] border-collapse text-sm">
+              <table className="relative w-full min-w-[34rem] border-collapse text-body">
                 <caption className="sr-only">
                   Your credit history, newest first — {ledger.data.entries.length} entries
                 </caption>
                 <thead>
-                  <tr className="border-b border-line text-left text-[12px] text-ink-muted">
+                  <tr className="border-b border-line text-left text-meta text-ink-muted">
                     <th scope="col" className="py-2 pr-3 font-semibold">
                       When
                     </th>
@@ -125,7 +151,7 @@ export function WalletLedgerPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {ledger.data.entries.map((entry) => (
+                  {shown.map((entry) => (
                     <LedgerRow
                       key={entry.id}
                       entry={entry}
@@ -136,11 +162,12 @@ export function WalletLedgerPanel({
                 </tbody>
               </table>
             </ScrollRegion>
+            )}
             {ledger.data.entries.length >= WALLET_LEDGER_LIMIT && (
               /* HONEST ABOUT THE PAGE. The list is bounded, so a client looking for an
                  entry from six months ago has to be told it is not missing — it is off
                  the end. Saying nothing is how a support ticket starts. */
-              <p className="mt-3 text-xs text-ink-muted">
+              <p className="mt-3 text-meta text-ink-muted">
                 Showing your {WALLET_LEDGER_LIMIT} most recent entries. Ask us if you need
                 anything older.
               </p>
@@ -153,7 +180,7 @@ export function WalletLedgerPanel({
         paymentRef={openReceipt}
         onClose={() => setOpenReceipt(null)}
       />
-    </Panel>
+    </Section>
   );
 }
 
@@ -233,9 +260,9 @@ function LedgerRow({
         /* The region EXISTS whether or not it is open, and is hidden with `hidden` rather
            than by not rendering it: `aria-controls` has to point at an element that is in
            the document, or a screen reader announces a control that governs nothing. */
-        <tr id={detailId} hidden={!open} className="border-b border-line/60 bg-app">
+        <tr id={detailId} hidden={!open} className="border-b border-line/60 bg-surface-muted">
           <td colSpan={5} className="px-3 py-3">
-            <ul className="space-y-1 text-xs text-ink-muted">
+            <ul className="space-y-1 text-meta text-ink-muted">
               {splits.map((split, index) => (
                 <li key={`${split.lot_id}-${index}`} className="tabular-nums">
                   {splitSentence(split, labels, entry.label !== null)}

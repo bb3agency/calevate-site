@@ -374,6 +374,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/agents/lanes": BoundedByConstruction(
         by="the publishing lanes, a constant tuple in `agents/publishing.py`."
     ),
+    "GET /v1/agents/starters": BoundedByConstruction(
+        by=(
+            "`agents/starters.STARTER_JOBS` (two jobs), each with the constant steps of its "
+            "catalogue row and the one vertical template's fields from `scripts/seed.py`."
+        )
+    ),
     "GET /v1/integrations/events": BoundedByConstruction(
         by="`integrations.service.EVENT_TYPES`, the events an endpoint may subscribe to."
     ),
@@ -726,6 +732,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="one row per signed client, ranked worst-first — a LIMIT would truncate BEFORE "
         "the triage sort and hide the account most in trouble. Watched by "
         "`WALK_BUDGET_S`, same as the directory above."
+    ),
+    "GET /v1/admin/client-health/{tenant_id}": BoundedByConstruction(
+        by="ONE client's judgement from `admin/health.tenant_health`: `signals` holds at most one "
+        "entry per signal rule, each appended at most once from that function's closed set, "
+        "and each signal's `causes` are the gates' own rule names (`read_tenant_holds` plus "
+        "the PE, spend-cap and credit gates). Neither grows with the client's data."
     ),
     "GET /v1/admin/spend": BoundedByConstruction(
         by="one row per live client, ranked worst-margin-first — a LIMIT would truncate "

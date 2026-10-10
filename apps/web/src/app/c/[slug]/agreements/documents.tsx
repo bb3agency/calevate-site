@@ -30,7 +30,7 @@ export function TonePill({ tone, label }: { tone: NoticeTone; label: string }) {
 /** The documents as rows: name and state on one line, the version and who accepted under it. */
 export function DocumentRows({ docs }: { docs: LegalDocumentState[] }) {
   return (
-    <ul className="divide-y divide-line">
+    <ul className="divide-y divide-line border-y border-line">
       {docs.map((doc) => (
         <DocumentRow key={doc.slug} doc={doc} />
       ))}
@@ -41,22 +41,22 @@ export function DocumentRows({ docs }: { docs: LegalDocumentState[] }) {
 function DocumentRow({ doc }: { doc: LegalDocumentState }) {
   const badge = STATE_BADGE[doc.state];
   return (
-    <li className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1.5 px-4 py-3">
+    <li className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1.5 py-3.5">
       <div className="min-w-0 flex-1 basis-56">
         <a
           href={doc.href}
           target="_blank"
           rel="noreferrer"
           aria-label={`Read ${doc.title} (opens in a new tab)`}
-          className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-ink underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+          className="inline-flex items-center gap-1.5 rounded-sm text-body font-medium text-ink underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
         >
           {doc.title}
           <ExternalLink className="h-3.5 w-3.5 text-ink-faint" aria-hidden />
         </a>
         {(doc.state === "changed" || doc.state === "reacceptance_required") && (
-          <p className="mt-0.5 text-[13px] text-ink-muted">{doc.headline}</p>
+          <p className="mt-0.5 text-meta text-ink-muted">{doc.headline}</p>
         )}
-        <dl className="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-ink-faint">
+        <dl className="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5 text-meta text-ink-faint">
           <div className="flex gap-1">
             <dt>Version</dt>
             <dd className="font-mono text-ink-muted">{doc.version}</dd>

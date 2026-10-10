@@ -33,7 +33,7 @@ export function UnknownStatePanel({ reason }: { reason: string | null }) {
         is offered here while that is true.
       </p>
       {reason && <p className="mt-2">{reason}</p>}
-      <p className="mt-2 text-xs">
+      <p className="mt-2 text-meta">
         If calls have stopped and you need the switch now, the “calls stopped” runbook
         walks through sending it by hand.
       </p>

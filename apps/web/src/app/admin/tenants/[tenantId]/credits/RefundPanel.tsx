@@ -100,7 +100,7 @@ export function RefundPanel({
     // the restatement panel makes, for the same reason.
     return (
       <div>
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           {/* Deliberately NOT the restatement panel's opening clause, which says the same
               thing about the same wallet: two cards leading with one identical sentence
               read as a rendering fault, and a screen reader hears it twice in a row. */}
@@ -121,7 +121,7 @@ export function RefundPanel({
 
   return (
     <div>
-      <p className="text-xs text-ink-muted">
+      <p className="text-meta text-ink-muted">
         Sends money back to {clientName} at the payment provider AND records the matching
         entry on this wallet, so the ledger and the bank keep agreeing.{" "}
         <span className="font-semibold">This cannot be undone</span> — the money leaves,
@@ -134,7 +134,7 @@ export function RefundPanel({
         title="Only a payment the provider captured"
         className="mt-3"
       >
-        <p className="mt-1 text-xs opacity-90">
+        <p className="mt-1 text-meta opacity-90">
           A wallet credited from a BANK TRANSFER — a UTR typed off a statement — has a
           reference the payment provider has never seen, and it will refuse the refund.
           Send that money back by bank transfer and record a compensating adjustment
@@ -266,7 +266,7 @@ export function RefundPanel({
 
         {blocked && (
           <NoticeBox tone="warn" icon={<TriangleAlert className="h-5 w-5" />}>
-            <p className="text-xs">{blocked}</p>
+            <p className="text-meta">{blocked}</p>
           </NoticeBox>
         )}
 
@@ -298,7 +298,7 @@ function Refunded({ result, clientName }: { result: RefundResult; clientName: st
           title={`${formatINR(result.amount_inr)} refunded to ${clientName}`}
           className="mt-4"
         >
-          <p className="mt-1 text-xs opacity-90">
+          <p className="mt-1 text-meta opacity-90">
             The provider has processed it and the matching entry is on this wallet.
             {result.balance_inr !== null
               ? ` Balance is now ${formatINR(result.balance_inr)}.`
@@ -311,7 +311,7 @@ function Refunded({ result, clientName }: { result: RefundResult; clientName: st
             Their bank typically shows it within {result.processing_days} days. Nothing
             further to do; do not issue it again.
           </p>
-          <p className="mt-2 text-xs opacity-90">
+          <p className="mt-2 text-meta opacity-90">
             Provider reference <span className="font-mono">{result.refund_id}</span>.
           </p>
         </NoticeBox>
@@ -324,7 +324,7 @@ function Refunded({ result, clientName }: { result: RefundResult; clientName: st
           title={`${formatINR(result.amount_inr)} accepted by the provider`}
           className="mt-4"
         >
-          <p className="mt-1 text-xs opacity-90">
+          <p className="mt-1 text-meta opacity-90">
             {/* THE SENTENCE THIS WHOLE PANEL IS ARRANGED AROUND. It is not a failure and
                 it is not a partial success: the refund is issued and in flight, and the
                 wallet entry is written automatically when the provider confirms it. */}
@@ -334,7 +334,7 @@ function Refunded({ result, clientName }: { result: RefundResult; clientName: st
             <span className="font-semibold">Do not issue it again</span>: a second refund
             is a second amount out of our account for the same payment.
           </p>
-          <p className="mt-2 text-xs opacity-90">
+          <p className="mt-2 text-meta opacity-90">
             Provider reference <span className="font-mono">{result.refund_id}</span> — quote
             it if you have to ask them where the money is.
           </p>

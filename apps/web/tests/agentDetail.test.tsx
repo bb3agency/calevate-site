@@ -288,6 +288,8 @@ function routes(over: Record<string, unknown> = {}) {
     // not because this file asserts anything about it — `agentHandover.test.tsx` is that
     // subject. Unstubbed, the panel raises its own `role="alert"` and every
     // `findByRole("alert")` here becomes a race it loses whenever that one paints first.
+    // Overview's last calls for this agent (REDESIGN-2).
+    "/v1/calls?agent_id=agent-1&limit=5": [],
     "/v1/agents/agent-1/handoff": {
       agent_id: "agent-1",
       enabled: false,

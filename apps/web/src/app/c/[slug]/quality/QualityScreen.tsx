@@ -127,7 +127,7 @@ export function QualityScreen() {
   });
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="max-w-4xl space-y-8 pb-12">
       <PageHeader
         status={shown ? <VerdictPill report={shown} /> : undefined}
         description={
@@ -181,7 +181,7 @@ export function QualityScreen() {
         </NoticeBox>
       ) : !shown ? (
         <EmptyState
-          className="rounded-card border border-line bg-surface"
+          className="border-y border-line"
           message={
             <>
               <span className="block font-medium text-ink">No quality report yet</span>

@@ -1,9 +1,10 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 
-import { Card, FIELD, FIELD_HINT, FIELD_LABEL, PRIMARY_BUTTON, RestrictionNote } from "@/components/ui";
+import { FIELD, FIELD_HINT, FIELD_LABEL, PRIMARY_BUTTON, RestrictionNote } from "@/components/ui";
 import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { InfoTip } from "@/components/console/infoTip";
 import type { useAdminAccess } from "@/app/admin/access";
@@ -53,7 +54,7 @@ export function DecisionForm({
   const copy = decision === null ? null : DECISION_COPY[decision];
 
   return (
-    <Card
+    <Section
       title="Record a decision"
       info={
         <p>
@@ -107,10 +108,10 @@ export function DecisionForm({
                       className="absolute right-3 top-3 h-4 w-4 text-brand-strong"
                     />
                   )}
-                  <span className="block pr-6 text-sm font-medium text-ink">
+                  <span className="block pr-6 text-body font-medium text-ink">
                     {DECISION_COPY[value].label}
                   </span>
-                  <span className="mt-1 block text-xs text-ink-muted">
+                  <span className="mt-1 block text-meta text-ink-muted">
                     {DECISION_COPY[value].effect}
                   </span>
                 </label>
@@ -190,12 +191,12 @@ export function DecisionForm({
               has no campaigns yet" said about a read that never landed would invite a
               release on a premise nobody checked. */}
           {campaigns.error != null || !campaigns.data ? (
-            <p className="mt-1 text-xs text-ink-muted">
+            <p className="mt-1 text-meta text-ink-muted">
               Their campaigns could not be listed, so this field is empty. It is optional —
               the decision can still be recorded without naming one.
             </p>
           ) : campaigns.data.length === 0 ? (
-            <p className="mt-1 text-xs text-warn">
+            <p className="mt-1 text-meta text-warn">
               This account has no campaigns yet. Releasing it now clears the rule before
               anything exists to read — which is a decision, not an accident, so record why
               in the note.
@@ -213,10 +214,10 @@ export function DecisionForm({
           >
             {decide.isPending ? "Recording…" : "Record decision"}
           </button>
-          {blocked && <span className="text-xs text-warn">{blocked}</span>}
+          {blocked && <span className="text-meta text-warn">{blocked}</span>}
         </div>
       </form>
-    </Card>
+    </Section>
   );
 }
 
@@ -234,11 +235,11 @@ function WillRecord({
 }) {
   const note = draft?.note.trim() ?? "";
   return (
-    <div className="rounded-card border border-line bg-app p-3 text-xs text-ink-muted">
+    <div className="border-l-2 border-line py-1 pl-3 text-meta text-ink-muted">
       <p className="font-medium text-ink">This will record, against {tenantName}:</p>
       <ul className="mt-1.5 space-y-1">
         <li>
-          <span className="text-ink-faint">Outcome</span> —{" "}
+          <span className="text-ink-muted">Outcome</span> —{" "}
           {draft === null
             ? "nothing yet; choose a decision above."
             : draft.decision === "approved"
@@ -246,7 +247,7 @@ function WillRecord({
               : "rejected. Every campaign stays blocked, and the client is shown the note."}
         </li>
         <li>
-          <span className="text-ink-faint">Note</span> —{" "}
+          <span className="text-ink-muted">Note</span> —{" "}
           {note === "" ? (
             "empty; the database refuses a decision that does not say what was reviewed."
           ) : (
@@ -257,13 +258,13 @@ function WillRecord({
           )}
         </li>
         <li>
-          <span className="text-ink-faint">Campaign read</span> —{" "}
+          <span className="text-ink-muted">Campaign read</span> —{" "}
           {draft?.reviewed_campaign_id
             ? "the one selected above, checked against this tenant before it is stored."
             : "none named; whatever was recorded before is kept."}
         </li>
         <li>
-          <span className="text-ink-faint">Decided by</span> — the admin account sending this
+          <span className="text-ink-muted">Decided by</span> — the admin account sending this
           request. Taken from your session, not from this form. The time is stamped by the
           database, and the decision and note go into one new audit-log entry.
         </li>

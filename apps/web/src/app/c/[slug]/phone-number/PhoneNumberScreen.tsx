@@ -2,7 +2,7 @@
 
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
-import { Card, ProblemNotice, Skeleton, formatPhone } from "@/components/ui";
+import { ProblemNotice, Skeleton, formatPhone } from "@/components/ui";
 import { useAgents } from "@/lib/api/agents";
 import { useCampaignNumbers, type CampaignNumber } from "@/lib/api/campaigns";
 import { useOwnNumbersStatus } from "@/lib/api/ownNumbers";
@@ -79,12 +79,12 @@ export function PhoneNumberScreen() {
       {numbers.isLoading || !rows ? (
         !numbers.error && <Skeleton rows={3} />
       ) : none ? (
-        <p className="text-sm text-ink-muted">No number set up yet.</p>
+        <p className="text-body text-ink-muted">No number set up yet.</p>
       ) : (
         <>
           {ours.length > 0 && (
             <section className="space-y-3">
-              <h2 className="flex items-center gap-1 text-[15px] font-semibold text-ink">
+              <h2 className="flex items-center gap-1 text-body font-semibold text-ink">
                 Point your existing phone at this number
                 <InfoTip label="How to forward your line">
                   Ask your telephone operator to set up conditional call forwarding on your
@@ -93,7 +93,7 @@ export function PhoneNumberScreen() {
                   number; nobody needs to know this one.
                 </InfoTip>
               </h2>
-              <p className="text-sm text-ink-muted">
+              <p className="text-body text-ink-muted">
                 Ask your operator for <span className="font-medium text-ink">conditional call forwarding</span> to
                 the number below.
               </p>
@@ -102,14 +102,14 @@ export function PhoneNumberScreen() {
                   sentences: "nothing for you to do" beside a number with no agent would
                   leave it silent for good. */}
               {ours.some((number) => !number.answerable && !number.agent_id) && (
-                <p className="text-sm text-ink-muted">
+                <p className="text-body text-ink-muted">
                   A number with no agent on it cannot take calls. Choose the agent that should
                   answer it on its card below, and wait until it says <em>Ready to answer</em>{" "}
                   before you set the forwarding up, or callers will reach silence.
                 </p>
               )}
               {ours.some((number) => !number.answerable && outboundOnly(number)) && (
-                <p className="text-sm text-ink-muted">
+                <p className="text-body text-ink-muted">
                   A number on an agent that only makes calls places calls but does not answer
                   them. To have it answer, choose an agent that answers calls on its card below,
                   or change that agent&apos;s <em>What it does</em> to <em>Answer calls</em> or{" "}
@@ -118,7 +118,7 @@ export function PhoneNumberScreen() {
                 </p>
               )}
               {ours.some(waiting) && (
-                <p className="text-sm text-ink-muted">
+                <p className="text-body text-ink-muted">
                   A number with an agent on it is not ready to take calls yet — we are still
                   connecting it. Please wait until it says <em>Ready to answer</em> before you
                   set the forwarding up, or callers will reach silence. There is nothing for
@@ -137,7 +137,7 @@ export function PhoneNumberScreen() {
           )}
           {theirs.length > 0 && (
             <section className="space-y-3">
-              <h2 className="flex items-center gap-1 text-[15px] font-semibold text-ink">
+              <h2 className="flex items-center gap-1 text-body font-semibold text-ink">
                 Numbers your agents call out from
                 <InfoTip label="Where these numbers come from">
                   Your account manager set these numbers up for you. Calevate provides them on
@@ -145,7 +145,7 @@ export function PhoneNumberScreen() {
                   manage.
                 </InfoTip>
               </h2>
-              <p className="text-sm text-ink-muted">
+              <p className="text-body text-ink-muted">
                 Do not forward these anywhere — they are what your agents call out from.
               </p>
               {theirs.map((number) => (
@@ -184,13 +184,13 @@ function NumberCard({
       ? { text: "Registered for calling out", tone: "bg-ink/[0.06] text-ink" }
       : { text: "Registration still in progress", tone: "border border-line text-ink-muted" };
   return (
-    <Card density="compact">
+    <div className="border-b border-line py-5">
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {/* The client's OWN number, not a called party's (hard rule 6 is about those). */}
-          <p className="font-mono text-base font-semibold tabular-nums text-ink">{formatPhone(number.e164)}</p>
-          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${status.tone}`}>{status.text}</span>
-          <span className="text-xs text-ink-faint">{number.series} series</span>
+          <p className="font-mono text-heading tabular-nums text-ink">{formatPhone(number.e164)}</p>
+          <span className={`rounded-full px-2 py-0.5 text-meta font-medium ${status.tone}`}>{status.text}</span>
+          <span className="text-meta text-ink-faint">{number.series} series</span>
         </div>
         <NumberAssignment
           numberId={number.id}
@@ -201,6 +201,6 @@ function NumberCard({
         <SenderAttestation numberId={number.id} />
         {releasable && <ReleaseOwnNumber numberId={number.id} e164={number.e164} />}
       </div>
-    </Card>
+    </div>
   );
 }

@@ -154,15 +154,15 @@ function DocumentBlockers({ data }: { data: AdminInvoice }) {
   return (
     <section
       aria-labelledby="invoice-blockers"
-      className="rounded-card border border-line bg-surface p-4 text-sm print:hidden"
+      className="border-l-2 border-line py-1 pl-4 text-body print:hidden"
     >
       <h3 id="invoice-blockers" className="font-medium text-ink">
         Not a tax invoice yet
       </h3>
-      <p className="mt-0.5 text-xs text-ink-muted">
+      <p className="mt-0.5 text-meta text-ink-muted">
         Only you see this. The client&apos;s copy carries the GST note on the sheet below.
       </p>
-      <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-ink-muted">
+      <ul className="mt-2 list-disc space-y-1 pl-5 text-meta text-ink-muted">
         {data.document_blockers.map((blocker) => (
           <li key={blocker} className="break-words">
             {blocker}

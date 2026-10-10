@@ -34,6 +34,7 @@ import {
   CLIENT_HEALTH_PATH,
   CLIENT_HEALTH_QUERY_KEY,
   type ClientHealth,
+  type TenantHealth,
 } from "./clientHealth";
 // The wallet's query key only — no session, no request shaper. A tier change decides
 // whether this client HAS a wallet, so the screen that shows one must re-read after it.
@@ -410,6 +411,21 @@ export function useClientHealth(): UseQueryResult<ClientHealth[]> {
   return useQuery({
     queryKey: CLIENT_HEALTH_QUERY_KEY,
     queryFn: () => apiRequest<ClientHealth[]>(adminSession(), CLIENT_HEALTH_PATH),
+    refetchInterval: 120_000,
+  });
+}
+
+/**
+ * ONE client's health (`GET /v1/admin/client-health/{id}`): the board's judgement for that
+ * account, read inside its own tenant session and recorded as a direct admin read. The top
+ * of the client's overview reads it rather than walking the whole board for one row.
+ */
+export function useTenantHealth(tenantId: string): UseQueryResult<TenantHealth> {
+  return useQuery({
+    queryKey: [...CLIENT_HEALTH_QUERY_KEY, tenantId],
+    queryFn: () =>
+      apiRequest<TenantHealth>(adminSession(), `${CLIENT_HEALTH_PATH}/${encodeURIComponent(tenantId)}`),
+    enabled: tenantId !== "",
     refetchInterval: 120_000,
   });
 }

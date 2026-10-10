@@ -1,12 +1,14 @@
 "use client";
 
+import { Section } from "@/components/console/section";
+
 import Link from "next/link";
 import { useState } from "react";
 
 import { ProfileBlockers } from "@/components/businessProfile/ProfileBlockers";
 import { SectionEditor, stepProblem } from "@/components/businessProfile/SectionEditor";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
-import { Card, ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
+import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import {
   STEPS,
   draftFromProfile,
@@ -19,6 +21,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
+import { SetupChecklist } from "../../SetupChecklist";
 import { ProfileSection } from "./ProfileSection";
 
 /**
@@ -92,8 +95,9 @@ function Profile({
     <div className="max-w-3xl space-y-5">
       {reason && <RestrictionNote reason={reason} />}
       <ProfileBlockers blockers={profile.blockers} href={href} />
+      <SetupChecklist placement="settings" />
 
-      <Card density="compact" title="Your business">
+      <Section title="Your business">
         <SettingRows>
           <SettingRow
             label="Business name"
@@ -116,7 +120,7 @@ function Profile({
             }
           />
         </SettingRows>
-      </Card>
+      </Section>
 
       {STEPS.map((step) => (
         <ProfileSection

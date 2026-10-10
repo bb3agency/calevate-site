@@ -133,11 +133,11 @@ function ChoiceCards({
                 className="sr-only"
               />
               <span className="flex items-start justify-between gap-2">
-                <span className="min-w-0 break-words text-sm font-medium text-ink">{card.title}</span>
+                <span className="min-w-0 break-words text-body font-medium text-ink">{card.title}</span>
                 {on && <Check aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand" />}
               </span>
               {card.detail && (
-                <span className="mt-0.5 block break-words text-xs text-ink-muted">{card.detail}</span>
+                <span className="mt-0.5 block break-words text-meta text-ink-muted">{card.detail}</span>
               )}
             </label>
           );
@@ -329,7 +329,7 @@ function TypedInput({
         {prefix && (
           <span
             aria-hidden
-            className="pointer-events-none absolute left-3 top-[calc(50%+2px)] -translate-y-1/2 text-sm text-ink-muted"
+            className="pointer-events-none absolute left-3 top-[calc(50%+2px)] -translate-y-1/2 text-body text-ink-muted"
           >
             {prefix}
           </span>
@@ -355,7 +355,7 @@ function TypedInput({
         {suffix && (
           <span
             aria-hidden
-            className="pointer-events-none absolute right-3 top-[calc(50%+2px)] -translate-y-1/2 text-sm text-ink-muted"
+            className="pointer-events-none absolute right-3 top-[calc(50%+2px)] -translate-y-1/2 text-body text-ink-muted"
           >
             {suffix}
           </span>
@@ -562,7 +562,7 @@ function TenantPicker({ field, draft, onChange }: ConfigInputProps) {
       <div className="relative">
         <Search
           aria-hidden
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint"
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted"
         />
         <input
           id={searchId}

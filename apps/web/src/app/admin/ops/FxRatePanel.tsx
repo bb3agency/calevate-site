@@ -1,5 +1,6 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { ArrowRightLeft, CircleHelp, TriangleAlert } from "lucide-react";
 
 import {
@@ -9,7 +10,6 @@ import {
 } from "@/app/admin/withheld";
 import { MonoValue, fxSourceCopy } from "@/app/admin/ops/opsLanguage";
 import {
-  Card,
   NoticeBox,
   ProblemNotice,
   Skeleton,
@@ -124,9 +124,9 @@ export function FxRatePanel() {
   }
 
   return (
-    <Card title="Exchange rate">
+    <Section title="Exchange rate">
       <div className="space-y-4">
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           Your voice and model vendors bill in US dollars; everything you charge
           and record is in rupees. This is the rate in between. It is pulled
           automatically every five minutes from a published reference rate — the
@@ -157,7 +157,7 @@ export function FxRatePanel() {
 
         {state.status === "read" && <FxRateBody rate={state.rate} />}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -183,16 +183,16 @@ function FxRateBody({ rate }: { rate: FxRate }) {
   const headline = fxHeadline(rate);
   return (
     <div className="space-y-4">
-      <div className="rounded-md border border-line p-3">
+      <div className="border-y border-line py-3">
         <div className="flex items-baseline gap-2">
-          <ArrowRightLeft aria-hidden className="h-4 w-4 text-ink-faint" />
-          <span className="text-sm text-ink-muted">
+          <ArrowRightLeft aria-hidden className="h-4 w-4 text-ink-muted" />
+          <span className="text-body text-ink-muted">
             1 {rate.base_currency} =
           </span>
           <MonoValue>{rate.effective_rate}</MonoValue>
-          <span className="text-sm text-ink-muted">{rate.quote_currency}</span>
+          <span className="text-body text-ink-muted">{rate.quote_currency}</span>
         </div>
-        <p className="mt-1 text-sm text-ink-faint">
+        <p className="mt-1 text-body text-ink-muted">
           {rate.using_fallback
             ? "This is the fallback you set, not a published rate."
             : "This is the published rate, in force now."}
@@ -213,7 +213,7 @@ function FxRateBody({ rate }: { rate: FxRate }) {
         <p className="mt-1">{headline.body}</p>
       </NoticeBox>
 
-      <dl className="grid grid-cols-2 gap-2 text-sm">
+      <dl className="grid grid-cols-2 gap-2 text-body">
         <dt className="text-ink-muted">Fallback you set</dt>
         <dd>
           <MonoValue>{rate.fallback_rate}</MonoValue>
@@ -223,7 +223,7 @@ function FxRateBody({ rate }: { rate: FxRate }) {
           {rate.published_rate ? (
             <MonoValue>{rate.published_rate}</MonoValue>
           ) : (
-            <span className="text-ink-faint">none yet</span>
+            <span className="text-ink-muted">none yet</span>
           )}
         </dd>
         <dt className="text-ink-muted">Source</dt>
@@ -231,19 +231,19 @@ function FxRateBody({ rate }: { rate: FxRate }) {
           {rate.published_source ? (
             <FxSource source={rate.published_source} />
           ) : (
-            <span className="text-ink-faint">none yet</span>
+            <span className="text-ink-muted">none yet</span>
           )}
         </dd>
       </dl>
 
       {rate.history.length > 0 && (
         <div>
-          <p className="text-sm font-medium text-ink">Recent pulls</p>
-          <p className="mt-1 text-sm text-ink-faint">
+          <p className="text-body font-medium text-ink">Recent pulls</p>
+          <p className="mt-1 text-body text-ink-muted">
             One row per source the pull actually asked. Several sources on one
             day is the ladder working, not a fault.
           </p>
-          <ul className="mt-2 space-y-2 text-sm">
+          <ul className="mt-2 space-y-2 text-body">
             {rate.history.map((observation) => (
               <li
                 key={`${observation.source}-${observation.as_of}-${observation.rate}`}
@@ -252,7 +252,7 @@ function FxRateBody({ rate }: { rate: FxRate }) {
                 <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
                   <span className="text-ink-muted">{observation.as_of}</span>
                   <MonoValue>{observation.rate}</MonoValue>
-                  <span className="text-ink-faint">
+                  <span className="text-ink-muted">
                     {formatIST(observation.observed_at)}
                   </span>
                 </div>

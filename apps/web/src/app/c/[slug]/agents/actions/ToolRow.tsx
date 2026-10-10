@@ -84,12 +84,7 @@ export function ToolRow({
         </div>
         <div className="flex items-center gap-5">
           <ToggleSwitch
-            label={
-              <>
-                <span className="sr-only">{title}: </span>
-                {tool.enabled ? "On" : "Off"}
-              </>
-            }
+            label={<span className="sr-only">{title}</span>}
             checked={tool.enabled}
             disabled={setEnabled.isPending}
             onChange={(next) => setEnabled.mutate({ toolId: tool.id, enabled: next })}
@@ -193,7 +188,7 @@ export function ToolRow({
   );
 }
 
-function TestPanel({
+export function TestPanel({
   tool,
   agentId,
   session,
@@ -290,7 +285,7 @@ function TestPanel({
 }
 
 /** The action's recent runs — on calls, in the background and from tests — newest first. */
-function RunsPanel({
+export function RunsPanel({
   tool,
   agentId,
   session,

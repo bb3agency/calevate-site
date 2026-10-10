@@ -7,7 +7,6 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import {
-  Card,
   FIELD_INLINE,
   MonoValue,
   NoticeBox,
@@ -127,7 +126,7 @@ export default function TenantProfilePage({
   if (!profile.data) return <EmptyState message="Client not found" />;
 
   return (
-    <div className="max-w-3xl space-y-5">
+    <div className="max-w-3xl space-y-10">
       <PageHeader
         title="Business details"
         description="The client's own record. Every change is audited, naming the value it replaced."
@@ -209,7 +208,7 @@ function EditForm({
             : null;
 
   return (
-    <Card>
+    <div>
       <form
         className="space-y-4"
         noValidate
@@ -259,7 +258,7 @@ function EditForm({
             hint="Fixed: it is in every link the client has bookmarked, and the database refuses to change it. A different one needs a new account."
             value={
               <span className="inline-flex items-center gap-2">
-                <Lock className="h-3.5 w-3.5 text-ink-faint" aria-hidden />
+                <Lock className="h-3.5 w-3.5 text-ink-muted" aria-hidden />
                 <MonoValue>{`/c/${profile.slug}`}</MonoValue>
               </span>
             }
@@ -332,7 +331,7 @@ function EditForm({
             Save changes
           </ActionButton>
           {refusal != null && (
-            <span className="text-xs text-warn">{refusal}</span>
+            <span className="text-meta text-warn">{refusal}</span>
           )}
         </div>
       </form>
@@ -343,7 +342,7 @@ function EditForm({
           tone={edit.data.changed.length > 0 ? "ok" : "neutral"}
           icon={<CheckCircle2 className="h-5 w-5" />}
         >
-          <p className="text-xs">
+          <p>
             {edit.data.changed.length === 0
               ? "Nothing moved — the values sent were the ones already on file, so no audit row was written."
               : `Saved: ${edit.data.changed
@@ -351,7 +350,7 @@ function EditForm({
                   .join(", ")}. Each change is audited on its own, naming the value it replaced.`}
           </p>
           {edit.data.changed.includes("billing_email") && (
-            <p className="mt-1 text-xs">
+            <p className="mt-1">
               The previous address has been told that this account&apos;s notices now go
               elsewhere, and given a way to object.
             </p>
@@ -361,7 +360,7 @@ function EditForm({
                delivers, so notices already queued now go to the new address. That is kept
                on purpose — the alternative mails a client's closure notice to the dead
                mailbox an operator just replaced — but it must never happen silently. */
-            <p className="mt-1 text-xs font-medium">
+            <p className="mt-1 text-meta font-medium">
               {edit.data.pending_notices_retargeted} notice
               {edit.data.pending_notices_retargeted === 1 ? " was" : "s were"} already queued
               for this account and had not been sent. {edit.data.pending_notices_retargeted === 1 ? "It" : "They"}{" "}
@@ -370,6 +369,6 @@ function EditForm({
           )}
         </NoticeBox>
       )}
-    </Card>
+    </div>
   );
 }

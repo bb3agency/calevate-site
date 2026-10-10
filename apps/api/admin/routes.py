@@ -184,6 +184,16 @@ async def admin_me(
     )
 
 
+class DirectoryTierMinutes(BaseModel):
+    """One voice quality's whole minutes left, as `wallet_routes.TierMinutesOut` states it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    voice_tier: str
+    label: str
+    minutes: int
+
+
 class TenantSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -210,6 +220,13 @@ class TenantSummary(BaseModel):
     # exist because an unattended signup is a stranger, so they apply to `self_serve`
     # and `trial` only — `prepaid` and `managed` alike are outside them, D-521).
     holds: list[str]
+    #: CREDIT LEFT, for a prepaid account: whole minutes per voice quality (what an
+    #: operator quotes to a client first) and the rupee balance behind them. Both null
+    #: for an invoiced account, which has no wallet; `minutes_left` alone is null while a
+    #: trial is funding the calling (D-536). Only the directory routes fill these — the
+    #: assistant's roster tool does not ask for them, and an absent value is null.
+    credit_inr: Decimal | None = None
+    minutes_left: list[DirectoryTierMinutes] | None = None
 
 
 class OwnerIn(BaseModel):
@@ -366,6 +383,7 @@ async def list_tenants(
         sort=sort,
         limit=limit,
         offset=offset,
+        with_credit=True,
     )
     total = await service.tenant_directory_total(session, q=q, status=status, plan_tier=plan_tier)
     return TenantDirectoryPage(
@@ -388,7 +406,7 @@ async def get_tenant(
     request: Request,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
 ) -> TenantSummary:
-    rows = await service.tenant_overview(session, tenant_id=tenant_id)
+    rows = await service.tenant_overview(session, tenant_id=tenant_id, with_credit=True)
     if not rows:
         raise ProblemError.not_found("Client")
     # D-482 L-1: a direct read of one client's record is in the ledger, like every other

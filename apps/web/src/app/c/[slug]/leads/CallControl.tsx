@@ -3,6 +3,7 @@
 import { type ReactNode } from "react";
 import { CheckCircle2, PhoneOutgoing, ShieldAlert } from "lucide-react";
 
+import { SECONDARY_BUTTON_SM } from "@/components/ui";
 import { type CallLeadResult } from "@/lib/api/client";
 
 /**
@@ -79,7 +80,7 @@ export function CallControl({
 }) {
   if (result?.status === "queued") {
     return (
-      <span className="flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-brand-strong dark:text-brand-bright">
+      <span className="flex items-center gap-1.5 whitespace-nowrap text-meta font-semibold text-brand-strong dark:text-brand-bright">
         <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
         Calling now
       </span>
@@ -87,7 +88,7 @@ export function CallControl({
   }
   if (result?.status === "blocked") {
     return (
-      <span className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+      <span className="flex items-start gap-1.5 text-meta text-warn">
         <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span>
           {result.blocked_reason ?? "This call was not allowed."}
@@ -108,7 +109,7 @@ export function CallControl({
       type="button"
       disabled={pending}
       onClick={onCall}
-      className="press flex items-center gap-1.5 whitespace-nowrap rounded-md border border-line bg-surface px-2 py-1 text-xs font-semibold text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:enabled:hover:bg-white/5"
+      className={`${SECONDARY_BUTTON_SM} whitespace-nowrap`}
     >
       <PhoneOutgoing className="h-3.5 w-3.5 shrink-0" />
       {pending ? "Calling…" : "Call with AI"}

@@ -1,11 +1,11 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 import { AlertTriangle, CalendarClock, CheckCircle2, Undo2 } from "lucide-react";
 
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import {
-  Card,
   DANGER_BUTTON,
   FIELD,
   FIELD_HINT,
@@ -28,7 +28,7 @@ import { useClosure, useCloseAccount, useRestoreAccount, type Closure } from "@/
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
-import { TonePill } from "../tonePill";
+import { StatusPill } from "@/components/admin/kit";
 import { ErasurePanel } from "./ErasurePanel";
 
 /**
@@ -125,7 +125,7 @@ export function ClosureScreen({ tenantId }: { tenantId: string }) {
   const reopenable = record.closed_at != null && record.erased_at == null && record.restorable;
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-3xl space-y-10">
       <PageHeader
         title="Closing the account"
         status={<ClosureStatus record={record} />}
@@ -153,7 +153,7 @@ export function ClosureScreen({ tenantId }: { tenantId: string }) {
           which swaps the branch, and the confirmation must survive that swap. */}
       {restore.data != null && restore.data.closed_at == null && (
         <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
-          <p className="text-xs">
+          <p>
             This account is active again and the scheduled erasure is cancelled. The client
             has been emailed.
           </p>
@@ -169,7 +169,7 @@ export function ClosureScreen({ tenantId }: { tenantId: string }) {
         <>
           {reopenable && (
             <div className="space-y-3">
-              <p className="text-sm text-ink-muted">
+              <p className="text-body text-ink-muted">
                 Reopening puts the account back to active, cancels the scheduled erasure and
                 emails the client.{" "}
                 <InfoTip label="reopening">
@@ -201,7 +201,7 @@ export function ClosureScreen({ tenantId }: { tenantId: string }) {
 
 /** The state in a few words, off the server's clock. */
 function ClosureStatus({ record }: { record: Closure }) {
-  if (record.erased_at != null) return <TonePill tone="stop">Erased</TonePill>;
+  if (record.erased_at != null) return <StatusPill tone="stop">Erased</StatusPill>;
   if (record.closed_at == null) return null;
   const left =
     record.days_remaining == null
@@ -209,7 +209,7 @@ function ClosureStatus({ record }: { record: Closure }) {
       : record.days_remaining === 0
         ? "erasure due today"
         : `${record.days_remaining} day${record.days_remaining === 1 ? "" : "s"} to undo`;
-  return <TonePill tone="stop">{left ? `Closed · ${left}` : "Closed"}</TonePill>;
+  return <StatusPill tone="stop">{left ? `Closed · ${left}` : "Closed"}</StatusPill>;
 }
 
 /** Past the point of any undo. Said once, plainly, with nothing to press. */
@@ -220,7 +220,7 @@ function ErasedNotice({ erasedAt }: { erasedAt: string }) {
       icon={<AlertTriangle className="h-5 w-5" />}
       title="This client's records have been erased"
     >
-      <p className="mt-1 text-xs opacity-90">
+      <p className="mt-1 text-meta opacity-90">
         The erasure ran on {formatIST(erasedAt)}. It cannot be undone and the account cannot
         be reopened. What remains is the erasure certificate, below.
       </p>
@@ -243,7 +243,7 @@ function ClosedPanel({ record }: { record: Closure }) {
           : "Closed. No erasure is scheduled"
       }
     >
-      <dl className="mt-2 space-y-1 text-xs opacity-90">
+      <dl className="mt-2 space-y-1 text-meta opacity-90">
         <div>
           <dt className="inline font-medium">Closed at: </dt>
           <dd className="inline">{record.closed_at ? formatIST(record.closed_at) : "—"}</dd>
@@ -265,7 +265,7 @@ function ClosedPanel({ record }: { record: Closure }) {
           </dd>
         </div>
       </dl>
-      <p className="mt-2 text-xs opacity-90">
+      <p className="mt-2 text-meta opacity-90">
         Their telephone numbers were disconnected from the agents at the carrier, and no
         agent holds a conversation for a closed account. The numbers are not released:
         release or port them with the telephony provider only on the client&apos;s
@@ -301,7 +301,7 @@ function CloseForm({
   const blocked = reasonMissing || wordMissing;
 
   return (
-    <Card title={`Close ${tenantName}`}>
+    <Section title={`Close ${tenantName}`}>
       <form
         className="max-w-xl space-y-4"
         noValidate
@@ -312,7 +312,7 @@ function CloseForm({
           close.mutate({ reason: reason.trim(), graceDays: null });
         }}
       >
-        <p className="text-sm text-ink">
+        <p className="text-body text-ink">
           Closing stops the account at once — nobody at the client can sign in, no outbound
           call or campaign runs, no agent can be published and no invitation can be issued
           or redeemed — and sets the date their call records, transcripts and leads are
@@ -322,7 +322,7 @@ function CloseForm({
         </p>
 
         <NoticeBox tone={hasNonZeroDigit(forfeitedInr) ? "warn" : "neutral"}>
-          <p className="text-sm">
+          <p className="text-body">
             Unused credit on this account: <strong>{formatINR(forfeitedInr)}</strong>. It is
             forfeited on closure and not refunded, as the Terms and the Refund Policy say. Use
             the credits page first if any of it is owed back for a charge made in error.
@@ -374,7 +374,7 @@ function CloseForm({
             {close.isPending ? "Closing…" : "Close this account"}
           </button>
           {blocked && (
-            <span className="text-xs text-warn">
+            <span className="text-meta text-warn">
               {reasonMissing
                 ? "A reason is required — the client is sent it."
                 : "Type CLOSE above to confirm before this can be applied."}
@@ -384,6 +384,6 @@ function CloseForm({
       </form>
 
       {close.error != null && <ProblemNotice error={close.error} />}
-    </Card>
+    </Section>
   );
 }

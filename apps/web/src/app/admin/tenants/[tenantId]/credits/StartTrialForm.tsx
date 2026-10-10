@@ -234,7 +234,7 @@ export function StartTrialForm({
       {/* WHAT THE BUTTON DOES, ABOVE THE BUTTON — the act, for how long, what it does NOT
           suspend, then that it is recorded. An operator who reads only the first line has
           read the part that matters. */}
-      <div className="flex gap-3 rounded-card border border-line bg-surface p-4 text-sm">
+      <div className="flex gap-3 border-l-2 border-danger py-1 pl-4 text-body">
         <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
         <div className="min-w-0">
           <p className="font-semibold text-ink">
@@ -258,7 +258,7 @@ export function StartTrialForm({
             every test call. A client that has already paid keeps everything it had, and a
             trial only puts its calls on us.
           </p>
-          <p className="mt-1 text-xs text-ink-faint">
+          <p className="mt-1 text-meta text-ink-muted">
             Recorded in the audit log against your admin account with the reason you type
             above, in the same transaction as the trial. Their agents are told straight
             away, so a client whose line stopped for an empty wallet starts answering again
@@ -276,7 +276,7 @@ export function StartTrialForm({
           icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
           title={`On us for ${start.data.days} day(s) — until ${formatIST(start.data.ends_at)}`}
         >
-          <p className="mt-1 text-xs">
+          <p className="mt-1">
             Nothing was credited to their wallet and no ledger entry was written: a trial is
             not money, it is a period we agreed to fund.
           </p>
@@ -294,7 +294,7 @@ export function StartTrialForm({
       <RestrictionNote reason={write.reason} />
 
       {write.allowed && (
-        <p className="text-xs text-ink-muted">
+        <p className="text-meta text-ink-muted">
           {!daysReady
             ? "Enter how many days this client was promised."
             : !confirmed

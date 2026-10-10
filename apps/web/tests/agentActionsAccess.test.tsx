@@ -84,7 +84,8 @@ describe("the mid-call actions panel", () => {
       routes(me("staff", ["agents:read", "agents:write", "org:read"])),
     );
 
-    expect(await screen.findByText("Look up an order")).toBeTruthy();
+    // Every action is one row with its own switch, named by the action (REDESIGN-2).
+    expect(await screen.findByRole("switch", { name: "Look up an order" })).toBeTruthy();
     expect(
       await screen.findByText(
         "Only an account owner can change what this agent can do mid-call.",
@@ -98,7 +99,7 @@ describe("the mid-call actions panel", () => {
       master,
       screen.getByRole("button", { name: "Manage Look up an order" }),
       screen.getByRole("button", { name: /your own api/i }),
-      screen.getByRole("button", { name: /book appointments/i }),
+      screen.getByRole("button", { name: /take bookings/i }),
     ];
     for (const control of writes) expect(control.matches(":disabled")).toBe(true);
 

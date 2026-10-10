@@ -66,7 +66,7 @@ export function CloneVoiceDrawer({ onClose }: { onClose: () => void }) {
               <p className="mt-1">It cannot be put on an agent yet.</p>
             )}
           </NoticeBox>
-          <p className="text-sm text-ink-muted">
+          <p className="text-body text-ink-muted">
             It is added but not offered. A clone is a Studio-tier voice, so it can be offered as
             Clear only while Clear is sold on the Studio tier. Listen to its preview, then switch
             on &ldquo;Offered to clients&rdquo;.
@@ -128,7 +128,7 @@ export function CloneVoiceDrawer({ onClose }: { onClose: () => void }) {
             speaking naturally; about 15 seconds in a quiet room works best.
           </span>
           {tooBig && (
-            <span role="alert" className="mt-1 block text-xs text-warn">
+            <span role="alert" className="mt-1 block text-meta text-warn">
               That file is larger than 2 MB. Trim it or export a compressed MP3.
             </span>
           )}
@@ -178,13 +178,13 @@ export function CloneVoiceDrawer({ onClose }: { onClose: () => void }) {
           onChange={setRemoveNoise}
         />
 
-        <fieldset className="space-y-3 rounded-card border border-line p-4">
-          <legend className="px-1 text-sm font-semibold text-ink">Your two promises</legend>
-          <p className="text-xs text-ink-muted">
+        <fieldset className="space-y-3 border-t border-line pt-4">
+          <legend className="px-1 text-body font-semibold text-ink">Your two promises</legend>
+          <p className="text-meta text-ink-muted">
             Both are recorded against your name with the time. The clone cannot be made without
             them.
           </p>
-          <label className="flex items-start gap-2 text-sm text-ink">
+          <label className="flex items-start gap-2 text-body text-ink">
             <input
               type="checkbox"
               className="mt-1"
@@ -196,7 +196,7 @@ export function CloneVoiceDrawer({ onClose }: { onClose: () => void }) {
               writing to have their voice cloned for use on calls.
             </span>
           </label>
-          <label className="flex items-start gap-2 text-sm text-ink">
+          <label className="flex items-start gap-2 text-body text-ink">
             <input
               type="checkbox"
               className="mt-1"

@@ -153,6 +153,7 @@ async def test_every_audited_surface_leaves_its_own_row() -> None:
         f"/v1/admin/tenants/{tenant_id}/feature-flags",
         f"/v1/admin/tenants/{tenant_id}/erasure",
         f"/v1/admin/organizations/{tenant_id}/llm-defaults",
+        f"/v1/admin/client-health/{tenant_id}",
     )
     async with _client() as http:
         headers = _auth(token)

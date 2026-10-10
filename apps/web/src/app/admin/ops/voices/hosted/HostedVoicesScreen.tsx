@@ -54,7 +54,7 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
   const soldBand = (added.clear_band && lookup(BAND_LABEL, added.clear_band)) ?? "Premium";
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="max-w-4xl space-y-10 pb-12">
       <PageHeader
         description="Clients choose only from the voices added and enabled here, and can listen to each one first."
         actions={
@@ -105,15 +105,15 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
 
       <section aria-labelledby="hosted-voices" className="space-y-3">
         <div>
-          <h2 id="hosted-voices" className="text-[17px] font-semibold text-ink">
+          <h2 id="hosted-voices" className="text-heading text-ink">
             The voices clients can be offered
           </h2>
-          <p className="mt-1 text-sm tabular-nums text-ink-muted">
+          <p className="mt-1 text-body tabular-nums text-ink-muted">
             {formatCount(added.offered)} offered{" · "}
             {formatCount(added.voices.length)} added{" · "}
             {formatCount(added.cached)} on the platform
           </p>
-          {added.note && <p className="mt-1 text-sm text-ink-muted">{added.note}</p>}
+          {added.note && <p className="mt-1 text-body text-ink-muted">{added.note}</p>}
         </div>
 
         <Tabs
@@ -142,7 +142,7 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
             }
             if (value === "studio" && !added.studio_ready && studioCount === 0) {
               return (
-                <p className="text-sm text-ink-muted">
+                <p className="text-body text-ink-muted">
                   Studio voices are read from our Cartesia key, which is not switched on yet. Enable
                   Studio voices above, then press Refresh.
                 </p>
@@ -172,7 +172,7 @@ const BAND_ORDER = ["standard", "premium", "studio"] as const;
 /** How many voices the platform lists in each band, and which band can be sold. */
 function BandSummary({ bands, soldBand }: { bands: HostedVoices["bands"]; soldBand: string }) {
   return (
-    <p className="text-sm tabular-nums text-ink-muted">
+    <p className="text-body tabular-nums text-ink-muted">
       {"On the platform: "}
       {BAND_ORDER.map((band) => `${formatCount(bands[band] ?? 0)} ${lookup(BAND_LABEL, band) ?? band}`).join(" · ")}
       {`. Only ${soldBand}-tier voices can be added as Clear.`}

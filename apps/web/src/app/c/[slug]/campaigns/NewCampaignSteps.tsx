@@ -1,17 +1,19 @@
 "use client";
 
 import { CheckCircle2 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
-import { FIELD, FIELD_HINT, FIELD_LABEL, formatCount, formatPhone } from "@/components/ui";
+import { TEXT_ACTION } from "@/components/console/section";
+import { SettingRow, SettingRows } from "@/components/console/settingRow";
+import { FIELD, FIELD_HINT, FIELD_LABEL, formatPhone } from "@/components/ui";
 import { canDialOut } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
 import type { CampaignNumber, DltTemplate } from "@/lib/api/campaigns";
 import { Term } from "@/lib/glossary";
 
 import type { CampaignFormState, ScheduleFormState, StartMode } from "./campaignForm";
-import { CLASSIFICATIONS, CONSENT_SOURCES, WEEKDAYS } from "./choices";
+import { CLASSIFICATIONS, WEEKDAYS } from "./choices";
 import { describeRepeat } from "./scheduleCopy";
 
 /** A read a step is BUILT from: its failure is a dead picker, not an empty one. */
@@ -177,18 +179,15 @@ const START_MODES: { value: StartMode; label: string; hint: string }[] = [
 ];
 
 /**
- * STEP 3, WHEN: how it starts, the hours it may call in, and its pace.
+ * WHEN IT STARTS: launched by hand, once at a set time, or every week.
  *
- * Every option here is one the API takes: the window and the pace on create
- * (`CreateCampaignIn.calling_hours` / `concurrency`), the start on `POST …/schedule`, and the
- * weekly repeat on `POST …/recurrence`. The last two are sent after the draft exists, and
- * neither runs the launch gate when it is armed: the gate runs when the start fires, which
- * is why the hint under them says so. Retrying unanswered calls is the dispatcher's own
- * policy, not a create field, so it is stated rather than offered.
+ * Every option is one the API takes: the start on `POST …/schedule` and the weekly repeat
+ * on `POST …/recurrence`, both sent after the draft exists. Neither runs the launch gate
+ * when it is armed; the gate runs when the start fires, which is why the hint says so.
  */
-export function WhenStep({ form, schedule }: { form: CampaignFormState; schedule: ScheduleFormState }) {
+export function StartChoice({ schedule }: { schedule: ScheduleFormState }) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <ChoiceCards
         legend="How should it start?"
         name="start-mode"
@@ -224,7 +223,7 @@ export function WhenStep({ form, schedule }: { form: CampaignFormState; schedule
                     checked={schedule.repeatDays.includes(day.value)}
                     onChange={() => schedule.toggleRepeatDay(day.value)}
                   />
-                  <span aria-hidden className="text-sm text-ink">{day.short}</span>
+                  <span aria-hidden className="text-body text-ink">{day.short}</span>
                   <span className="sr-only">{day.label}</span>
                 </label>
               ))}
@@ -240,6 +239,7 @@ export function WhenStep({ form, schedule }: { form: CampaignFormState; schedule
               <input type="date" value={schedule.repeatEnds} onChange={(e) => schedule.setRepeatEnds(e.target.value)} className={FIELD} />
             </label>
           </div>
+          <p className={FIELD_HINT}>{describeRepeat({ days: schedule.repeatDays, at: schedule.repeatTime })}</p>
         </div>
       )}
       {schedule.startMode !== "review" && (
@@ -248,106 +248,80 @@ export function WhenStep({ form, schedule }: { form: CampaignFormState; schedule
           dial between now and then will not start.
         </p>
       )}
-
-      {/* The window NARROWS the 9am–9pm bound every dial already has; it never sets one. */}
-      <fieldset>
-        <label className="flex items-center gap-2 touch:min-h-11">
-          <input
-            type="checkbox"
-            checked={form.restrictHours}
-            onChange={(e) => form.setRestrictHours(e.target.checked)}
-            className="h-4 w-4 rounded border-line accent-brand"
-          />
-          <span className="text-sm text-ink">Only call during specific hours</span>
-        </label>
-        <p className="mt-1 text-xs text-ink-faint">
-          Calls never go out before 9am or after 9pm — this narrows that further.
-        </p>
-        {form.restrictHours && (
-          <div className="settings-enter mt-3 grid max-w-xs grid-cols-2 gap-3">
-            <label className="block">
-              <span className={FIELD_LABEL}>From</span>
-              <input type="time" value={form.windowStart} onChange={(e) => form.setWindowStart(e.target.value)} className={FIELD} />
-            </label>
-            <label className="block">
-              <span className={FIELD_LABEL}>Until</span>
-              <input type="time" value={form.windowEnd} onChange={(e) => form.setWindowEnd(e.target.value)} className={FIELD} />
-            </label>
-          </div>
-        )}
-      </fieldset>
-      <label className="block max-w-xs">
-        <span className={FIELD_LABEL}>Calls at the same time</span>
-        <input
-          type="number"
-          min={1}
-          max={10}
-          value={form.concurrency}
-          onChange={(e) => form.setConcurrency(Number(e.target.value))}
-          className={FIELD}
-        />
-        <span className={FIELD_HINT}>Lower is slower. Lines are always kept free for people calling you.</span>
-      </label>
-      <p className="text-xs text-ink-faint">Anyone who doesn&apos;t answer is tried again later.</p>
     </div>
   );
 }
 
-/** The fourth step: what will be created, read back before the button that creates it. */
-export function ReviewSummary({
-  form,
-  schedule,
-  agentName,
-  number,
-  template,
-}: {
-  form: CampaignFormState;
-  schedule: ScheduleFormState;
-  agentName: string | undefined;
-  number: CampaignNumber | undefined;
-  template: DltTemplate | undefined;
-}) {
-  const source = CONSENT_SOURCES.find((option) => option.value === form.consentSource);
-  const kind = CLASSIFICATIONS.find((option) => option.value === form.classification);
-  const { counts } = form.checked;
-  const start =
-    schedule.startMode === "later"
-      ? `${schedule.startDate} at ${schedule.startTime} IST`
-      : schedule.startMode === "weekly"
-        ? `Repeats ${describeRepeat({ days: schedule.repeatDays, at: schedule.repeatTime })} IST`
-        : "You launch it from its checklist";
-  return (
-    <dl className="divide-y divide-line text-sm">
-      <ReviewRow label="Name">{form.name}</ReviewRow>
-      <ReviewRow label="Agent">{agentName ?? "None chosen"}</ReviewRow>
-      <ReviewRow label="Kind of call">{kind?.label}</ReviewRow>
-      <ReviewRow label="Calling from">{number ? formatPhone(number.e164) : "No number chosen"}</ReviewRow>
-      <ReviewRow label="Template">
-        {template ? `${template.classification} — ${template.status}` : "No template chosen"}
-      </ReviewRow>
-      <ReviewRow label="Contacts">
-        {formatCount(counts.ready)} ready
-        {counts.invalid + counts.duplicate > 0 &&
-          ` · ${formatCount(counts.invalid + counts.duplicate)} left out`}
-      </ReviewRow>
-      <ReviewRow label="Where the list came from">
-        {source?.label ?? "Not answered"}
-        {form.consentDate ? ` · agreed ${form.consentDate}` : ""}
-      </ReviewRow>
-      <ReviewRow label="Start">{start}</ReviewRow>
-      <ReviewRow label="Hours">
-        {form.restrictHours ? `${form.windowStart}–${form.windowEnd} IST` : "9am–9pm IST"}
-      </ReviewRow>
-      <ReviewRow label="Calls at once">{form.concurrency}</ReviewRow>
-    </dl>
+/**
+ * THE PRE-SET RULES, as rows with Change (founder, REDESIGN-2): the hours it may call in
+ * and how many calls run at once are the create fields (`calling_hours`, `concurrency`);
+ * retrying unanswered calls and skipping the do-not-call list are the platform's own and
+ * are stated, not offered.
+ */
+export function PaceRows({ form }: { form: CampaignFormState }) {
+  const [editing, setEditing] = useState<"hours" | "pace" | null>(null);
+  const change = (what: "hours" | "pace") => (
+    <button type="button" className={TEXT_ACTION} onClick={() => setEditing(editing === what ? null : what)} aria-expanded={editing === what}>
+      {editing === what ? "Done" : "Change"}
+    </button>
   );
-}
-
-function ReviewRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex flex-wrap justify-between gap-x-4 gap-y-0.5 py-2">
-      <dt className="text-ink-muted">{label}</dt>
-      <dd className="min-w-0 font-medium text-ink">{children}</dd>
-    </div>
+    <SettingRows className="border-y border-line">
+      <SettingRow
+        label="Calling hours"
+        hint="Calls never go out before 9am or after 9pm. You can narrow that."
+        value={form.restrictHours ? `${form.windowStart || "…"} – ${form.windowEnd || "…"} IST` : "9am – 9pm IST"}
+        action={change("hours")}
+      />
+      {editing === "hours" && (
+        <div className="settings-enter space-y-3 pb-4">
+          <label className="flex items-center gap-2 touch:min-h-11">
+            <input
+              type="checkbox"
+              checked={form.restrictHours}
+              onChange={(e) => form.setRestrictHours(e.target.checked)}
+              className="h-4 w-4 rounded border-line accent-brand"
+            />
+            <span className="text-body text-ink">Only call during specific hours</span>
+          </label>
+          {form.restrictHours && (
+            <div className="grid max-w-xs grid-cols-2 gap-3">
+              <label className="block">
+                <span className={FIELD_LABEL}>From</span>
+                <input type="time" value={form.windowStart} onChange={(e) => form.setWindowStart(e.target.value)} className={FIELD} />
+              </label>
+              <label className="block">
+                <span className={FIELD_LABEL}>Until</span>
+                <input type="time" value={form.windowEnd} onChange={(e) => form.setWindowEnd(e.target.value)} className={FIELD} />
+              </label>
+            </div>
+          )}
+        </div>
+      )}
+      <SettingRow
+        label="Calls at the same time"
+        hint="Lines are always kept free for people calling you."
+        value={String(form.concurrency)}
+        action={change("pace")}
+      />
+      {editing === "pace" && (
+        <div className="settings-enter pb-4">
+          <label className="block max-w-xs">
+            <span className={FIELD_LABEL}>Calls at the same time</span>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={form.concurrency}
+              onChange={(e) => form.setConcurrency(Number(e.target.value))}
+              className={FIELD}
+            />
+            <span className={FIELD_HINT}>Between 1 and 10. Lower is slower.</span>
+          </label>
+        </div>
+      )}
+      <SettingRow label="No answer" value="Tried again later" />
+      <SettingRow label="Do-not-call list" value="Numbers on it are always skipped" />
+    </SettingRows>
   );
 }

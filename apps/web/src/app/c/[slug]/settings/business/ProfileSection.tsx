@@ -1,9 +1,11 @@
 "use client";
 
+import { Section } from "@/components/console/section";
+
 import type { ReactNode } from "react";
 import { Check } from "lucide-react";
 
-import { Card, PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
+import { PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
 import {
   draftFromProfile,
@@ -44,7 +46,7 @@ export function ProfileSection({
   const fields = save.error instanceof ApiProblem ? save.error.fields : undefined;
 
   return (
-    <Card density="compact" title={step.short} info={step.hint}>
+    <Section title={step.short} info={step.hint}>
       <form
         noValidate
         onSubmit={(event) => {
@@ -65,7 +67,7 @@ export function ProfileSection({
           {render((path) => fieldMessage(fields, path))}
         </fieldset>
         {problem && (
-          <p role="alert" className="text-[13px] font-medium text-danger">
+          <p role="alert" className="text-meta font-medium text-danger">
             {problem}
           </p>
         )}
@@ -83,7 +85,7 @@ export function ProfileSection({
             {save.isSuccess && !dirty && (
               <span
                 role="status"
-                className="inline-flex items-center gap-1 text-[13px] text-ink-muted"
+                className="inline-flex items-center gap-1 text-meta text-ink-muted"
               >
                 <Check aria-hidden className="h-3.5 w-3.5" />
                 Saved. Your agents use this now.
@@ -92,7 +94,7 @@ export function ProfileSection({
           </div>
         )}
       </form>
-    </Card>
+    </Section>
   );
 }
 

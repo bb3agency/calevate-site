@@ -59,13 +59,13 @@ export function TestLeadDrawer({
       <div className="space-y-4">
         {test.isPending && <Skeleton rows={3} />}
         {test.error != null && <ProblemNotice error={test.error} />}
-        {jsonError && <p className="text-sm text-warn">{jsonError}</p>}
+        {jsonError && <p className="text-body text-warn">{jsonError}</p>}
         {result && (
           <>
             {/* Present tense: the gate reads the do-not-call list live, so this is what
                 would happen NOW — not a property of the source. */}
             <div
-              className={`rounded-lg border p-3 text-sm ${result.would_call ? NOTICE_TONES.ok : NOTICE_TONES.warn}`}
+              className={`rounded-md border px-3 py-2 text-body ${result.would_call ? NOTICE_TONES.ok : NOTICE_TONES.warn}`}
             >
               <p className="font-medium">
                 {result.would_call
@@ -86,12 +86,12 @@ export function TestLeadDrawer({
                   >
                     {step.ok ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
                   </span>
-                  <div className="text-sm">
+                  <div className="text-body">
                     <p className="text-ink">{step.detail}</p>
                     {/* Which rule spoke tells the client what to fix. */}
-                    {step.rule && <p className="text-xs text-ink-muted">rule: {step.rule}</p>}
+                    {step.rule && <p className="text-meta text-ink-muted">rule: {step.rule}</p>}
                     {step.mapped_fields && step.mapped_fields.length > 0 && (
-                      <p className="text-xs text-ink-muted">matched: {step.mapped_fields.join(", ")}</p>
+                      <p className="text-meta text-ink-muted">matched: {step.mapped_fields.join(", ")}</p>
                     )}
                   </div>
                 </li>
@@ -110,7 +110,7 @@ export function TestLeadDrawer({
             onChange={(e) => onPayloadText(e.target.value)}
             rows={6}
             spellCheck={false}
-            className={`${FIELD} w-full font-mono text-xs`}
+            className={`${FIELD} w-full font-mono text-meta`}
             aria-label="Sample lead payload (JSON)"
           />
         </Disclosure>

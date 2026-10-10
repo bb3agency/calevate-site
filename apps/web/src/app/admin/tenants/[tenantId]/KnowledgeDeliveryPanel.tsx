@@ -1,11 +1,13 @@
 "use client";
 
 import { EmptyState } from "@/components/console/emptyState";
-import { Card, MonoValue, ProblemNotice, Skeleton, formatIST, type NoticeTone } from "@/components/ui";
+import { HAIRLINE_LIST } from "@/components/admin/kit";
+import { Section } from "@/components/console/section";
+import { MonoValue, ProblemNotice, Skeleton, formatIST, type NoticeTone } from "@/components/ui";
 import { useTenantKbDelivery, type AgentDelivery } from "@/lib/api/admin";
 import { lookup } from "@/lib/lookup";
 
-import { StatePill } from "./statePill";
+import { StatusPill } from "@/components/admin/kit";
 
 /**
  * WHAT THIS CLIENT'S PHONE IS ACTUALLY ANSWERING FROM — the other half of the queue above.
@@ -41,15 +43,15 @@ export function KnowledgeDeliveryPanel({ slug }: { slug: string }) {
 
   if (delivery.isLoading) {
     return (
-      <Card title="Agents using this knowledge" density="compact">
+      <Section title="Agents using this knowledge">
         <Skeleton rows={3} />
-      </Card>
+      </Section>
     );
   }
 
   if (delivery.error || !delivery.data) {
     return (
-      <Card title="Agents using this knowledge" density="compact">
+      <Section title="Agents using this knowledge">
         <ProblemNotice
           error={
             delivery.error ??
@@ -57,33 +59,32 @@ export function KnowledgeDeliveryPanel({ slug }: { slug: string }) {
           }
           onRetry={() => void delivery.refetch()}
         />
-      </Card>
+      </Section>
     );
   }
 
   const { items, not_delivered_count } = delivery.data;
 
   return (
-    <Card
+    <Section
       title="Agents using this knowledge"
-      density="compact"
       info="The client's knowledge is shared by all its agents. This is what each agent is answering callers out of, against what the client has published. Approving and publishing do not guarantee the frozen knowledge reached the agent — this is where that shows."
       action={
         not_delivered_count > 0 ? (
-          <StatePill tone="stop">{not_delivered_count} stale</StatePill>
+          <StatusPill tone="stop">{not_delivered_count} stale</StatusPill>
         ) : undefined
       }
     >
       {items.length === 0 ? (
         <EmptyState message="No live agents, so there is nothing for knowledge to reach." />
       ) : (
-        <ul className="divide-y divide-line">
+        <ul className={HAIRLINE_LIST}>
           {items.map((row) => (
             <Row key={row.agent_id} row={row} />
           ))}
         </ul>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -123,30 +124,30 @@ function Row({ row }: { row: AgentDelivery }) {
   const state = lookup(STATE, row.state) ?? STATE.no_knowledge;
 
   return (
-    <li className="py-3 first:pt-1 last:pb-0">
+    <li className="py-3 sm:px-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-sm font-medium text-ink">{row.agent_name}</span>
-        <StatePill tone={state.tone}>{state.label}</StatePill>
+        <span className="min-w-0 truncate text-body font-medium text-ink">{row.agent_name}</span>
+        <StatusPill tone={state.tone}>{state.label}</StatusPill>
       </div>
-      <p className="mt-1 text-[12px] text-ink-muted">{state.note}</p>
-      <dl className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-ink-faint">
+      <p className="mt-1 text-meta text-ink-muted">{state.note}</p>
+      <dl className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-meta text-ink-muted">
         <div className="flex gap-1.5">
           <dt>Live facts</dt>
-          <dd className="tabular-nums text-ink-muted">{row.live_chunks}</dd>
+          <dd className="tabular-nums text-ink">{row.live_chunks}</dd>
         </div>
         <div className="flex gap-1.5">
           <dt>Awaiting gloss</dt>
-          <dd className="tabular-nums text-ink-muted">{row.awaiting_translation}</dd>
+          <dd className="tabular-nums text-ink">{row.awaiting_translation}</dd>
         </div>
         <div className="flex gap-1.5">
           <dt>Reached the agent</dt>
           {/* `formatIST` renders an em dash for null, which is the honest answer for a
               pack recorded before migration f4b18c7d2e59 — and for one never recorded. */}
-          <dd className="text-ink-muted">{formatIST(row.last_reached_at)}</dd>
+          <dd className="text-ink">{formatIST(row.last_reached_at)}</dd>
         </div>
       </dl>
       {row.pack_id ? (
-        <p className="mt-1.5 text-[11px] text-ink-faint">
+        <p className="mt-1.5 text-meta text-ink-muted">
           {/* The FULL id for an operator, unlike the client's card: this is the object key
               in the bucket (`pack_object_key`), so a truncated one cannot be looked up. */}
           Pack <MonoValue className="text-ink-muted">{row.pack_id}</MonoValue>

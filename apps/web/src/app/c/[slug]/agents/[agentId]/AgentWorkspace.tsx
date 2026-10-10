@@ -30,8 +30,9 @@
  */
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
-import { ProblemNotice, Skeleton } from "@/components/ui";
+import { NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
 import { PageHeader } from "@/components/console/pageHeader";
 import { SettingsLayout } from "@/components/console/settingsLayout";
 import { isDeleted } from "@/lib/agentState";
@@ -127,7 +128,7 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
         </p>
         <ExtractionList agent={agent} leadsHref={leadsLink} />
         <section aria-labelledby="deleted-identity-heading">
-          <h3 id="deleted-identity-heading" className="mb-2 text-[15px] font-semibold text-ink">
+          <h3 id="deleted-identity-heading" className="mb-2 text-heading text-ink">
             What it is
           </h3>
           <AgentIdentity agent={agent} />
@@ -146,7 +147,12 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
         renderSection={(id) => {
           switch (id) {
             case "script":
-              return <ScriptSection agent={agent} slug={slug} />;
+              return (
+                <>
+                  <StarterDraftNotice agent={agent} />
+                  <ScriptSection agent={agent} slug={slug} />
+                </>
+              );
             case "voice":
               return <VoiceSection agent={agent} />;
             case "calls":
@@ -155,16 +161,19 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
               return <ExtractionList agent={agent} leadsHref={leadsLink} />;
             case "knowledge":
               return (
+                <>
+                <KnowledgeSurface agentId={agent.id} />
                 <div className="space-y-8">
                   {/* The questions it could not answer on real calls, teachable in place. */}
                   <KnowledgeGaps agentId={agent.id} />
                   <section aria-labelledby="agent-knows-heading">
-                    <h3 id="agent-knows-heading" className="mb-1 text-[15px] font-semibold text-ink">
+                    <h3 id="agent-knows-heading" className="mb-1 text-heading text-ink">
                       What it knows
                     </h3>
                     <TrainingPanel agent={agent} />
                   </section>
                 </div>
+                </>
               );
             case "actions":
               return <ActionsSection agentId={agent.id} />;
@@ -179,7 +188,41 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
   );
 }
 
+/** The Knowledge section, declared to the assistant (its panels declare nothing). */
+function KnowledgeSurface({ agentId }: { agentId: string }) {
+  useCopilotSurface({
+    route: "/c/{slug}/agents/{id}",
+    title: "Agent: what it knows",
+    realm: "client",
+    fields: [],
+    facts: [
+      { key: "agent_id", label: "Agent id", value: agentId },
+      {
+        key: "what_is_here",
+        label: "What this section shows",
+        value: "questions this agent could not answer on real calls, which can be taught here, and the knowledge it uses",
+      },
+    ],
+    apply: noFill,
+  });
+  return null;
+}
+
 function ActionsSection({ agentId }: { agentId: string }) {
   const session = useClientSession();
   return <Actions agentId={agentId} session={session} />;
+}
+
+/**
+ * Just made from a job (`/agents/new`, `?from=starter`): the script below is the ready-made
+ * one, saved but not live. Said once, above it, until the agent is published.
+ */
+function StarterDraftNotice({ agent }: { agent: Agent }) {
+  const params = useSearchParams();
+  if (params.get("from") !== "starter" || agent.published) return null;
+  return (
+    <NoticeBox tone="neutral" className="mb-6">
+      Your agent is a draft. Review the script, then publish.
+    </NoticeBox>
+  );
 }

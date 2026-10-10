@@ -40,7 +40,7 @@ import {
 
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
-import { istDateStamp } from "@/components/ui";
+import { saveCsv } from "@/lib/csvDownload";
 
 type Schemas = components["schemas"];
 
@@ -578,7 +578,6 @@ export function useBulkLeads(session: Session) {
  * mark from an accident of somebody's editor. Same reasoning as the full-width formula
  * leaders in `core/spreadsheet_safety.py`.
  */
-const BOM = "\uFEFF";
 
 export function useExportLeads(session: Session) {
   return useMutation({
@@ -590,19 +589,7 @@ export function useExportLeads(session: Session) {
         method: "POST",
         body: lensBody(lens),
       }),
-    onSuccess: (csv) => {
-      const url = URL.createObjectURL(new Blob([BOM, csv], { type: "text/csv;charset=utf-8" }));
-      const link = document.createElement("a");
-      link.href = url;
-      // The IST day, not the UTC one: before 05:30 IST `toISOString()` is still on
-      // yesterday, and this file is named for the day the client took it.
-      link.download = `leads-${istDateStamp()}.csv`;
-      // In the document and revoked a tick later: a detached anchor is a no-op in
-      // some browsers, and revoking synchronously can cancel the save.
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
-    },
+    // The byte-order mark, the IST file name and the save itself: `lib/csvDownload`.
+    onSuccess: (csv) => saveCsv(csv, "leads"),
   });
 }

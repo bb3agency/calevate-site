@@ -1,5 +1,7 @@
 "use client";
 
+import { HAIRLINE_LIST, StatusPill } from "@/components/admin/kit";
+import { Section } from "@/components/console/section";
 import { ProblemNotice, Skeleton, formatPhone } from "@/components/ui";
 import { useTenantEngineNumbers } from "@/lib/api/numbers";
 
@@ -34,38 +36,33 @@ export function EngineNumbersPanel({
   const platform = data.platform ?? "the voice platform";
 
   return (
-    <section
-      aria-labelledby="engine-numbers-heading"
-      className="space-y-4 rounded-card border border-line bg-surface p-4 sm:p-6"
-    >
-      <div>
-        <h2 id="engine-numbers-heading" className="text-base font-semibold text-ink">
-          Numbers on {platform}
-        </h2>
-        <p className="mt-1 text-sm text-ink-muted">
+    <Section
+      title={`Numbers on ${platform}`}
+      description={
+        <>
           This deployment&apos;s calls run on {platform}. Numbers are rented in the {platform}{" "}
           console; record each one here for this client, then choose its agent below — the
           list is what {platform} holds right now.
-        </p>
-      </div>
+        </>
+      }
+    >
+      <div className="space-y-8">
 
       {data.numbers.length === 0 ? (
-        <p className="rounded-card border border-dashed border-line p-3 text-sm text-ink-muted">
+        <p className="border-y border-line py-4 text-body text-ink-muted">
           {platform} holds no number for this client&apos;s agents and none that is free to
           attach. Follow the steps below to rent one.
         </p>
       ) : (
-        <ul className="divide-y divide-line rounded-card border border-line">
+        <ul aria-label={`Numbers on ${platform}`} className={HAIRLINE_LIST}>
           {data.numbers.map((number) => (
-            <li key={number.e164} className="flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm">
+            <li key={number.e164} className="flex flex-wrap items-center gap-3 py-3 text-body sm:px-2">
               <span className="font-mono text-ink">{formatPhone(number.e164)}</span>
               {number.provider && (
-                <span className="text-xs text-ink-muted">{number.provider}</span>
+                <span className="text-meta text-ink-muted">{number.provider}</span>
               )}
               {number.platform_held && (
-                <span className="rounded-full border border-warn-line bg-warn-soft px-2 py-0.5 text-xs font-medium text-ink">
-                  Held in the platform account (testing only)
-                </span>
+                <StatusPill tone="warn">Held in the platform account (testing only)</StatusPill>
               )}
               <span className="ml-auto text-ink-muted">
                 {number.agent_name
@@ -76,7 +73,7 @@ export function EngineNumbersPanel({
               </span>
               {number.number_id ? (
                 <div className="w-full space-y-2">
-                  <span className="block text-xs text-ink-muted">Recorded for this client.</span>
+                  <span className="block text-meta text-ink-muted">Recorded for this client.</span>
                   <EngineNumberActions
                     tenantId={tenantId}
                     numberId={number.number_id}
@@ -99,7 +96,7 @@ export function EngineNumbersPanel({
         </ul>
       )}
       {data.other_numbers > 0 && (
-        <p className="text-xs text-ink-faint">
+        <p className="text-meta text-ink-muted">
           {data.other_numbers === 1
             ? "One more number on the account is answered by another client's agent and is not shown."
             : `${data.other_numbers} more numbers on the account are answered by other clients' agents and are not shown.`}
@@ -107,21 +104,21 @@ export function EngineNumbersPanel({
       )}
 
       <div>
-        <h3 className="text-sm font-semibold text-ink">This client&apos;s published agents</h3>
+        <h3 className="text-body font-semibold text-ink">This client&apos;s published agents</h3>
         {data.agents.length === 0 ? (
-          <p className="mt-1 text-sm text-ink-muted">
+          <p className="mt-1 text-body text-ink-muted">
             None yet. Publish an agent first: it appears in the {platform} console under its
             own name once it is published.
           </p>
         ) : (
-          <ul className="mt-1 divide-y divide-line rounded-card border border-line">
+          <ul className={`mt-2 ${HAIRLINE_LIST}`}>
             {data.agents.map((agent) => (
               <li
                 key={agent.agent_id}
-                className="flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm"
+                className="flex flex-wrap items-center gap-3 py-2.5 text-body sm:px-2"
               >
                 <span className="font-medium text-ink">{agent.name}</span>
-                <span className="font-mono text-xs text-ink-muted">{agent.engine_agent_ref}</span>
+                <span className="font-mono text-meta text-ink-muted">{agent.engine_agent_ref}</span>
                 <span className="ml-auto text-ink-muted">
                   {agent.answers_a_number ? "Answers a number" : "Answers no number yet"}
                 </span>
@@ -132,20 +129,21 @@ export function EngineNumbersPanel({
       </div>
 
       <div>
-        <h3 className="text-sm font-semibold text-ink">Rent a number and record it</h3>
-        <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-ink-muted">
+        <h3 className="text-body font-semibold text-ink">Rent a number and record it</h3>
+        <ol className="mt-1 list-decimal space-y-1 pl-5 text-body text-ink-muted">
           {data.steps.map((step) => (
             <li key={step}>{step}</li>
           ))}
         </ol>
         {data.notes.length > 0 && (
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-ink-faint">
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-meta text-ink-muted">
             {data.notes.map((note) => (
               <li key={note}>{note}</li>
             ))}
           </ul>
         )}
       </div>
-    </section>
+      </div>
+    </Section>
   );
 }

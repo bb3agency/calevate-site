@@ -80,7 +80,7 @@ export function FactRow({
         </button>
       </div>
       {open && (
-        <div className="mt-3 rounded-lg bg-app p-3 sm:ml-7">
+        <div className="mt-3 rounded-lg bg-surface-muted p-3 sm:ml-7">
           {/* §52: a failed or paused preview is a refusal, never "nothing in this one". */}
           {chunks.isLoading ? (
             <Skeleton rows={2} />
@@ -94,7 +94,7 @@ export function FactRow({
               {chunks.data.map((chunk) => (
                 <div
                   key={chunk.idx}
-                  className="rounded-md border border-line bg-surface p-2 text-xs text-ink-muted"
+                  className="border-l-2 border-line pl-3 text-xs text-ink-muted"
                 >
                   <p className="break-words">{chunk.content}</p>
                   {/* The English key written beside another script is for SEARCH, and the

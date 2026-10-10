@@ -45,7 +45,7 @@ export function LiveCallPanel({
   return (
     <section
       aria-labelledby="live-call-heading"
-      className="rounded-card border border-line bg-surface p-4 shadow-card sm:p-5"
+      className="rounded-card border border-line bg-surface p-4 sm:p-5"
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 id="live-call-heading" className="flex items-center gap-2 text-sm font-semibold text-ink">

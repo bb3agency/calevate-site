@@ -60,7 +60,7 @@ export function ScrubScreen({ tenantId }: { tenantId: string }) {
   const selected = scrubbable.find((campaign) => campaign.id === campaignId) ?? null;
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-3xl space-y-10">
       <PageHeader
         title="National DND scrub"
         description={
@@ -100,7 +100,7 @@ export function ScrubScreen({ tenantId }: { tenantId: string }) {
           icon={<AlertTriangle className="h-5 w-5" />}
           title="Cannot list this client's campaigns"
         >
-          <p className="mt-1 text-xs opacity-90">
+          <p className="mt-1 text-meta opacity-90">
             We could not read them, which is not the same as there being none. Retry the read
             above; the picker comes back with it.
           </p>
@@ -180,7 +180,7 @@ function ScrubForCampaign({
           icon={<AlertTriangle className="h-5 w-5" />}
           title="Cannot read this campaign's launch gate"
         >
-          <p className="mt-1 text-xs opacity-90">
+          <p className="mt-1 text-meta opacity-90">
             Recording a scrub still works, and is still the right thing to do if you are
             holding a provider&apos;s report — this panel simply cannot tell you whether the
             gate is currently open. Retry the read above.
@@ -198,7 +198,7 @@ function ScrubForCampaign({
         >
           {/* The SERVER's sentence, which names the remedy: the launch preview, the
               dispatch tick and this screen must say the same thing. */}
-          <p className="mt-1 text-xs opacity-90">{blocker.reason}</p>
+          <p className="mt-1 text-meta opacity-90">{blocker.reason}</p>
         </NoticeBox>
       ) : (
         <NoticeBox
@@ -206,7 +206,7 @@ function ScrubForCampaign({
           icon={<CheckCircle2 className="h-5 w-5" />}
           title="The preference-register gate is open for this campaign"
         >
-          <p className="mt-1 text-xs opacity-90">
+          <p className="mt-1 text-meta opacity-90">
             A current scrub is on file. It stops being current at midnight IST, and the
             campaign keeps dialling past midnight — so a run recorded today does not cover
             tomorrow&apos;s dialling.{" "}

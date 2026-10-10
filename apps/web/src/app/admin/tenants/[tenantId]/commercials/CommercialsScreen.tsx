@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
 
+import { StatusPill } from "@/components/admin/kit";
+import { Section } from "@/components/console/section";
+import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
-  Card,
   NoticeBox,
   PRIMARY_BUTTON,
   ProblemNotice,
@@ -57,7 +59,7 @@ export function CommercialsScreen({ tenantId }: { tenantId: string }) {
   if (!tenant) return <Skeleton rows={6} />;
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-4xl space-y-10">
       <PageHeader
         title="Commercials"
         description="What this account is charged, and from when. Every change is a new dated agreement."
@@ -84,7 +86,7 @@ export function CommercialsScreen({ tenantId }: { tenantId: string }) {
           icon={<AlertTriangle className="h-5 w-5" />}
           title="Cannot record terms while the current agreement is unreadable"
         >
-          <p className="mt-1 text-xs opacity-90">
+          <p className="mt-1 text-meta opacity-90">
             We could not read what is in effect for this client. Recording new terms now
             would supersede an agreement nobody can see — including, possibly, a spend
             ceiling. Retry the read above; the form comes back with it.
@@ -150,7 +152,7 @@ function StateBanner({ state }: { state: string }) {
   const copy = termsStateCopy(state);
   return (
     <NoticeBox tone={copy.tone} icon={<AlertTriangle className="h-5 w-5" />} title={copy.label}>
-      <p className="mt-1 text-xs opacity-90">{copy.detail}</p>
+      <p className="mt-1 text-meta opacity-90">{copy.detail}</p>
     </NoticeBox>
   );
 }
@@ -178,20 +180,20 @@ function InEffect({ row }: { row: PlanRow | null }) {
   ].filter((entry) => entry.value !== null);
 
   return (
-    <Card
+    <Section
       title="In effect now"
-      density="compact"
       info="Unset fields are absent rather than zero: a rate of ₹0 is free minutes, an unset rate is a plan that quotes none."
     >
-      <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+      <SettingRows className="border-y border-line">
         {rows.map((entry) => (
-          <div key={entry.label}>
-            <dt className="text-xs text-ink-muted">{entry.label}</dt>
-            <dd className="mt-0.5 text-sm font-medium tabular-nums text-ink">{entry.value}</dd>
-          </div>
+          <SettingRow
+            key={entry.label}
+            label={entry.label}
+            value={<span className="tabular-nums">{entry.value}</span>}
+          />
         ))}
-      </dl>
-    </Card>
+      </SettingRows>
+    </Section>
   );
 }
 
@@ -211,9 +213,9 @@ function History({ rows, inEffectId }: { rows: PlanRow[]; inEffectId: string | n
         <span className="whitespace-nowrap">
           {row.effective_from ? formatIST(row.effective_from) : "always"}
           {row.id === inEffectId && (
-            <span className="ml-2 rounded-full bg-brand-soft px-2 py-0.5 text-xs text-brand-strong">
-              in effect
-            </span>
+            <StatusPill tone="ok" className="ml-2">
+              In effect
+            </StatusPill>
           )}
         </span>
       ),
@@ -232,10 +234,8 @@ function History({ rows, inEffectId }: { rows: PlanRow[]; inEffectId: string | n
     { id: "recorded", header: "Recorded", cell: (row) => <span className="whitespace-nowrap">{formatIST(row.created_at)}</span> },
   ];
   return (
-    <Card
+    <Section
       title="Every agreement, newest first"
-      density="compact"
-      bodyClassName="px-0 pb-2"
       info="Nothing here is editable, and that is the point: an invoice is re-derived from these rows every time anyone opens it, so a change to one would rewrite a statement the client has already paid."
     >
       <DataTable
@@ -244,7 +244,7 @@ function History({ rows, inEffectId }: { rows: PlanRow[]; inEffectId: string | n
         getRowId={(row) => row.id}
         label="Dated agreements, newest first"
       />
-    </Card>
+    </Section>
   );
 }
 

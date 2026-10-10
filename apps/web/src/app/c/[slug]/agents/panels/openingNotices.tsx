@@ -77,7 +77,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
 
   return (
     <section aria-labelledby="opening-notices-heading">
-      <h3 id="opening-notices-heading" className="text-[15px] font-semibold text-ink">
+      <h3 id="opening-notices-heading" className="text-heading text-ink">
         What it says at the start of every call
       </h3>
 
@@ -95,7 +95,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
         </div>
       )}
 
-      <div className="mt-3 divide-y divide-line rounded-card border border-line bg-surface">
+      <div className="mt-3 divide-y divide-line border-y border-line">
         <NoticeToggle
           label="Say it is an AI assistant"
           hint="Spoken first, before anything else, in your language."
@@ -215,7 +215,7 @@ function NoticeToggle({
         “{quote}”
       </blockquote>
       {!checked && (
-        <p className="mt-2 flex items-start gap-2 rounded-lg border border-warn-line bg-warn-soft p-3 text-xs text-ink">
+        <p className="mt-2 flex items-start gap-2 rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-xs text-ink">
           <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
           <span>{offNote}</span>
         </p>

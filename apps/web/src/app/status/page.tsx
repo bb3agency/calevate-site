@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { Providers } from "@/app/providers";
 import { MarketingPage } from "@/components/marketing/pageShell";
 import { publicPageMetadata } from "@/lib/seo/metadata";
 
@@ -21,7 +22,10 @@ export const metadata: Metadata = publicPageMetadata({
 export default function StatusPage() {
   return (
     <MarketingPage>
-      <StatusScreen />
+      {/* StatusScreen reads through React Query; the marketing shell mounts no client. */}
+      <Providers>
+        <StatusScreen />
+      </Providers>
     </MarketingPage>
   );
 }

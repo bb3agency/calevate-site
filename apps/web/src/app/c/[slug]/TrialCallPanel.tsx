@@ -18,6 +18,8 @@ import { useClientRealm } from "@/lib/api/session";
 import { usePlaceTrialCall, useTrialPanel, type TrialPanel } from "@/lib/api/trialCalls";
 import { useShellWallet } from "@/lib/api/wallet";
 
+import { TestCallTranscript } from "./TestCallTranscript";
+
 /**
  * THE FREE TRIAL, on the dashboard (D-697): what is left of it, a test call, and the one
  * step that ends it.
@@ -126,7 +128,7 @@ export function TrialCallCard({
         )}
 
         {trial.blocked_reason && trial.pledge_accepted && (
-          <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
+          <p role="status" className="text-sm text-warn">
             {trial.blocked_reason}
           </p>
         )}
@@ -194,8 +196,11 @@ export function TrialCallCard({
             Calling now. The call appears under Calls once it ends.
           </p>
         )}
+        {place.data?.status === "queued" && place.variables ? (
+          <TestCallTranscript agentId={place.variables.agentId} placedAt={place.submittedAt} />
+        ) : null}
         {place.data?.status === "blocked" && (
-          <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
+          <p role="status" className="text-sm text-warn">
             {place.data.blocked_reason ?? "This test call was not allowed."}
           </p>
         )}

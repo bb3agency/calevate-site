@@ -22,7 +22,7 @@ function RoleBadge({ role }: { role: string }) {
   const isSuper = role === "superadmin";
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-meta font-medium ${
         isSuper ? "bg-brand-soft text-brand-strong" : "bg-ink/[0.06] text-ink-muted"
       }`}
     >
@@ -39,7 +39,7 @@ type RowAction = "role" | "revoke" | "resend";
 
 function LockLine({ children }: { children: string }) {
   return (
-    <p className="mt-2 flex items-start gap-2 text-xs text-ink-muted">
+    <p className="mt-2 flex items-start gap-2 text-meta text-ink-muted">
       <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
       {children}
     </p>
@@ -86,27 +86,27 @@ export function OperatorRow({
   ];
 
   return (
-    <li ref={row} className="px-1 py-3 text-sm">
+    <li ref={row} className="px-1 py-3 text-body">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span title={operator.name ?? undefined} className="min-w-0 truncate font-medium text-ink">
               {operator.name ?? "No name on file"}
             </span>
-            {selfBlock !== null && <span className="text-xs text-ink-faint">(you)</span>}
+            {selfBlock !== null && <span className="text-meta text-ink-muted">(you)</span>}
             <RoleBadge role={operator.role} />
             {!operator.activated && (
-              <span className="inline-flex items-center rounded-full border border-warn-line bg-warn-soft px-2 py-0.5 text-xs font-medium text-warn">
+              <span className="inline-flex items-center rounded-full border border-warn-line bg-warn-soft px-2 py-0.5 text-meta font-medium text-warn">
                 Setup link outstanding
               </span>
             )}
           </div>
           {/* The whole address: two accounts at one domain must be told apart before one is
               revoked, and the confirmations are typed against it. */}
-          <span title={operator.email ?? undefined} className="block truncate font-mono text-xs text-ink-muted">
+          <span title={operator.email ?? undefined} className="block truncate font-mono text-meta text-ink-muted">
             {operator.email ?? "no address on file"}
           </span>
-          <span className="block text-xs text-ink-faint">Added {formatIST(operator.created_at)}</span>
+          <span className="block text-meta text-ink-muted">Added {formatIST(operator.created_at)}</span>
           {/* The lockout sentence where the controls would be: the API refuses both acts on
               your own account outright, so a disabled control would never be available. */}
           {selfBlock !== null ? (
@@ -115,7 +115,7 @@ export function OperatorRow({
             <LockLine>{restriction}</LockLine>
           ) : (
             target === null && (
-              <p className="mt-2 text-xs text-ink-muted">
+              <p className="mt-2 text-meta text-ink-muted">
                 This console does not recognise the tier{" "}
                 <span className="font-mono">{operator.role}</span>, so it will not guess which way
                 a change would move them. Revoking still works.

@@ -64,11 +64,11 @@ export function AdminCommandPalette() {
         aria-haspopup="dialog"
         aria-keyshortcuts="Control+K Meta+K"
         aria-label="Search clients and pages"
-        className="press flex h-9 items-center gap-2 rounded-md border border-line bg-surface px-2.5 text-sm text-ink-muted hover:bg-black/5 touch:h-11 touch:min-w-11 justify-center dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 sm:w-56 sm:justify-start"
+        className="press flex h-9 items-center gap-2 rounded-md border border-line bg-surface px-2.5 text-sm text-ink-muted hover:bg-ink/[0.04] touch:h-11 touch:min-w-11 justify-center dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 sm:w-56 sm:justify-start"
       >
         <Search aria-hidden className="h-4 w-4 shrink-0" />
         <span className="hidden flex-1 text-left sm:inline">Search</span>
-        <kbd aria-hidden className="hidden rounded border border-line px-1.5 font-mono text-[11px] text-ink-faint sm:inline">
+        <kbd aria-hidden className="hidden rounded border border-line px-1.5 font-mono text-xs text-ink-faint sm:inline">
           {shortcut}
         </kbd>
       </button>

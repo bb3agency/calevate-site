@@ -80,7 +80,7 @@ export default function LifecyclePage({
   if (!tenant) return null;
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-3xl space-y-10">
       <PageHeader
         title="Account state"
         description="Suspending stops outbound dialling at the next dial. Inbound answering is never affected: their own customers still get through."
@@ -96,7 +96,7 @@ export default function LifecyclePage({
             tenantName={tenant.name}
             write={write}
           />
-          <p className="text-sm text-ink-muted">
+          <p className="text-body text-ink-muted">
             Ending the relationship for good is on{" "}
             <Link href={`/admin/tenants/${tenantId}/closure`} className={LINK}>
               Closing the account
@@ -112,7 +112,7 @@ export default function LifecyclePage({
           tone={move.data.changed ? "ok" : "neutral"}
           icon={<CheckCircle2 className="h-5 w-5" />}
         >
-          <p className="text-xs">
+          <p>
             {move.data.changed
               ? `This account is now ${move.data.status}. The dial gate reads it from the next request.`
               : `This account was already ${move.data.status} — nothing changed, and no audit row was written.`}
@@ -136,7 +136,7 @@ function ClosedNotice({ tenantId }: { tenantId: string }) {
 
   return (
     <NoticeBox tone="stop" icon={<AlertTriangle className="h-5 w-5" />} title="This account is closed">
-      <p className="mt-1 text-xs opacity-90">
+      <p className="mt-1 text-meta opacity-90">
         Its users have no access and its outbound dialling has stopped. This screen cannot
         reopen it — closing, reopening and erasing their data all live on{" "}
         <Link href={`/admin/tenants/${tenantId}/closure`} className="rounded-sm font-medium underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
@@ -148,7 +148,7 @@ function ClosedNotice({ tenantId }: { tenantId: string }) {
       {/* Only ever an addition, never a replacement: a failed or in-flight closure read
           must not leave a closed account looking unclosed. */}
       {closure.data?.restorable && (
-        <p className="mt-2 text-xs opacity-90">
+        <p className="mt-2 text-meta opacity-90">
           Nothing has been erased yet, so this close can still be undone.
         </p>
       )}

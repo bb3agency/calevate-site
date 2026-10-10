@@ -36,10 +36,34 @@ export function Metric({
   return (
     <div className={`min-w-0 ${className}`}>
       <p className="text-[13px] font-medium text-ink-muted">{label}</p>
-      <p className={`mt-1 truncate text-[26px] font-semibold leading-tight tracking-tight tabular-nums ${VALUE_TONES[tone]}`}>
+      <p className={`mt-1 text-figure tabular-nums [overflow-wrap:anywhere] ${VALUE_TONES[tone]}`}>
         {flashValue === undefined ? value : <FlashValue value={flashValue}>{value}</FlashValue>}
       </p>
       {hint && <div className="mt-1 text-[12px] leading-snug text-ink-muted">{hint}</div>}
     </div>
+  );
+}
+
+/**
+ * Figures across the top of a page, separated from what follows by one hairline, in both
+ * consoles. Pass `label` when the strip is a region of its own (a dashboard's "Today at a
+ * glance"); it then renders as a named section.
+ */
+export function MetricRow({
+  children,
+  label,
+  className = "",
+}: {
+  children: ReactNode;
+  label?: string;
+  className?: string;
+}) {
+  const cls = `grid grid-cols-2 gap-x-6 gap-y-6 border-b border-line pb-8 md:grid-cols-4 ${className}`;
+  return label ? (
+    <section aria-label={label} className={cls}>
+      {children}
+    </section>
+  ) : (
+    <div className={cls}>{children}</div>
   );
 }

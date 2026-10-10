@@ -1,10 +1,10 @@
 import { PhoneCall, Timer } from "lucide-react";
 
 import {
-  CLINIC,
-  CLINIC_LEADS,
-  ClinicLeadHeader,
-  ClinicLeadRow,
+  SAMPLE_BUSINESS,
+  SAMPLE_LEADS,
+  SampleLeadHeader,
+  SampleLeadRow,
 } from "@/components/marketing/home/mockups/callCards";
 import { Chip, Panel, Window } from "@/components/marketing/home/mockups/kit";
 import { MockStage } from "@/components/marketing/home/mockups/stage";
@@ -16,7 +16,7 @@ import { MockStage } from "@/components/marketing/home/mockups/stage";
  * The calculator answers in rupees from numbers the buyer typed; this pair shows where the
  * two sides of that sum live once the product is running. Labels are the console's own:
  * the Usage tab's tiles and hints and its "This month" card (`app/c/[slug]/billing/
- * UsageTab.tsx`), and the clinic's lead list, reused from the homepage rather than redrawn
+ * UsageTab.tsx`), and the coaching centre's lead list, reused from the homepage rather than redrawn
  * (`home/mockups/callCards.tsx`).
  *
  * No rupee amount is drawn: the only figures on this page that price anything are the
@@ -29,7 +29,7 @@ import { MockStage } from "@/components/marketing/home/mockups/stage";
 export function RoiConsoleMock({ voiceLabel }: { voiceLabel: string | null }) {
   return (
     <MockStage
-      label={`Illustration: a month in the console for ${CLINIC} — the Usage tab showing minutes used and billed calls, beside the lead list those calls produced, each lead marked new, hot, interested, contacted, won or lost.`}
+      label={`Illustration: a month in the console for ${SAMPLE_BUSINESS} — the Usage tab showing minutes used and billed calls, beside the lead list those calls produced, each lead marked new, hot, interested, contacted, won or lost.`}
       // `minmax(0, …)`: a bare `fr` track floors at its min-content, and the lead rows
       // carry ~250px of fixed columns that would otherwise starve the Usage window.
       className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)]"
@@ -73,7 +73,7 @@ export function RoiConsoleMock({ voiceLabel }: { voiceLabel: string | null }) {
       <Window
         title="Leads"
         className="mk-rise mk-s2 hidden min-w-0 sm:block"
-        actions={<span className="text-[11px] text-ink-muted">{CLINIC}</span>}
+        actions={<span className="text-[11px] text-ink-muted">{SAMPLE_BUSINESS}</span>}
       >
         <span className="flex flex-wrap items-center gap-1.5 border-b border-line px-4 py-3">
           <Chip tone="brand">All</Chip>
@@ -81,10 +81,10 @@ export function RoiConsoleMock({ voiceLabel }: { voiceLabel: string | null }) {
           <Chip>interested</Chip>
           <Chip>won</Chip>
         </span>
-        <ClinicLeadHeader />
+        <SampleLeadHeader />
         <span className="block divide-y divide-line">
-          {CLINIC_LEADS.map((lead, i) => (
-            <ClinicLeadRow
+          {SAMPLE_LEADS.map((lead, i) => (
+            <SampleLeadRow
               key={lead.name}
               lead={lead}
               className={`mk-rise mk-s${Math.min(6, i + 1)}`}

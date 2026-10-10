@@ -63,7 +63,7 @@ export function LiveCallsPill({ slug }: { slug: string }) {
     <Link
       href={href(`/c/${slug}/calls?status=${LIVE_STATUS}`)}
       aria-label={`${label} ${count === 1 ? "call" : "calls"} in progress now`}
-      className="press inline-flex h-9 items-center gap-2 rounded-full border border-line bg-surface px-3 text-[13px] font-medium text-ink shadow-card hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11"
+      className="press inline-flex h-9 items-center gap-2 rounded-full border border-line bg-surface px-3 text-[13px] font-medium text-ink hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11"
     >
       <LiveDot />
       <span className="tabular-nums">{label}</span>

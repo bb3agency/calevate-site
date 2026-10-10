@@ -1,5 +1,6 @@
 "use client";
 
+import { TEXT_ACTION } from "@/components/console/section";
 import { useMemo, useState } from "react";
 
 import {
@@ -102,10 +103,10 @@ export function RateCardPanel({
   const card = query.data ?? null;
 
   return (
-    <section className="space-y-3 rounded-card border border-line bg-surface p-3">
+    <section className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-ink">Rate card — six packs, two voices</h3>
-        <p className="text-xs text-ink-faint">
+        <h3 className="text-heading text-ink">Rate card — six packs, two voices</h3>
+        <p className="text-meta text-ink-muted">
           What a minute sells for on each voice, per pack. A new card takes effect on a date
           you choose at least a month out, every client on a wallet is emailed when you
           record it, and credit already bought keeps the rates it was bought at.
@@ -118,7 +119,7 @@ export function RateCardPanel({
           the save an operator just made, and would make `getByRole("status")` ambiguous for
           anything reading the receipt. The panel is secondary; its loading state does not
           need to interrupt. */}
-      {query.isLoading && <p className="text-xs text-ink-faint">Reading the rate card…</p>}
+      {query.isLoading && <p className="text-meta text-ink-muted">Reading the rate card…</p>}
 
       {/* §52: no table of invented cells. A card that could not be read is said as itself —
           including the case that matters most while this is being built, which is a
@@ -192,7 +193,7 @@ function RateCardTable({ card }: { card: RateCard }) {
   }
   return (
     <div className="space-y-3">
-      <p className="text-xs text-ink-faint">
+      <p className="text-meta text-ink-muted">
         {card.effective_from
           ? `The card in force was dated ${formatIST(card.effective_from)}.`
           : "No card has been dated on this deployment yet."}{" "}
@@ -203,9 +204,9 @@ function RateCardTable({ card }: { card: RateCard }) {
       {speakingRate !== null ? <SpeakingRateNotice rate={speakingRate} /> : null}
 
       <ScrollRegion label="The rate card, by pack and voice">
-        <table className="w-full min-w-[640px] text-sm">
+        <table className="w-full min-w-[640px] text-body">
           <thead>
-            <tr className="border-b border-line text-left text-[12px] font-medium text-ink-faint">
+            <tr className="border-b border-line text-left text-meta font-medium text-ink-muted">
               <th className="py-2 pr-4 font-semibold">Pack</th>
               <th className="py-2 pr-4 font-semibold">Voice</th>
               <th className="py-2 pr-4 text-right font-semibold">₹ / min</th>
@@ -217,20 +218,20 @@ function RateCardTable({ card }: { card: RateCard }) {
                   volume. */}
               <th className="py-2 pr-4 text-right font-semibold">
                 Next min costs
-                <span className="block text-[10px] font-normal normal-case tracking-normal">
+                <span className="block text-xs font-normal normal-case tracking-normal">
                   at the margin
                 </span>
               </th>
               <th className="py-2 pr-4 text-right font-semibold">
                 Cost at {formatWholeCount(volume.measured_call_minutes)} min/mo
-                <span className="block text-[10px] font-normal normal-case tracking-normal">
+                <span className="block text-xs font-normal normal-case tracking-normal">
                   this month, measured
                 </span>
               </th>
               <th className="py-2 pr-4 text-right font-semibold">Margin</th>
               <th className="py-2 pr-4 text-right font-semibold">
                 Break-even
-                <span className="block text-[10px] font-normal normal-case tracking-normal">
+                <span className="block text-xs font-normal normal-case tracking-normal">
                   platform min/mo
                 </span>
               </th>
@@ -245,7 +246,7 @@ function RateCardTable({ card }: { card: RateCard }) {
                     {index === 0 ? (
                       <>
                         <span className="font-medium text-ink">{formatINR(rung.amount_inr)}</span>{" "}
-                        <MonoValue className="text-ink-faint">{rung.pack_id}</MonoValue>
+                        <MonoValue className="text-ink-muted">{rung.pack_id}</MonoValue>
                       </>
                     ) : null}
                   </td>
@@ -265,7 +266,7 @@ function RateCardTable({ card }: { card: RateCard }) {
                   <td
                     className={
                       "py-2 pr-4 text-right tabular-nums " +
-                      (cell.below_floor_at_volume ? "font-semibold text-red-600" : "text-ink-muted")
+                      (cell.below_floor_at_volume ? "font-semibold text-danger" : "text-ink-muted")
                     }
                   >
                     {cell.cost_inr_per_min_at_volume === null
@@ -282,9 +283,9 @@ function RateCardTable({ card }: { card: RateCard }) {
                       cell.gross_margin_pct_at_volume !== cell.gross_margin_pct && (
                         <span
                           className={
-                            "block text-[11px] " +
+                            "block text-xs " +
                             (cell.below_floor_at_volume
-                              ? "font-semibold text-red-600"
+                              ? "font-semibold text-danger"
                               : "text-ink-faint")
                           }
                         >
@@ -297,7 +298,7 @@ function RateCardTable({ card }: { card: RateCard }) {
                       volume;
                       "never" where no volume rescues the rate, which is a different fact
                       from a big number and is said as itself. */}
-                  <td className="py-2 pr-4 text-right tabular-nums text-ink-faint">
+                  <td className="py-2 pr-4 text-right tabular-nums text-ink-muted">
                     {breakevenText(cell)}
                   </td>
                   <td className="py-2">
@@ -314,9 +315,8 @@ function RateCardTable({ card }: { card: RateCard }) {
           the card that is on sale, and a screen that presented it as broken would be
           arguing with the founder's own decision every time it loaded. */}
       {thin.length > 0 && (
-        <NoticeBox
+        <MarginVerdict
           tone="warn"
-          icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
           title={
             thinAtVolume.length > thin.length
               ? `${thinAtVolume.length} of ${card.cells.length} rungs earn less than ` +
@@ -346,7 +346,7 @@ function RateCardTable({ card }: { card: RateCard }) {
               </li>
             ))}
           </ul>
-        </NoticeBox>
+        </MarginVerdict>
       )}
 
       {/* UNDER WATER AT THIS MONTH'S VOLUME — the founder's actual complaint, rendered.
@@ -355,9 +355,8 @@ function RateCardTable({ card }: { card: RateCard }) {
           not amortised. Amber and not red: it is a fact about a volume, not a broken card,
           and the answer is usually more minutes rather than a higher price. */}
       {underAtVolume.length > 0 && (
-        <NoticeBox
+        <MarginVerdict
           tone="warn"
-          icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
           title={
             `${underAtVolume.length} rung${underAtVolume.length === 1 ? "" : "s"} sold a minute ` +
             `for less than it cost at this month's volume`
@@ -385,18 +384,14 @@ function RateCardTable({ card }: { card: RateCard }) {
               </li>
             ))}
           </ul>
-        </NoticeBox>
+        </MarginVerdict>
       )}
 
       {/* Below COST is the other thing entirely, and the server refuses the write. Shown
           here because a card already in this state must not first be discovered by a failed
           save three screens later. */}
       {under.length > 0 && (
-        <NoticeBox
-          tone="stop"
-          icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
-          title="Some rungs sell a minute for less than it costs"
-        >
+        <MarginVerdict tone="stop" title="Some rungs sell a minute for less than it costs">
           <p className="mt-1">
             The server refuses to record a card in this state, so the form below will not
             save until these rungs are raised above what their minute costs.
@@ -410,7 +405,7 @@ function RateCardTable({ card }: { card: RateCard }) {
               </li>
             ))}
           </ul>
-        </NoticeBox>
+        </MarginVerdict>
       )}
     </div>
   );
@@ -434,7 +429,7 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
   const measured = volume.cost_inr_per_min;
   const fxIsFallback = volume.fx_as_of === null;
   return (
-    <div className="space-y-2 rounded-card border border-line bg-surface-muted p-3 text-xs">
+    <div className="space-y-2 border-l-2 border-line py-1 pl-3 text-meta">
       <p className="text-ink">
         <span className="font-semibold">Studio (Cartesia) is a monthly subscription</span>, so
         what a minute costs us depends on how many we speak. This month the platform spoke{" "}
@@ -461,7 +456,7 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
           floor converts at the live published rate (founder, 9 Sep 2026). A floor quietly
           struck at an operator's typed fallback is the same "best case as fact" defect,
           so WHICH rate and how old it is are stated, never implied. */}
-      <p className={fxIsFallback ? "font-medium text-amber-700" : "text-ink-faint"}>
+      <p className={fxIsFallback ? "font-medium text-warn" : "text-ink-faint"}>
         Converted at <span className="tabular-nums">{formatRupeeRate(volume.fx_usd_inr)}</span>{" "}
         to the dollar
         {fxIsFallback ? (
@@ -478,7 +473,7 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
         )}
       </p>
 
-      <p className="text-ink-faint">
+      <p className="text-ink-muted">
         The next Studio minute costs{" "}
         <span className="tabular-nums">{formatRupeeRate(volume.floor_inr_per_min)}</span> at the
         margin, falling to{" "}
@@ -498,9 +493,9 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
       </p>
 
       <ScrollRegion label="What a Studio minute costs at each monthly volume">
-        <table className="w-full min-w-[420px] text-xs">
+        <table className="w-full min-w-[420px] text-meta">
           <thead>
-            <tr className="border-b border-line text-left text-[12px] font-medium text-ink-faint">
+            <tr className="border-b border-line text-left text-meta font-medium text-ink-muted">
               <th className="py-1 pr-4 font-semibold">Platform min/mo</th>
               <th className="py-1 pr-4 font-semibold">Cheapest plan</th>
               <th className="py-1 text-right font-semibold">Costs us / min</th>
@@ -524,7 +519,7 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
         </table>
       </ScrollRegion>
 
-      <p className="text-ink-faint">
+      <p className="text-ink-muted">
         Modelled at {volume.assumed_chars_per_call_minute} characters a call-minute, the top of
         an unmeasured band. The measured figure above uses no such assumption — it divides the
         characters our meter counted by the minutes it billed.
@@ -548,7 +543,7 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
  */
 function SpeakingRateNotice({ rate }: { rate: SpeakingRate }) {
   return (
-    <div className="space-y-2 rounded-card border border-line bg-surface-muted p-3 text-xs">
+    <div className="space-y-2 border-l-2 border-line py-1 pl-3 text-meta">
       <p className="text-ink">
         <span className="font-semibold">
           Clear is priced per character, so its cost per minute depends on how much the agent
@@ -574,7 +569,7 @@ function SpeakingRateNotice({ rate }: { rate: SpeakingRate }) {
           </>
         )}
       </p>
-      <p className="text-ink-faint">
+      <p className="text-ink-muted">
         {/* THE FROZEN BOUND, NAMED. It is what a save is refused below, and it does not move
             with the measurement — a veto that did would refuse tomorrow the card it accepted
             today, because twenty more calls were answered. */}
@@ -582,7 +577,7 @@ function SpeakingRateNotice({ rate }: { rate: SpeakingRate }) {
         <span className="tabular-nums">{formatRupeeRate(rate.refusal_floor_inr_per_min)}</span> a
         minute, which stays where it is whatever the measurement says.{" "}
         {rate.floor_above_refusal ? (
-          <span className="font-semibold text-red-600">
+          <span className="font-semibold text-danger">
             The measured cost is ABOVE that bound: some rungs may be under water and still
             recordable. That is a pricing decision, not a screen problem.
           </span>
@@ -598,7 +593,7 @@ function CellBadge({ cell, targetPct }: { cell: RateCardCell; targetPct: string 
     <span
       className={
         verdict.tone === "thin"
-          ? "inline-flex items-center gap-1 text-xs font-medium text-amber-600"
+          ? "inline-flex items-center gap-1 text-xs font-medium text-warn"
           : "inline-flex items-center gap-1 text-xs font-medium text-ink-faint"
       }
       title={verdict.sentence}
@@ -632,16 +627,16 @@ function ScheduledCards({
   const scheduled = pendingCards(card);
   return (
     <section className="space-y-2 border-t border-line pt-3">
-      <h4 className="text-sm font-semibold text-ink">
+      <h4 className="text-body font-semibold text-ink">
         Scheduled changes
       </h4>
       {scheduled.length === 0 ? (
-        <p className="text-xs text-ink-faint">
+        <p className="text-meta text-ink-muted">
           Nothing is scheduled. The card above is what every new purchase is priced at, and
           will stay so until a card recorded below takes effect.
         </p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="divide-y divide-line border-y border-line">
           {scheduled.map((pending) => (
             <li key={pending.effective_from}>
               <ScheduledCard pending={pending} inForce={card} access={access} />
@@ -664,9 +659,9 @@ function ScheduledCard({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-md border border-line p-3">
+    <div className="py-3.5 sm:px-2">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <p className="text-sm text-ink">
+        <p className="text-body text-ink">
           <CalendarClock aria-hidden className="mr-1 inline h-3.5 w-3.5" />
           Starts {formatIST(pending.effective_from)}
         </p>
@@ -678,7 +673,7 @@ function ScheduledCard({
         )}
       </div>
 
-      <ul className="mt-2 space-y-1 text-xs text-ink-muted">
+      <ul className="mt-2 space-y-1 text-meta text-ink-muted">
         {pending.cells.map((cell) => {
           const before = rateOf(inForce, cell.pack_id, cell.voice_tier);
           return (
@@ -826,6 +821,33 @@ function cellKey(packId: string, voiceTier: string): string {
   return `${packId} ${voiceTier}`;
 }
 
+/**
+ * One margin verdict about the card in force: its title on one line and the server's
+ * figures under it, ruled on the left in its tone. Not a `NoticeBox`: three tinted boxes
+ * under a table read as three failures, and only one of these (the refusal) is one.
+ */
+function MarginVerdict({
+  tone,
+  title,
+  children,
+}: {
+  tone: "warn" | "stop";
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`border-l-2 py-1 pl-3 text-meta text-ink-muted ${tone === "stop" ? "border-danger" : "border-warn"}`}
+    >
+      <p className={`flex items-start gap-1.5 font-medium ${tone === "stop" ? "text-danger" : "text-ink"}`}>
+        <TriangleAlert aria-hidden className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${tone === "stop" ? "text-danger" : "text-warn"}`} />
+        <span>{title}</span>
+      </p>
+      {children}
+    </div>
+  );
+}
+
 function RecordCardSection({
   card,
   access,
@@ -836,7 +858,7 @@ function RecordCardSection({
   const [open, setOpen] = useState(false);
   if (!access.allowed) {
     return (
-      <p className="border-t border-line pt-3 text-xs text-ink-faint">
+      <p className="border-t border-line pt-3 text-meta text-ink-muted">
         {access.reason ?? "Your admin account cannot change platform configuration."}
       </p>
     );
@@ -846,8 +868,7 @@ function RecordCardSection({
       {open ? (
         <RecordCardForm card={card} onDone={() => setOpen(false)} />
       ) : (
-        <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setOpen(true)}>
-          <CalendarClock aria-hidden className="h-3.5 w-3.5" />
+        <button type="button" className={TEXT_ACTION} aria-expanded={false} onClick={() => setOpen(true)}>
           Record a new card
         </button>
       )}
@@ -920,13 +941,13 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
       )}
 
       <ScrollRegion label="The new rate card, by pack and voice">
-        <table className="w-full min-w-[560px] text-sm">
+        <table className="w-full min-w-[560px] text-body">
           <caption className="sr-only">
             The rate to sell a minute at, for every pack on every voice. Each box shows how
             it compares with the card in force.
           </caption>
           <thead>
-            <tr className="border-b border-line text-left text-[12px] font-medium text-ink-faint">
+            <tr className="border-b border-line text-left text-meta font-medium text-ink-muted">
               <th scope="col" className="py-2 pr-4 font-semibold">
                 Pack
               </th>
@@ -942,7 +963,7 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
               <tr key={rung.pack_id}>
                 <th scope="row" className="py-2 pr-4 text-left font-normal">
                   <span className="font-medium text-ink">{formatINR(rung.amount_inr)}</span>{" "}
-                  <MonoValue className="text-ink-faint">{rung.pack_id}</MonoValue>
+                  <MonoValue className="text-ink-muted">{rung.pack_id}</MonoValue>
                 </th>
                 {voices.map((voice) => {
                   const key = cellKey(rung.pack_id, voice.voice_tier);
@@ -969,7 +990,7 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
                       />
                       {valid.error(key)}
                       {before !== null && (
-                        <span className="mt-1 block text-xs">
+                        <span className="mt-1 block text-meta">
                           <DeltaNote delta={rateDelta(before, typed)} />
                         </span>
                       )}
@@ -1107,10 +1128,10 @@ function CardRefusalNotice({
  */
 function DeltaNote({ delta }: { delta: RateDelta | null }) {
   if (delta === null) return null;
-  if (delta.direction === "same") return <span className="text-ink-faint">unchanged</span>;
+  if (delta.direction === "same") return <span className="text-ink-muted">unchanged</span>;
   const up = delta.direction === "up";
   return (
-    <span className={up ? "text-amber-600" : "text-ink-muted"}>
+    <span className={up ? "text-warn" : "text-ink-muted"}>
       <span aria-hidden>{up ? "↑" : "↓"}</span> {up ? "up" : "down"}{" "}
       {formatRupeeRate(delta.amount)}
       {delta.percent === null ? "" : ` (${delta.percent}%)`}

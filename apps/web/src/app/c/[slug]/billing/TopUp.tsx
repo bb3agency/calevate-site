@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 
 import {
+  FIELD,
   MonoValue,
   NoticeBox,
   PRIMARY_BUTTON,
@@ -185,7 +186,7 @@ export function TopUp({ session }: { session: Session }) {
        on a card one. */
     return (
       <div className="space-y-4">
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           We cannot take card or UPI payment on this account yet. To add credit, transfer
           the amount to us by bank — talk to your account manager for the details — and
           the credit appears here once the payment lands. The packs below are what each
@@ -264,7 +265,7 @@ export function TopUp({ session }: { session: Session }) {
       {stage.at === "failed" && <ProblemNotice error={PAYMENT_FAILED} />}
       {stage.at === "blocked" && <ProblemNotice error={stage.problem} />}
       {stage.at === "verifying" && (
-        <p role="status" className="text-sm text-ink-muted">
+        <p role="status" className="text-body text-ink-muted">
           Confirming your payment…
         </p>
       )}
@@ -296,7 +297,7 @@ export function TopUp({ session }: { session: Session }) {
               you buy at is fixed on the purchase. `WhatCallsCost` argues both properly on
               the same screen. Only rendered with the names, for `labels`' reason above. */}
           {labels && (
-            <p className="text-sm text-ink-muted">
+            <p className="text-body text-ink-muted">
               {/* The client sets the voice themselves, never "tell your account manager":
                   `PATCH /v1/agents/{agent_id}/voice` carries `agents:write` for `owner` and
                   `staff` (D-586), with the picker on their own agent screen
@@ -326,10 +327,10 @@ export function TopUp({ session }: { session: Session }) {
           intent.mutate({ amountInr: amount }, { onSuccess: onIntent });
         }}
       >
-        <label htmlFor="topup-amount" className="text-sm text-ink-muted">
+        <label htmlFor="topup-amount" className="text-body text-ink-muted">
           Other amount
         </label>
-        <span className="text-sm text-ink-faint">₹</span>
+        <span className="text-body text-ink-faint">₹</span>
         <input
           id="topup-amount"
           inputMode="decimal"
@@ -337,7 +338,7 @@ export function TopUp({ session }: { session: Session }) {
           disabled={!write.allowed}
           onChange={(e) => setAmount(e.target.value)}
           placeholder="2000"
-          className="w-32 rounded-md border border-line bg-surface px-2 py-1 text-sm tabular-nums text-ink placeholder:text-ink-faint disabled:opacity-50 touch:min-h-11"
+          className={`${FIELD} mt-0 w-32 tabular-nums`}
         />
         <button
           type="submit"
@@ -350,7 +351,7 @@ export function TopUp({ session }: { session: Session }) {
               ? "Pay this amount"
               : "Get payment details"}
         </button>
-        <span className="text-xs text-ink-faint">
+        <span className="text-meta text-ink-faint">
           ₹{MIN_TOPUP_INR.toLocaleString("en-IN")} to ₹{MAX_TOPUP_INR.toLocaleString("en-IN")}
         </span>
         {/* WHAT THIS AMOUNT BUYS AT, BEFORE THE BUTTON. A free amount is priced by the
@@ -362,7 +363,7 @@ export function TopUp({ session }: { session: Session }) {
           <p
             role="status"
             aria-label="What this amount buys"
-            className="w-full text-sm text-brand-strong"
+            className="w-full text-body text-brand-strong"
           >
             <AmountRates packs={packs.data.packs} labels={labels} amount={amount} />
           </p>
@@ -370,7 +371,7 @@ export function TopUp({ session }: { session: Session }) {
       </form>
 
       {order && (
-        <div className="rounded-card border border-line bg-app p-3 text-sm text-ink-muted">
+        <div className="rounded-md border border-line px-4 py-3 text-body text-ink-muted">
           {/* The amount the SERVER priced, as it sent it — this is the figure a bank
               transfer has to match to the paisa, and the figure the provider's window is
               opened with. */}
@@ -418,11 +419,11 @@ export function TopUp({ session }: { session: Session }) {
               </button>
             </>
           )}
-          <p className="mt-2 text-xs text-ink-faint">
+          <p className="mt-2 text-meta text-ink-faint">
             ref <MonoValue>{order.receipt}</MonoValue>
           </p>
           {order.provider_order_id !== null && (
-            <p className="text-xs text-ink-faint">
+            <p className="text-meta text-ink-faint">
               order <MonoValue>{order.provider_order_id}</MonoValue>
             </p>
           )}
@@ -562,8 +563,8 @@ function PackChooser({
       {/* Not a `<form>`: there is nothing to submit and no request behind it. The answer
           is a rendering of the catalogue already on screen, so an Enter key that appeared
           to "search" would be a promise of a round trip that never happens. */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-card border border-line bg-app px-3 py-2">
-        <label htmlFor={fieldId} className="text-sm text-ink">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+        <label htmlFor={fieldId} className="text-body text-ink">
           Roughly how many minutes do you call in a month?
         </label>
         <input
@@ -572,9 +573,9 @@ function PackChooser({
           value={monthly}
           onChange={(event) => setMonthly(event.target.value)}
           placeholder="600"
-          className="w-20 rounded-md border border-line bg-surface px-2 py-1 text-sm tabular-nums text-ink placeholder:text-ink-faint touch:min-h-11"
+          className={`${FIELD} mt-0 w-24 tabular-nums`}
         />
-        <span className="text-sm text-ink-muted">minutes</span>
+        <span className="text-body text-ink-muted">minutes</span>
       </div>
 
       {/* The live region EXISTS before it has anything to say — a `role="status"` element
@@ -586,7 +587,7 @@ function PackChooser({
            free-amount field — and two unnamed status regions are two controls a screen
            reader (and a test) cannot tell apart. */
         aria-label="Which pack covers your month"
-        className="min-h-5 text-sm text-brand-strong"
+        className="min-h-5 text-body text-brand-strong"
       >
         {monthly.trim() !== "" && wanted === null
           ? "Enter the number of minutes as digits — 600, say."
@@ -603,24 +604,24 @@ function PackChooser({
           return (
             <li
               key={pack.pack_id}
-              className={`flex flex-col overflow-hidden rounded-card border p-4 ${
-                pack.best_value ? "border-brand bg-brand-soft" : "border-line bg-surface"
+              className={`flex flex-col rounded-card border p-4 ${
+                pack.best_value ? "border-brand" : "border-line"
               } ${covers ? "ring-2 ring-brand" : ""}`}
             >
               {pack.best_value && (
-                <p className="-mx-4 -mt-4 mb-3 bg-brand-strong px-4 py-1 text-[12px] font-semibold text-white">
+                <p className="mb-1 text-meta font-semibold text-brand-strong dark:text-brand-bright">
                   Best value
                 </p>
               )}
               {covers && (
-                <p className="mb-1 text-xs font-semibold text-brand-strong">
+                <p className="mb-1 text-meta font-semibold text-brand-strong">
                   Covers your month
                 </p>
               )}
-              <p className="text-2xl font-semibold tabular-nums text-ink">
+              <p className="text-figure tabular-nums text-ink">
                 {formatINR(pack.amount_inr)}
               </p>
-              <p className="text-sm text-ink-muted">
+              <p className="text-body text-ink-muted">
                 {formatWhole(pack.total_credits)} credits of calling
               </p>
               {labels && (
@@ -629,7 +630,7 @@ function PackChooser({
                    because it is two labelled values and a screen reader reads it as
                    such. Both figures are the server's — the minutes are ITS floor of the
                    division, not one taken here. */
-                <dl className="mt-3 space-y-1 text-sm">
+                <dl className="mt-3 space-y-1 text-body">
                   {VOICE_TIERS.map((tier) => (
                     <div key={tier} className="flex items-baseline justify-between gap-2">
                       <dt className="text-ink-muted">{labels[tier]}</dt>
@@ -661,7 +662,7 @@ function PackChooser({
                   type="button"
                   disabled={disabled}
                   onClick={() => onSelect(pack.pack_id)}
-                  className={`${PRIMARY_BUTTON} w-full justify-center`}
+                  className={`${pack.best_value ? PRIMARY_BUTTON : SECONDARY_BUTTON} w-full justify-center`}
                 >
                   {pendingPackId === pack.pack_id
                     ? "Working…"

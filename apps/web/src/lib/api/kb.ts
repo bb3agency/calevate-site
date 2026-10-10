@@ -174,9 +174,10 @@ export function uploadSettled(upload: KbUpload): boolean {
 /** How often an UNSETTLED item asks again. One item, not the list — see `useKbUpload`. */
 const UPLOAD_POLL_MS = 4_000;
 
-export function useKbUploads(session: Session): UseQueryResult<KbUpload[]> {
+export function useKbUploads(session: Session, enabled = true): UseQueryResult<KbUpload[]> {
   return useQuery({
     queryKey: ["kb-uploads", session.orgSlug],
+    enabled,
     queryFn: () => apiRequest<KbUpload[]>(session, "/v1/kb/uploads"),
     // The LIST is deliberately slow. What moves during an ingest is one row, and that row
     // watches itself (`useKbUpload`); re-reading every document a client has ever added on

@@ -6,7 +6,8 @@ import type { ReactNode } from "react";
  * The mockups are the product's own screens, re-drawn at marketing scale and filled with
  * ILLUSTRATIVE sample data: the labels, statuses and colours are the console's real ones
  * (each mockup names the screen it is drawn from), and the people, places and counts are
- * made up for a dental clinic in Hyderabad and a property office in Vijayawada.
+ * made up for several trades — a coaching centre, a dental clinic, a property office, a
+ * school and an appliance shop — so no one line of work reads as the product's only buyer.
  *
  * Honesty rules the sample data follows, because every word here is text on a public page
  * (`publicLanding` scans `textContent`, which includes `aria-hidden` subtrees):

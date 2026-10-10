@@ -2,8 +2,9 @@
 
 import { useMemo } from "react";
 
-import { Card, SECONDARY_BUTTON_SM, formatPhone } from "@/components/ui";
+import { SECONDARY_BUTTON_SM, formatPhone } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
+import { EmptySketch } from "@/components/console/emptySketch";
 import { RowMenu } from "@/components/console/rowMenu";
 import { copyText } from "@/components/interior/copy-button";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
@@ -95,7 +96,9 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
   }, [maySelect, columns, canCall, allOfPageTicked, toggleAllOnPage, ticked, toggleRow, renderCell, rowFailure, callCell, hrefFor, callHref]);
 
   return (
-    <Card bodyClassName="p-1 sm:p-2">
+    // On the white ground between two hairlines, as the call log is (REDESIGN-2): a table
+    // is a list, and a card around it is chrome a reader has to look past.
+    <div className="border-y border-line">
       {items.length ? (
         <DataTable
           rows={items}
@@ -110,6 +113,7 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
         /* "No leads yet" only where the server said so; with a filter on, the emptiness
            belongs to the filter (`filtered` is one answer over the whole lens). */
         <EmptyState
+          illustration={askTerm || filtered ? undefined : <EmptySketch kind="leads" />}
           message={
             askTerm
               ? "No lead's captured answers match that question"
@@ -131,6 +135,6 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
           }
         />
       )}
-    </Card>
+    </div>
   );
 }

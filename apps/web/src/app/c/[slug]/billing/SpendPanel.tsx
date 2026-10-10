@@ -3,7 +3,7 @@
 import Link from "next/link";
 
 import { Metric } from "@/components/console/metric";
-import { Panel } from "@/components/console/panel";
+import { Section } from "@/components/console/section";
 import {
   NOTICE_TONES,
   ProblemNotice,
@@ -13,6 +13,7 @@ import {
   formatINR,
   formatIST,
 } from "@/components/ui";
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { useClientRealm } from "@/lib/api/session";
 import {
@@ -131,26 +132,26 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
 
       {/* WHICH KIND OF NUMBER every figure below is — said once, above the tables, rather
           than repeated as a column header nobody reads. */}
-      <p className="rounded-card border border-line bg-surface px-4 py-3 text-sm text-ink-muted">
+      <p className="text-body text-ink-muted">
         <strong className="font-semibold text-ink">{basis.label}.</strong>{" "}
         {basis.hint || "Ask your account manager how this month is priced."}
       </p>
 
       <Residual data={data} />
 
-      <Panel title="By agent" bodyClassName="pb-2">
+      <Section title="By agent">
         {data.by_agent.length === 0 ? (
           <div className="p-6">
-            <EmptyState
+            <EmptyState illustration={<EmptySketch kind="deliveries" />}
               message="No calls to attribute this month"
               hint="Once your agents start taking and making calls, each one's share of the charge appears here."
             />
           </div>
         ) : (
           <ScrollRegion label="Charge by agent">
-            <table className="w-full min-w-[560px] text-sm">
+            <table className="w-full min-w-[560px] text-body">
               <thead>
-                <tr className="border-b border-line text-left text-[12px] text-ink-muted">
+                <tr className="border-b border-line text-left text-meta text-ink-muted">
                   <th className="px-4 py-3 font-semibold sm:px-6">Agent</th>
                   <th className="px-4 py-3 text-right font-semibold sm:px-6">Calls</th>
                   <th className="px-4 py-3 text-right font-semibold sm:px-6">Minutes</th>
@@ -169,14 +170,14 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
             </table>
           </ScrollRegion>
         )}
-      </Panel>
+      </Section>
 
-      <Panel
+      <Section
         title="Your costliest calls"
-        bodyClassName="pb-2"
+       
         action={
           data.top_calls_truncated ? (
-            <span className="text-xs text-ink-muted">
+            <span className="text-meta text-ink-muted">
               The {formatCount(data.top_calls.length)} most expensive, of{" "}
               {formatCount(data.calls)} this month.
             </span>
@@ -185,16 +186,16 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
       >
         {data.top_calls.length === 0 ? (
           <div className="p-6">
-            <EmptyState
+            <EmptyState illustration={<EmptySketch kind="deliveries" />}
               message="No calls this month"
               hint="Calls appear here as soon as they are metered, most expensive first."
             />
           </div>
         ) : (
           <ScrollRegion label="Your costliest calls">
-            <table className="w-full min-w-[640px] text-sm">
+            <table className="w-full min-w-[640px] text-body">
               <thead>
-                <tr className="border-b border-line text-left text-[12px] text-ink-muted">
+                <tr className="border-b border-line text-left text-meta text-ink-muted">
                   <th className="px-4 py-3 font-semibold sm:px-6">When</th>
                   <th className="px-4 py-3 font-semibold sm:px-6">Agent</th>
                   <th className="px-4 py-3 font-semibold sm:px-6">Direction</th>
@@ -210,7 +211,7 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
             </table>
           </ScrollRegion>
         )}
-      </Panel>
+      </Section>
     </div>
   );
 }
@@ -229,7 +230,7 @@ function Residual({ data }: { data: Spend }) {
     lookup(RESIDUAL_REASON_COPY, data.residual_reason) ??
     `Your account manager can explain this month's breakdown (${data.residual_reason}).`;
   return (
-    <div className={`rounded-card border p-4 text-sm ${NOTICE_TONES.neutral}`}>
+    <div className={`rounded-md border px-4 py-3 text-body ${NOTICE_TONES.neutral}`}>
       <p className="font-semibold">
         The calls below add up to {formatINR(data.itemised_charge_inr)} of{" "}
         {formatINR(data.period_charge_inr)}

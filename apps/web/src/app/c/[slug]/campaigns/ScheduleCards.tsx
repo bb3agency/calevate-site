@@ -2,7 +2,8 @@
 
 import { CalendarClock, CircleAlert, Repeat } from "lucide-react";
 
-import { Card, FIELD_HINT, SECONDARY_BUTTON, Skeleton, formatIST } from "@/components/ui";
+import { Section } from "@/components/console/section";
+import { FIELD_HINT, SECONDARY_BUTTON, Skeleton, formatIST } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 import type {
   useCampaignProgress,
@@ -47,7 +48,7 @@ export function ScheduleCards({
               the loading and failure states are the skeleton and the notice above, and
               "this campaign does not repeat" is a claim neither of them supports. */}
           {recurrence && (
-            <Card title="Repeats">
+            <Section title="Repeats">
               <div className="space-y-3">
                 <p className="flex items-center gap-2 text-sm font-medium text-ink">
                   <Repeat aria-hidden className="h-4 w-4 shrink-0" />
@@ -67,7 +68,7 @@ export function ScheduleCards({
                   <p className="flex gap-2.5 text-sm text-ink-muted">
                     <CircleAlert
                       aria-hidden
-                      className="mt-0.5 h-4 w-4 shrink-0 text-amber-500"
+                      className="mt-0.5 h-4 w-4 shrink-0 text-warn"
                     />
                     <span>
                       We skipped the run due{" "}
@@ -83,7 +84,7 @@ export function ScheduleCards({
                   <p className="flex gap-2.5 text-sm text-ink-muted">
                     <CircleAlert
                       aria-hidden
-                      className="mt-0.5 h-4 w-4 shrink-0 text-amber-500"
+                      className="mt-0.5 h-4 w-4 shrink-0 text-warn"
                     />
                     <span>
                       We tried to start this run and could not. The reasons are
@@ -112,11 +113,11 @@ export function ScheduleCards({
                   affected — pause the campaign for that.
                 </p>
               </div>
-            </Card>
+            </Section>
           )}
 
           {status === "scheduled" && !recurrence && (
-            <Card title="Scheduled">
+            <Section title="Scheduled">
               {/* §52: loading is a skeleton, failure is the notice above — neither is a
                   date and neither is the word "scheduled" on its own. */}
               {progress.isLoading ? (
@@ -136,7 +137,7 @@ export function ScheduleCards({
                     <p className="flex gap-2.5 text-sm text-ink-muted">
                       <CircleAlert
                         aria-hidden
-                        className="mt-0.5 h-4 w-4 shrink-0 text-amber-500"
+                        className="mt-0.5 h-4 w-4 shrink-0 text-warn"
                       />
                       <span>
                         We tried to start this campaign and could not. The
@@ -165,7 +166,7 @@ export function ScheduleCards({
                   </button>
                 </div>
               )}
-            </Card>
+            </Section>
           )}
     </>
   );

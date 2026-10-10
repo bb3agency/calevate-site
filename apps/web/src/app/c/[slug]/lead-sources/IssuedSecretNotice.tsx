@@ -26,7 +26,7 @@ export interface IssuedSecret {
  */
 export function IssuedSecretNotice({ issued }: { issued: IssuedSecret }) {
   return (
-    <div className="space-y-4 text-sm">
+    <div className="space-y-4 text-body">
       {issued.secret ? (
         <>
           <p className="font-medium text-ink">Copy this secret now — we will not show it again.</p>
@@ -78,12 +78,12 @@ export function CopyRow({
 }) {
   return (
     <div>
-      <p className="text-xs font-medium text-ink-muted">{label}</p>
+      <p className="text-meta font-medium text-ink-muted">{label}</p>
       <div className="mt-1 flex items-start gap-1">
         <code className={`${CODE} min-w-0 flex-1`}>{value}</code>
         <CopyButton value={value} label={copyLabel} />
       </div>
-      {hint && <p className="mt-1 text-xs text-ink-faint">{hint}</p>}
+      {hint && <p className="mt-1 text-meta text-ink-faint">{hint}</p>}
     </div>
   );
 }

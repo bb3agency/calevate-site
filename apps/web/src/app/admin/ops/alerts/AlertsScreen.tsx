@@ -12,7 +12,6 @@ import { Metric } from "@/components/console/metric";
 import { PageHeader } from "@/components/console/pageHeader";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import {
-  Card,
   MonoValue,
   NoticeBox,
   ProblemNotice,
@@ -141,7 +140,7 @@ export function AlertsScreen() {
   });
 
   return (
-    <div className="space-y-5 pb-12">
+    <div className="max-w-4xl space-y-10 pb-12">
       <PageHeader
         description={
           <>
@@ -197,9 +196,9 @@ export function AlertsScreen() {
           {/* §52: in flight gets a skeleton; failed is the refusal above and nothing else. */}
           {!data ? (
             report.error ? null : (
-              <Card>
+              <div>
                 <Skeleton rows={6} label="Loading the platform's alerts" />
-              </Card>
+              </div>
             )
           ) : (
             <Board report={data} />
@@ -227,10 +226,10 @@ function Board({ report }: { report: AlertReport }) {
   const columns = useMemo(() => COLUMNS(setOpenId), []);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-10">
       <section aria-labelledby="alerts-open-heading" className="space-y-3">
         <div className="flex items-center gap-1">
-          <h2 id="alerts-open-heading" className="text-[15px] font-semibold text-ink">
+          <h2 id="alerts-open-heading" className="text-body font-semibold text-ink">
             Still happening
           </h2>
           <InfoTip label="What each kind means">
@@ -271,7 +270,7 @@ function Board({ report }: { report: AlertReport }) {
       )}
 
       {report.episodes.length === 0 ? (
-        <Card>
+        <div>
           <EmptyState
             message={
               <>
@@ -283,11 +282,11 @@ function Board({ report }: { report: AlertReport }) {
               </>
             }
           />
-        </Card>
+        </div>
       ) : (
-        <Card bodyClassName="p-0">
+        <div>
           {!report.complete && (
-            <p className="border-b border-line px-4 py-2.5 text-[13px] text-warn">{PARTIAL_NOTE}</p>
+            <p className="border-b border-line px-4 py-2.5 text-meta text-warn">{PARTIAL_NOTE}</p>
           )}
           <DataTable
             rows={report.episodes}
@@ -296,7 +295,7 @@ function Board({ report }: { report: AlertReport }) {
             label={`Every alarm raised in the last ${windowLabel(report.window_days)}, still happening first and loudest first`}
             partialNote={report.complete ? undefined : "Sorted within the alarms on this page only."}
           />
-        </Card>
+        </div>
       )}
 
       <Drawer
@@ -323,7 +322,7 @@ function openLine(episode: AlertEpisode): string {
 function SeverityPill({ severity }: { severity: string }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${severityStyle(severity)}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-meta font-medium ${severityStyle(severity)}`}
     >
       {severityLabel(severity)}
     </span>
@@ -338,7 +337,7 @@ function SeverityPill({ severity }: { severity: string }) {
 function EmailState({ episode }: { episode: AlertEpisode }) {
   if (episode.emailed) return <span className="text-ink-muted">sent {formatIST(episode.emailed_at)}</span>;
   if (episode.severity === "page") return <span className="font-medium text-danger">not sent</span>;
-  return <span className="text-ink-faint">not emailed</span>;
+  return <span className="text-ink-muted">not emailed</span>;
 }
 
 /*
@@ -360,8 +359,8 @@ const COLUMNS = (open: (id: string) => void): DataColumn<AlertEpisode>[] => [
         >
           <MonoValue className="break-all text-ink">{episode.code}</MonoValue>
         </button>
-        <p className="mt-0.5 text-xs text-ink-muted">{openLine(episode)}</p>
-        <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs sm:hidden">
+        <p className="mt-0.5 text-meta text-ink-muted">{openLine(episode)}</p>
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta sm:hidden">
           <SeverityPill severity={episode.severity} />
           <span className="text-ink-muted">{formatCount(episode.occurrences)}×</span>
           <EmailState episode={episode} />
@@ -388,14 +387,14 @@ const COLUMNS = (open: (id: string) => void): DataColumn<AlertEpisode>[] => [
     header: "Last seen",
     hideBelow: "md",
     sort: { value: (episode) => episode.last_seen_at, kind: "time", first: "desc" },
-    cell: (episode) => <span className="text-xs text-ink-muted">{formatIST(episode.last_seen_at)}</span>,
+    cell: (episode) => <span className="text-meta text-ink-muted">{formatIST(episode.last_seen_at)}</span>,
   },
   {
     id: "email",
     header: "Email",
     hideBelow: "sm",
     cell: (episode) => (
-      <span className="text-xs">
+      <span className="text-meta">
         <EmailState episode={episode} />
       </span>
     ),
@@ -406,7 +405,7 @@ function EpisodeDetail({ episode }: { episode: AlertEpisode }) {
   // `ids` is optional on the generated type (omitted when a call site passed none).
   const ids = Object.entries(episode.ids ?? {});
   return (
-    <dl className="divide-y divide-line text-sm">
+    <dl className="divide-y divide-line text-body">
       <DetailRow label="Kind" value={<SeverityPill severity={episode.severity} />} />
       <DetailRow
         label="Where"
@@ -427,7 +426,7 @@ function EpisodeDetail({ episode }: { episode: AlertEpisode }) {
           <>
             <span className="break-words">{episode.detail ?? "—"}</span>
             {ids.length > 0 && (
-              <span className="mt-1 block break-words text-xs text-ink-faint">
+              <span className="mt-1 block break-words text-meta text-ink-muted">
                 {ids.map(([key, value]) => `${key}=${String(value)}`).join(" · ")}
               </span>
             )}
@@ -441,7 +440,7 @@ function EpisodeDetail({ episode }: { episode: AlertEpisode }) {
 function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="grid gap-1 py-2.5 sm:grid-cols-[8rem_minmax(0,1fr)] sm:gap-3">
-      <dt className="text-[13px] text-ink-muted">{label}</dt>
+      <dt className="text-meta text-ink-muted">{label}</dt>
       <dd className="min-w-0 text-ink">{value}</dd>
     </div>
   );

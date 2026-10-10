@@ -12,7 +12,8 @@ import { MockStage } from "./stage";
  * the real-estate template's (`scripts/seed.py`: "Budget (lakhs)", "Location", "BHK",
  * "Site visit"); the opened lead is `leads/[leadId]` — "Stage", "Owner", and a "History"
  * whose event titles are the ones `apps/api/crm/service.py` writes ("Call placed",
- * "Moved to hot", "Hot-lead alert sent by WhatsApp", "Assigned to …").
+ * "Moved to hot", "Assigned to …"). This template has no `urgency` field, so the automatic
+ * hot-lead alert cannot fire for it: a person moves the lead to hot here.
  */
 
 type PropertyLead = {
@@ -36,8 +37,7 @@ const LEADS: readonly PropertyLead[] = [
 
 const HISTORY: readonly { title: string; when: string; by: string }[] = [
   { title: "Assigned to Ramesh", when: "10:47 AM", by: "Divya" },
-  { title: "Hot-lead alert sent by WhatsApp", when: "10:46 AM", by: "Calevate" },
-  { title: "Moved to hot", when: "10:46 AM", by: "Calevate" },
+  { title: "Moved to hot", when: "10:46 AM", by: "Divya" },
   { title: "Call completed", when: "10:45 AM", by: "Calevate" },
 ];
 

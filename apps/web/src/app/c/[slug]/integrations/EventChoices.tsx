@@ -46,7 +46,7 @@ export function EventChoices({
     <fieldset className="space-y-1.5">
       <legend className={FIELD_LABEL}>Send when…</legend>
       {catalogue.filter((name) => hasKey(EVENT_LABELS, name)).map((name) => (
-        <label key={name} className="flex items-center gap-2 text-sm">
+        <label key={name} className="flex items-center gap-2 text-body">
           <input
             type="checkbox"
             checked={hasKey(EVENT_LABELS, name) && selected.includes(name)}
@@ -56,11 +56,11 @@ export function EventChoices({
             }}
           />
           <span className="text-ink-muted">{eventLabel(name)}</span>
-          <code className="text-xs text-ink-faint">{name}</code>
+          <code className="text-meta text-ink-faint">{name}</code>
         </label>
       ))}
       {unknown.length > 0 && (
-        <p className="text-xs text-ink-faint">
+        <p className="text-meta text-ink-faint">
           This account can also receive {unknown.join(", ")}, which this version of the
           console cannot subscribe to yet. Tell us and we will set it up.
         </p>

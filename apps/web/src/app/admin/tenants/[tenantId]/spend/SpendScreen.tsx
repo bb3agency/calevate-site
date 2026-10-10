@@ -4,7 +4,6 @@ import { useState } from "react";
 
 import {
   FIELD_INLINE,
-  NOTICE_TONES,
   ProblemNotice,
   Skeleton,
   formatCount,
@@ -130,7 +129,7 @@ export function SpendScreen({ tenantId }: { tenantId: string }) {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-5xl space-y-10">
       <PageHeader
         title="Spend"
         description="What this client was charged, what it cost us, and the cap that can stop them."
@@ -193,7 +192,7 @@ function SpendBoard({ data }: { data: TenantSpend }) {
         />
       </div>
 
-      <p className="text-xs text-ink-muted">
+      <p className="text-meta text-ink-muted">
         {data.plan_tier} · {data.minutes_used} minutes across {formatCount(data.calls)} calls
         {data.retainer_inr === null
           ? ", no monthly fee"
@@ -220,7 +219,7 @@ function SpendBoard({ data }: { data: TenantSpend }) {
       </p>
 
       {data.residual_reason !== null && (
-        <div className={`rounded-card border p-3 text-xs ${NOTICE_TONES.warn}`}>
+        <div className="border-l-2 border-warn py-1 pl-3 text-meta text-ink">
           The rows below account for {formatINR(data.itemised_charge_inr)} of{" "}
           {formatINR(data.period_charge_inr)} in calling charge — a residual of{" "}
           {formatINR(data.itemisation_residual_inr)} ({data.residual_reason}).
@@ -228,7 +227,7 @@ function SpendBoard({ data }: { data: TenantSpend }) {
       )}
 
       {data.unattributed && (
-        <div className={`rounded-card border p-3 text-xs ${NOTICE_TONES.neutral}`}>
+        <div className="border-l-2 border-line py-1 pl-3 text-meta text-ink-muted">
           {formatINR(data.unattributed.cost_inr)} of cost this month belongs to no call
           ({data.unattributed.minutes} minutes). The only unit that lands here is{" "}
           <span className="font-mono">number_rental</span>: our cost of the phone numbers we
@@ -241,14 +240,14 @@ function SpendBoard({ data }: { data: TenantSpend }) {
           revenue. Knowledge preparation is split out (D-608) because it is a different
           curve — a burst on the day they onboard, not a steady copilot spend. */}
       {data.ai_assist && (
-        <section className="rounded-card border border-line bg-surface p-4">
+        <section className="border-y border-line py-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 className="text-[13px] font-semibold text-ink">AI assistant — cost we absorb</h3>
-            <p className="text-lg font-bold tabular-nums text-ink">
+            <h3 className="text-meta font-semibold text-ink">AI assistant — cost we absorb</h3>
+            <p className="text-heading tabular-nums text-ink">
               {formatINR(data.ai_assist.used_inr)}
             </p>
           </div>
-          <p className="mt-1 text-xs text-ink-muted">
+          <p className="mt-1 text-meta text-ink-muted">
             {formatCount(data.ai_assist.requests)}{" "}
             {data.ai_assist.requests === 1 ? "assist" : "assists"} this month —{" "}
             <strong className="font-semibold text-ink">not billed to the client</strong> and not
@@ -263,13 +262,13 @@ function SpendBoard({ data }: { data: TenantSpend }) {
             {/* Worded around `knowledgeClaims.test.ts`: this line is about what WE PAID, not
                 about what the agent can do, so it names the three jobs and claims nothing
                 about retrieval. */}
-            <dt className="text-xs text-ink-muted">
+            <dt className="text-meta text-ink-muted">
               of which, preparing what they added (writing an English key beside
               non-English text, reading photographed pages, and indexing both)
             </dt>
-            <dd className="text-sm font-semibold tabular-nums text-ink">
+            <dd className="text-body font-semibold tabular-nums text-ink">
               {formatINR(data.ai_assist.kb_used_inr)}
-              <span className="ml-2 text-xs font-normal text-ink-faint">
+              <span className="ml-2 text-meta font-normal text-ink-muted">
                 {formatCount(data.ai_assist.kb_requests)}{" "}
                 {data.ai_assist.kb_requests === 1 ? "job" : "jobs"}
               </span>

@@ -6,8 +6,7 @@ import { InfoTip } from "@/components/console/infoTip";
 import { TenantEngineCatalogue } from "@/components/engineCatalogueList";
 import { VoicePicker } from "@/components/voicePicker";
 import {
-  Card,
-  PRIMARY_BUTTON_SM,
+  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
@@ -98,8 +97,8 @@ export function VoicePanel({
   const rates = pending?.voice_tier_rates;
 
   return (
-    <Card>
-      <div className="flex items-start gap-1 text-xs text-ink-muted">
+    <div>
+      <div className="flex max-w-prose items-start gap-1 text-body text-ink-muted">
         <span>
           A price as well as a persona: each quality bills at the rate shown. On a live
           agent, callers hear a new voice from their next call.
@@ -113,7 +112,7 @@ export function VoicePanel({
           next publish carries the voice.
         </InfoTip>
       </div>
-      <div className="mt-3 space-y-3">
+      <div className="mt-4 space-y-5">
         <RestrictionNote reason={write.reason} />
         {save.error && <ProblemNotice error={save.error} />}
 
@@ -149,7 +148,7 @@ export function VoicePanel({
              not ours to change here. */
           <>
             <VoiceInForce state={state} published={pending?.published} />
-            <p className="text-xs text-ink-muted">{catalogue.data.note}</p>
+            <p className="text-meta text-ink-muted">{catalogue.data.note}</p>
             <TenantEngineCatalogue
               slug={slug}
               agent={agent}
@@ -192,7 +191,7 @@ export function VoicePanel({
               <button
                 type="submit"
                 disabled={save.isPending || selected === "" || !write.allowed}
-                className={PRIMARY_BUTTON_SM}
+                className={PRIMARY_BUTTON}
               >
                 {save.isPending ? "Saving…" : "Set voice"}
               </button>
@@ -206,13 +205,13 @@ export function VoicePanel({
         )}
 
         {save.data && (
-          <p className="text-xs text-ink-muted">
+          <p className="text-meta text-ink-muted">
             Saved — {save.data.voice.label} ({save.data.voice.tts_model}).{" "}
             {save.data.next_step}
           </p>
         )}
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -243,14 +242,14 @@ function VoiceInForce({
 }) {
   if (!state) return null;
   return (
-    <div className="rounded-card border border-line p-3">
-      <p className="text-xs text-ink">{state.headline}</p>
+    <div className="border-y border-line py-3">
+      <p className="text-body text-ink">{state.headline}</p>
       <dl className="mt-2 flex flex-wrap gap-x-8 gap-y-2">
         <div>
-          <dt className="text-[12px] font-medium text-ink-muted">
+          <dt className="text-meta font-medium text-ink-muted">
             Callers hear now
           </dt>
-          <dd className="text-sm font-medium text-ink">
+          <dd className="text-body font-medium text-ink">
             {state.live
               ? voiceName(state.live)
               : published
@@ -259,10 +258,10 @@ function VoiceInForce({
           </dd>
         </div>
         <div>
-          <dt className="text-[12px] font-medium text-ink-muted">
+          <dt className="text-meta font-medium text-ink-muted">
             Configured
           </dt>
-          <dd className="text-sm font-medium text-ink">
+          <dd className="text-body font-medium text-ink">
             {state.configured ? voiceName(state.configured) : "None set"}
           </dd>
         </div>
@@ -276,14 +275,14 @@ function VoiceInForce({
            sentence is the server's, composed where the catalogue is
            (`publishing.VOICE_NOT_IN_CATALOGUE_NOTE`), because there are two consoles and a
            paragraph written twice in TypeScript comes to say two things. */
-        <p className="mt-2 text-xs text-ink-muted">{state.unnamed_note}</p>
+        <p className="mt-2 text-meta text-ink-muted">{state.unnamed_note}</p>
       )}
       {state.republish_required && (
         /* Amber, and only when the server says so. The two values above are already
            different at this point, but "different" is not the operator's question —
            "does a caller hear the wrong thing until I act" is, and only the server can
            answer it (an unpublished agent has two different values and no problem). */
-        <p className="mt-2 text-xs text-warn">
+        <p className="mt-2 text-meta text-warn">
           Publishing this agent is what moves the voice callers hear. Nothing else on this
           screen does it.
         </p>
@@ -324,7 +323,7 @@ function VoiceDetail({
   const tier = voiceTierRate(rates, voice.voice_tier);
   const quality = voice.tier_label ?? tier?.label ?? null;
   return (
-    <div className="rounded-card border border-line p-3 text-xs text-ink-muted">
+    <div className="border-l-2 border-line pl-3 text-meta text-ink-muted">
       <p>
         <span className="font-semibold text-ink">{voice.label}</span>
         {quality ? ` · ${quality} voice` : ""} · {voice.tts_model}

@@ -54,7 +54,7 @@ export function SheetsUnavailable({
     <div className="space-y-3">
       <NoticeBox tone="neutral" title={headline}>
         <p className="mt-1">{remediation}</p>
-        <p className="mt-2 text-xs opacity-80">{footnote}</p>
+        <p className="mt-2 text-meta opacity-80">{footnote}</p>
       </NoticeBox>
     </div>
   );
@@ -134,7 +134,7 @@ export function SheetsForm({
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-ink-faint">
+      <p className="text-meta text-ink-faint">
         We add a row for each event, written by your own Google account into the spreadsheet
         you choose.
       </p>

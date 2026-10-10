@@ -1,7 +1,9 @@
 "use client";
 
 /**
- * BOOK APPOINTMENTS, ONCE IT IS ON: what it is set to, one switch, and a way to try it.
+ * THE BOOKING JOB'S OWN VIEW, once it is set up: one switch, what it is set to, a way to
+ * try it, and the two calendar steps behind it. The header (icon, name, line) is drawn by
+ * `Actions`, the same as every other action's view.
  *
  * "Try it" runs the job's CHECK half with a time the owner picks. Checking reads the
  * calendar and books nothing, which is why it is safe to offer in the open; a real test of
@@ -11,7 +13,8 @@
 
 import { useState } from "react";
 
-import { Section, TEXT_ACTION } from "@/components/console/section";
+import { TEXT_ACTION } from "@/components/console/section";
+import { ServiceLogo } from "@/components/console/serviceLogo";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { Disclosure, FIELD, ProblemNotice, SECONDARY_BUTTON, ToggleSwitch } from "@/components/ui";
 import {
@@ -24,10 +27,9 @@ import {
 import type { Session } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
 
-import { JOBS, addMinutesLocal, hourLabel, hoursUnknown, lengthLabel, readBooking } from "./jobs";
+import { addMinutesLocal, daysLabel, hourLabel, keptHours, lengthLabel, readBooking } from "./jobs";
 import { ToolRow } from "./ToolRow";
 
-const BOOKING = JOBS[0]!;
 
 export function BookingJob({
   agentId,
@@ -45,6 +47,7 @@ export function BookingJob({
   const creds = useCredentials(session);
   const setEnabled = useSetActionEnabled(session, agentId);
   const settings = readBooking(check, book);
+  const kept = keptHours(check, book);
   const parts = [check, book].filter((t): t is ActionTool => t !== undefined);
   const on = parts.length === 2 && parts.every((t) => t.enabled);
   const account = creds.data?.find((c) => c.id === settings.credentialId);
@@ -55,57 +58,69 @@ export function BookingJob({
   );
 
   return (
-    <Section headingLevel={3} title={BOOKING.title} description={BOOKING.line}>
+    <div className="space-y-8">
+      <div>
       <ToggleSwitch
-        label="Take bookings on calls"
+        label="Use it on calls"
         hint={on ? "Your agent offers free times and books them." : "Your agent will not book anything."}
         checked={on}
         disabled={setEnabled.isPending || parts.length < 2}
         onChange={(next) => {
           for (const t of parts) setEnabled.mutate({ toolId: t.id, enabled: next });
         }}
-        className="mb-2"
       />
       {setEnabled.error ? <ProblemNotice error={setEnabled.error} /> : null}
+      </div>
+
+      <div>
 
       <SettingRows className="border-y border-line">
         <SettingRow
           label="Calendar"
-          value={account ? `Google · ${account.label}` : <span className="text-ink-muted">Not connected</span>}
+          value={
+            account ? (
+              <span className="inline-flex items-center gap-1.5">
+                <ServiceLogo service="google_calendar" className="h-5 w-5" />
+                {`Google · ${account.label}`}
+              </span>
+            ) : (
+              <span className="text-ink-muted">Not connected</span>
+            )
+          }
           action={change}
         />
         <SettingRow label="Length" value={lengthLabel(settings.durationMin)} action={change} />
         <SettingRow
           label="Hours"
-          value={
-            hoursUnknown(check, book)
-              ? "As written in its instructions"
-              : `${hourLabel(settings.from)} – ${hourLabel(settings.to)}`
+          hint={
+            kept === null
+              ? "Not a rule yet: your agent could book at any time. Use Change to set your hours."
+              : undefined
           }
+          value={kept === null ? "Any time" : `${hourLabel(kept.from)} – ${hourLabel(kept.to)}`}
           action={change}
         />
+        <SettingRow label="Days" value={daysLabel(settings.days)} action={change} />
       </SettingRows>
       {parts.length < 2 ? (
         <p className="mt-3 text-meta text-warn">
           Only half of this is set up, so your agent cannot book yet. Use Change to finish it.
         </p>
       ) : null}
+      </div>
 
       {check ? <TryIt agentId={agentId} session={session} check={check} minutes={settings.durationMin} /> : null}
 
-      <Disclosure
-        variant="inline"
-        headingLevel={4}
-        title="The two steps behind it"
-        className="mt-4"
-      >
+      <div className="border-t border-line">
+      <Disclosure variant="inline" headingLevel={4} title="The two steps behind it">
         <ul className="divide-y divide-line">
           {parts.map((t) => (
             <ToolRow key={t.id} tool={t} agentId={agentId} session={session} />
           ))}
         </ul>
       </Disclosure>
-    </Section>
+      </div>
+    </div>
   );
 }
 
@@ -133,12 +148,13 @@ function TryIt({
     : [];
 
   return (
-    <div className="mt-6">
+    <div>
       <h4 className="text-body font-medium text-ink">Try it</h4>
       <p className="mt-0.5 text-meta text-ink-muted">
         Pick a time and we check your calendar the way your agent would. Nothing is booked.
       </p>
       <form
+        noValidate
         className="mt-3 flex flex-wrap items-end gap-3"
         onSubmit={(e) => {
           e.preventDefault();

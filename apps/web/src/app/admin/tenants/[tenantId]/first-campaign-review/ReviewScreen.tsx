@@ -90,7 +90,7 @@ export function ReviewScreen({ tenantId }: { tenantId: string }) {
   if (!tenant) return null;
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-3xl space-y-10">
       <PageHeader
         title="First campaign review"
         status={hold.data ? <HoldPill hold={hold.data} /> : null}
@@ -110,7 +110,7 @@ export function ReviewScreen({ tenantId }: { tenantId: string }) {
           icon={<AlertTriangle className="h-5 w-5" />}
           title="Cannot decide while the current state is unreadable"
         >
-          <p className="mt-1 text-xs opacity-90">
+          <p className="mt-1 text-meta opacity-90">
             We could not read where this account stands. A decision replaces whatever is on
             file, so recording one now could reverse a colleague&apos;s without anyone seeing
             it happen. Retry the read above; the form comes back with it.
@@ -121,7 +121,7 @@ export function ReviewScreen({ tenantId }: { tenantId: string }) {
           <WhereItStands hold={hold.data} tenantName={tenant.name} slug={slug} />
           {decide.data && (
             <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
-              <p className="text-xs">
+              <p>
                 Recorded as <span className="font-medium">{decide.data.status}</span> at{" "}
                 {formatIST(decide.data.decided_at)} IST. The panel above has re-read the
                 gate&apos;s own answer, and the client&apos;s campaign screen reflects it from

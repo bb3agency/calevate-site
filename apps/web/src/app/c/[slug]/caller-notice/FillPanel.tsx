@@ -69,14 +69,14 @@ export function FillPanel({
                   type="button"
                   onClick={() => jump(key)}
                   aria-label={`Go to the blank: ${blankLabel(key)}`}
-                  className="press rounded-md px-2 py-1 text-[13px] font-medium text-brand-strong hover:bg-brand-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+                  className="press rounded-md px-2 py-1 text-meta font-medium text-brand-strong hover:bg-brand-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
                 >
                   {valueOf(values, key) !== null ? "Edit" : "Fill in"}
                 </button>
               ),
             }))}
           />
-          <p className="mt-3 text-[12px] leading-snug text-ink-faint">
+          <p className="mt-3 text-meta leading-snug text-ink-faint">
             What you type stays in this browser. Nothing is sent to Calevate.
             {anyFilled && (
               <>
@@ -95,7 +95,7 @@ export function FillPanel({
       )}
 
       {notice.collected.length === 0 && (
-        <p className="text-[13px] text-ink-muted">
+        <p className="text-meta text-ink-muted">
           <span className="font-medium text-ink">Nothing itemised yet</span>: once an agent is
           live and set up to collect details from calls, every detail it captures appears in
           the notice.
@@ -126,10 +126,10 @@ function AnnouncementsOff({ notice }: { notice: CallerNotice }) {
 
   return (
     <section aria-labelledby="announcements-off" className="border-t border-line pt-5">
-      <h2 id="announcements-off" className="text-[15px] font-semibold text-ink">
+      <h2 id="announcements-off" className="text-heading text-ink">
         Announcements your agents do not make
       </h2>
-      <p className="mt-1.5 text-[13px] leading-relaxed text-ink-muted">
+      <p className="mt-1.5 text-meta leading-relaxed text-ink-muted">
         Every agent still answers truthfully whenever a caller asks whether they are
         speaking to an AI or whether the call is recorded — that cannot be switched off.
         These settings govern only what is said unprompted at the start of a call, so where
@@ -138,10 +138,10 @@ function AnnouncementsOff({ notice }: { notice: CallerNotice }) {
       <div className="mt-3 space-y-3">
         {groups.map((group) => (
           <div key={group.key}>
-            <p className="text-[12px] font-medium text-ink-muted">{group.label}</p>
+            <p className="text-meta font-medium text-ink-muted">{group.label}</p>
             <ul className="mt-1 flex flex-wrap gap-1.5">
               {group.agents.map((name) => (
-                <li key={name} className="rounded-md bg-surface-muted px-2 py-0.5 text-[13px] text-ink">
+                <li key={name} className="rounded-md bg-surface-muted px-2 py-0.5 text-meta text-ink">
                   {name}
                 </li>
               ))}

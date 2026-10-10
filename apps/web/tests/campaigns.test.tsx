@@ -167,20 +167,19 @@ function consentDateInput(container: HTMLElement): HTMLInputElement {
 }
 
 /**
- * The create flow sits behind "New campaign" (a list first, then a step flow). Its steps
- * are: the basics (name, agent, call type, number, template), who to call (the contact
- * editor and the consent questions), when, and review.
+ * The create form sits behind "New campaign" (a list first, then ONE page since
+ * REDESIGN-2): the basics (name, agent, call type, number, template), who to call (the
+ * contact editor and the consent questions) and when, with one "Create campaign".
  */
 async function openNewCampaign(): Promise<void> {
   fireEvent.click(await screen.findByRole("button", { name: "New campaign" }));
   await screen.findByRole("heading", { name: "The basics" });
 }
 
-/** Name the campaign on the basics step and move on to the contact list. */
+/** Name the campaign; the contact list is on the same page. */
 async function reachWhoStep(name = "Diwali reminder"): Promise<void> {
   await openNewCampaign();
   fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: name } });
-  fireEvent.click(screen.getByRole("button", { name: "Next" }));
   await screen.findByRole("heading", { name: "Who should we call?" });
 }
 
@@ -236,13 +235,13 @@ describe("the create form's consent declaration", () => {
 
     expect(consentRadios(container).some((r) => r.checked)).toBe(false);
     expect(consentDateInput(container).value).toBe("");
-    // And the step will not let an unanswered declaration through.
+    // And the form will not create a campaign with an unanswered declaration.
     pasteContacts("9876543210");
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
       "Answer both questions about your list",
     );
-    expect(screen.queryByRole("heading", { name: "When should we call?" })).toBeNull();
+    expect(screen.queryByText("Before you launch")).toBeNull();
   });
 });
 
@@ -602,15 +601,11 @@ describe("the three reads the create form is built from", () => {
 });
 
 describe("creating a campaign is two calls: the draft, then its list", () => {
-  /** Walk the four steps with a one-row list, and press Create. */
+  /** Fill the one page with a one-row list, and press Create. */
   async function createWithOneRow(container: HTMLElement): Promise<void> {
     await reachWhoStep();
     pasteContacts("9876543210,Priya");
     answerConsent(container);
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await screen.findByRole("heading", { name: "When should we call?" });
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await screen.findByRole("heading", { name: "Check and create" });
     fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
   }
 
@@ -693,15 +688,11 @@ describe("starting it later, chosen in the flow", () => {
     await reachWhoStep();
     pasteContacts("9876543210,Priya");
     answerConsent(rendered.container);
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await screen.findByRole("heading", { name: "When should we call?" });
     fireEvent.click(screen.getByRole("radio", { name: /At a set time/ }));
     // Refused until the date is chosen: a start nobody picked is never armed.
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Choose the date and time");
     fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2030-01-15" } });
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await screen.findByRole("heading", { name: "Check and create" });
     fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
 
     const armed = await vi.waitFor(() => {

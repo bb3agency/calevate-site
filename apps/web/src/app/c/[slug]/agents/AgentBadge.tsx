@@ -47,7 +47,7 @@ export function liveState(agent: Agent): LiveState {
       // heading and the button that produced it have to be one word or an owner cannot
       // connect them. The detail keeps the sentence that makes the word honest.
       label: "Deleted",
-      tone: "border-line bg-app text-ink-muted",
+      tone: "border-line bg-surface-muted text-ink-muted",
       detail:
         "It takes no calls and makes none. The calls it already handled are still in your call log.",
     };
@@ -55,7 +55,7 @@ export function liveState(agent: Agent): LiveState {
   if (!agent.published) {
     return {
       label: "Being set up",
-      tone: "border-line bg-app text-ink-muted",
+      tone: "border-line bg-surface-muted text-ink-muted",
       detail:
         "Not on the calling system yet, so it cannot take or make calls. Switching it on puts it there.",
     };
@@ -80,7 +80,7 @@ export function liveState(agent: Agent): LiveState {
      of the roster's "Working right now" section for the same reason. */
   return {
     label: humanise(agent.status),
-    tone: "border-line bg-app text-ink-muted",
+    tone: "border-line bg-surface-muted text-ink-muted",
     detail:
       "We cannot tell you from here whether this agent is taking calls. Your account manager can.",
   };
@@ -116,7 +116,7 @@ export function VoiceTierBadge({ agent }: { agent: Agent }) {
   if (label === null) return null;
   return (
     <span
-      className="inline-flex shrink-0 items-center rounded-full border border-line bg-app px-3 py-1 text-xs font-semibold text-ink-muted"
+      className="inline-flex shrink-0 items-center rounded-full border border-line bg-surface-muted px-3 py-1 text-xs font-semibold text-ink-muted"
       /* The visible word is a quality name on its own ("Studio"), which reads as a state
          next to "Live" unless it says what it is a name FOR. The accessible name carries
          the noun; the badge stays short enough to scan. */

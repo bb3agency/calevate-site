@@ -1,19 +1,35 @@
 "use client";
 
 /**
- * The parameter list on a new action — name, where the value comes from, and the value.
+ * The values an action sends: one row per value, hairlines between them (REDESIGN-2).
  *
- * Split out of `Actions.tsx` (UX-DOCTRINE §6). The three sources are the founder's spec's:
- * ✨ AI-decided, `</>` a lead/call variable, or a static value. Which second control
- * appears is a function of the source, which is progressive disclosure at field scale —
- * three fields where only one can ever apply is three chances to fill in the wrong one.
+ * Each row is its name, where the value comes from, and the one second field that source
+ * needs: what the agent should work out, which detail of the lead, or the fixed value.
+ * Showing only the field that can apply is progressive disclosure at field scale; three
+ * fields where one applies is three chances to fill in the wrong one. The wire values of
+ * the source (`ai`, `lead_var`, `static`) are unchanged; only the words are ours.
  */
 
-import { Plus, Trash2 } from "lucide-react";
+import { X } from "lucide-react";
 
-import { DANGER_BUTTON, FIELD, FIELD_HINT, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { TEXT_ACTION } from "@/components/console/section";
+import { FIELD, FIELD_HINT, FIELD_LABEL, QUIET_ICON_BUTTON } from "@/components/ui";
 
 import { LEAD_VARS, newParam, type DraftParam } from "./params";
+
+const SOURCES: { value: DraftParam["source"]; label: string; hint: string }[] = [
+  {
+    value: "ai",
+    label: "The agent works it out",
+    hint: "Your agent asks the caller for it, or takes it from what they have said.",
+  },
+  {
+    value: "lead_var",
+    label: "From the lead",
+    hint: "Filled in from what is already known about this caller.",
+  },
+  { value: "static", label: "A fixed value", hint: "The same value is sent every time." },
+];
 
 export function ParamEditor({
   params,
@@ -26,81 +42,102 @@ export function ParamEditor({
     onChange(params.map((q, j) => (j === index ? { ...q, ...next } : q)));
 
   return (
-    <div className="space-y-2 rounded-card border border-line bg-surface p-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-ink">Parameters</span>
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
-          onClick={() => onChange([...params, newParam()])}
-        >
-          <Plus className="mr-1 inline h-3.5 w-3.5" /> Add parameter
-        </button>
-      </div>
-      {params.length === 0 ? <p className={FIELD_HINT}>No parameters yet.</p> : null}
-      {params.map((p, i) => (
-        <div key={i} className="space-y-1 rounded border border-line p-2">
-          <div className="flex gap-2">
-            <input
-              className={FIELD}
-              value={p.name}
-              placeholder="name"
-              aria-label={`Parameter ${i + 1} name`}
-              onChange={(e) => patch(i, { name: e.target.value })}
-            />
-            <select
-              className={FIELD}
-              value={p.source}
-              aria-label={`Parameter ${i + 1} value comes from`}
-              onChange={(e) => patch(i, { source: e.target.value as DraftParam["source"] })}
-            >
-              <option value="ai">✨ AI decides</option>
-              <option value="lead_var">&lt;/&gt; Lead variable</option>
-              <option value="static">Static value</option>
-            </select>
-            <button
-              type="button"
-              className={DANGER_BUTTON}
-              onClick={() => onChange(params.filter((_, j) => j !== i))}
-              aria-label="Remove parameter"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
-          {p.source === "static" ? (
-            <input
-              className={FIELD}
-              value={p.value}
-              placeholder="value"
-              aria-label={`Parameter ${i + 1} static value`}
-              onChange={(e) => patch(i, { value: e.target.value })}
-            />
-          ) : null}
-          {p.source === "lead_var" ? (
-            <select
-              className={FIELD}
-              value={p.lead_var}
-              aria-label={`Parameter ${i + 1} lead variable`}
-              onChange={(e) => patch(i, { lead_var: e.target.value })}
-            >
-              {LEAD_VARS.map((v) => (
-                <option key={v.value} value={v.value}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
-          ) : null}
-          {p.source === "ai" ? (
-            <input
-              className={FIELD}
-              value={p.description}
-              placeholder="What should the AI collect? (e.g. the order id)"
-              aria-label={`Parameter ${i + 1} — what the AI should collect`}
-              onChange={(e) => patch(i, { description: e.target.value })}
-            />
-          ) : null}
-        </div>
-      ))}
+    <div>
+      <p className="text-body font-medium text-ink">Values it sends</p>
+      {params.length === 0 ? (
+        <p className="mt-1 text-meta text-ink-muted">No values yet.</p>
+      ) : (
+        <ul className="mt-2 divide-y divide-line border-y border-line">
+          {params.map((p, i) => {
+            const source = SOURCES.find((s) => s.value === p.source) ?? SOURCES[0]!;
+            const name = p.name.trim() || `value ${i + 1}`;
+            return (
+              <li key={i} className="py-4">
+                <div className="flex items-end gap-3">
+                  <label className="min-w-0 flex-1">
+                    <span className={FIELD_LABEL}>Name</span>
+                    <input
+                      className={FIELD}
+                      value={p.name}
+                      placeholder="order_id"
+                      aria-label={`Parameter ${i + 1} name`}
+                      onChange={(e) => patch(i, { name: e.target.value })}
+                    />
+                  </label>
+                  <label className="min-w-0 flex-1">
+                    <span className={FIELD_LABEL}>Where it comes from</span>
+                    <select
+                      className={FIELD}
+                      value={p.source}
+                      aria-label={`Parameter ${i + 1} value comes from`}
+                      onChange={(e) => patch(i, { source: e.target.value as DraftParam["source"] })}
+                    >
+                      {SOURCES.map((s) => (
+                        <option key={s.value} value={s.value}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => onChange(params.filter((_, j) => j !== i))}
+                    aria-label={`Remove ${name}`}
+                    className={`${QUIET_ICON_BUTTON} mb-0.5`}
+                  >
+                    <X aria-hidden className="h-4 w-4" />
+                  </button>
+                </div>
+                <p className={FIELD_HINT}>{source.hint}</p>
+
+                <div className="mt-3">
+                  {p.source === "static" ? (
+                    <label className="block">
+                      <span className={FIELD_LABEL}>Value</span>
+                      <input
+                        className={FIELD}
+                        value={p.value}
+                        aria-label={`Parameter ${i + 1} static value`}
+                        onChange={(e) => patch(i, { value: e.target.value })}
+                      />
+                    </label>
+                  ) : p.source === "lead_var" ? (
+                    <label className="block">
+                      <span className={FIELD_LABEL}>Which detail</span>
+                      <select
+                        className={FIELD}
+                        value={p.lead_var}
+                        aria-label={`Parameter ${i + 1} lead variable`}
+                        onChange={(e) => patch(i, { lead_var: e.target.value })}
+                      >
+                        {LEAD_VARS.map((v) => (
+                          <option key={v.value} value={v.value}>
+                            {v.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : (
+                    <label className="block">
+                      <span className={FIELD_LABEL}>What the agent should collect</span>
+                      <input
+                        className={FIELD}
+                        value={p.description}
+                        placeholder="The caller's order number"
+                        aria-label={`Parameter ${i + 1} — what the AI should collect`}
+                        onChange={(e) => patch(i, { description: e.target.value })}
+                      />
+                    </label>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <button type="button" className={`${TEXT_ACTION} mt-3`} onClick={() => onChange([...params, newParam()])}>
+        + Add a parameter
+      </button>
     </div>
   );
 }

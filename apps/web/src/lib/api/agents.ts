@@ -66,6 +66,8 @@ export const agentKeys = {
   /** The archive is a DIFFERENT list from a different request — see `useArchivedAgents`. */
   archived: (org: string) => ["agents-archived", org] as const,
   stats: (org: string) => ["agent-stats", org] as const,
+  /** What a ready-made agent for one job would be, for this account's business type. */
+  starters: (org: string, job: StarterJob) => ["agent-starters", org, job] as const,
   one: (org: string, agentId: string) => ["agent", org, agentId] as const,
   /**
    * EVERY agent detail row this org has cached — the PREFIX of `one`.
@@ -354,6 +356,31 @@ function useAgentRefresh(session: Session, agentId?: string): () => Promise<unkn
     }
     return Promise.all(invalidations);
   };
+}
+
+export type StarterJob = components["schemas"]["StarterPreviewOut"]["job"];
+export type StarterPreview = components["schemas"]["StarterPreviewOut"];
+export type StartersOut = components["schemas"]["StartersOut"];
+
+/**
+ * THE READY-MADE AGENT FOR ONE JOB, BEFORE IT EXISTS: its suggested name, opening line, the
+ * script's step titles and the details it captures, for the caller's own business type.
+ * `GET /v1/agents/starters?job=…` creates nothing; `useCreateAgent` with `starter` does.
+ * Not fetched until a job is chosen.
+ */
+export function useStarter(
+  session: Session,
+  job: StarterJob | null,
+): UseQueryResult<StarterPreview | null> {
+  return useQuery({
+    queryKey: agentKeys.starters(session.orgSlug, job ?? "answer_calls"),
+    queryFn: async () => {
+      const out = await apiRequest<StartersOut>(session, `/v1/agents/starters?job=${job ?? ""}`);
+      return out.starters.find((s) => s.job === job) ?? null;
+    },
+    enabled: job !== null,
+    staleTime: AGENT_STALE_MS,
+  });
 }
 
 export function useCreateAgent(session: Session): UseMutationResult<Agent, Error, AgentCreateIn> {

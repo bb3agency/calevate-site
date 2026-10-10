@@ -62,6 +62,8 @@ function fill(): void {
   fireEvent.change(screen.getByLabelText("Billing email"), {
     target: { value: "owner@srisai.example" },
   });
+  // A required choice with no default (founder, REDESIGN-2).
+  fireEvent.change(screen.getByLabelText("Kind of business"), { target: { value: "clinic" } });
 }
 
 /**
@@ -347,5 +349,20 @@ describe("the framing this screen has to carry itself", () => {
     // this route has neither. Without an overflow container of its own the submit button
     // is simply unreachable on a short viewport — a bug no type checker can see.
     expect(container.firstElementChild?.className).toContain("overflow-y-auto");
+  });
+});
+
+describe("the kind of business", () => {
+  it("has no default and is refused in our words until one is chosen", async () => {
+    const calls = stubApi({});
+    await mount();
+    const kind = screen.getByLabelText("Kind of business") as HTMLSelectElement;
+    expect(kind.value).toBe("");
+    fireEvent.change(screen.getByLabelText("Business name"), { target: { value: "Lakeview Properties" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Create workspace" }));
+    });
+    expect(await screen.findByText("Choose the kind of business you run.")).toBeTruthy();
+    expect(calls.some((c) => c.method === "POST" && c.path.includes("signup"))).toBe(false);
   });
 });

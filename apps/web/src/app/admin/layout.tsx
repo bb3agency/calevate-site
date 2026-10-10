@@ -29,7 +29,6 @@ import { OfflineBanner } from "@/components/offline";
 import { ADMIN_REALM_IDENTITY_CLASS } from "@/components/realmChrome";
 import {
   MAIN_CONTENT_ID,
-  NOTICE_TONES,
   NoticeBox,
   SHELL_RAIL_CLASS,
   SkipLink,
@@ -216,7 +215,7 @@ function Sidebar({
               nav in the frame the panel started sliding. */}
           {access.reason && (
             <SidebarCollapsibleBlock isCollapsed={isCollapsed}>
-              <p className="px-4 pb-1 text-[11px] leading-snug text-ink-faint">
+              <p className="px-4 pb-1 text-xs leading-snug text-ink-faint">
                 {access.reason}
               </p>
             </SidebarCollapsibleBlock>
@@ -238,7 +237,7 @@ function Sidebar({
         className={`${SIDEBAR_ROW_CLASS} transition-colors ${
           active
             ? "bg-brand-soft text-brand-strong dark:bg-brand-strong/20 dark:text-brand-bright"
-            : "text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
+            : "text-ink-muted hover:bg-ink/[0.04] hover:text-ink"
         }`}
       >
         <Icon
@@ -330,7 +329,7 @@ function IdentityFooter({ isCollapsed }: { isCollapsed: boolean }) {
           // The glyph rides the row's own tint rather than a white wash: the row is no
           // longer a dark slab (`ADMIN_REALM_IDENTITY_CLASS`), so `bg-white/15` would be a
           // near-invisible smudge in light mode and `text-white` unreadable on it.
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-600/15 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong dark:bg-brand-strong/20 dark:text-brand-bright"
         >
           <ShieldCheck className="h-4 w-4" />
         </span>
@@ -348,7 +347,7 @@ function IdentityFooter({ isCollapsed }: { isCollapsed: boolean }) {
               fix is the copy, not a `title`: a tooltip on a sentence nobody can read is a
               workaround, and the cut fact — that this session is not inside any single
               client — is sayable in three words. */}
-          <span className="block truncate text-xs text-emerald-800/80 dark:text-emerald-200/80">
+          <span className="block truncate text-xs text-ink-muted">
             {role ? `${role} · all clients` : "All clients"}
           </span>
         </SidebarLabel>
@@ -399,20 +398,20 @@ function HeldCount() {
             ? `Held accounts: ${waiting} waiting on us`
             : "Held accounts"
       }
-      className="relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-black/5 touch:h-11 touch:w-11 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press"
+      className="press relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 dark:hover:bg-white/5"
     >
       <Hourglass className="h-4 w-4" />
       {queue.error != null ? (
         <span
           title="We could not read the hold queue. Open Holds to try again."
-          className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-amber-500 px-1 text-[9px] font-bold text-white"
+          className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-warn px-1 text-[9px] font-bold text-white"
         >
           ?
         </span>
       ) : (
         waiting !== undefined &&
         waiting > 0 && (
-          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-rose-500 px-1 text-[9px] font-bold text-white">
+          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-danger px-1 text-[9px] font-bold text-white">
             {waiting > 99 ? "99+" : waiting}
           </span>
         )
@@ -435,7 +434,7 @@ function tenantIdOf(pathname: string): string | null {
 function TenantCrumb({ tenantId }: { tenantId: string }) {
   const tenant = useTenant(tenantId);
   return (
-    <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-lg font-semibold lg:text-xl">
+    <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-title">
       <Link
         href="/admin"
         className="shrink-0 rounded-sm text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 touch:inline-flex touch:items-center"
@@ -470,7 +469,7 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
             type="button"
             onClick={onMenuToggle}
             aria-label="Open navigation"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-black/5 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press"
+            className="press flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5"
           >
             <Menu className="h-5 w-5" />
           </button>
@@ -480,7 +479,7 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
           {tenantId ? (
             <TenantCrumb tenantId={tenantId} />
           ) : (
-            <h1 className="truncate text-xl font-bold tracking-tight text-ink lg:text-2xl">
+            <h1 className="truncate text-title text-ink">
               {currentItem(pathname)?.label ?? "Clients"}
             </h1>
           )}
@@ -490,10 +489,8 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
           <AdminCommandPalette />
           {/* The marker, at every route. Not a `NoticeBox`: that component is a verdict about
               something the reader must act on, and this is a standing statement about the
-              session. It borrows the same warn palette so the two never disagree on tone. */}
-          <span
-            className={`hidden rounded-full border px-3 py-1 text-[11px] font-semibold sm:inline-block ${NOTICE_TONES.warn}`}
-          >
+              session. It takes the warn tone, softly, so it reads as a standing fact rather than an alarm. */}
+          <span className="hidden rounded-full bg-warn-soft px-2.5 py-1 text-xs font-medium text-warn sm:inline-block">
             Cross-client · every action is audited
           </span>
           <HeldCount />
@@ -672,7 +669,7 @@ export default function AdminLayout({
                   <main
                     id={MAIN_CONTENT_ID}
                     tabIndex={-1}
-                    className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6"
+                    className="relative flex-1 overflow-y-auto bg-surface px-4 py-4 lg:px-8 lg:py-8"
                   >
                     <div className={SHELL_RAIL_CLASS}>{children}</div>
                   </main>

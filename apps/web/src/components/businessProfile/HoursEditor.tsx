@@ -52,9 +52,9 @@ export function HoursEditor({
           const answered = row.closed || (row.opens !== "" && row.closes !== "");
           return (
             <li key={row.day} className="grid grid-cols-2 items-end gap-2 py-2.5 sm:grid-cols-[8rem_1fr_1fr_auto]">
-              <p className="col-span-2 flex items-center gap-2 text-sm font-medium text-ink sm:col-span-1 sm:pb-2">
+              <p className="col-span-2 flex items-center gap-2 text-body font-medium text-ink sm:col-span-1 sm:pb-2">
                 {DAY_LABELS[row.day]}
-                {!answered && <span className="text-xs font-normal text-ink-faint">Not set</span>}
+                {!answered && <span className="text-meta font-normal text-ink-faint">Not set</span>}
               </p>
               <Field id={profileFieldId(`business_hours.${row.day}.opens`)} label="Opens" error={errorAt(row.day)}>
                 {(props) => (
@@ -80,7 +80,7 @@ export function HoursEditor({
                   />
                 )}
               </Field>
-              <label className="col-span-2 flex items-center gap-2 text-sm text-ink-muted sm:col-span-1 sm:pb-2 touch:min-h-11">
+              <label className="col-span-2 flex items-center gap-2 text-body text-ink-muted sm:col-span-1 sm:pb-2 touch:min-h-11">
                 <input
                   id={profileFieldId(`business_hours.${row.day}.closed`)}
                   type="checkbox"
@@ -98,7 +98,7 @@ export function HoursEditor({
         type="button"
         onClick={copyMonday}
         disabled={disabled}
-        className="press rounded-sm text-[13px] font-medium text-brand-strong hover:underline disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+        className="press rounded-sm text-meta font-medium text-brand-strong hover:underline disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
       >
         Copy Monday to Tuesday–Friday
       </button>

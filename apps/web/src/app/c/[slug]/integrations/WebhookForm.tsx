@@ -122,11 +122,11 @@ export function WebhookForm({
             endpoint, so each is a deliberate choice. The unredacted warning is part of
             its option and shows whenever the option does. */}
         {(callCompletedSelected || recordingReadySelected) && (
-          <fieldset className="settings-enter space-y-1.5 rounded-md border border-line p-3">
-            <legend className={`${FIELD_LABEL} px-1`}>
+          <fieldset className="settings-enter space-y-1.5 border-l-2 border-line pl-4">
+            <legend className={FIELD_LABEL}>
               {callCompletedSelected ? "When a call finishes, also send…" : "Also send…"}
             </legend>
-            <label className="flex items-start gap-2 text-sm">
+            <label className="flex items-start gap-2 text-body">
               <input
                 type="checkbox"
                 className="mt-0.5"
@@ -136,7 +136,7 @@ export function WebhookForm({
               />
               <span className="text-ink-muted">
                 A link to the call recording
-                <span className="block text-xs text-ink-faint">
+                <span className="block text-meta text-ink-faint">
                   A short-lived, signed link to our copy of the audio — not the audio itself.
                   It expires within minutes, so fetch it as soon as you receive it.
                   {recordingReadySelected &&
@@ -146,7 +146,7 @@ export function WebhookForm({
             </label>
             {callCompletedSelected && (
               <>
-                <label className="flex items-start gap-2 text-sm">
+                <label className="flex items-start gap-2 text-body">
                   <input
                     type="checkbox"
                     className="mt-0.5"
@@ -161,13 +161,13 @@ export function WebhookForm({
                   />
                   <span className="text-ink-muted">
                     The transcript, redacted
-                    <span className="block text-xs text-ink-faint">
+                    <span className="block text-meta text-ink-faint">
                       The conversation with personal details (numbers, IDs, OTPs) masked — the
                       same text your team sees on the call screen.
                     </span>
                   </span>
                 </label>
-                <label className="flex items-start gap-2 text-sm">
+                <label className="flex items-start gap-2 text-body">
                   <input
                     type="checkbox"
                     className="mt-0.5"
@@ -179,7 +179,7 @@ export function WebhookForm({
                   />
                   <span className="text-ink-muted">
                     The transcript, unredacted
-                    <span className="block text-xs text-warn">
+                    <span className="block text-meta text-warn">
                       Sends the FULL transcript — every phone number, ID and OTP spoken on the
                       call — to your endpoint in the clear. Only turn this on if your system is
                       allowed to hold that data. Turning it on needs the same permission as

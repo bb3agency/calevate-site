@@ -219,9 +219,9 @@ function Tile({
     <button
       type="button"
       onClick={onOpen}
-      className="press min-w-0 rounded-card border border-line bg-surface px-4 py-3 text-left hover:bg-ink/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+      className="press min-w-0 rounded-md px-2 py-2 text-left hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
     >
-      <span className="block text-[13px] font-medium text-ink-muted">{label}</span>
+      <span className="block text-meta font-medium text-ink-muted">{label}</span>
       <SkeletonSwap ready={value !== undefined} lines={1} lineHeight={34} barHeight={14}>
         <span className="block text-[26px] font-semibold leading-tight tracking-tight tabular-nums text-ink">
           <FlashValue value={value === undefined ? null : String(value)}>

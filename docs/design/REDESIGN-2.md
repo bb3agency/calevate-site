@@ -183,3 +183,37 @@ serif was taken (the brand decision wins).
   else is a secondary (bordered) button or a text action.
 - **Account sign-in**: `integrations/useAccountSignIn` is the one popup sign-in hand-off, used by
   Integrations and by a job that needs an account it does not have yet.
+
+### Fan-out additions (10 Oct 2026, after the founder approved the pilot)
+
+- **Booking hours are server rules.** Both calendar tools carry `opens`, `closes` and
+  `open_days`; the setup has Hours and Days (default Mon – Sat, 9 am – 6 pm). The same sentence
+  stays in the agent's instructions so it can say the hours. Older actions are read from their
+  instructions and show "Any time" with a prompt to set hours.
+- **Notices on tokens.** `NOTICE_TONES` maps ok/warn/stop/neutral to brand-soft, warn, danger
+  and an ink wash; `NoticeBox` is `rounded-md px-4 py-3 text-body`.
+- **No resting shadows in the console kit** (`Card`, `StatTile`, card `Disclosure`, the live
+  call panel and pill, the step flow). Marketing keeps `shadow-card`.
+- **`Fact`** is a plain muted label over a medium-weight value; the uppercase tracked label is
+  gone.
+- **The assistant.** The client header launcher is a quiet bordered "Ask" button with a question
+  bubble (the admin realm keeps its slate tile). The panel keeps every consequence sentence
+  verbatim; the composer is one bordered field with Ask inside it; the person's words sit in a
+  right-aligned bubble; fills, receipts and jobs are a left rule rather than boxes; the
+  workspace's approvals, tasks and routines are divided lists. Every screen declares its
+  copilot surface with real fields.
+- **Service logos** (`components/console/serviceLogo.tsx`): official full-colour icons, small,
+  always beside the service's name, never for our own vendors.
+- **No bottom tab bar** on phones; the menu button opens the sidebar.
+- **Competitor context.** Use the Outpero teardown to judge what a voice-agent SaaS client
+  needs: rememory "outpero teardown" (parts 1–7), `docs/evidence/outpero-teardown-aug2026.md`,
+  and the gap report of 9 Oct 2026. Useful patterns: agents treated like staff with clear tabs,
+  a "talk to your agent" test moment, credit shown as a runway, one-form campaign setup with
+  sensible defaults, a plain post-call webhook description, and the narrow Google Calendar
+  privacy pattern. Do not copy their identity.
+- **Two agents, one per realm, no sub-agents** (the founder's rule). The client agent owns
+  `app/c/**`, the client auth pages, `components/copilot/**`, the shared kit (`ui.tsx`,
+  `components/console/**`, `globals.css`) and `lib/clientNav.ts`. The admin agent owns
+  `app/admin/**`, `components/admin/**`, `adminNav.ts` and any backend it adds. It consumes the
+  shared kit as it is, and builds admin-local primitives to promote later. Each agent keeps a
+  route checklist that goes in its report.

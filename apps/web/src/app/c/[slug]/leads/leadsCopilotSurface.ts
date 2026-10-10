@@ -6,7 +6,7 @@ import { asText } from "@/lib/copilot/types";
 import { type LeadColumn, type LeadStatus } from "@/lib/api/leads";
 
 import { STATUSES } from "./StatusSelect";
-import { PAGE_SIZE, type ViewMode } from "./leadsTable";
+import { PAGE_SIZE } from "./leadsTable";
 
 /**
  * WHAT THE SCREEN ASSISTANT IS TOLD ABOUT THE LEADS TABLE.
@@ -22,8 +22,6 @@ import { PAGE_SIZE, type ViewMode } from "./leadsTable";
 export function useLeadsCopilotSurface({
   status,
   setStatus,
-  view,
-  setView,
   search,
   leads,
   items,
@@ -39,8 +37,6 @@ export function useLeadsCopilotSurface({
 }: {
   status: string | undefined;
   setStatus: (value: string | undefined) => void;
-  view: ViewMode;
-  setView: (value: ViewMode) => void;
   search: string;
   leads: { data: unknown; error: unknown };
   items: unknown[];
@@ -93,16 +89,6 @@ export function useLeadsCopilotSurface({
           ...STATUSES.map((stage) => ({ value: stage, label: stage })),
         ],
         help: "Filters the whole account, not just this page.",
-      },
-      {
-        id: "leads-view",
-        label: "How the leads are laid out",
-        type: "select",
-        value: view,
-        options: [
-          { value: "list", label: "Table" },
-          { value: "board", label: "Board (one column per stage)" },
-        ],
       },
       {
         id: "leads-search",
@@ -168,8 +154,6 @@ export function useLeadsCopilotSurface({
         if (item.field_id === "leads-status") {
           if (text === "") setStatus(undefined);
           else if (STATUSES.some((stage) => stage === text)) setStatus(text);
-        } else if (item.field_id === "leads-view" && (text === "list" || text === "board")) {
-          setView(text);
         }
       }
     },

@@ -112,10 +112,10 @@ export function OutboundHaltPanel({ state, access }: { state: PlatformState; acc
           {/* WHAT THE BUTTON DOES, ABOVE THE BUTTON. Blast radius first, then what is
               NOT affected, then the fact that it is recorded — in that order, because
               an operator who reads only the first line has read the part that matters. */}
-          <div className="flex gap-3 rounded-card border border-line bg-surface p-4 text-sm">
+          <div className="flex gap-3 border-l-2 border-danger py-1 pl-4 text-body">
             <TriangleAlert
               aria-hidden
-              className={`mt-0.5 h-4 w-4 shrink-0 ${halted ? "text-ink-faint" : "text-rose-600"}`}
+              className={`mt-0.5 h-4 w-4 shrink-0 ${halted ? "text-ink-faint" : "text-danger"}`}
             />
             <div className="min-w-0">
               <p className="font-semibold text-ink">
@@ -128,7 +128,7 @@ export function OutboundHaltPanel({ state, access }: { state: PlatformState; acc
                   ? "Paused campaigns pick up again within a minute or so. Every campaign's own compliance gate still applies — this only releases the platform-wide stop, nothing else."
                   : "Running campaigns stop within a minute or so and no new outbound call is placed for any client. Inbound calls are unaffected — the caller started those, and refusing them would silently break the receptionist your clients pay for."}
               </p>
-              <p className="mt-1 text-xs text-ink-faint">
+              <p className="mt-1 text-meta text-ink-muted">
                 Recorded in the activity log against your admin account, with the reason
                 you type below.
               </p>
@@ -195,7 +195,7 @@ export function OutboundHaltPanel({ state, access }: { state: PlatformState; acc
           {/* A dead switch with no explanation is worse than a refusal after the click:
               the operator cannot tell it apart from a broken page. */}
           {!access.allowed && access.reason && (
-            <p className="flex items-start gap-2 text-xs text-ink-muted">
+            <p className="flex items-start gap-2 text-meta text-ink-muted">
               <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               {access.reason}
             </p>

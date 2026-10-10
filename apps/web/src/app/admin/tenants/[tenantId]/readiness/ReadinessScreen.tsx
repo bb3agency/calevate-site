@@ -19,7 +19,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
 
-import { TonePill } from "../tonePill";
+import { StatusPill } from "@/components/admin/kit";
 
 /** Where a readiness rule is cleared in this console, and what the link says. */
 export type RuleScreen = { href: (tenantId: string) => string; cta: string };
@@ -102,16 +102,16 @@ export function ReadinessScreen({
   const blocked = readiness.data !== undefined && !readiness.data.may_operate && rows.length > 0;
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-4xl space-y-10">
       <PageHeader
         title="Before their first call"
         status={
           blocked ? (
-            <TonePill tone={ours.length ? "warn" : "neutral"}>
+            <StatusPill tone={ours.length ? "warn" : "neutral"}>
               {ours.length
                 ? `${ours.length} of ${rows.length} are ours to clear`
                 : `All ${rows.length} are the client's to clear`}
-            </TonePill>
+            </StatusPill>
           ) : null
         }
         description={
@@ -153,10 +153,10 @@ export function ReadinessScreen({
         ([["calevate", ours], ["client", theirs]] as const).map(([actor, group]) =>
           group.length ? (
             <section key={actor} aria-labelledby={`readiness-${actor}`}>
-              <h3 id={`readiness-${actor}`} className="text-[15px] font-semibold text-ink">
+              <h3 id={`readiness-${actor}`} className="text-body font-semibold text-ink">
                 {ACTOR_COPY[actor].heading}
               </h3>
-              <p className="mt-0.5 text-sm text-ink-muted">{ACTOR_COPY[actor].blurb}</p>
+              <p className="mt-0.5 text-body text-ink-muted">{ACTOR_COPY[actor].blurb}</p>
               <ul className="mt-3 divide-y divide-line border-y border-line">
                 {group.map((row) => (
                   <RuleRow
@@ -173,7 +173,7 @@ export function ReadinessScreen({
         )
       )}
 
-      <p className="flex items-start gap-2 text-xs text-ink-faint">
+      <p className="flex items-start gap-2 text-meta text-ink-muted">
         <UserRound aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         Reading this screen is recorded against you in the audit log, like every other read
         of one client&apos;s own state.
@@ -198,9 +198,9 @@ function RuleRow({
       <div className="min-w-0">
         <p className="font-medium text-ink">{row.title}</p>
         {/* The gate's own sentence, verbatim: the client is reading this same string. */}
-        <p className="mt-1 text-sm text-ink-muted">{row.reason}</p>
-        <p className="mt-1.5 text-sm text-ink">{row.next_step}</p>
-        <p className="mt-1.5 break-all font-mono text-[11px] text-ink-faint">{row.rule}</p>
+        <p className="mt-1 text-body text-ink-muted">{row.reason}</p>
+        <p className="mt-1.5 text-body text-ink">{row.next_step}</p>
+        <p className="mt-1.5 break-all font-mono text-meta text-ink-muted">{row.rule}</p>
       </div>
       {screen && (
         <Link

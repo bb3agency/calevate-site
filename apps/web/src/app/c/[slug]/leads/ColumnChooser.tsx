@@ -86,14 +86,14 @@ export function ColumnChooser({
           place it; reduced motion keeps the fade and drops the scale. */}
       <div className="absolute right-0 z-20 mt-1 w-64 max-w-[calc(100vw-2rem)] origin-top-right rounded-card border border-line bg-surface p-3 shadow-raised transition-[opacity,scale] duration-(--duration-fast) ease-out starting:scale-[0.97] starting:opacity-0 motion-reduce:starting:scale-100">
         <fieldset>
-          <legend className="mb-2 text-xs font-semibold text-ink">
+          <legend className="mb-2 text-meta font-semibold text-ink">
             Columns shown here and in the CSV
           </legend>
           <div className="max-h-72 space-y-1 overflow-y-auto">
             {available.map((column) => (
               <label
                 key={column.key}
-                className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm text-ink hover:bg-black/5 touch:min-h-11 dark:hover:bg-white/5"
+                className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm text-ink hover:bg-ink/[0.04] touch:min-h-11"
               >
                 <input
                   type="checkbox"

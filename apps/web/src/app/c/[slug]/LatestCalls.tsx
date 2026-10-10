@@ -6,6 +6,7 @@ import { useMemo } from "react";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
+import { EmptySketch } from "@/components/console/emptySketch";
 import { DataTable } from "@/components/console/dataTable";
 import type { useCalls } from "@/lib/api/hooks";
 
@@ -52,7 +53,11 @@ export function LatestCalls({
           />
         </div>
       ) : !recent.data.length ? (
-        <EmptyState message="No calls yet — they appear here a couple of minutes after a call ends." />
+        <EmptyState
+          illustration={<EmptySketch kind="calls" />}
+          message="No calls yet."
+          hint="They appear here a couple of minutes after a call ends."
+        />
       ) : (
         <DataTable
           rows={recent.data}

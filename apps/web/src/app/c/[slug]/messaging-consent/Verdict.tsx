@@ -127,7 +127,7 @@ function Box({
   children: ReactNode;
 }) {
   return (
-    <div className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${NOTICE_TONES[tone]}`}>
+    <div className={`flex items-start gap-2 rounded-md border px-3 py-2 text-body ${NOTICE_TONES[tone]}`}>
       <span className="mt-0.5 shrink-0" aria-hidden>
         {icon}
       </span>

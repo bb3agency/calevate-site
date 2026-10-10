@@ -1,5 +1,6 @@
 "use client";
 
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatIST } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
@@ -37,13 +38,14 @@ export function TasksList({
   if (jobs.data.jobs.length === 0) {
     return (
       <EmptyState
+        illustration={<EmptySketch kind="chat" />}
         message="No tasks yet."
         hint="Ask for something bigger than one answer — or set up a routine — and it runs here in the background."
       />
     );
   }
   return (
-    <ul className="space-y-3" aria-label="Background tasks">
+    <ul className="divide-y divide-line border-y border-line" aria-label="Background tasks">
       {jobs.data.jobs.map((job) => (
         <TaskRow key={job.id} session={session} job={job} onOpenApprovals={onOpenApprovals} />
       ))}
@@ -65,7 +67,7 @@ function TaskRow({
   const running = job.status === "queued" || job.status === "running";
   const waiting = job.progress.some((entry) => entry.kind === "approval");
   return (
-    <li className="space-y-3 rounded-card border border-line bg-surface px-4 py-3">
+    <li className="space-y-3 py-3.5">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="break-words text-sm font-medium text-ink [overflow-wrap:anywhere]">

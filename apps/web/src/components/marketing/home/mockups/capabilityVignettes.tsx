@@ -5,7 +5,8 @@ import { StatusPill, Tag } from "./kit";
 /**
  * One small piece of real UI per capability, so each card in "What it does" SHOWS the job
  * rather than decorating it with an icon. Each vignette is drawn from the console screen
- * named in its comment; people and times are illustrative.
+ * named in its comment; people and times are illustrative, and the trades are mixed (an
+ * appliance shop, a dental clinic, a coaching centre) so the bento reads as any business.
  */
 
 /** A row in a small list: the same rhythm in every vignette. */
@@ -26,9 +27,9 @@ function Line({ children, className = "" }: { children: ReactNode; className?: s
  */
 export function AnsweringVignette() {
   const calls = [
-    { time: "7:02 AM", summary: "Wants the first slot tomorrow" },
+    { time: "7:02 AM", summary: "Is the 1.5-ton AC in stock?" },
     { time: "2:15 PM", summary: "Asked if Saturday is open" },
-    { time: "11:47 PM", summary: "Toothache — booked a morning visit", late: true },
+    { time: "11:47 PM", summary: "Fridge not cooling — repair booked for morning", late: true },
   ] as const;
   return (
     <span className="flex flex-col gap-1.5">
@@ -74,6 +75,8 @@ export function FollowUpVignette() {
 /**
  * Qualification — two leads, sorted, each with the captured field that put it there, and
  * the console's own history line for the alert (`apps/api/crm/service.py`).
+ * A clinic, because `urgency` is the field the hot-lead trigger reads
+ * (`apps/workers/pipeline.py::HOT_LEAD_FIELD_TRIGGERS`) and only that template has it.
  */
 export function QualificationVignette() {
   return (
@@ -106,15 +109,15 @@ export function AppointmentsVignette() {
     <span className="flex flex-col gap-1.5">
       <Line className="mk-rise mk-s1">
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate font-semibold text-ink">Tue, 6:00 PM</span>
-          <span className="truncate text-[11px] text-ink-muted">Check-up · Priya Reddy</span>
+          <span className="truncate font-semibold text-ink">Sat, 10:00 AM</span>
+          <span className="truncate text-[11px] text-ink-muted">Demo class · Kavya Reddy</span>
         </span>
         <Tag tone="emerald">Booked</Tag>
       </Line>
       <Line className="mk-rise mk-s2">
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate font-semibold text-ink">Tomorrow, 11:00 AM</span>
-          <span className="truncate text-[11px] text-ink-muted">Call-back · Karthik Varma</span>
+          <span className="truncate text-[11px] text-ink-muted">Call-back · Manoj Kumar</span>
         </span>
         <Tag tone="sky">Call-back</Tag>
       </Line>
@@ -128,7 +131,7 @@ export function AppointmentsVignette() {
  */
 export function ToolsVignette() {
   const rows = [
-    { to: "Google Sheet", lead: "Priya Reddy", status: "delivered" },
+    { to: "Google Sheet", lead: "Kavya Reddy", status: "delivered" },
     { to: "Your CRM", lead: "Ravi Kumar", status: "failed" },
     { to: "Your CRM", lead: "Ravi Kumar · retried", status: "delivered" },
   ] as const;
@@ -158,14 +161,14 @@ export function AnswersVignette() {
       <Line className="mk-rise mk-s1 items-start">
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="font-semibold text-ink">Are you open on Sundays?</span>
-          <span className="text-ink-muted">Sundays 10 AM to 1 PM, by appointment only.</span>
+          <span className="text-ink-muted">Sundays 10 AM to 2 PM.</span>
         </span>
         <Tag tone="emerald">Live</Tag>
       </Line>
       <Line className="mk-rise mk-s2 items-start">
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="font-semibold text-ink">Do you do braces for adults?</span>
-          <span className="text-ink-muted">Yes — consultation first, with Dr. Rao.</span>
+          <span className="font-semibold text-ink">Do you fit the AC as well?</span>
+          <span className="text-ink-muted">Yes — delivery and fitting within two days.</span>
         </span>
         <Tag tone="emerald">Live</Tag>
       </Line>

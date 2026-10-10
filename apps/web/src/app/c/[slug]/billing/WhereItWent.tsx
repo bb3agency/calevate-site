@@ -1,10 +1,11 @@
 "use client";
 
-import { Panel } from "@/components/console/panel";
+import { Section } from "@/components/console/section";
 import { BadgeIndianRupee, Phone, PhoneCall, Sparkles, SlidersHorizontal } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { formatINR, hasNonZeroDigit } from "@/components/ui";
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import type { Drawdown } from "@/lib/api/wallet";
 
@@ -70,14 +71,14 @@ export function WhereItWent({
   const refunded = hasNonZeroDigit(drawdown.refunded_inr);
 
   return (
-    <Panel title={`Where your credit went in the last ${windowDays} days`}>
+    <Section title={`Where your credit went in the last ${windowDays} days`}>
       {rows.length === 0 && !added && !refunded ? (
-        <EmptyState
+        <EmptyState illustration={<EmptySketch kind="deliveries" />}
           message="Nothing has moved on your credit yet"
           hint="Once your agents start taking and making calls, this is where you will see what each part costs."
         />
       ) : (
-        <dl className="space-y-3 text-sm">
+        <dl className="space-y-3 text-body">
           {rows.map((row) => (
             <div key={row.key} className="flex items-start justify-between gap-4">
               <dt className="flex min-w-0 items-start gap-2 text-ink-muted">
@@ -86,7 +87,7 @@ export function WhereItWent({
                 </span>
                 <span className="min-w-0">
                   <span className="block text-ink">{row.label}</span>
-                  <span className="block text-xs text-ink-faint">{row.hint}</span>
+                  <span className="block text-meta text-ink-faint">{row.hint}</span>
                 </span>
               </dt>
               <dd className="shrink-0 tabular-nums text-ink">{formatINR(row.value)}</dd>
@@ -122,6 +123,6 @@ export function WhereItWent({
           )}
         </dl>
       )}
-    </Panel>
+    </Section>
   );
 }

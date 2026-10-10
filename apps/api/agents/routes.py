@@ -57,7 +57,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import lifecycle, roster
+from apps.api.agents import lifecycle, roster, starters
 
 # The languages the product sells, imported rather than respelled. `OfferedLanguage` and
 # not the bare `Literal`: same OpenAPI enum, and a refusal written for the person holding
@@ -80,6 +80,7 @@ from apps.api.agents.publishing import (
 )
 from apps.api.agents.schemas import AgentOut
 from apps.api.agents.service import publish_agent
+from apps.api.agents.starters import StarterJob
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.disclosure import truthful_answer_promise
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
@@ -146,6 +147,80 @@ async def list_agents(
     the UI does not have to discover it.
     """
     return await roster.list_agents(session, limit=limit, status=status)
+
+
+class StarterPreviewOut(BaseModel):
+    """One ready-made agent as the "pick a job" screen shows it before creating (D-705)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    job: StarterJob
+    #: The calling direction this job creates the agent with.
+    direction: AgentDirection
+    #: A name to prefill; the owner may change it. `POST /v1/agents` still takes `name`.
+    name_suggestion: str
+    #: The first thing the agent says, with this account's business name filled in.
+    opening_line: str
+    #: The script's steps, as short titles in call order.
+    step_titles: list[str]
+    #: The labels of the details the agent captures into each lead.
+    captured_details: list[str]
+
+
+class StartersOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: The business type these starters are written for: the account's own, or `custom`
+    #: when the account has none the catalogue knows.
+    vertical: str
+    starters: list[StarterPreviewOut]
+
+
+@router.get(
+    "/v1/agents/starters",
+    response_model=StartersOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="Preview the ready-made agents for this account's business type",
+    description=(
+        "What `POST /v1/agents` with `starter` would create, for YOUR account's business "
+        "type: the suggested name, the opening line, the script's step titles and the "
+        "details the agent captures. `job` narrows it to one job; omitted, both jobs are "
+        'returned ("Answer my calls" first). Nothing is created by this read.'
+    ),
+)
+async def list_starters(
+    session: Session,
+    job: StarterJob | None = Query(None),
+    principal: Principal = Depends(requires("agents:read")),
+) -> StartersOut:
+    """Read-only, and only ever for the caller's own account: the business type comes from
+    the account row under the caller's RLS session, never from the request."""
+    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    org = (
+        await session.execute(
+            text("SELECT name, vertical_template FROM organizations WHERE id = :tid"),
+            {"tid": principal.tenant_id},
+        )
+    ).first()
+    if org is None:
+        raise ProblemError.not_found("Account")
+    vertical = starters.vertical_of(org[1])
+    labels = [str(field["label"]) for field in starters.captured_fields(vertical)]
+    jobs = starters.STARTER_JOBS if job is None else (job,)
+    return StartersOut(
+        vertical=vertical,
+        starters=[
+            StarterPreviewOut(
+                job=each.job,
+                direction=starters.JOB_DIRECTION[each.job],
+                name_suggestion=each.name_suggestion,
+                opening_line=each.opening_for(str(org[0])),
+                step_titles=[step.title for step in each.steps],
+                captured_details=labels,
+            )
+            for each in (starters.starter_for(vertical, j) for j in jobs)
+        ],
+    )
 
 
 class AgentStatsOut(BaseModel):
@@ -311,14 +386,19 @@ class AgentCreateIn(BaseModel):
     called "AI disclosure" on it is how an agent ends up announcing "Hi there!". Changing
     the wording is a reviewed surface, not a text input on the new-agent screen.
 
-    NO SCRIPT FIELD either, and that is what `draft` is for: the agent exists, the owner
-    writes and trains it, and `publish_agent` refuses to activate one with no prompt
-    version by name (`agent_has_no_script`).
+    NO SCRIPT FIELD either. Without `starter` the agent is born with no script and
+    `publish_agent` refuses to activate it by name (`agent_has_no_script`). With `starter`
+    (D-705) the owner picked a job and the agent is born with that job's ready-made script
+    for the account's business type, still a draft for them to review.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=120)
+    #: "Answer my calls" (`answer_calls`, inbound) or "Call my leads" (`call_leads`,
+    #: outbound). The job sets `direction`; an explicit direction that contradicts it is
+    #: refused with `starter_direction_mismatch`. Omitted: an empty draft, as before.
+    starter: StarterJob | None = None
     #: Defaulted to `inbound` because D-38 says the receptionist is the headline
     #: capability, and because an agent that can only be called is the safe default: an
     #: `outbound` default would make "I clicked create" the first step of a dialling motion.
@@ -456,6 +536,11 @@ async def _agent_row(session: AsyncSession, agent_id: UUID) -> AgentOut:
     description=(
         "The agent is created in `draft`: it takes no calls and places none until it is "
         "activated, and it cannot be activated until it has a script.\n\n"
+        "Send `starter` (`answer_calls` or `call_leads`) to start from a ready-made agent "
+        "for your business type: its script, opening line and the details it captures are "
+        "filled in for you to review (`GET /v1/agents/starters` previews them). The job "
+        "sets the calling direction; a `direction` that contradicts it is refused with "
+        "`starter_direction_mismatch`.\n\n"
         "Both opening notices — the AI disclosure and the recording notice — are written "
         "for you from the chosen language and are switched on. They cannot be supplied "
         "here: every agent on this platform has an AI disclosure on file, the voice "
@@ -471,13 +556,21 @@ async def create_agent_route(
 ) -> AgentOut:
     """Mint a draft agent for the caller's own tenant."""
     assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    direction = payload.direction
+    if payload.starter is not None:
+        # Only a direction the caller SENT can contradict the job; the field's default
+        # (`inbound`) is not a choice anybody made.
+        sent = payload.direction if "direction" in payload.model_fields_set else None
+        direction = starters.direction_for(payload.starter, sent)
     agent_id = await lifecycle.create_agent(
         session,
         tenant_id=principal.tenant_id,
         name=payload.name,
-        direction=payload.direction,
+        direction=direction,
         language_primary=payload.language_primary,
         max_call_duration_s=payload.max_call_duration_s,
+        starter=payload.starter,
+        created_by=principal.user_id,
     )
     await write_audit(
         session,
@@ -487,6 +580,7 @@ async def create_agent_route(
         object_type="agent",
         object_id=str(agent_id),
         ip=client_request_ip(request),
+        summary={"starter": payload.starter} if payload.starter is not None else None,
     )
     return await _agent_row(session, agent_id)
 

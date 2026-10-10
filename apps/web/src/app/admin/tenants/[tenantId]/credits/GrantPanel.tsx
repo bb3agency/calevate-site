@@ -105,7 +105,7 @@ export function GrantPanel({
 
   return (
     <div>
-      <p className="text-xs text-ink-muted">
+      <p className="text-meta text-ink-muted">
         Credit with <span className="font-semibold">no payment behind it</span> — an
         apology, a pilot, a gesture. It is not a top-up and it is not a correction: it
         lands under its own ledger reason and every statement reports it separately from
@@ -117,13 +117,13 @@ export function GrantPanel({
         {/* THE TWO LIFETIME FIGURES, SIDE BY SIDE, at the moment one of them is about to
             move. The founder's guardrail is that paid and given never blur; printing only
             the balance here would be exactly that blur. */}
-        <div className="text-xs">
+        <div className="text-meta">
           <dt className="text-ink-muted">Paid for, lifetime</dt>
           <dd className="mt-0.5 font-semibold tabular-nums text-ink">
             {formatINR(wallet.paid_inr)}
           </dd>
         </div>
-        <div className="text-xs">
+        <div className="text-meta">
           <dt className="text-ink-muted">Given, lifetime</dt>
           <dd className="mt-0.5 font-semibold tabular-nums text-ink">
             {formatINR(wallet.granted_inr)}
@@ -249,7 +249,7 @@ function Granted({ result, clientName }: { result: GrantResult; clientName: stri
         title="That grant was already on this wallet"
         className="mt-4"
       >
-        <p className="mt-1 text-xs opacity-90">
+        <p className="mt-1 text-meta opacity-90">
           {/* A REPLAY, AND IT MOVED NOTHING. Rendering it as a fresh grant would have an
               operator believe they had given the money twice; rendering it as a failure
               would have them give it again for real. */}
@@ -267,7 +267,7 @@ function Granted({ result, clientName }: { result: GrantResult; clientName: stri
       title={`${formatINR(result.amount_inr)} given to ${clientName}`}
       className="mt-4"
     >
-      <p className="mt-1 text-xs opacity-90">
+      <p className="mt-1 text-meta opacity-90">
         <Gift aria-hidden className="mr-1 inline h-3.5 w-3.5" />
         Balance is now {formatINR(result.balance_inr)}. Lifetime: paid{" "}
         {formatINR(result.paid_inr)}, given {formatINR(result.granted_inr)}. The entry is

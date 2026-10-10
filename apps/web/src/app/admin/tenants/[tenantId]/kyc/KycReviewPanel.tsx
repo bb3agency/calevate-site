@@ -1,8 +1,9 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 
-import { Card, FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, formatIST } from "@/components/ui";
+import { FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, formatIST } from "@/components/ui";
 import type { AdminAccess } from "@/app/admin/access";
 import { lookup } from "@/lib/lookup";
 import {
@@ -56,8 +57,8 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
   const documentReview = record.kyc_path === "manual";
 
   return (
-    <Card title="Verification review">
-      <dl className="grid gap-2 text-sm sm:grid-cols-2">
+    <Section title="Verification review">
+      <dl className="grid gap-2 text-body sm:grid-cols-2">
         <Fact label="Status" value={record.status ?? "nothing on file"} />
         <Fact label="Path" value={record.kyc_path === "digilocker" ? "DigiLocker" : record.kyc_path === "manual" ? "Document review" : "—"} />
         <Fact label="Legal name" value={record.legal_business_name ?? "—"} />
@@ -97,11 +98,11 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
         />
       </dl>
 
-      <h3 className="mt-4 text-sm font-semibold text-ink">Files</h3>
+      <h3 className="mt-4 text-body font-semibold text-ink">Files</h3>
       {record.documents.length === 0 ? (
-        <p className="text-sm text-ink-muted">No files on record.</p>
+        <p className="text-body text-ink-muted">No files on record.</p>
       ) : (
-        <ul className="mt-1 space-y-1 text-sm">
+        <ul className="mt-1 space-y-1 text-body">
           {record.documents.map((document) => (
             <li key={document.id} className="flex flex-wrap items-center gap-2">
               <span>{lookup(KIND_LABEL, document.kind) ?? document.kind}</span>
@@ -128,7 +129,7 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
         </ul>
       )}
       {openError instanceof KycViewerBlockedError ? (
-        <p role="alert" className="mt-2 text-sm text-danger">
+        <p role="alert" className="mt-2 text-body text-danger">
           {openError.message}
         </p>
       ) : (
@@ -160,7 +161,7 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
             </label>
           )}
           {documentReview && (
-            <label className="flex items-start gap-2 text-sm text-ink">
+            <label className="flex items-start gap-2 text-body text-ink">
               <input
                 type="checkbox"
                 className="mt-1"
@@ -200,11 +201,11 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
             </button>
           </div>
           <p className={FIELD_HINT}>Either decision deletes the owner&apos;s ID file.</p>
-          {access.reason && <p className="text-sm text-ink-muted">{access.reason}</p>}
+          {access.reason && <p className="text-body text-ink-muted">{access.reason}</p>}
           <ProblemNotice error={review.error} />
         </div>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -212,14 +213,14 @@ function DigiLockerCard({ tenantId, record, access }: { tenantId: string; record
   const set = useSetDigiLockerRequirement(tenantId);
   const [reason, setReason] = useState("");
   return (
-    <Card title="Require DigiLocker">
-      <p className="text-sm text-ink">
+    <Section title="Require DigiLocker">
+      <p className="text-body text-ink">
         Requiring DigiLocker pauses this client&apos;s OUTGOING calls until they complete a DigiLocker verification;
         incoming calls are not affected.
       </p>
       {record.digilocker_required ? (
         <div className="mt-3 space-y-2">
-          <p className="text-sm text-ink">
+          <p className="text-body text-ink">
             Required{record.digilocker_required_reason ? `: ${record.digilocker_required_reason}` : ""}.{" "}
             {record.digilocker_outstanding ? "Not completed yet — outbound is paused." : "Completed."}
           </p>
@@ -249,14 +250,14 @@ function DigiLockerCard({ tenantId, record, access }: { tenantId: string; record
         </div>
       )}
       <ProblemNotice error={set.error} />
-    </Card>
+    </Section>
   );
 }
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs font-medium text-ink-muted">{label}</dt>
+      <dt className="text-meta font-medium text-ink-muted">{label}</dt>
       <dd className="text-ink">{value}</dd>
     </div>
   );

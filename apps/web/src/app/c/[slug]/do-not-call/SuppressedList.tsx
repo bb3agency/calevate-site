@@ -5,6 +5,7 @@ import { Lock, Trash2 } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import {
   MonoValue,
@@ -144,13 +145,13 @@ export function SuppressedList({
     <>
       <div className="space-y-2">
         <div className="flex items-baseline justify-between gap-3">
-          <h2 id="dnc-list-heading" className="text-[15px] font-semibold text-ink">
+          <h2 id="dnc-list-heading" className="text-heading text-ink">
             Suppressed numbers
           </h2>
           {/* No count until the server has sent one: "0 entries" while the first request is
               in flight is a statement about the client's compliance posture. */}
           {rows && (
-            <span className="text-[12px] text-ink-faint">
+            <span className="text-meta text-ink-faint">
               {truncated
                 ? `Showing the ${formatCount(DNC_LIST_LIMIT)} most recently added`
                 : `${formatCount(rows.length)} ${rows.length === 1 ? "entry" : "entries"}`}
@@ -180,10 +181,10 @@ export function SuppressedList({
           </div>
         ) : (
           <div className="rounded-card border border-line bg-surface">
-            <EmptyState
+            <EmptyState illustration={<EmptySketch kind="leads" />}
               message="Nobody is suppressed yet"
               action={
-                <p className="max-w-md text-[13px] text-ink-faint">
+                <p className="max-w-md text-meta text-ink-faint">
                   Anyone who tells an agent to stop calling is added here automatically. You
                   can also add numbers yourself.
                 </p>
@@ -248,7 +249,7 @@ function RowAction({
   // button on a consumer opt-out.
   if (!entry.removable) {
     return (
-      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[12px] text-ink-faint">
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-meta text-ink-faint">
         <Lock className="h-3.5 w-3.5" aria-hidden />
         {entry.scope === "global" ? "removed by operations only" : "opt-out — cannot be undone"}
       </span>
@@ -262,7 +263,7 @@ function RowAction({
       onClick={onRemove}
       // Named for the row: forty buttons called "Remove" are forty identical announcements.
       aria-label={`Remove ${formatPhone(entry.phone_e164)} from the do-not-call list`}
-      className="press inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[13px] font-medium text-ink-muted enabled:hover:bg-ink/[0.05] enabled:hover:text-danger disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+      className="press inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-meta font-medium text-ink-muted enabled:hover:bg-ink/[0.05] enabled:hover:text-danger disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
     >
       <Trash2 className="h-3.5 w-3.5" aria-hidden />
       {removing ? "Removing…" : "Remove"}

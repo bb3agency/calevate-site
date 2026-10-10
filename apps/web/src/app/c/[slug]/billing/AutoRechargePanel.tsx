@@ -2,13 +2,11 @@
 
 import { useEffect, useState } from "react";
 
+import { Section, TEXT_ACTION_DANGER } from "@/components/console/section";
+import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
-  Card,
   FIELD,
-  FIELD_HINT,
-  FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
   Skeleton,
@@ -97,95 +95,36 @@ export function AutoRechargePanel({ session }: { session: Session }) {
     });
   };
 
+  const RUPEE_INPUT = `${FIELD} mt-0 w-full tabular-nums sm:w-36`;
   return (
-    <Card
+    <Section
       title="Auto-recharge"
       info="We top up your credit automatically when it runs low, using a payment method you approve once. Razorpay, our payment gateway, holds the approval; we never see card or UPI details."
     >
-      <div className="space-y-4">
-        <NoticeBox tone={confirmed ? "ok" : "neutral"} title="Payment method">
-          <p>
-            {lookup(MANDATE_STATUS_TEXT, data.mandate_status) ?? data.mandate_status}
-            {confirmed && data.mandate_method && (
-              <> ({data.mandate_method === "upi" ? "UPI Autopay" : "card"}, up to{" "}
-              {formatINR(data.mandate_max_inr)} per top-up)</>
-            )}
-          </p>
+      {data.disabled_reason && (
+        <NoticeBox tone="warn" title="Auto-recharge is off" className="mb-4">
+          <p>{data.disabled_reason}</p>
         </NoticeBox>
+      )}
 
-        {data.disabled_reason && (
-          <NoticeBox tone="warn" title="Auto-recharge is off">
-            <p>{data.disabled_reason}</p>
-          </NoticeBox>
-        )}
-
-        <div className="grid gap-3 sm:grid-cols-3">
-          <label className="block">
-            <span className={FIELD_LABEL}>Top up when credit falls below (₹)</span>
-            <input
-              className={FIELD}
-              inputMode="decimal"
-              value={threshold}
-              disabled={!canManage}
-              onChange={(e) => setThreshold(e.target.value)}
-            />
-            <span className={FIELD_HINT}>
-              {data.suggested_threshold_inr
-                ? `Your recent calling suggests at least ${formatINR(data.suggested_threshold_inr)}.`
-                : "Cover about two days of calling."}
-            </span>
-          </label>
-          <label className="block">
-            <span className={FIELD_LABEL}>Top up by (₹)</span>
-            <input
-              className={FIELD}
-              inputMode="decimal"
-              value={amount}
-              disabled={!canManage}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-            <span className={FIELD_HINT}>
-              At most {formatINR(data.max_debit_inr)}: larger automatic payments need you to
-              approve each one.
-            </span>
-          </label>
-          <label className="block">
-            <span className={FIELD_LABEL}>At most per month (₹)</span>
-            <input
-              className={FIELD}
-              inputMode="decimal"
-              value={cap}
-              disabled={!canManage}
-              onChange={(e) => setCap(e.target.value)}
-            />
-            <span className={FIELD_HINT}>
-              {formatINR(data.month_charged_inr)} topped up automatically this month.
-            </span>
-          </label>
-        </div>
-
-        <p className="text-sm text-ink-muted">
-          When your credit falls below the level you set, we email you and start a top-up.
-          Your bank or UPI app notifies you at least a day before the money is taken, so the
-          credit usually arrives one to two days later; your calls keep running meanwhile.
-          You can turn this off or withdraw the approval at any time.
-        </p>
-
-        {fieldProblem && <p className="text-sm text-ink-muted">{fieldProblem}</p>}
-
-        {canManage ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <ToggleSwitch
-              label="Auto-recharge"
-              checked={data.enabled}
-              disabled={!confirmed || fieldProblem !== null || save.isPending}
-              onChange={(next) => persist(next)}
-            />
-            {!confirmed && (
-              <>
+      <SettingRows className="border-y border-line">
+        <SettingRow
+          label="Payment method"
+          hint={
+            <>
+              {lookup(MANDATE_STATUS_TEXT, data.mandate_status) ?? data.mandate_status}
+              {confirmed && data.mandate_method && (
+                <> ({data.mandate_method === "upi" ? "UPI Autopay" : "card"}, up to{" "}
+                {formatINR(data.mandate_max_inr)} per top-up)</>
+              )}
+            </>
+          }
+          control={
+            canManage && !confirmed ? (
+              <span className="flex flex-wrap items-center gap-2">
                 <select
                   aria-label="Payment method to approve"
-                  className={FIELD}
+                  className={`${FIELD} mt-0 w-auto`}
                   value={method}
                   onChange={(e) => setMethod(e.target.value === "card" ? "card" : "upi")}
                 >
@@ -194,55 +133,136 @@ export function AutoRechargePanel({ session }: { session: Session }) {
                 </select>
                 <button
                   type="button"
-                  className={PRIMARY_BUTTON}
+                  className={SECONDARY_BUTTON}
                   disabled={fieldProblem !== null || start.isPending}
                   onClick={() => void approve()}
                 >
                   Approve a payment method (₹1)
                 </button>
-              </>
-            )}
-            {(confirmed || data.mandate_status === "paused") && (
+              </span>
+            ) : undefined
+          }
+          action={
+            canManage && (confirmed || data.mandate_status === "paused") ? (
               <button
                 type="button"
-                className={SECONDARY_BUTTON}
+                className={TEXT_ACTION_DANGER}
                 disabled={withdraw.isPending}
                 onClick={() => withdraw.mutate()}
               >
                 Withdraw approval
               </button>
-            )}
-          </div>
-        ) : (
-          <p className="text-sm text-ink-muted">
-            {write.reason ?? "Only the account owner can change auto-recharge."}
-          </p>
+            ) : undefined
+          }
+        />
+        <SettingRow
+          label="Top up when credit falls below (₹)"
+          htmlFor="auto-recharge-threshold"
+          hint={
+            data.suggested_threshold_inr
+              ? `Your recent calling suggests at least ${formatINR(data.suggested_threshold_inr)}.`
+              : "Cover about two days of calling."
+          }
+          control={
+            <input
+              id="auto-recharge-threshold"
+              className={RUPEE_INPUT}
+              inputMode="decimal"
+              value={threshold}
+              disabled={!canManage}
+              onChange={(e) => setThreshold(e.target.value)}
+            />
+          }
+        />
+        <SettingRow
+          label="Top up by (₹)"
+          htmlFor="auto-recharge-amount"
+          hint={
+            <>
+              At most {formatINR(data.max_debit_inr)}: larger automatic payments need you to
+              approve each one.
+            </>
+          }
+          control={
+            <input
+              id="auto-recharge-amount"
+              className={RUPEE_INPUT}
+              inputMode="decimal"
+              value={amount}
+              disabled={!canManage}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          }
+        />
+        <SettingRow
+          label="At most per month (₹)"
+          htmlFor="auto-recharge-cap"
+          hint={`${formatINR(data.month_charged_inr)} topped up automatically this month.`}
+          control={
+            <input
+              id="auto-recharge-cap"
+              className={RUPEE_INPUT}
+              inputMode="decimal"
+              value={cap}
+              disabled={!canManage}
+              onChange={(e) => setCap(e.target.value)}
+            />
+          }
+        />
+        {canManage && (
+          <SettingRow
+            label="Top up automatically"
+            hint={confirmed ? undefined : "Approve a payment method first."}
+            control={
+              <ToggleSwitch
+                label="Auto-recharge"
+                checked={data.enabled}
+                disabled={!confirmed || fieldProblem !== null || save.isPending}
+                onChange={(next) => persist(next)}
+              />
+            }
+          />
         )}
+      </SettingRows>
 
-        {windowNote && <p className="text-sm text-ink-muted">{windowNote}</p>}
+      <p className="mt-3 max-w-prose text-meta text-ink-muted">
+        When your credit falls below the level you set, we email you and start a top-up.
+        Your bank or UPI app notifies you at least a day before the money is taken, so the
+        credit usually arrives one to two days later; your calls keep running meanwhile.
+        You can turn this off or withdraw the approval at any time.
+      </p>
+
+      {fieldProblem && <p className="mt-2 text-meta text-ink-muted">{fieldProblem}</p>}
+      {!canManage && (
+        <p className="mt-2 text-meta text-ink-muted">
+          {write.reason ?? "Only the account owner can change auto-recharge."}
+        </p>
+      )}
+      {windowNote && <p className="mt-2 text-meta text-ink-muted">{windowNote}</p>}
+      <div className="mt-3">
         <ProblemNotice error={save.error ?? start.error ?? confirm.error ?? withdraw.error} />
-
-        {charges.data && charges.data.length > 0 && (
-          <div>
-            <h3 className="text-sm font-semibold text-ink">Recent automatic top-ups</h3>
-            <ul className="mt-2 divide-y divide-line text-sm">
-              {charges.data.map((charge) => (
-                <li key={charge.created_at} className="flex justify-between py-2">
-                  <span>{formatIST(charge.created_at)}</span>
-                  <span>
-                    {formatINR(charge.amount_inr)} ·{" "}
-                    {charge.status === "captured"
-                      ? "Added"
-                      : charge.status === "pending"
-                        ? "In progress"
-                        : "Did not go through"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </div>
-    </Card>
+
+      {charges.data && charges.data.length > 0 && (
+        <div className="mt-6">
+          <h3 className="text-body font-semibold text-ink">Recent automatic top-ups</h3>
+          <ul className="mt-2 divide-y divide-line border-y border-line text-body">
+            {charges.data.map((charge) => (
+              <li key={charge.created_at} className="flex flex-wrap justify-between gap-x-4 py-3.5">
+                <span className="text-ink-muted">{formatIST(charge.created_at)}</span>
+                <span className="tabular-nums text-ink">
+                  {formatINR(charge.amount_inr)} ·{" "}
+                  {charge.status === "captured"
+                    ? "Added"
+                    : charge.status === "pending"
+                      ? "In progress"
+                      : "Did not go through"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Section>
   );
 }

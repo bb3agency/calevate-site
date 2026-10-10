@@ -183,6 +183,11 @@ ALLOWED_ROUTES: dict[str, RawDisclosure] = {
         "audit_log in the same transaction; a redacted copy could not answer the "
         "question it exists for ('you sent us the wrong lead')"
     ),
+    "/v1/calls/export.csv": RawDisclosure(
+        "the client's own call list with each caller's number in full, role-gated "
+        "(calls:read_raw) and audit-logged; a masked number cannot serve the call-back it "
+        "exists for. Summaries stay redacted"
+    ),
     "/v1/leads/export.csv": RawDisclosure(
         "the client's own contact data, role-gated and audit-logged; a CSV of masked "
         "numbers cannot serve the follow-up call it exists for"

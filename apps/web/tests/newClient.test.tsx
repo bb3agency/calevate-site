@@ -64,9 +64,12 @@ const OPERATOR = {
 };
 
 function fillName(value = "Sunrise Clinic") {
-  fireEvent.change(screen.getByPlaceholderText("Sunrise Clinic"), {
+  // No business type is chosen for the operator (any trade may be next), so the name's
+  // placeholder is the neutral one until a type is picked.
+  fireEvent.change(screen.getByPlaceholderText("Sri Traders"), {
     target: { value },
   });
+  fireEvent.click(screen.getByRole("radio", { name: /^Clinic/ }));
   // The owner's email is required on step 1: the invite goes to it.
   fireEvent.change(screen.getByPlaceholderText("owner@business.com"), {
     target: { value: "owner@sunrise.example" },
@@ -115,6 +118,19 @@ describe("creating the account", () => {
     // The server de-duplicated the slug; the panel quotes what actually exists.
     expect(container.textContent).toContain("/c/sunrise-clinic-2");
     expect(container.textContent).not.toContain("/c/sunrise-clinic ");
+  });
+
+  it("asks for the business type rather than assuming one", async () => {
+    const { calls } = renderAdminPage(<NewClientPage />, { [TENANTS]: CREATED, [ADMIN_ME]: OPERATOR, [UNFINISHED]: [] });
+    fireEvent.change(screen.getByPlaceholderText("Sri Traders"), { target: { value: "Skyline Homes" } });
+    fireEvent.change(screen.getByPlaceholderText("owner@business.com"), {
+      target: { value: "owner@skyline.example" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create and invite" }));
+
+    expect(await screen.findByText("Choose the business type.")).toBeTruthy();
+    expect(screen.queryByText("Account created and owner invited")).toBeNull();
+    expect(calls.some((call) => call.method === "POST")).toBe(false);
   });
 
   it("stops offering a control the session is refused, with the server's reason", async () => {

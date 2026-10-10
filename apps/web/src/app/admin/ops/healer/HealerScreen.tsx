@@ -1,5 +1,6 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 import Link from "next/link";
 import { CircleAlert, PowerOff } from "lucide-react";
@@ -10,7 +11,6 @@ import { EmptyState } from "@/components/console/emptyState";
 import { Metric } from "@/components/console/metric";
 import { PageHeader } from "@/components/console/pageHeader";
 import {
-  Card,
   FIELD,
   FIELD_LABEL,
   MonoValue,
@@ -58,7 +58,7 @@ export function HealerScreen() {
   const access = useAdminAccess("ops:manage", "read and steer the auto-healer");
   const overview = useHealerOverview();
   return (
-    <div className="space-y-5 pb-12">
+    <div className="max-w-4xl space-y-10 pb-12">
       <PageHeader description="Repairs that run on their own, lines it is holding, and what needs you." />
       {access.refused ? (
         <RestrictionNote reason={access.reason} />
@@ -134,7 +134,7 @@ function Overview({ data }: { data: HealerOverview }) {
           </p>
         </NoticeBox>
       )}
-      <div className="grid grid-cols-2 gap-4 rounded-card border border-line bg-surface p-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 border-y border-line py-4 sm:grid-cols-3">
         <Metric label="Open incidents" value={data.open_incidents} />
         <Metric
           label="Need a person"
@@ -153,7 +153,7 @@ function Incidents() {
   const resolve = useResolveIncident();
   const [resolving, setResolving] = useState<HealerIncident | null>(null);
   return (
-    <Card title="Incidents">
+    <Section title="Incidents">
       {incidents.error != null && (
         <ProblemNotice error={incidents.error} onRetry={() => incidents.refetch()} />
       )}
@@ -167,15 +167,15 @@ function Incidents() {
           {incidents.data.items.map((incident) => (
             <li key={incident.id} className="space-y-1.5 py-3 first:pt-0 last:pb-0">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-ink">
+                <p className="text-body font-semibold text-ink">
                   {incident.playbook.replace(/_/g, " ")} ·{" "}
                   <MonoValue>{incident.trigger_code}</MonoValue>
                 </p>
-                <span className="rounded-full border border-line px-2.5 py-0.5 text-xs font-medium text-ink-muted">
+                <span className="rounded-full border border-line px-2.5 py-0.5 text-meta font-medium text-ink-muted">
                   {STATE_WORDS[incident.state]}
                 </span>
               </div>
-              <p className="text-xs text-ink-faint">
+              <p className="text-meta text-ink-muted">
                 Opened {formatIST(incident.opened_at)} · {incident.attempts} attempt
                 {incident.attempts === 1 ? "" : "s"}
                 {incident.last_outcome && <> · last: {incident.last_outcome}</>}
@@ -220,7 +220,7 @@ function Incidents() {
           only once the cause is fixed.
         </ConfirmDialog>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -229,7 +229,7 @@ function StatusPost() {
   const [title, setTitle] = useState("");
   const [component, setComponent] = useState<StatusComponentKey>("calls");
   return (
-    <Card title="Post on the status page">
+    <Section title="Post on the status page">
       <form
         noValidate
         className="space-y-3"
@@ -242,7 +242,7 @@ function StatusPost() {
           );
         }}
       >
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           The public reads this at status.calevate.tech. Name no client and no supplier.
         </p>
         <label className="block">
@@ -278,25 +278,25 @@ function StatusPost() {
           {post.isPending ? "Posting…" : "Post"}
         </button>
       </form>
-    </Card>
+    </Section>
   );
 }
 
 function Playbooks({ data }: { data: HealerOverview }) {
   return (
-    <Card title="Playbooks">
+    <Section title="Playbooks">
       <ul className="divide-y divide-line">
         {data.playbooks.map((p) => (
           <li key={p.key} className="space-y-1 py-3 first:pt-0 last:pb-0">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-ink">
+              <p className="text-body font-semibold text-ink">
                 {p.title} <MonoValue>{p.key}</MonoValue>
               </p>
-              <span className="rounded-full border border-line px-2.5 py-0.5 text-xs font-medium text-ink-muted">
+              <span className="rounded-full border border-line px-2.5 py-0.5 text-meta font-medium text-ink-muted">
                 {!p.automatic ? "Pages only" : p.paused ? "Paused" : p.pausable ? "On" : "Always on"}
               </span>
             </div>
-            <dl className="grid gap-x-3 gap-y-0.5 text-xs text-ink-muted sm:grid-cols-[8rem_1fr]">
+            <dl className="grid gap-x-3 gap-y-0.5 text-meta text-ink-muted sm:grid-cols-[8rem_1fr]">
               <dt className="font-medium text-ink">Does</dt>
               <dd>{p.action}</dd>
               <dt className="font-medium text-ink">Proves it worked</dt>
@@ -319,14 +319,14 @@ function Playbooks({ data }: { data: HealerOverview }) {
           </li>
         ))}
       </ul>
-    </Card>
+    </Section>
   );
 }
 
 function Ledger() {
   const actions = useHealerActions(null);
   return (
-    <Card title="What it did">
+    <Section title="What it did">
       {actions.error != null && (
         <ProblemNotice error={actions.error} onRetry={() => actions.refetch()} />
       )}
@@ -335,7 +335,7 @@ function Ledger() {
       ) : !actions.data ? null : actions.data.items.length === 0 ? (
         <EmptyState message="Nothing recorded yet." />
       ) : (
-        <ul className="divide-y divide-line text-sm">
+        <ul className="divide-y divide-line text-body">
           {actions.data.items.map((a) => (
             <li key={a.id} className="py-2 first:pt-0 last:pb-0">
               <p className="text-ink">
@@ -345,7 +345,7 @@ function Ledger() {
                 </span>
                 {a.actor_type !== "healer" && <> (by a person)</>}
               </p>
-              <p className="break-words text-xs text-ink-faint">
+              <p className="break-words text-meta text-ink-muted">
                 {formatIST(a.at)}
                 {a.detail && <> · {a.detail}</>}
               </p>
@@ -353,6 +353,6 @@ function Ledger() {
           ))}
         </ul>
       )}
-    </Card>
+    </Section>
   );
 }

@@ -31,7 +31,7 @@ export function ConsentLookup({
   return (
     <section aria-labelledby="consent-lookup-heading">
       <div className="flex items-center gap-1.5">
-        <h2 id="consent-lookup-heading" className="text-[15px] font-semibold text-ink">
+        <h2 id="consent-lookup-heading" className="text-heading text-ink">
           Can we message this number?
         </h2>
         <InfoTip label="About this check">

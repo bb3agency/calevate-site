@@ -37,6 +37,7 @@
  * every write form is built from.
  */
 
+import { StatusPill } from "@/components/admin/kit";
 import clsx from "clsx";
 import { Eye, EyeOff, Lock } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -126,13 +127,6 @@ export function timingCopy(applies: string): TimingCopy {
   );
 }
 
-const BADGE_TONES: Record<NoticeTone, string> = {
-  ok: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-  warn: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
-  stop: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
-  neutral: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-};
-
 /**
  * A small rounded label in one of the four notice tones: the ops console's one badge, so
  * a setting's state, its timing and its source read alike. Wraps rather than overflowing
@@ -148,15 +142,12 @@ export function ToneBadge({
   children: ReactNode;
 }) {
   return (
-    <span
-      className={clsx(
-        "inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium [overflow-wrap:anywhere]",
-        BADGE_TONES[tone],
-      )}
-    >
+    // The admin console's one pill (`components/admin/kit`), allowed to wrap: a setting's
+    // state can be a phrase, and at 320px it must not overflow its row.
+    <StatusPill tone={tone} className="max-w-full gap-1 whitespace-normal [overflow-wrap:anywhere]">
       {icon}
       {children}
-    </span>
+    </StatusPill>
   );
 }
 
@@ -276,7 +267,7 @@ export function TestOutcome({
     <NoticeBox tone={copy.tone} title={copy.title}>
       <p className="mt-1">{copy.help}</p>
       {lastFour ? (
-        <p className="mt-1 text-xs opacity-80">
+        <p className="mt-1 text-meta opacity-80">
           Checked the key ending <MonoValue>…{lastFour}</MonoValue>.
         </p>
       ) : null}
@@ -525,7 +516,7 @@ export function KeyField({
           disabled={disabled}
           aria-label={revealed ? "Hide the key" : "Show the key"}
           aria-pressed={revealed}
-          className="absolute inset-y-0 right-0 flex items-center rounded-r-md px-3 text-ink-faint transition-colors duration-(--duration-fast) ease-out enabled:hover:text-ink-muted disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand"
+          className="absolute inset-y-0 right-0 flex items-center rounded-r-md px-3 text-ink-muted transition-colors duration-(--duration-fast) ease-out enabled:hover:text-ink-muted disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand"
         >
           {revealed ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
         </button>
@@ -543,10 +534,12 @@ export function KeyField({
 /* ────────────────────────────────────────────────────────────────────────────
  * 10. DANGER ZONE
  *
- * The wrapper for a lever that changes platform state for every customer at once. A rose
- * border and a plain "This affects every customer" heading, following GitHub's own
- * "Danger zone" convention, so the eye separates the kill switches from the everyday
- * settings and does not fire one by reflex.
+ * The wrapper for a lever that changes platform state for every customer at once, after
+ * GitHub's "Danger zone" convention: a danger-coloured rule and heading with a lock, so the
+ * eye separates the kill switches from the everyday settings and does not fire one by
+ * reflex. A rule rather than a tinted card (REDESIGN-2): the warning's words and the
+ * danger button already carry the weight, and a tinted box made the switch look like an
+ * error that had already happened.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export function DangerZone({
@@ -557,12 +550,12 @@ export function DangerZone({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-card border border-rose-200 bg-rose-50/40 dark:border-rose-900 dark:bg-rose-950/20">
-      <header className="flex items-center gap-2 border-b border-rose-200 px-4 py-3 dark:border-rose-900">
-        <Lock className="h-4 w-4 text-rose-700 dark:text-rose-300" aria-hidden />
-        <h2 className="text-[15px] font-semibold text-rose-900 dark:text-rose-200">{title}</h2>
-      </header>
-      <div className="p-4 sm:p-5">{children}</div>
+    <section className="border-t-2 border-danger pt-4">
+      <h2 className="flex items-center gap-2 text-heading text-danger">
+        <Lock className="h-4 w-4 shrink-0" aria-hidden />
+        {title}
+      </h2>
+      <div className="mt-4">{children}</div>
     </section>
   );
 }

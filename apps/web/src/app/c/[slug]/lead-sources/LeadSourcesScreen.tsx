@@ -3,7 +3,6 @@
 import { useState } from "react";
 
 import { PageHeader } from "@/components/console/pageHeader";
-import { useToast } from "@/components/interior/toaster";
 import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { useAgents } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -52,7 +51,6 @@ export function LeadSourcesScreen() {
   const metaSetup = useMetaSetup(session);
   const redrive = useMetaRedrive(session);
   const write = useWriteAccess(session, "org:manage", "test or set up a lead source");
-  const { toast } = useToast();
 
   const [adding, setAdding] = useState(false);
   const [rotating, setRotating] = useState<LeadSource | null>(null);
@@ -150,19 +148,7 @@ export function LeadSourcesScreen() {
         canWrite={write.allowed}
         busy={setActive.isPending}
         onToggle={(item) =>
-          setActive.mutate(
-            { webhookId: item.id, active: !item.active },
-            {
-              onSuccess: () =>
-                toast({
-                  tone: "success",
-                  title: item.active ? "Lead source turned off" : "Lead source turned on",
-                  description: item.active
-                    ? "It will stop accepting deliveries."
-                    : "It will accept deliveries again.",
-                }),
-            },
-          )
+          setActive.mutate({ webhookId: item.id, active: !item.active })
         }
         onTest={openTest}
         onRotate={setRotating}

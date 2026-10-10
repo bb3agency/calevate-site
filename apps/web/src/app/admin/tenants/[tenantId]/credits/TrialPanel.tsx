@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { CheckCircle2, CircleHelp, Info } from "lucide-react";
 
+import { Section } from "@/components/console/section";
 import {
-  Card,
   NoticeBox,
   ProblemNotice,
-  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_SM,
   Skeleton,
   formatINR,
   formatIST,
@@ -60,15 +60,15 @@ export function TrialPanel({
 
   if (trial.isLoading) {
     return (
-      <Card title="Trial period" density="compact">
+      <Section title="Trial period">
         <Skeleton rows={2} />
-      </Card>
+      </Section>
     );
   }
 
   if (trial.isError) {
     return (
-      <Card title="Trial period" density="compact">
+      <Section title="Trial period">
         <ProblemNotice error={trial.error} onRetry={() => trial.refetch()} />
         <NoticeBox
           className="mt-4"
@@ -76,12 +76,12 @@ export function TrialPanel({
           icon={<CircleHelp aria-hidden className="h-5 w-5" />}
           title="We could not read this client's trial, so none can be started here"
         >
-          <p className="mt-1 text-xs">
+          <p className="mt-1">
             This screen will not tell you they have never had one — it does not know. Retry
             the read and the control comes back with it.
           </p>
         </NoticeBox>
-      </Card>
+      </Section>
     );
   }
 
@@ -89,16 +89,15 @@ export function TrialPanel({
   const active = state?.active === true;
 
   return (
-    <Card
+    <Section
       title="Trial period"
-      density="compact"
       action={
-        <button type="button" className={SECONDARY_BUTTON} onClick={() => setMode(active ? "end" : "start")}>
+        <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setMode(active ? "end" : "start")}>
           {active ? "End trial" : "Start trial"}
         </button>
       }
     >
-      <p className="text-xs text-ink-muted">
+      <p className="text-meta text-ink-muted">
         Days and free test-call minutes on us. A client that has not paid places test calls
         from the shared trial number and nothing else until its first top-up, which ends the
         trial. For a client that has paid, a trial only means its wallet is not debited.
@@ -106,7 +105,7 @@ export function TrialPanel({
       </p>
 
       {state === null ? (
-        <p className="mt-3 text-sm text-ink-muted">{clientName} has never been given a trial.</p>
+        <p className="mt-3 text-body text-ink-muted">{clientName} has never been given a trial.</p>
       ) : (
         <TrialFacts state={state} />
       )}
@@ -124,7 +123,7 @@ export function TrialPanel({
           <StartTrialForm clientName={clientName} start={start} write={write} />
         )}
       </Drawer>
-    </Card>
+    </Section>
   );
 }
 
@@ -149,11 +148,11 @@ function TrialFacts({ state }: { state: TrialStatus }) {
           : `Their trial ended ${state.ended_at ? formatIST(state.ended_at) : ""} (${state.status})`
       }
     >
-      <p className="mt-1 text-xs">
+      <p className="mt-1">
         {state.days} day(s) from {formatIST(state.started_at)}.
         {state.ended_reason ? ` “${state.ended_reason}”` : ""}
       </p>
-      <p className="mt-1 text-xs">
+      <p className="mt-1">
         {state.free_minutes === null
           ? `${state.minutes_used} test-call minute(s) used; this trial has no minute limit.`
           : `${state.minutes_used} of ${state.free_minutes} free test-call minute(s) used.`}
@@ -161,13 +160,13 @@ function TrialFacts({ state }: { state: TrialStatus }) {
       {/* OUR SUPPLIER COST: there is no spend ceiling on a trial by explicit choice, so this
           figure is the visibility that makes that choice survivable. Operator-only — no
           client surface has ever shown `unit_cost_paid`. */}
-      <p className="mt-2 text-xs">
+      <p className="mt-2 text-meta">
         Cost to Calevate so far:{" "}
         <span className="font-semibold tabular-nums">{formatINR(state.cost_to_us_inr)}</span>{" "}
         at our supplier rates. This figure is ours and is never shown to the client.
       </p>
       {state.erase_after && !state.active && (
-        <p className="mt-2 text-xs">
+        <p className="mt-2 text-meta">
           They did not convert, so their leads, calls and transcripts become erasable on{" "}
           {formatIST(state.erase_after)}.
         </p>

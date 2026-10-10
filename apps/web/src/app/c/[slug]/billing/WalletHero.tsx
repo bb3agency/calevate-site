@@ -104,7 +104,7 @@ export function WalletHero({
              account that was running, and nothing has on a new one — so the day-one
              variant is polite and the run-out is not. */
           role={dayOne ? "status" : "alert"}
-          className={`rounded-card border p-4 text-sm ${
+          className={`rounded-md border px-4 py-3 text-body ${
             dayOne ? NOTICE_TONES.neutral : NOTICE_TONES.stop
           }`}
         >
@@ -147,7 +147,7 @@ export function WalletHero({
         </div>
       )}
       {state === "low" && (
-        <div role="status" className={`rounded-card border p-4 text-sm ${NOTICE_TONES.warn}`}>
+        <div role="status" className={`rounded-md border px-4 py-3 text-body ${NOTICE_TONES.warn}`}>
           <p className="flex items-start gap-2 font-semibold">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             Your calling credit is running low.
@@ -161,72 +161,60 @@ export function WalletHero({
         </div>
       )}
 
-      {/* THE WALLET HEADER: the balance and the runway side by side on whitespace, not in
-          two cards — they are one fact (what you have, and how long it lasts) — with the
-          screen's one primary action beside them. */}
+      {/* THE WALLET HEADER. The runway leads, because the days are what an owner plans
+          around; the balance it is worked from sits under it; the one primary action
+          closes the pair. Whitespace, not cards: they are one fact. */}
       <section
         aria-label="Your calling credit"
-        className="flex flex-col gap-5 border-b border-line pb-6 lg:flex-row lg:items-end lg:justify-between"
+        className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between lg:gap-12"
       >
-        <div className="grid flex-1 gap-6 sm:grid-cols-2">
-          {/* THE BALANCE. `formatINR` formats the digits the server sent and never parses
-              them — `Number("10159.00")` is how ₹10,159.00 becomes ₹10,158.999999999998 on
-              the screen a client checks against their own books (hard rule 7). */}
+        <div className="min-w-0 flex-1 space-y-6">
           <div className="min-w-0">
-            <p className="text-[13px] font-medium text-ink-muted">Calling credit</p>
+            <p className="text-meta font-medium text-ink-muted">How long this lasts</p>
+            <p className="mt-1 max-w-xl text-title text-ink [text-wrap:balance]">
+              {runwaySentence(wallet.runway)}
+            </p>
+            {/* The working, not only the conclusion. */}
+            {wallet.runway.daily_burn_inr !== null && (
+              <p className="mt-1 text-meta text-ink-muted">
+                Worked out from {formatINR(wallet.runway.daily_burn_inr)} a day over the last{" "}
+                {wallet.runway.window_days} days.
+              </p>
+            )}
+            {/* One figure per voice quality, from the lot queue (D-547) — never one
+                balance divided by one list rate. */}
+            {lots && <TierRunwayLines lots={lots} />}
+          </div>
+
+          {/* `formatINR` formats the server's digits and never parses them (hard rule 7). */}
+          <div className="min-w-0">
+            <p className="text-meta font-medium text-ink-muted">Calling credit</p>
             <p
-              className={`mt-1 text-4xl font-semibold tracking-tight tabular-nums ${
-                negative ? "text-danger" : "text-ink"
-              }`}
+              className={`mt-1 text-figure tabular-nums ${negative ? "text-danger" : "text-ink"}`}
             >
               <FlashValue value={wallet.balance_inr}>{formatINR(wallet.balance_inr)}</FlashValue>
             </p>
             {owed !== null && (
-              <p className="mt-1 text-sm font-medium text-danger">
-                You owe {formatINR(owed)}
-              </p>
+              <p className="mt-1 text-body font-medium text-danger">You owe {formatINR(owed)}</p>
             )}
             {/* Both directions stop at zero (D-551); during a trial neither does (D-536). */}
-            <p className="mt-2 text-xs text-ink-muted">
+            <p className="mt-1 text-meta text-ink-muted">
               {trial !== null
                 ? "During your free trial nothing is taken from this credit, and an empty balance stops no calls."
                 : "Outgoing calls stop when this reaches zero, and your agents stop answering incoming ones."}
             </p>
-            {/* THE BALANCE CAN BE NEGATIVE and the sentence above talks about zero, so the
-                explanation has to be here: a call already running when the credit went is
-                finished rather than cut off — the only way a balance goes below zero — and
-                the next top-up repays it first. Read off the SIGN of the server's string,
-                never a parsed number, and shown only when it applies. */}
+            {/* A balance below zero is a call that was finished rather than cut off; read
+                off the SIGN of the server's string, never a parsed number. */}
             {negative && (
-              <p className="mt-2 text-xs text-ink-muted">
+              <p className="mt-1 text-meta text-ink-muted">
                 It can go a little below zero when a call is already in progress — we finish
                 that call rather than cut it off. Your next top-up clears what is owed first,
                 and the rest opens as new credit.
               </p>
             )}
           </div>
-
-          {/* THE RUNWAY, at the weight of the balance — see the module comment. */}
-          <div className="min-w-0">
-            <p className="text-[13px] font-medium text-ink-muted">How long this lasts</p>
-            <p className="mt-1 text-lg font-semibold leading-snug tracking-tight text-ink">
-              {runwaySentence(wallet.runway)}
-            </p>
-            {/* THE WORKING, not just the conclusion: an owner who disagrees with "nine
-                days" can see the ₹340 a day it came from. */}
-            {wallet.runway.daily_burn_inr !== null && (
-              <p className="mt-1 text-xs text-ink-muted">
-                Worked out from {formatINR(wallet.runway.daily_burn_inr)} a day over the last{" "}
-                {wallet.runway.window_days} days.
-              </p>
-            )}
-            {/* ONE FIGURE PER VOICE QUALITY (D-547): what a minute costs depends on the
-                agent's voice AND the purchase it is drawn from, so two server figures or
-                none — never one balance divided by one list rate. */}
-            {lots && <TierRunwayLines lots={lots} />}
-          </div>
         </div>
-        {action && <div className="shrink-0 lg:pb-1">{action}</div>}
+        {action && <div className="shrink-0">{action}</div>}
       </section>
     </div>
   );

@@ -19,6 +19,7 @@ import { InfoTip } from "./infoTip";
  */
 export function SettingRow({
   label,
+  icon,
   hint,
   info,
   value,
@@ -28,6 +29,8 @@ export function SettingRow({
   className = "",
 }: {
   label: string;
+  /** A service's logo before the label (`ServiceLogo` at 20px) when the row is about one. */
+  icon?: ReactNode;
   hint?: ReactNode;
   info?: ReactNode;
   value?: ReactNode;
@@ -48,6 +51,7 @@ export function SettingRow({
     <div className={`flex py-3.5 ${layout} ${className}`}>
       <div className="min-w-0 sm:flex-1">
         <div className="flex items-center gap-1">
+          {icon ? <span className="mr-1 inline-flex shrink-0">{icon}</span> : null}
           <Label {...(htmlFor ? { htmlFor } : {})} className="text-body font-medium text-ink">
             {label}
           </Label>

@@ -89,7 +89,7 @@ export function KnowledgeGaps({
       }
       action={
         open_count > 0 ? (
-          <span className="inline-flex items-center rounded-full bg-warn-soft px-2.5 py-0.5 text-[12px] font-medium tabular-nums text-warn">
+          <span className="inline-flex items-center rounded-full bg-warn-soft px-2.5 py-0.5 text-meta font-medium tabular-nums text-warn">
             {open_count} need{open_count === 1 ? "s" : ""} attention
           </span>
         ) : undefined
@@ -102,7 +102,7 @@ export function KnowledgeGaps({
       )}
       {items.length === 0 ? (
         /* The calm state is one line, not a block: nothing here needs the owner. */
-        <p className="flex items-center gap-2 px-2 pb-1 text-[13px] text-ink-muted">
+        <p className="flex items-center gap-2 px-2 pb-1 text-meta text-ink-muted">
           <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0 text-brand-strong" />
           <span>
             <span className="font-medium text-ink">Nothing unanswered</span> — when an agent
@@ -178,7 +178,7 @@ function GapRow({
     <li className="px-2 py-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <span className="text-[12px] font-medium text-warn">{SIGNAL_BADGE[gap.signal]}</span>
+          <span className="text-meta font-medium text-warn">{SIGNAL_BADGE[gap.signal]}</span>
           {/* `h3`, not `h4`. This row sits inside a panel, whose title is the `h2`, so
               `h4` skips a level — WCAG 2.2 1.3.1 Info and Relationships (Level A), and
               axe's `heading-order` reports it as soon as a screen renders this card after
@@ -192,16 +192,16 @@ function GapRow({
             {gap.topic_label}
           </h3>
           {showAgent && gap.agent_name ? (
-            <p className="text-[12px] text-ink-muted">{gap.agent_name}</p>
+            <p className="text-meta text-ink-muted">{gap.agent_name}</p>
           ) : null}
         </div>
-        <span className="shrink-0 text-[12px] tabular-nums text-ink-faint">
+        <span className="shrink-0 text-meta tabular-nums text-ink-faint">
           {gap.occurrence_count}× on {gap.call_count} call{gap.call_count === 1 ? "" : "s"}
         </span>
       </div>
 
       <figure className="mt-2 border-l-2 border-line pl-3">
-        <blockquote className="text-[13px] text-ink-muted">
+        <blockquote className="text-meta text-ink-muted">
           &ldquo;<span>{gap.example_answer}</span>&rdquo;
         </blockquote>
       </figure>
@@ -227,7 +227,7 @@ function GapRow({
             );
           })}
         >
-          <label htmlFor={`teach-${gap.id}`} className="block text-[12px] font-medium text-ink-muted">
+          <label htmlFor={`teach-${gap.id}`} className="block text-meta font-medium text-ink-muted">
             What should the agent say next time?
           </label>
           <textarea

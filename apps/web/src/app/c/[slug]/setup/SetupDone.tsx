@@ -31,7 +31,7 @@ export function SetupDone({
         <button
           type="button"
           onClick={() => onOpen(step.id)}
-          className="inline-flex items-center gap-1 rounded-sm text-[13px] font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+          className="inline-flex items-center gap-1 rounded-sm text-meta font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
         >
           {states[step.id] === "skipped" ? "Answer now" : "Open"}
           <ArrowRight aria-hidden className="h-3.5 w-3.5" />
@@ -44,10 +44,10 @@ export function SetupDone({
       <div className="flex items-start gap-3">
         <CircleCheck aria-hidden className={`mt-0.5 h-5 w-5 shrink-0 ${ready ? "text-brand-strong" : "text-ink-faint"}`} />
         <div>
-          <h2 className="text-[18px] font-semibold tracking-tight text-ink">
+          <h2 className="text-heading text-ink">
             {ready ? "Your agents have what they need" : "Almost there"}
           </h2>
-          <p className="mt-1 text-sm text-ink-muted">
+          <p className="mt-1 text-body text-ink-muted">
             {ready
               ? "Every agent now answers with these facts. Change them any time."
               : `Before an agent can take calls: ${profile.blockers.map((b) => b.message.replace(/\.$/, "").toLowerCase()).join(", ")}.`}

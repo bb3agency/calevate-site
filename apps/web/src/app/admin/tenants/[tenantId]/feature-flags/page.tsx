@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { use, useState } from "react";
-import { AlertTriangle, CheckCircle2, Info } from "lucide-react";
+import { AlertTriangle, Info } from "lucide-react";
 
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
@@ -36,7 +36,7 @@ import { useAdminAccess } from "@/app/admin/access";
 import { Term } from "@/lib/glossary";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
-import { StatePill } from "../statePill";
+import { StatusPill, SavedNote } from "@/components/admin/kit";
 
 /**
  * Per-tenant feature flags (SURFACES §1) — read them, and flip one.
@@ -149,7 +149,7 @@ export default function FeatureFlagsPage({
   if (!tenant) return null;
 
   return (
-    <div className="max-w-3xl space-y-5">
+    <div className="max-w-3xl space-y-10">
       <PageHeader
         title="Feature flags"
         description="Betas and debug views, for this client only. A change applies on their next request."
@@ -159,7 +159,7 @@ export default function FeatureFlagsPage({
           person on a support call being asked for one. The two other "what these are not"
           notes are explanation, so they sit behind the ⓘ. */}
       <NoticeBox tone="neutral" icon={<Info className="h-5 w-5" />}>
-        <div className="flex items-start gap-1 text-xs">
+        <div className="flex items-start gap-1 text-meta">
           <p>
             <span className="font-medium">Never a compliance control.</span> Nothing here
             can switch off the{" "}
@@ -200,7 +200,7 @@ export default function FeatureFlagsPage({
           icon={<AlertTriangle className="h-5 w-5" />}
           title="Cannot change a flag while the current state is unreadable"
         >
-          <p className="mt-1 text-xs opacity-90">
+          <p className="mt-1 text-meta opacity-90">
             We could not read where this client stands. A change replaces whatever is on
             file, so making one now could undo a colleague&apos;s without anyone seeing it
             happen. Retry the read above; the controls come back with it.
@@ -209,7 +209,7 @@ export default function FeatureFlagsPage({
       ) : flags.data.items.length === 0 ? (
         <EmptyState message="This build has no feature flags, so there is nothing to configure here." />
       ) : (
-        <ul className="divide-y divide-line rounded-card border border-line bg-surface">
+        <ul aria-label="Feature flags" className="divide-y divide-line border-y border-line">
           {flags.data.items.map((flag) => (
             <FlagRow
               // Remounted only when the STORED position changes — an equal refetch keeps
@@ -263,24 +263,24 @@ function FlagRow({
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0 flex-1 basis-64">
           <h3 className="flex flex-wrap items-center gap-2">
-            <MonoValue className="text-[14px] font-semibold text-ink">{flag.flag}</MonoValue>
-            {!flag.declared && <StatePill>Left over from an older release</StatePill>}
+            <MonoValue className="text-body font-semibold text-ink">{flag.flag}</MonoValue>
+            {!flag.declared && <StatusPill>Left over from an older release</StatusPill>}
             {flag.declared && flag.consumed_by === null && (
-              <StatePill tone="warn">Nothing reads this flag yet</StatePill>
+              <StatusPill tone="warn">Nothing reads this flag yet</StatusPill>
             )}
           </h3>
-          <p className="mt-1 text-sm text-ink-muted">
+          <p className="mt-1 text-body text-ink-muted">
             {flag.description ??
               "This build no longer declares this flag, so nothing describes it and nothing reads it."}
           </p>
           {!flag.declared && (
-            <p className="mt-1 text-xs text-ink-muted">
+            <p className="mt-1 text-meta text-ink-muted">
               This row is stored but no code reads it, so it changes nothing. Clearing it is
               safe and is how these are tidied up.
             </p>
           )}
           {flag.declared && flag.consumed_by === null && (
-            <p className="mt-1 text-xs text-warn">
+            <p className="mt-1 text-meta text-warn">
               The switch is real and the setting is stored, but no code consults it in this
               build — so turning it on changes nothing a client would notice.
             </p>
@@ -288,9 +288,9 @@ function FlagRow({
         </div>
       </div>
 
-      <dl className="grid gap-x-6 gap-y-2 text-xs sm:grid-cols-3">
+      <dl className="grid gap-x-6 gap-y-2 text-meta sm:grid-cols-3">
         <div>
-          <dt className="text-ink-faint">Platform default</dt>
+          <dt className="text-ink-muted">Platform default</dt>
           <dd className="mt-0.5 font-medium text-ink">
             {flag.platform_default === null
               ? "— (not declared)"
@@ -300,13 +300,13 @@ function FlagRow({
           </dd>
         </div>
         <div>
-          <dt className="text-ink-faint">This client&apos;s override</dt>
+          <dt className="text-ink-muted">This client&apos;s override</dt>
           <dd className="mt-0.5 font-medium text-ink">
             {flag.override === null ? "None — follows the default" : flag.override ? "On" : "Off"}
           </dd>
         </div>
         <div>
-          <dt className="text-ink-faint">In effect</dt>
+          <dt className="text-ink-muted">In effect</dt>
           <dd className="mt-0.5 font-medium text-ink">
             {flag.enabled ? "On" : "Off"}
             <span className="ml-1 font-normal text-ink-muted">
@@ -316,7 +316,7 @@ function FlagRow({
         </div>
         {flag.override !== null && (
           <div className="sm:col-span-3">
-            <dt className="text-ink-faint">Why</dt>
+            <dt className="text-ink-muted">Why</dt>
             <dd className="mt-0.5 whitespace-pre-wrap text-ink">
               {flag.reason ?? "—"}
               {flag.set_at && (
@@ -348,8 +348,8 @@ function FlagRow({
                 <label
                   key={String(option.value)}
                   title={option.effect}
-                  className={`press flex cursor-pointer items-center justify-center gap-2 rounded-md px-3 py-1.5 text-[13px] font-medium touch:min-h-11 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand ${
-                    on ? "bg-surface text-ink shadow-card" : "text-ink-muted hover:text-ink"
+                  className={`press flex cursor-pointer items-center justify-center gap-2 rounded-md px-3 py-1.5 text-meta font-medium touch:min-h-11 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand ${
+                    on ? "bg-surface text-ink" : "text-ink-muted hover:text-ink"
                   } ${!write.allowed ? "cursor-not-allowed opacity-60" : ""}`}
                 >
                   <input
@@ -368,7 +368,7 @@ function FlagRow({
               );
             })}
           </div>
-          <p className="mt-1.5 text-xs text-ink-muted">
+          <p className="mt-1.5 text-meta text-ink-muted">
             {POSITIONS.find((option) => option.value === position)?.effect}
           </p>
         </fieldset>
@@ -423,15 +423,14 @@ function FlagRow({
             </p>
           </InfoTip>
         </div>
-        {blocked && <p className="text-xs text-warn">{blocked}</p>}
+        {blocked && <p className="text-meta text-warn">{blocked}</p>}
       </form>
 
       {set.error != null && result === null && set.variables?.flag === flag.flag && (
         <ProblemNotice error={set.error} />
       )}
       {result && (
-        <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
-          <p className="text-xs">
+        <SavedNote>
             {result.changed ? (
               <>
                 Changed from <span className="font-medium">{result.before.enabled ? "on" : "off"}</span>{" "}
@@ -444,8 +443,7 @@ function FlagRow({
                 audit entry was written.
               </>
             )}
-          </p>
-        </NoticeBox>
+        </SavedNote>
       )}
     </li>
   );

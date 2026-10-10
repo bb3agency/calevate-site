@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { Bell, CircleDot, PhoneCall, StickyNote, UserCheck } from "lucide-react";
 
-import { Card, ProblemNotice, Skeleton, formatCount, formatIST } from "@/components/ui";
+import { ProblemNotice, Skeleton, formatCount, formatIST } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
+import { EmptySketch } from "@/components/console/emptySketch";
 import { LoadMore } from "@/components/interior/load-more";
 import type { LeadTimelineEvent, useLeadTimeline } from "@/lib/api/leads";
 import { lookup } from "@/lib/lookup";
@@ -23,21 +24,21 @@ const EVENT_STYLES: Record<string, { icon: typeof Bell; medallion: string }> = {
   assignment: { icon: UserCheck, medallion: "bg-brand-soft text-brand-strong" },
   call: {
     icon: PhoneCall,
-    medallion: "bg-black/5 text-ink-muted dark:bg-white/10",
+    medallion: "bg-ink/[0.05] text-ink-muted",
   },
   notification: {
     icon: Bell,
-    medallion: "bg-black/5 text-ink-muted dark:bg-white/10",
+    medallion: "bg-ink/[0.05] text-ink-muted",
   },
   note: {
     icon: StickyNote,
-    medallion: "bg-amber-100 text-amber-700 dark:bg-amber-950",
+    medallion: "bg-warn-soft text-warn",
   },
 };
 
 const FALLBACK_STYLE = {
   icon: CircleDot,
-  medallion: "bg-black/5 text-ink-muted dark:bg-white/10",
+  medallion: "bg-ink/[0.05] text-ink-muted",
 };
 
 /**
@@ -83,11 +84,11 @@ export function LeadTimeline({
         )}
 
         {timeline.isLoading ? (
-          <Card bodyClassName="p-4">
+          <div>
             <Skeleton rows={4} />
-          </Card>
+          </div>
         ) : !timeline.data ? null : events.length ? (
-          <Card bodyClassName="p-2">
+          <div className="border-y border-line">
             <ol className="divide-y divide-line">
               {events.map((event) => (
                 <TimelineRow key={event.id} event={event} slug={slug} href={href} />
@@ -110,17 +111,18 @@ export function LeadTimeline({
                 className="py-1"
               />
             )}
-          </Card>
+          </div>
         ) : (
-          <Card bodyClassName="p-2">
+          <div className="border-y border-line">
             {/* Reached ONLY when the server answered with an empty list — a failed
                 request never gets this far, which is the whole point of the branch
                 order above. */}
             <EmptyState
+              illustration={<EmptySketch kind="calls" />}
               message="Nothing has happened yet"
               hint="Calls, status changes, alerts and blocked dials all appear here."
             />
-          </Card>
+          </div>
         )}
 
         {impersonating && (

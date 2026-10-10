@@ -69,7 +69,7 @@ export default function MessagingConsentPage() {
             <button
               type="button"
               onClick={openRecord}
-              className="rounded-sm text-[13px] font-medium text-brand-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+              className="rounded-sm text-meta font-medium text-brand-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
             >
               Record what they said
             </button>

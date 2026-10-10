@@ -102,7 +102,7 @@ export function RotateDrawer({
           >
             {rotate.error != null && <ProblemNotice error={rotate.error} />}
             {isMeta && (
-              <div className="text-xs text-ink-muted">
+              <div className="text-meta text-ink-muted">
                 <span className={FIELD_LABEL}>Your new Meta App Secret</span>
                 <PasswordInput
                   inputRef={appSecretTrack.ref}

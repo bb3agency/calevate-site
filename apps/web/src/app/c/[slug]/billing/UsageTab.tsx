@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { Metric } from "@/components/console/metric";
-import { Panel } from "@/components/console/panel";
+import { Section } from "@/components/console/section";
 import {
   Disclosure,
+  FIELD,
   NOTICE_TONES,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON,
   Skeleton,
   formatCount,
   formatINR,
@@ -94,7 +96,7 @@ export function UsageTab({
 
   return (
     <div className="space-y-5">
-      <p className="text-sm text-ink-muted">
+      <p className="text-body text-ink-muted">
         {data ? `${formatBillingMonth(data.month)} so far, in Indian Standard Time.` : "This month's usage."}
       </p>
 
@@ -107,7 +109,7 @@ export function UsageTab({
       ) : (
         <>
           {data.capped && (
-            <div role="alert" className={`rounded-card border p-3 text-sm ${NOTICE_TONES.warn}`}>
+            <div role="alert" className={`rounded-md border px-4 py-3 text-body ${NOTICE_TONES.warn}`}>
               {/* The cap is a safety rail the client chose; explaining it beats a silent
                   stop, which reads as an outage. Inbound is unaffected — the gate is
                   outbound-only — and saying so prevents a needless support call. */}
@@ -131,7 +133,7 @@ export function UsageTab({
                purchase and the answer differs by voice quality besides. The honest pair
                is on the Overview tab, from the lot queue; here a prepaid account gets
                nothing rather than a minute count nobody is charged at. */
-            <p className="rounded-card border border-line bg-surface px-4 py-3 text-sm text-ink-muted">
+            <p className="text-body text-ink-muted">
               About{" "}
               <strong className="font-semibold tabular-nums text-ink">
                 {formatCount(data.minutes_left)} minutes
@@ -191,7 +193,7 @@ export function UsageTab({
             title="This month's charges"
             subtitle={`Total so far ${formatINR(data.month_charges_inr)}`}
           >
-            <dl className="space-y-2 text-sm">
+            <dl className="divide-y divide-line text-body">
               <Row label="Plan fee" value={formatINR(data.monthly_fee_inr)} />
               <Row
                 label={`Extra usage (${data.overage_minutes} min × ${formatRupeeRate(data.overage_rate_inr)})`}
@@ -279,7 +281,7 @@ export function UsageTab({
                 when the charge exists: a pointer to a setting nobody is being charged for
                 is a suggestion to spend money. */}
             {hasNonZeroDigit(data.llm_surcharge_inr) && <ModelUpgradeLink slug={slug} />}
-            <p className="mt-3 text-xs text-ink-muted">
+            <p className="mt-3 text-meta text-ink-muted">
               Usage appears a couple of minutes after each call ends, once the recording
               and summary have been processed.
             </p>
@@ -300,7 +302,7 @@ export function UsageTab({
             type="month"
             value={month}
             onChange={(event) => onMonthChange(event.target.value)}
-            className="rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink touch:min-h-11"
+            className={`${FIELD} mt-0 w-auto`}
             aria-label="Billing month for the breakdown"
           />
           <SpendPanel session={session} slug={slug} month={month} />
@@ -324,7 +326,7 @@ export function UsageTab({
 function ModelUpgradeLink({ slug }: { slug: string }) {
   const { href } = useClientRealm();
   return (
-    <p className="mt-3 text-xs text-ink-muted">
+    <p className="mt-3 text-meta text-ink-muted">
       The AI model upgrade is charged for the minutes your agents ran a model you chose.
       Change it on{" "}
       <Link
@@ -379,13 +381,11 @@ function SpendLimit({ session }: { session: Session }) {
   const spendField = spend ?? (current.client_cap_spend_inr ?? "");
 
   return (
-    <Panel title="Your spending limit">
-      <p className="text-sm text-ink-muted">
-        Set your own limit for this month. Outgoing calls stop when you reach it. Incoming
-        calls are never affected.
-      </p>
-
-      <dl className="mt-3 space-y-2 text-sm">
+    <Section
+      title="Your spending limit"
+      description="Set your own limit for this month. Outgoing calls stop when you reach it. Incoming calls are never affected."
+    >
+      <dl className="divide-y divide-line border-y border-line text-body">
         <Row
           label="In force this month"
           value={describeLimit(current.effective_cap_minutes, current.effective_cap_spend_inr)}
@@ -401,7 +401,7 @@ function SpendLimit({ session }: { session: Session }) {
         />
       </dl>
 
-      <div className="mt-4 space-y-3 border-t border-line pt-4">
+      <div className="mt-6 space-y-3">
         <RestrictionNote reason={write.reason} />
         {save.error && <ProblemNotice error={save.error} />}
 
@@ -447,13 +447,13 @@ function SpendLimit({ session }: { session: Session }) {
           <button
             type="submit"
             disabled={!write.allowed || save.isPending}
-            className="press rounded-md bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
+            className={SECONDARY_BUTTON}
           >
             {save.isPending ? "Saving…" : "Save limit"}
           </button>
         </form>
 
-        <p className="text-xs text-ink-muted">
+        <p className="text-meta text-ink-muted">
           Leave a box empty to remove your own limit and fall back on your plan&apos;s. A
           limit below what you have already spent this month takes effect immediately —
           outgoing calls stop for the rest of the month, and you can raise it again here
@@ -463,7 +463,7 @@ function SpendLimit({ session }: { session: Session }) {
         {save.data && (
           <div
             role="status"
-            className={`rounded-card border p-3 text-sm ${
+            className={`rounded-md border px-4 py-3 text-body ${
               save.data.capped ? NOTICE_TONES.warn : NOTICE_TONES.ok
             }`}
           >
@@ -473,7 +473,7 @@ function SpendLimit({ session }: { session: Session }) {
           </div>
         )}
       </div>
-    </Panel>
+    </Section>
   );
 }
 
@@ -507,7 +507,7 @@ function Field({
   const problemId = `${id}-problem`;
   return (
     <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-xs font-medium text-ink-muted">
+      <label htmlFor={id} className="text-meta font-medium text-ink-muted">
         {label}
       </label>
       <input
@@ -519,7 +519,7 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         aria-invalid={problem ? true : undefined}
         aria-describedby={problem ? problemId : undefined}
-        className="w-32 rounded-md border border-line bg-surface px-2 py-1 text-sm tabular-nums text-ink placeholder:text-ink-faint disabled:opacity-50"
+        className={`${FIELD} mt-0 w-32 tabular-nums`}
       />
       {problem && <FieldMessage id={problemId}>{problem}</FieldMessage>}
     </div>
@@ -529,7 +529,7 @@ function Field({
 
 function Row({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
   return (
-    <div className="flex justify-between gap-4">
+    <div className="flex flex-wrap justify-between gap-x-4 py-3.5">
       <dt className="text-ink-muted">{label}</dt>
       <dd
         className={

@@ -65,8 +65,7 @@ describe("an address that is not one", () => {
   it("says so in our words, sends nothing, and takes the invitation once it is fixed", async () => {
     const page = await renderTeam();
     await screen.findByText("Anita");
-    // The invite form opens in a drawer from the header's Invite button (round-2 redesign).
-    fireEvent.click(screen.getByRole("button", { name: "Invite" }));
+    // The invite is one line on the page, above the pending invitations (REDESIGN-2).
 
     const field = (await screen.findByLabelText(
       "Email address to invite",

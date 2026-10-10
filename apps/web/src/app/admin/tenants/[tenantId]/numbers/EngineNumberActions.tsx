@@ -10,10 +10,11 @@
  * the client's own workspace still holds (`engine_number_still_held`).
  */
 
+import { formatPhone } from "@/components/ui";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
-import { SECONDARY_BUTTON_SM } from "@/components/ui";
+import { TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
 import { useWorkspaceForget, useWorkspaceRelease } from "@/lib/api/engineWorkspaces";
 
 export function EngineNumberActions({
@@ -31,14 +32,14 @@ export function EngineNumberActions({
   const forget = useWorkspaceForget(tenantId);
   const [confirming, setConfirming] = useState<"release" | "forget" | null>(null);
 
-  if (release.data?.released) return <p className="text-xs text-ink-muted">Released. The monthly charge has stopped.</p>;
-  if (forget.data?.released) return <p className="text-xs text-ink-muted">Our record is released. The monthly charge has stopped.</p>;
+  if (release.data?.released) return <p className="text-meta text-ink-muted">Released. The monthly charge has stopped.</p>;
+  if (forget.data?.released) return <p className="text-meta text-ink-muted">Our record is released. The monthly charge has stopped.</p>;
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-x-4 gap-y-1">
       <button
         type="button"
-        className={SECONDARY_BUTTON_SM}
+        className={TEXT_ACTION_DANGER}
         disabled={!canWrite}
         onClick={() => {
           release.reset();
@@ -49,7 +50,7 @@ export function EngineNumberActions({
       </button>
       <button
         type="button"
-        className={SECONDARY_BUTTON_SM}
+        className={TEXT_ACTION}
         disabled={!canWrite}
         onClick={() => {
           forget.reset();
@@ -60,7 +61,7 @@ export function EngineNumberActions({
       </button>
       {confirming === "release" && (
         <ConfirmDialog
-          title={`Release ${e164}`}
+          title={`Release ${formatPhone(e164)}`}
           confirmLabel="Release for good"
           pendingLabel="Releasing…"
           pending={release.isPending}
@@ -76,7 +77,7 @@ export function EngineNumberActions({
       )}
       {confirming === "forget" && (
         <ConfirmDialog
-          title={`Release our record of ${e164}`}
+          title={`Release our record of ${formatPhone(e164)}`}
           confirmLabel="Release our record"
           pendingLabel="Releasing…"
           pending={forget.isPending}

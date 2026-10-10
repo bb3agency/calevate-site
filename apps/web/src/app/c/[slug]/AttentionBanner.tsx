@@ -26,7 +26,7 @@ export function AttentionBanner({
       offer the client neither the action nor a reason for its absence (BUILD-LOG
       §52), so the failure says what it could not read and offers the retry. */}
   {attention.isError ? (
-    <p className="rounded-card border border-line bg-surface-muted px-4 py-3 text-sm text-ink-muted">
+    <p className="rounded-md bg-surface-muted px-4 py-3 text-body text-ink-muted">
       We could not check whether anything needs your attention.{" "}
       <button
         type="button"
@@ -41,7 +41,7 @@ export function AttentionBanner({
     attention.data.total > 0 && (
       <Link
         href={href}
-        className="flex items-center justify-between gap-3 rounded-card border border-warn-line bg-warn-soft px-4 py-3 text-sm text-warn transition-colors duration-(--duration-fast) ease-out hover:bg-[color-mix(in_srgb,var(--warn-soft),var(--warn-line)_40%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn focus-visible:ring-offset-2"
+        className="flex items-center justify-between gap-3 rounded-md border border-warn-line bg-warn-soft px-4 py-3 text-body text-warn transition-colors duration-(--duration-fast) ease-out hover:bg-[color-mix(in_srgb,var(--warn-soft),var(--warn-line)_40%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warn focus-visible:ring-offset-2"
       >
         <span className="flex items-center gap-2">
           <CircleAlert aria-hidden className="h-4 w-4 shrink-0" />

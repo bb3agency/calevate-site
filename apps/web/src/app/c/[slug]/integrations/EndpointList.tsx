@@ -1,7 +1,11 @@
 "use client";
 
+import { Webhook } from "lucide-react";
+
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
+import { IconTile } from "@/components/console/iconTile";
 import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import type { WriteAccess } from "@/lib/api/hooks";
 import { SHEET_KIND, eventLabel, useEndpoints, type Endpoint } from "@/lib/api/integrations";
@@ -32,6 +36,8 @@ export function EndpointList({
       id: "url",
       header: "Destination",
       cell: (endpoint) => (
+        <div className="flex min-w-0 items-start gap-3">
+        <IconTile service={endpoint.kind === SHEET_KIND ? "google_sheets" : null} icon={Webhook} />
         <div className="min-w-0 space-y-1">
           <p className="break-all font-mono text-xs text-ink">{endpoint.url}</p>
           <div className="flex flex-wrap gap-1.5">
@@ -44,6 +50,7 @@ export function EndpointList({
               <span className="rounded-full bg-ink/[0.06] px-2 py-0.5 text-xs text-ink-muted">off</span>
             )}
           </div>
+        </div>
         </div>
       ),
     },
@@ -107,7 +114,11 @@ export function EndpointList({
       ) : endpoints.data.length ? (
         <DataTable label="Your endpoints" rows={endpoints.data} columns={columns} getRowId={(e) => e.id} />
       ) : (
-        <EmptyState message="No endpoints yet. Add the web address your CRM gives you and we'll send each lead as it arrives." />
+        <EmptyState
+          illustration={<EmptySketch kind="deliveries" />}
+          message="No endpoints yet."
+          hint="Add the web address your CRM gives you and we'll send each lead as it arrives."
+        />
       )}
     </div>
   );

@@ -2,12 +2,15 @@
 
 import { useState } from "react";
 
+import { HAIRLINE_LIST } from "@/components/admin/kit";
+import { Section, TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
 import {
-  Card,
   DANGER_BUTTON,
+  FIELD,
   FIELD_LABEL,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON_SM,
   Skeleton,
 } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
@@ -19,7 +22,6 @@ import {
   type KbSource,
 } from "@/lib/api/admin";
 
-import { DangerButton, FIELD, PrimaryButton, SecondaryButton } from "./controls";
 
 /**
  * The two knowledge queues an operator works on this client: what is waiting to be
@@ -62,9 +64,8 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
     <>
         {decide.error && <ProblemNotice error={decide.error} />}
 
-        <Card
+        <Section
           title="Knowledge awaiting approval"
-          density="compact"
           info="This is the client's knowledge, shared by all its agents. Only knowledge an operator added, or a page an operator linked, waits here: what the client's own people add goes live on its own. Approving does not make a source live; Publish does."
         >
           <RestrictionNote reason={kbWrite.reason} />
@@ -84,38 +85,36 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
               onRetry={() => queue.refetch()}
             />
           ) : queue.data.length ? (
-            <ul className="divide-y divide-line">
+            <ul className={HAIRLINE_LIST}>
               {queue.data.map((source) => (
-                <li key={source.id} className="py-3 first:pt-1 last:pb-0">
+                <li key={source.id} className="py-3 sm:px-2">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium text-ink">
-                        {source.name} <span className="text-xs text-ink-faint">v{source.version}</span>
+                      <p className="text-body font-medium text-ink">
+                        {source.name} <span className="text-meta font-normal text-ink-muted">v{source.version}</span>
                       </p>
-                      <p className="text-xs text-ink-muted">
+                      <p className="text-meta text-ink-muted">
                         {source.chunks} chunks · {source.kind}
                       </p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                       {/* Preview is a READ and stays available to anyone who reached this
                           screen — refusing to show what is queued would make an operator
                           without the decision permission unable to even brief the one who
                           has it. */}
-                      <SecondaryButton
+                      <button
+                        type="button"
+                        className={TEXT_ACTION}
                         onClick={() => setSelected(selected === source.id ? null : source.id)}
                       >
                         {selected === source.id ? "Hide" : "Preview"}
-                      </SecondaryButton>
-                      <PrimaryButton
-                        disabled={decide.isPending || !kbWrite.allowed}
-                        onClick={() => decide.mutate({ sourceId: source.id, decision: "approve" })}
-                      >
-                        Approve
-                      </PrimaryButton>
-      {/* Reject is a two-stage act (the ops/dnc pattern): this quiet outline
-                          button only OPENS the confirmation below — nothing is sent until
+                      </button>
+      {/* Reject is a two-stage act (the ops/dnc pattern): this quiet text
+                          action only OPENS the confirmation below — nothing is sent until
                           the operator has written why and pressed the rose submit there. */}
-                      <DangerButton
+                      <button
+                        type="button"
+                        className={TEXT_ACTION_DANGER}
                         disabled={decide.isPending || !kbWrite.allowed}
                         onClick={() => {
                           setRejecting(rejecting === source.id ? null : source.id);
@@ -123,12 +122,20 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                         }}
                       >
                         {rejecting === source.id ? "Cancel reject" : "Reject…"}
-                      </DangerButton>
+                      </button>
+                      <button
+                        type="button"
+                        className={SECONDARY_BUTTON_SM}
+                        disabled={decide.isPending || !kbWrite.allowed}
+                        onClick={() => decide.mutate({ sourceId: source.id, decision: "approve" })}
+                      >
+                        Approve
+                      </button>
                     </div>
                   </div>
                   {rejecting === source.id && (
                     <form
-                      className="mt-3 space-y-2 rounded-card border border-danger-line bg-danger-soft p-3"
+                      className="mt-3 max-w-xl space-y-3 border-l-2 border-danger pl-4"
                       noValidate
                       onSubmit={(event) => {
                         event.preventDefault();
@@ -143,7 +150,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                         );
                       }}
                     >
-                      <p className="text-xs text-danger">
+                      <p className="text-body text-danger">
                         Rejecting <span className="font-semibold">{source.name}</span> v
                         {source.version}. It stays out of the agents&apos; answers, and the
                         reason below is recorded on the document permanently — a repeat
@@ -157,7 +164,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                           value={rejectReason}
                           disabled={!kbWrite.allowed}
                           onChange={(event) => setRejectReason(event.target.value)}
-                          className={`mt-1 w-full ${FIELD}`}
+                          className={FIELD}
                           /* The example must name an action the client can actually take. It used to say
                              "upload the current rate card", and there is no upload: knowledge is
                              submitted as TEXT (`POST /v1/kb/sources` refuses `kind="file"` and
@@ -178,7 +185,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                           {decide.isPending ? "Rejecting…" : "Reject this document"}
                         </button>
                         {rejectReason.trim().length < 3 && (
-                          <span className="text-xs text-danger">
+                          <span className="text-meta text-danger">
                             Write the reason in your own words first — it goes on the record.
                           </span>
                         )}
@@ -203,7 +210,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                         /* Chunk-by-chunk is how it is reviewed because chunk-by-chunk is
                            how it will be retrieved and read aloud. */
                         preview.data.map((chunk) => (
-                          <div key={chunk.idx} className="rounded-md bg-app p-2 text-xs text-ink-muted">
+                          <div key={chunk.idx} className="border-l border-line pl-3 text-meta text-ink-muted">
                             <span className="mr-2 text-ink-faint">#{chunk.idx}</span>
                             {chunk.content}
                             <span className="ml-2 text-ink-faint">({chunk.chars} chars)</span>
@@ -218,7 +225,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
           ) : (
             <EmptyState message="Nothing awaiting approval" />
           )}
-        </Card>
+        </Section>
 
         {/* Approve moves a source to `approved`; publishing is the separate step that
             pushes it to the engine and makes it the live version (FLOWS §7). Both are
@@ -239,46 +246,48 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
             nothing — the approval card above already carries the sentence that explains
             what publishing is for. */}
         {publishQueue.isLoading ? (
-          <Card title="Approved, awaiting publish" density="compact">
+          <Section title="Approved, awaiting publish">
             <Skeleton rows={2} />
-          </Card>
+          </Section>
         ) : publishQueue.error || !publishQueue.data ? (
           /* `|| !publishQueue.data` closes the same hole one state further out. The comment
              above names "in flight" and "failed"; a query TanStack has PAUSED because the
              browser is offline is neither — `isLoading === false`, `error === null` — so
              `awaitingPublish` was `[]` and the panel rendered `null`, which on this screen
              reads as "nothing is waiting to be published". */
-          <Card title="Approved, awaiting publish" density="compact">
+          <Section title="Approved, awaiting publish">
             <ProblemNotice
               error={publishQueue.error ?? new Error("The publish queue did not load.")}
               onRetry={() => publishQueue.refetch()}
             />
-          </Card>
+          </Section>
         ) : awaitingPublish.length > 0 ? (
-          <Card title="Approved, awaiting publish" density="compact">
-            <p className="text-xs text-ink-muted">
+          <Section title="Approved, awaiting publish">
+            <p className="text-meta text-ink-muted">
               None of the client&apos;s agents know these until they are published.
             </p>
             <RestrictionNote reason={kbWrite.reason} />
-            <ul className="divide-y divide-line">
+            <ul className={`mt-3 ${HAIRLINE_LIST}`}>
               {awaitingPublish.map((source) => (
-                <li key={source.id} className="flex flex-wrap items-center gap-2 py-2.5 text-sm">
+                <li key={source.id} className="flex flex-wrap items-center gap-2 py-2.5 text-body sm:px-2">
                   <span className="font-medium text-ink">{source.name}</span>
-                  <span className="text-xs text-ink-muted">
+                  <span className="text-meta text-ink-muted">
                     v{source.version} · {source.chunks} chunks
                   </span>
                   <span className="ml-auto">
-                    <PrimaryButton
+                    <button
+                      type="button"
+                      className={SECONDARY_BUTTON_SM}
                       disabled={decide.isPending || !kbWrite.allowed}
                       onClick={() => decide.mutate({ sourceId: source.id, decision: "publish" })}
                     >
                       Publish
-                    </PrimaryButton>
+                    </button>
                   </span>
                 </li>
               ))}
             </ul>
-          </Card>
+          </Section>
         ) : null}
     </>
   );

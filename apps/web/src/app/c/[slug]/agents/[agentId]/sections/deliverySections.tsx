@@ -12,6 +12,8 @@ import { SettingRows } from "@/components/console/settingRow";
 import type { Agent } from "@/lib/api/agents";
 import { usePendingChanges } from "@/lib/api/publishing";
 import { useClientSession } from "@/lib/api/session";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 import { CallerContinuity } from "../../panels/callerContinuity";
 import { CallCapChoice, VoiceChoice } from "../../panels/delivery";
@@ -46,6 +48,27 @@ export function VoiceSection({ agent }: { agent: Agent }) {
 
 export function CallHandlingSection({ agent }: { agent: Agent }) {
   const pending = usePending(agent.id);
+  useCopilotSurface({
+    route: "/c/{slug}/agents/{id}",
+    title: "Agent: call handling",
+    realm: "client",
+    fields: [],
+    facts: [
+      { key: "agent_id", label: "Agent id", value: agent.id },
+      {
+        key: "call_cap_s",
+        label: "Longest one call may run (seconds)",
+        value: pending.data ? String(pending.data.effective_call_cap_s) : pending.error ? "could not be read" : "still loading",
+      },
+      {
+        key: "worst_case_call_cost_inr",
+        label: "Most one call can cost (INR)",
+        value: pending.data ? (pending.data.worst_case_call_cost_inr ?? "no limit set") : "not loaded",
+      },
+      { key: "caller_memory", label: "Remembers callers between calls", value: agent.caller_memory_enabled ? "yes" : "no" },
+    ],
+    apply: noFill,
+  });
   return (
     <div className="space-y-8">
       {pending.isLoading ? (

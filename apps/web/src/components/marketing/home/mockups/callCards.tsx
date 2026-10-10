@@ -1,8 +1,12 @@
 import { Avatar, Chip, MaskedPhone, Panel, StatusPill, Tag, Waveform, type LeadStatus } from "./kit";
 
 /**
- * The call and the lead it leaves, for one illustrative caller: Priya, ringing a dental
- * clinic in Hyderabad about a root canal.
+ * The call and the lead it leaves, for one illustrative caller: Kavya, ringing a coaching
+ * centre in Guntur about a long-term entrance-exam batch.
+ *
+ * The other mockups depict other trades (a dental clinic, a property office, a school, a
+ * shop), so the site does not read as built for one line of work; this one leads because
+ * it is the hero's, and `why-calevate`, the auth showcase and `/roi` reuse it.
  *
  * Telugu because an agent starts as a Telugu agent (`language_primary` defaults to
  * `te-IN`). The agent's first line carries both opening sentences every agent has on file
@@ -11,38 +15,40 @@ import { Avatar, Chip, MaskedPhone, Panel, StatusPill, Tag, Waveform, type LeadS
  * The Telugu runs carry `lang="te"` so a screen reader switches voice; each has its English
  * underneath so a reader who does not speak Telugu can follow.
  *
- * Field names are the clinic template's own (`scripts/seed.py` VERTICAL_TEMPLATES):
- * "Symptom / reason", "Preferred doctor", "Urgency", "Preferred slot". Speakers are labelled "Agent" and
+ * Field names are the education template's own (`scripts/seed.py` VERTICAL_TEMPLATES):
+ * "Course", "Class / year", "Fee concern", "Demo booked". Speakers are labelled "Agent" and
  * "Caller", as the console's transcript labels them.
  */
 
-export const CLINIC = "Sunrise Dental";
+export const SAMPLE_BUSINESS = "Akshara Coaching";
 
-export const CALL_TURNS: readonly { who: "Agent" | "Caller"; te: string; en: string }[] = [
+export type CallTurn = { who: "Agent" | "Caller"; te: string; en: string };
+
+export const CALL_TURNS: readonly CallTurn[] = [
   {
     who: "Agent",
-    te: "నమస్కారం, Sunrise Dental. నేను AI అసిస్టెంట్‌ని, ఈ కాల్ రికార్డ్ చేయబడుతోంది. మీకు ఎలా సహాయం చేయగలను?",
-    en: "Namaskaram, Sunrise Dental. I am an AI assistant, and this call is recorded. How can I help?",
+    te: "నమస్కారం, Akshara Coaching. నేను AI అసిస్టెంట్‌ని, ఈ కాల్ రికార్డ్ చేయబడుతోంది. మీకు ఎలా సహాయం చేయగలను?",
+    en: "Namaskaram, Akshara Coaching. I am an AI assistant, and this call is recorded. How can I help?",
   },
   {
     who: "Caller",
-    te: "రూట్ కెనాల్ చేస్తారా? ఖర్చు ఎంత అవుతుంది?",
-    en: "Do you do root canal? What does it cost?",
+    te: "EAMCET లాంగ్ టర్మ్ బ్యాచ్ ఉందా? ఫీజు ఎంత?",
+    en: "Do you have an EAMCET long-term batch? What are the fees?",
   },
   {
     who: "Agent",
-    te: "చేస్తాము. ఖర్చు పంటిని బట్టి ఉంటుంది — ముందుగా చెకప్ బుక్ చేయనా?",
-    en: "We do. It depends on the tooth — shall I book a check-up first?",
+    te: "ఉంది. ఫీజు వివరాలు కౌన్సెలర్ చెబుతారు — ముందుగా డెమో క్లాస్ బుక్ చేయనా?",
+    en: "We do. The counsellor will go through the fees — shall I book a demo class first?",
   },
   {
     who: "Caller",
-    te: "అవును. మంగళవారం సాయంత్రం. నా పేరు ప్రియ.",
-    en: "Yes. Tuesday evening. My name is Priya.",
+    te: "అవును. శనివారం ఉదయం. నా పేరు కావ్య.",
+    en: "Yes. Saturday morning. My name is Kavya.",
   },
   {
     who: "Agent",
-    te: "మంగళవారం సాయంత్రం 6 గంటలకు బుక్ చేశాను.",
-    en: "Booked for Tuesday at 6 PM.",
+    te: "శనివారం ఉదయం 10 గంటలకు డెమో క్లాస్ బుక్ చేశాను.",
+    en: "Booked the demo class for Saturday at 10 AM.",
   },
 ];
 
@@ -97,7 +103,7 @@ export function CallCard({ className = "", turns = 2 }: { className?: string; tu
       <span className="mt-3 flex items-center gap-3">
         <span className="flex min-w-0 flex-1 flex-col">
           <MaskedPhone />
-          <span className="truncate text-[12px] font-medium text-ink">{CLINIC} · Front desk</span>
+          <span className="truncate text-[12px] font-medium text-ink">{SAMPLE_BUSINESS} · Front desk</span>
         </span>
         <span className="font-mono text-[12px] font-semibold text-ink-muted">01:12</span>
       </span>
@@ -115,14 +121,14 @@ export function CallCard({ className = "", turns = 2 }: { className?: string; tu
   );
 }
 
-/** The record the call leaves: the clinic's own columns, filled in. */
+/** The record the call leaves: the coaching centre's own columns, filled in. */
 export function LeadCapturedCard({ className = "" }: { className?: string }) {
   const fields = [
-    ["Name", "Priya Reddy"],
-    ["Symptom / reason", "Root canal"],
-    ["Preferred doctor", "Dr. Rao"],
-    ["Urgency", "this week"],
-    ["Preferred slot", "Tue, 6:00 PM"],
+    ["Name", "Kavya Reddy"],
+    ["Course", "EAMCET long-term"],
+    ["Class / year", "Inter 2nd year"],
+    ["Fee concern", "Yes"],
+    ["Demo booked", "Yes"],
   ] as const;
   return (
     <Panel elevation="overlay" className={`p-4 ${className}`}>
@@ -142,7 +148,7 @@ export function LeadCapturedCard({ className = "" }: { className?: string }) {
         ))}
       </span>
       <span className="mt-3 flex flex-wrap items-center gap-2">
-        <Tag tone="emerald">Check-up booked</Tag>
+        <Tag tone="emerald">Demo class booked</Tag>
         <Tag>inbound call · 2:14</Tag>
       </span>
     </Panel>
@@ -150,34 +156,34 @@ export function LeadCapturedCard({ className = "" }: { className?: string }) {
 }
 
 /**
- * A leads-table row for the clinic: Name (with source and age under it), Status, the
- * template's "Symptom / reason" and "Preferred slot". Four columns rather than the
- * console's full set, so nothing is cut mid-word at the width the hero gives the table.
+ * A leads-table row for the coaching centre: Name (with source and age under it), Status,
+ * the template's "Course" and "Class / year". Four columns rather than the console's full
+ * set, so nothing is cut mid-word at the width the hero gives the table.
  */
-export type ClinicLead = {
+export type SampleLead = {
   name: string;
   status: LeadStatus;
-  reason: string;
-  slot: string;
+  course: string;
+  year: string;
   source: string;
   when: string;
 };
 
-export const CLINIC_LEADS: readonly ClinicLead[] = [
-  { name: "Priya Reddy", status: "new", reason: "Root canal", slot: "Tue, 6:00 PM", source: "inbound call", when: "just now" },
-  { name: "Ravi Kumar", status: "hot", reason: "Severe tooth pain", slot: "Today, 5:30 PM", source: "inbound call", when: "12 min ago" },
-  { name: "Sneha Rao", status: "interested", reason: "Braces for daughter", slot: "Sat morning", source: "campaign", when: "1 hr ago" },
-  { name: "Karthik Varma", status: "contacted", reason: "Teeth cleaning", slot: "Next week", source: "inbound call", when: "3 hr ago" },
-  { name: "Anitha Naidu", status: "won", reason: "Implant consult", slot: "Thu, 11:00 AM", source: "campaign", when: "Yesterday" },
-  { name: "Imran Shaik", status: "lost", reason: "Asked about fees only", slot: "—", source: "inbound call", when: "Yesterday" },
+export const SAMPLE_LEADS: readonly SampleLead[] = [
+  { name: "Kavya Reddy", status: "new", course: "EAMCET long-term", year: "Inter 2nd year", source: "inbound call", when: "just now" },
+  { name: "Sai Charan", status: "hot", course: "NEET repeater", year: "Class 12", source: "inbound call", when: "12 min ago" },
+  { name: "Harshitha K", status: "interested", course: "Class 10 foundation", year: "Class 9", source: "campaign", when: "1 hr ago" },
+  { name: "Manoj Kumar", status: "contacted", course: "Weekend maths batch", year: "Class 8", source: "inbound call", when: "3 hr ago" },
+  { name: "Anitha Naidu", status: "won", course: "EAMCET crash course", year: "Inter 2nd year", source: "campaign", when: "Yesterday" },
+  { name: "Imran Shaik", status: "lost", course: "Bank exams", year: "—", source: "inbound call", when: "Yesterday" },
 ];
 
-export function ClinicLeadRow({
+export function SampleLeadRow({
   lead,
   highlight = false,
   className = "",
 }: {
-  lead: ClinicLead;
+  lead: SampleLead;
   highlight?: boolean;
   className?: string;
 }) {
@@ -197,20 +203,20 @@ export function ClinicLeadRow({
       <span className="w-20 shrink-0">
         <StatusPill status={lead.status} />
       </span>
-      <span className="min-w-0 flex-1 truncate text-ink">{lead.reason}</span>
-      <span className="hidden w-28 shrink-0 truncate text-ink-muted md:block">{lead.slot}</span>
+      <span className="min-w-0 flex-1 truncate text-ink">{lead.course}</span>
+      <span className="hidden w-28 shrink-0 truncate text-ink-muted md:block">{lead.year}</span>
     </span>
   );
 }
 
-/** The header row matching `ClinicLeadRow`'s columns. */
-export function ClinicLeadHeader() {
+/** The header row matching `SampleLeadRow`'s columns. */
+export function SampleLeadHeader() {
   return (
     <span className="flex items-center gap-3 border-b border-line bg-app/60 px-4 py-2 text-[11px] font-semibold text-ink-muted">
       <span className="w-36 shrink-0">Name</span>
       <span className="w-20 shrink-0">Status</span>
-      <span className="min-w-0 flex-1">Symptom / reason</span>
-      <span className="hidden w-28 shrink-0 md:block">Preferred slot</span>
+      <span className="min-w-0 flex-1">Course</span>
+      <span className="hidden w-28 shrink-0 md:block">Class / year</span>
     </span>
   );
 }

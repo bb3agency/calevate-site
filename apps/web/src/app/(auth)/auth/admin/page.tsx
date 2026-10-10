@@ -38,7 +38,7 @@ import { ChangePasswordForm } from "@/components/authn/changePasswordForm";
 import { EmailVerificationPanel } from "@/components/authn/emailVerificationPanel";
 import { StepUpPrompt } from "@/components/authn/stepUpPrompt";
 import { AuthProblemNotice } from "@/components/authn/fields";
-import { Card, DANGER_BUTTON, NoticeBox, SECONDARY_BUTTON } from "@/components/ui";
+import { DANGER_BUTTON, NoticeBox, SECONDARY_BUTTON } from "@/components/ui";
 import {
   ADMIN_SIGN_IN_PATH,
   adminAuthn,
@@ -96,8 +96,9 @@ function AdminSessionBody() {
           deadlock `lib/api/session.tsx` records for the client shell. */}
       <StepUpPrompt />
 
-      <Card>
-        <div className="space-y-3 text-sm text-ink-muted">
+      <div className="divide-y divide-line [&>*]:py-6 [&>*:first-child]:pt-0">
+      <div>
+        <div className="space-y-3 text-body text-ink-muted">
           <NoticeBox
             tone="ok"
             icon={<ShieldCheck aria-hidden className="h-4 w-4" />}
@@ -113,32 +114,32 @@ function AdminSessionBody() {
             keep it open without losing what you were doing.
           </p>
         </div>
-      </Card>
+      </div>
 
-      <Card>
+      <div>
         <div className="space-y-3">
-          <h2 className="text-base font-semibold text-ink">Email address</h2>
+          <h2 className="text-heading text-ink">Email address</h2>
           <EmailVerificationPanel
             authn={adminAuthn}
             verified={session?.email_verified ?? false}
             onVerified={retry}
           />
         </div>
-      </Card>
+      </div>
 
-      <Card>
+      <div>
         <div className="space-y-3">
-          <h2 className="text-base font-semibold text-ink">Change password</h2>
+          <h2 className="text-heading text-ink">Change password</h2>
           {/* `changeAdminPassword`, not `adminAuthn.changePassword`: this realm's route
               also requires a second factor proved in the last 30 minutes, and the wrapper
               is what turns that refusal into the prompt below instead of a dead end. */}
           <ChangePasswordForm realm="admin" changePassword={changeAdminPassword} />
         </div>
-      </Card>
+      </div>
 
-      <Card>
-        <div className="space-y-3 text-sm text-ink-muted">
-          <h2 className="text-base font-semibold text-ink">Ending sessions</h2>
+      <div>
+        <div className="space-y-3 text-body text-ink-muted">
+          <h2 className="text-heading text-ink">Ending sessions</h2>
           <p>
             Signing out ends this browser&apos;s session. Signing out everywhere ends every
             operator session on this account, on every device — use it if a laptop or phone
@@ -172,9 +173,10 @@ function AdminSessionBody() {
             </button>
           </div>
         </div>
-      </Card>
+      </div>
+      </div>
 
-      <p className="text-sm text-ink-muted">
+      <p className="text-body text-ink-muted">
         <Link
           href={adminConsoleUrl(ADMIN_CONSOLE_PATH)}
           className="text-brand-strong underline underline-offset-2 dark:text-brand-bright"

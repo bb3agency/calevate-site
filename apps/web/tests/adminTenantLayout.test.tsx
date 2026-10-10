@@ -77,8 +77,8 @@ describe("the client header", () => {
     const h1s = await screen.findAllByRole("heading", { level: 1 });
     expect(h1s).toHaveLength(1);
     expect(h1s[0].textContent).toBe("Sri Traders");
-    expect(container.textContent).toContain("suspended");
-    expect(container.textContent).toContain("capped");
+    expect(container.textContent).toContain("Suspended");
+    expect(container.textContent).toContain("Capped");
     expect(container.textContent).toContain(`/c/${SLUG}`);
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Sub-page body");
   });

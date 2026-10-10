@@ -33,7 +33,7 @@ export function GrantControl({
 }) {
   return (
     <div className="space-y-3">
-      <blockquote className="border-l-2 border-brand pl-4 text-sm text-ink">{notice}</blockquote>
+      <blockquote className="border-l-2 border-brand pl-4 text-body text-ink">{notice}</blockquote>
       {/* Shared ActionButton: the spinner rides `loading` while the opt-in is recorded, and
           the disabled logic is unchanged (`disabled || loading`). The accessible name stays
           "I agree…" through the write, so `whatsappAlerts.test.tsx`'s `/I agree/` — and a
@@ -43,7 +43,7 @@ export function GrantControl({
         I agree — send me WhatsApp alerts
       </ActionButton>
       {!allowed && reason && (
-        <p className="flex items-start gap-2 text-xs text-ink-muted">
+        <p className="flex items-start gap-2 text-meta text-ink-muted">
           <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {reason}
         </p>
@@ -97,12 +97,12 @@ export function WithdrawControl({
         <BellOff aria-hidden className="h-4 w-4" />
         {pending ? "Saving…" : "Stop sending me WhatsApp alerts"}
       </button>
-      <p className="text-xs text-ink-faint">
+      <p className="text-meta text-ink-faint">
         Hot leads keep reaching you by email and on your dashboard. You can turn WhatsApp
         back on here whenever you like.
       </p>
       {!allowed && reason && (
-        <p className="flex items-start gap-2 text-xs text-ink-muted">
+        <p className="flex items-start gap-2 text-meta text-ink-muted">
           <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {reason}
         </p>

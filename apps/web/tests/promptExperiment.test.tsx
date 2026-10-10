@@ -641,19 +641,17 @@ describe("the call cap", () => {
     // this one — which on a loaded box is every time.
     //
     // The exact string cannot go ambiguous the same way, because RTL matches a node's OWN
-    // text: `getNodeText` joins only the DIRECT text children, so the `<dd>` reads as
+    // text: `getNodeText` joins only the DIRECT text children, so the value reads as
     // "600" + "s" while its "(10 minutes, …)" qualifier is a nested `<span>` that does not
     // count towards it, and the help line reads as its whole sentence. That this query
     // resolves at all is the proof it is unambiguous — `findByText` refuses a second match.
     const inForce = await screen.findByText("600s");
 
-    // ...and what it waited on is the cap's own value cell, not prose quoting the number.
-    // The `<dt>`/`<dd>` pair is the semantic hook here, and it is what the substring
-    // matcher could not tell apart from the help text underneath it.
-    expect(inForce.tagName).toBe("DD");
-    expect(
-      within(inForce.closest("div") as HTMLElement).getByText("In force"),
-    ).toBeTruthy();
+    // ...and what it waited on is the value of the row labelled "In force" (a label–value
+    // `SettingRow` since redesign #2), not prose quoting the number.
+    const row = inForce.closest(".py-3\\.5") as HTMLElement | null;
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText("In force")).toBeTruthy();
     expect(container.textContent).toContain("(10 minutes, platform default)");
   });
 });

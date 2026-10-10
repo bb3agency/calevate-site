@@ -9,7 +9,6 @@ import { Drawer } from "@/components/console/drawer";
 import { EmptyState } from "@/components/console/emptyState";
 import { RowMenu } from "@/components/console/rowMenu";
 import { StepFlow } from "@/components/console/stepFlow";
-import { useToast } from "@/components/interior/toaster";
 import {
   FIELD,
   FIELD_HINT,
@@ -70,7 +69,7 @@ export function Routines({ session }: { session: Session }) {
   const update = useUpdateRoutine(session);
   const run = useRunRoutine(session);
   const remove = useDeleteRoutine(session);
-  const { toast } = useToast();
+  const [notice, setNotice] = useState<string | null>(null);
 
   const rows = routines.data?.routines ?? [];
   return (
@@ -85,6 +84,11 @@ export function Routines({ session }: { session: Session }) {
         </button>
       </div>
 
+      {notice ? (
+        <p role="status" className="text-body text-ink">
+          {notice}
+        </p>
+      ) : null}
       {routines.error != null && (
         <ProblemNotice error={routines.error} onRetry={() => void routines.refetch()} />
       )}
@@ -101,11 +105,11 @@ export function Routines({ session }: { session: Session }) {
       {run.error != null && <ProblemNotice error={run.error} />}
 
       {rows.length > 0 && (
-        <ul className="space-y-3" aria-label="Your routines">
+        <ul className="divide-y divide-line border-y border-line" aria-label="Your routines">
           {rows.map((routine) => (
             <li
               key={routine.id}
-              className="flex min-w-0 flex-col gap-3 rounded-card border border-line bg-surface px-4 py-3 sm:flex-row sm:items-start"
+              className="flex min-w-0 flex-col gap-3 py-3.5 sm:flex-row sm:items-start"
             >
               <div className="min-w-0 flex-1">
                 <p className="break-words text-sm font-medium text-ink [overflow-wrap:anywhere]">
@@ -136,12 +140,7 @@ export function Routines({ session }: { session: Session }) {
                       label: "Run now",
                       onSelect: () =>
                         run.mutate(routine.id, {
-                          onSuccess: () =>
-                            toast({
-                              tone: "success",
-                              title: "Started",
-                              description: "It's running as a background task.",
-                            }),
+                          onSuccess: () => setNotice("Started. It's running as a background task."),
                         }),
                     },
                     { id: "edit", label: "Edit", onSelect: () => setEditing(routine) },
@@ -171,6 +170,7 @@ export function Routines({ session }: { session: Session }) {
             session={session}
             routine={editing === "new" ? null : editing}
             onDone={() => setEditing(null)}
+            onSaved={setNotice}
           />
         )}
       </Drawer>
@@ -207,10 +207,12 @@ function RoutineEditor({
   session,
   routine,
   onDone,
+  onSaved,
 }: {
   session: Session;
   routine: CopilotRoutineOut | null;
   onDone: () => void;
+  onSaved: (sentence: string) => void;
 }) {
   const [name, setName] = useState(routine?.name ?? "");
   const [instruction, setInstruction] = useState(routine?.instruction ?? "");
@@ -220,7 +222,6 @@ function RoutineEditor({
   const [time, setTime] = useState(routine?.schedule.time ?? "09:00");
   const create = useCreateRoutine(session);
   const update = useUpdateRoutine(session);
-  const { toast } = useToast();
   const ids = { name: useId(), instruction: useId(), time: useId(), days: useId() };
   const pending = create.isPending || update.isPending;
   const error = create.error ?? update.error;
@@ -230,7 +231,7 @@ function RoutineEditor({
   const save = () => {
     const body = { name: name.trim(), instruction: instruction.trim(), schedule };
     const done = () => {
-      toast({ tone: "success", title: routine === null ? "Routine added" : "Routine saved" });
+      onSaved(routine === null ? "Routine added." : "Routine saved.");
       onDone();
     };
     if (routine === null) create.mutate({ ...body, enabled: true }, { onSuccess: done });

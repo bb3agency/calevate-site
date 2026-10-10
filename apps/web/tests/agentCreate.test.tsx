@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import NewAgentPage from "@/app/c/[slug]/agents/new/page";
+import { BlankAgentFlow } from "@/app/c/[slug]/agents/new/BuildAgent";
 import type { Agent } from "@/lib/api/agents";
 import type { Lanes } from "@/lib/api/publishing";
 
@@ -116,7 +116,9 @@ function created(over: Partial<Agent> = {}): Agent {
   };
 }
 
-const page = <NewAgentPage params={Promise.resolve({ slug: "acme" })} />;
+// The blank flow: the page now opens on "pick a job" (agentStarter.test.tsx), and starting
+// from nothing is one link away from it, unchanged.
+const page = <BlankAgentFlow slug="acme" />;
 
 function routes(over: Record<string, unknown> = {}) {
   return { "/v1/me": OWNER, "/v1/agents/lanes": LANES, ...over };
@@ -355,6 +357,8 @@ describe("failure paths a person can act on", () => {
     );
 
     await toDetails();
+    // REDESIGN-2: the name starts as a ready default for the job, so clear it first.
+    fireEvent.change(screen.getByRole("textbox", { name: /^Name/ }), { target: { value: "" } });
     // Next is LIVE and the press is refused with a sentence, in our words rather than the
     // browser's UI language.
     await next();

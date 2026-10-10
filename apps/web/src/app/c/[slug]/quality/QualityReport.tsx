@@ -3,6 +3,7 @@
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { InfoTip } from "@/components/console/infoTip";
 import { Metric } from "@/components/console/metric";
+import { Section } from "@/components/console/section";
 import { Disclosure } from "@/components/ui";
 import { BASIS_NOTE, renderMeasurement, type QaReport } from "@/lib/api/quality";
 
@@ -19,7 +20,7 @@ export function VerdictPill({ report }: { report: QaReport }) {
   const clean = report.defects === 0;
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[13px] font-medium ${
+      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-meta font-medium ${
         clean
           ? "border-brand/30 bg-brand-soft text-brand-strong"
           : "border-danger-line bg-danger-soft text-danger"
@@ -69,52 +70,54 @@ export function QualityReport({ report }: { report: QaReport }) {
   const scenarioClasses = report.scenario_classes ?? [];
   const knownLimits = report.known_limits ?? [];
   return (
-    <div className="space-y-6">
-      <div className="space-y-1 text-[13px] text-ink-muted">
-        {!clean && (
-          <p className="font-medium text-danger">
-            These are being fixed and this report will be reissued.
+    <div className="space-y-10">
+      <div className="space-y-6">
+        <div className="space-y-1 text-meta text-ink-muted">
+          {!clean && (
+            <p className="font-medium text-danger">
+              These are being fixed and this report will be reissued.
+            </p>
+          )}
+          <p>
+            For the month ending {monthEndLabel(report.as_of)}. Measured with the {report.model}{" "}
+            language model.
           </p>
-        )}
-        <p>
-          For the month ending {monthEndLabel(report.as_of)}. Measured with the {report.model}{" "}
-          language model.
-        </p>
+        </div>
+
+        <div className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
+          <Metric label="Defects" value={String(report.defects)} />
+          <Metric label="Everything captured" value={renderMeasurement(report.everything_captured)} />
+          <Metric
+            label="A field came back blank"
+            value={renderMeasurement(report.field_left_blank)}
+            hint={
+              <span className="inline-flex items-center gap-1">
+                A detail missed, not a wrong one
+                <InfoTip label="a blank field">
+                  <p>
+                    A blank field is not a failure of the call — it is a detail the agent did
+                    not pick up, listed by column below. The two figures add up to every
+                    scenario, and the first one is the one that matters: nothing was recorded
+                    wrongly.
+                  </p>
+                </InfoTip>
+              </span>
+            }
+          />
+        </div>
+
+        <div className="space-y-1 text-meta text-ink-muted">
+          {report.everything_captured.basis !== "measured" && (
+            <p>{BASIS_NOTE[report.everything_captured.basis]}</p>
+          )}
+          <p>Change since last month: {BASIS_NOTE[report.trend] || "no change to report."}</p>
+        </div>
       </div>
 
-      <div className="grid gap-x-6 gap-y-5 border-b border-line pb-6 sm:grid-cols-3">
-        <Metric label="Defects" value={String(report.defects)} />
-        <Metric label="Everything captured" value={renderMeasurement(report.everything_captured)} />
-        <Metric
-          label="A field came back blank"
-          value={renderMeasurement(report.field_left_blank)}
-          hint={
-            <span className="inline-flex items-center gap-1">
-              A detail missed, not a wrong one
-              <InfoTip label="a blank field">
-                <p>
-                  A blank field is not a failure of the call — it is a detail the agent did
-                  not pick up, listed by column below. The two figures add up to every
-                  scenario, and the first one is the one that matters: nothing was recorded
-                  wrongly.
-                </p>
-              </InfoTip>
-            </span>
-          }
-        />
-      </div>
-
-      <div className="space-y-1 text-[13px] text-ink-muted">
-        {report.everything_captured.basis !== "measured" && (
-          <p>{BASIS_NOTE[report.everything_captured.basis]}</p>
-        )}
-        <p>Change since last month: {BASIS_NOTE[report.trend] || "no change to report."}</p>
-      </div>
-
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[15px] font-semibold text-ink">What we tested</h2>
-          <p className="flex items-center gap-1 text-[13px] text-ink-muted">
+      <Section
+        title="What we tested"
+        action={
+          <p className="flex items-center gap-1 text-meta text-ink-muted">
             {report.red_team} of those scenarios are adversarial
             <InfoTip label="adversarial scenarios" align="end">
               <p>
@@ -125,38 +128,40 @@ export function QualityReport({ report }: { report: QaReport }) {
               </p>
             </InfoTip>
           </p>
-        </div>
+        }
+      >
         <DataTable
+          className="border-y border-line"
           label="Scenario classes replayed against your agent, and what a pass proves"
           columns={SCENARIO_COLUMNS}
           rows={scenarioClasses}
           getRowId={(row) => String(row.scenario)}
         />
-      </section>
+      </Section>
 
-      <section className="space-y-3">
-        <h2 className="text-[15px] font-semibold text-ink">Known limits</h2>
+      <Section title="Known limits">
         {knownLimits.length === 0 ? (
-          <p className="text-[13px] text-ink-muted">
+          <p className="text-meta text-ink-muted">
             None. Every field in your leads list was captured on every scenario that contained
             it.
           </p>
         ) : (
-          <>
-            <p className="text-[13px] text-ink-muted">
+          <div className="space-y-4">
+            <p className="text-meta text-ink-muted">
               Fields the agent does not yet reliably pick up. They come back{" "}
               <strong>blank</strong>, never wrong — a blank column is a call your staff can
               follow up, and a wrong one is a call they cannot.
             </p>
             <DataTable
+              className="border-y border-line"
               label="Fields the agent does not yet reliably pick up"
               columns={LIMIT_COLUMNS}
               rows={knownLimits}
               getRowId={(row) => row.label}
             />
-          </>
+          </div>
         )}
-      </section>
+      </Section>
 
       <div>
         <Disclosure
@@ -165,7 +170,7 @@ export function QualityReport({ report }: { report: QaReport }) {
           title="What counts as a defect"
           subtitle="A wrong or invented detail, a missing recording and AI notice or opt-out, or an unmasked detail."
         >
-          <ul className="mb-3 list-disc space-y-1 pl-5 text-sm text-ink-muted">
+          <ul className="mb-3 list-disc space-y-1 pl-5 text-body text-ink-muted">
             <li>
               a caller&apos;s detail was recorded <strong>wrongly</strong> — a callback number
               that dials someone else is worse than a blank one;
@@ -182,7 +187,7 @@ export function QualityReport({ report }: { report: QaReport }) {
               been masked.
             </li>
           </ul>
-          <p className="mb-3 text-sm text-ink-muted">
+          <p className="mb-3 text-body text-ink-muted">
             None of them is acceptable at any price point.
           </p>
         </Disclosure>
@@ -192,7 +197,7 @@ export function QualityReport({ report }: { report: QaReport }) {
           title="What this report does not tell you"
           subtitle="It is not a measure of your live calls, holds no real call data, and is not a trend yet."
         >
-          <ul className="mb-3 list-disc space-y-2 pl-5 text-sm text-ink-muted">
+          <ul className="mb-3 list-disc space-y-2 pl-5 text-body text-ink-muted">
             <li>
               <strong>It is not a measure of your live calls.</strong> It is a fixed set of
               scenarios, replayed. Your dashboard tells you how many callers booked this month.

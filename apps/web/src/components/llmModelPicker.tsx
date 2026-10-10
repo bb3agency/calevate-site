@@ -303,7 +303,7 @@ export function ModelPicker({
               "this cannot be chosen at all", and a reader skimming prices must not
               have to work out which rows are real. */}
           {unavailable && audience === "operator" && (
-            <span className="mt-0.5 block pl-6 text-xs font-medium text-amber-700 dark:text-amber-400">
+            <span className="mt-0.5 block pl-6 text-xs font-medium text-warn">
               Cannot be chosen — {choice.unavailable}
             </span>
           )}
@@ -378,7 +378,7 @@ export function ModelPicker({
           <div key={group.key} role="group" aria-labelledby={headingId} className="mt-4">
             <p
               id={headingId}
-              className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint"
+              className="text-meta font-semibold text-ink-muted"
             >
               {group.label}
             </p>

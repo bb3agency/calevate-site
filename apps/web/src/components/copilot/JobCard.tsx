@@ -32,7 +32,7 @@ export function JobCard({ session, job }: { session: Session; job: CopilotJobFra
   const current = read.data;
   const status = (current?.status ?? job.status) as CopilotJobFrame["status"];
   return (
-    <div className="space-y-2 rounded-lg border border-line bg-app px-3 py-2">
+    <div className="space-y-2 border-l-2 border-line pl-3">
       <p className="flex items-center gap-1.5 text-xs font-medium text-ink">
         <Hourglass aria-hidden className="h-3.5 w-3.5 text-ink-faint" />
         {lookup(STATUS_WORDS, status) ?? status}

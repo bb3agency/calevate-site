@@ -51,10 +51,10 @@ export interface UploadState {
 }
 
 const LIVE_TONE = "bg-brand-soft text-brand-strong";
-const WAIT_TONE = "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300";
-const WORK_TONE = "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300";
-const STOP_TONE = "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300";
-const QUIET_TONE = "bg-black/5 text-ink-muted dark:bg-white/10";
+const WAIT_TONE = "bg-warn-soft text-warn";
+const WORK_TONE = "bg-ink/[0.06] text-ink";
+const STOP_TONE = "bg-danger-soft text-danger";
+const QUIET_TONE = "bg-ink/[0.05] text-ink-muted";
 
 /** Is this row's text something a model read off a photograph, rather than parsed out? */
 export function isMachineRead(upload: KbUpload): boolean {

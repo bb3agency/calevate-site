@@ -28,7 +28,7 @@ import { Term } from "@/lib/glossary";
 export function DltDetails({ registration }: { registration: PeRegistration }) {
   return (
     <section aria-labelledby="dlt-heading" className="space-y-2">
-      <h2 id="dlt-heading" className="text-[15px] font-semibold text-ink">
+      <h2 id="dlt-heading" className="text-heading text-ink">
         Campaign registration (<Term id="dlt" />)
       </h2>
       <DltStatuses registration={registration} />

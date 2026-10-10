@@ -53,7 +53,7 @@ export function IssuedInvite({ invitation }: { invitation: CreatedInvitation }) 
         We have emailed them a link. It works once, only from that address, and stops
         working {formatIST(invitation.expires_at)}.
       </p>
-      <p className="mt-2 text-xs">
+      <p className="mt-2 text-meta">
         If it does not arrive, ask them to check their spam folder. We cannot show or
         re-send the link — revoke the invite below and create a new one instead.
       </p>
@@ -117,7 +117,7 @@ function RoleControl({
           >
             {busy ? "Saving…" : "Save role"}
           </button>
-          <span className="basis-full text-xs text-ink-muted">
+          <span className="basis-full text-meta text-ink-muted">
             {pendingRole === "owner"
               ? `${who} will be able to see your invoice, invite and remove people — including you.`
               : `${who} will lose access to billing and will no longer be able to change who is on this team.`}
@@ -135,7 +135,7 @@ function NameCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
     return (
       <span className="block min-w-0">
         <span className="break-all font-mono text-ink">{row.invitation.email}</span>
-        <span className="block text-xs text-ink-muted sm:hidden">
+        <span className="block text-meta text-ink-muted sm:hidden">
           Invited · expires {formatIST(row.invitation.expires_at)}
         </span>
       </span>
@@ -145,9 +145,9 @@ function NameCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
   return (
     <span className="block min-w-0">
       <span className="text-ink">{row.member.name ?? "Unnamed member"}</span>
-      {isMe && <span className="ml-1.5 text-xs text-ink-faint">(you)</span>}
+      {isMe && <span className="ml-1.5 text-meta text-ink-faint">(you)</span>}
       {ctx.showEmail && row.email && (
-        <span className="block truncate text-xs text-ink-muted md:hidden">{row.email}</span>
+        <span className="block truncate text-meta text-ink-muted md:hidden">{row.email}</span>
       )}
     </span>
   );
@@ -164,7 +164,7 @@ function RoleCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
     return (
       <span className="block">
         <span className="text-ink-muted">{roleLabel(row.member.role)}</span>
-        <span className="block text-xs text-ink-faint">
+        <span className="block text-meta text-ink-faint">
           You cannot change your own access — ask another owner.
         </span>
       </span>
@@ -182,7 +182,7 @@ function RoleCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
   return (
     <span className="block">
       <span className="text-ink-muted">{roleLabel(row.member.role)}</span>
-      <span className="block text-xs text-ink-faint">
+      <span className="block text-meta text-ink-faint">
         {ctx.restriction ?? "Only an account owner can change this."}
       </span>
     </span>

@@ -82,14 +82,14 @@ function ConfirmBlock({
       tabIndex={-1}
       role="group"
       aria-label={heading}
-      className="mt-3 w-full space-y-3 rounded-card border border-line bg-surface p-4 outline-none focus-visible:ring-2 focus-visible:ring-brand"
+      className="mt-3 w-full space-y-3 border-l-2 border-danger py-1 pl-4 outline-none focus-visible:ring-2 focus-visible:ring-brand"
     >
       <div className="flex gap-3">
         <span className={`mt-0.5 shrink-0 ${danger ? "text-danger" : "text-ink-faint"}`}>{icon}</span>
         <div className="min-w-0">
           <p className="font-semibold text-ink">{heading}</p>
           <div className="mt-1 text-ink-muted">{consequence}</div>
-          <p className="mt-1 text-xs text-ink-faint">
+          <p className="mt-1 text-meta text-ink-muted">
             Recorded in the audit log against your admin account, with the reason you type
             below.
           </p>
@@ -189,7 +189,7 @@ export function RoleChangePanel({
       }
       onClose={onClose}
     >
-      <p className="text-xs text-ink-faint">{targetCopy?.can}</p>
+      <p className="text-meta text-ink-muted">{targetCopy?.can}</p>
     </ConfirmBlock>
   );
 }

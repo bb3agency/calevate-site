@@ -31,7 +31,7 @@ export function InvoicedAccount() {
           get through.
         </p>
       </NoticeBox>
-      <p className="text-[13px] text-ink-muted">
+      <p className="max-w-prose text-meta text-ink-muted">
         Most accounts pay as they go: they keep a credit balance on this screen and top it
         up whenever they like. Yours is set up the other way, on an invoice. If that is not
         what you agreed with us, ask your account manager to check it — it is a setting on

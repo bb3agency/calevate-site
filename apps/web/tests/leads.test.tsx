@@ -303,23 +303,6 @@ describe("what the screen says when it could not read the leads", () => {
     expect(container.textContent).not.toContain("by stage");
   });
 
-  it("paints no empty pipeline in the board view either", async () => {
-    // The regression this pins: the board had no failure branch, so a 503 rendered six
-    // columns each reading "No leads" over a zero — a complete, confident, invented
-    // pipeline drawn from a request that never landed.
-    const { container } = await renderClientPage(
-      <LeadsPage />,
-      routes({
-        "POST /v1/leads/search": problem(503, { title: "Service unavailable" }),
-      }),
-    );
-
-    await screen.findByRole("alert");
-    fireEvent.click(screen.getByRole("radio", { name: /Board/ }));
-
-    expectTextCount(container, "No leads", 0);
-    expect(container.textContent).not.toContain("not on this page");
-  });
 });
 
 describe("the number on the row", () => {

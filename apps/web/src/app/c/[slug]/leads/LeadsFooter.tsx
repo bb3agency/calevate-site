@@ -29,7 +29,7 @@ export function LeadsFooter({
   const { total } = leads.data;
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <p className="text-[13px] text-ink-muted">
+      <p className="text-meta text-ink-muted">
         Showing{" "}
         <span className="font-semibold tabular-nums text-ink">
           {total > PAGE_SIZE && items.length > 0

@@ -1,11 +1,11 @@
 "use client";
 
+import { Section } from "@/components/console/section";
 import { useState } from "react";
 import { Gauge, Lock, ShieldCheck, TriangleAlert } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
 import {
-  Card,
   DANGER_BUTTON,
   FIELD,
   FIELD_HINT,
@@ -129,7 +129,7 @@ export function LoadShedPanel({ state, access }: { state: PlatformState; access:
   const ready = !unchanged && confirm === confirmWord;
 
   return (
-    <Card title="Protective slowdown">
+    <Section title="Protective slowdown">
       <div className="space-y-4">
         <NoticeBox
           tone={current === "normal" ? "ok" : "warn"}
@@ -192,11 +192,11 @@ export function LoadShedPanel({ state, access }: { state: PlatformState; access:
 
           {/* WHAT THE BUTTON DOES, ABOVE THE BUTTON — for the mode being chosen, not for
               the one in force. Every mode here refuses requests for every client at once. */}
-          <div className="flex gap-3 rounded-card border border-line bg-surface p-4 text-sm">
+          <div className="flex gap-3 border-l-2 border-danger py-1 pl-4 text-body">
             <TriangleAlert
               aria-hidden
               className={`mt-0.5 h-4 w-4 shrink-0 ${
-                target === "normal" ? "text-ink-faint" : "text-rose-600"
+                target === "normal" ? "text-ink-faint" : "text-danger"
               }`}
             />
             <div className="min-w-0">
@@ -206,7 +206,7 @@ export function LoadShedPanel({ state, access }: { state: PlatformState; access:
                   : `Switching to “${loadShedModeCopy(target).label}” applies to every client at once`}
               </p>
               <p className="mt-1 text-ink-muted">{LOAD_SHED[target].blast}</p>
-              <p className="mt-1 text-xs text-ink-faint">
+              <p className="mt-1 text-meta text-ink-muted">
                 Recorded in the activity log against your admin account, with the reason
                 you type below. This does not stop a campaign that is already running, and
                 it never affects inbound calls.
@@ -253,15 +253,15 @@ export function LoadShedPanel({ state, access }: { state: PlatformState; access:
           </button>
 
           {!access.allowed && access.reason && (
-            <p className="flex items-start gap-2 text-xs text-ink-muted">
+            <p className="flex items-start gap-2 text-meta text-ink-muted">
               <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               {access.reason}
             </p>
           )}
         </form>
 
-        <p className="flex items-start gap-2 text-xs text-ink-muted">
-          <ShieldCheck aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-faint" />
+        <p className="flex items-start gap-2 text-meta text-ink-muted">
+          <ShieldCheck aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-muted" />
           <span>
             Never shed, in any mode: health checks, engine webhooks (a dropped callback is a
             call whose lead never appears), and this operations console, so an operator
@@ -269,6 +269,6 @@ export function LoadShedPanel({ state, access }: { state: PlatformState; access:
           </span>
         </p>
       </div>
-    </Card>
+    </Section>
   );
 }

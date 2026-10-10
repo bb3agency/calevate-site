@@ -48,8 +48,8 @@ export function MetaRecovery({
 
   return (
     <div className="mt-4 border-t border-line pt-4">
-      <p className="text-sm font-medium text-ink">Leads we recorded but could not read</p>
-      <p className="mt-1 text-sm text-ink-muted">
+      <p className="text-body font-medium text-ink">Leads we recorded but could not read</p>
+      <p className="mt-1 text-body text-ink-muted">
         If a lead arrived before your Page access token was in place, we kept it against
         its Meta lead ID but could not fetch what the person typed. Meta stops resending
         after about a day and a half; this fetches them now. Each one goes through the
@@ -75,7 +75,7 @@ export function MetaRecovery({
             <RotateCcw className="h-4 w-4" />
             {redrive.isPending ? "Recovering…" : "Recover unread leads"}
           </button>
-          <span className="text-xs text-ink-faint">
+          <span className="text-meta text-ink-faint">
             {waiting.length === 0
               ? "Nothing is waiting for this source."
               : `${formatCount(waiting.length)} ${waiting.length === 1 ? "lead is" : "leads are"} waiting.`}
@@ -89,7 +89,7 @@ export function MetaRecovery({
         </div>
       )}
       {result && (
-        <div className={`mt-3 rounded-lg border p-3 text-sm ${NOTICE_TONES.ok}`}>
+        <div className={`mt-3 rounded-md border px-3 py-2 text-body ${NOTICE_TONES.ok}`}>
           <p className="font-medium">
             {formatCount(result.accepted)} of {formatCount(result.candidates)} recovered.
           </p>

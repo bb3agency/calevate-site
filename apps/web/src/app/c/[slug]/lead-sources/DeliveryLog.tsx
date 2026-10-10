@@ -3,8 +3,10 @@
 import { RotateCcw } from "lucide-react";
 
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
-import { Card, ProblemNotice, Skeleton, formatCount, formatIST } from "@/components/ui";
+import { Section } from "@/components/console/section";
+import { ProblemNotice, Skeleton, formatCount, formatIST } from "@/components/ui";
 import type { IngestActivityItem, useIngestActivity } from "@/lib/api/leadSources";
 import { deliveryRowKeys } from "@/lib/leadSourceRows";
 import { lookup } from "@/lib/lookup";
@@ -14,7 +16,7 @@ import { sourceLabel } from "./sourceKinds";
 const OUTCOME_TONE: Record<string, string> = {
   accepted: "bg-brand-soft text-brand-strong",
   rejected: "border border-danger-line bg-danger-soft text-danger",
-  processing: "border border-line bg-app text-ink-muted",
+  processing: "border border-line bg-surface-muted text-ink-muted",
 };
 
 type Row = { item: IngestActivityItem; key: string };
@@ -41,7 +43,7 @@ export function DeliveryLog({ activity }: { activity: ReturnType<typeof useInges
           <p className="text-ink">{sourceLabel(item.source)}</p>
           {/* The sender's own id: a Meta `leadgen_id`, or our body digest for a form. It
               is what a client quotes when asking anyone about this lead. */}
-          <code className="break-all font-mono text-xs text-ink-muted">{item.event_key}</code>
+          <code className="break-all font-mono text-meta text-ink-muted">{item.event_key}</code>
         </div>
       ),
     },
@@ -53,16 +55,16 @@ export function DeliveryLog({ activity }: { activity: ReturnType<typeof useInges
       cell: ({ item }) => (
         <div className="max-w-xs space-y-1">
           <span
-            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+            className={`inline-flex rounded-full px-2 py-0.5 text-meta font-medium ${
               lookup(OUTCOME_TONE, item.outcome) ?? OUTCOME_TONE.processing
             }`}
           >
             {item.outcome}
           </span>
-          {item.error && <p className="text-xs text-danger">{item.error}</p>}
+          {item.error && <p className="text-meta text-danger">{item.error}</p>}
           {/* SERVER-derived: only the server knows which reasons the re-drive acts on. */}
           {item.recoverable && (
-            <p className="flex items-center gap-1 text-xs text-ink-muted">
+            <p className="flex items-center gap-1 text-meta text-ink-muted">
               <RotateCcw className="h-3 w-3 shrink-0" aria-hidden />
               Recoverable — use “Recover unread leads” in this source&apos;s Meta setup.
             </p>
@@ -89,18 +91,17 @@ export function DeliveryLog({ activity }: { activity: ReturnType<typeof useInges
       align: "right",
       sort: { value: ({ item }) => item.last_at, kind: "time", first: "desc" },
       cell: ({ item }) => (
-        <span className="whitespace-nowrap text-xs text-ink-faint">{formatIST(item.last_at)}</span>
+        <span className="whitespace-nowrap text-meta text-ink-faint">{formatIST(item.last_at)}</span>
       ),
     },
   ];
 
   return (
-    <Card
+    <Section
       title="Recent deliveries"
-      density="compact"
       action={
         deliveries ? (
-          <span className="text-xs text-ink-faint">
+          <span className="text-meta text-ink-faint">
             {formatCount(deliveries.length)} {deliveries.length === 1 ? "delivery" : "deliveries"}
           </span>
         ) : undefined
@@ -121,8 +122,8 @@ export function DeliveryLog({ activity }: { activity: ReturnType<typeof useInges
           getRowId={(row) => row.key}
         />
       ) : (
-        <EmptyState message="No deliveries yet. Each lead your form or ad account sends appears here, accepted or not." />
+        <EmptyState illustration={<EmptySketch kind="deliveries" />} message="No deliveries yet. Each lead your form or ad account sends appears here, accepted or not." />
       )}
-    </Card>
+    </Section>
   );
 }

@@ -1099,6 +1099,7 @@ class TestRedactionExposure:
         """Every raw-PII exemption costs a diff here as well as in the script."""
         assert set(check_redaction_exposure.ALLOWED_ROUTES) == {
             "/v1/calls/{call_id}/transcript/raw",
+            "/v1/calls/export.csv",
             "/v1/leads/export.csv",
             # The retained delivery body (D-23): the CRM payload we POSTed, byte for
             # byte. `calls:read_raw` + an audit row, which `check_allowlist` verifies

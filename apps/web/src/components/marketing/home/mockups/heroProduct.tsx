@@ -2,9 +2,9 @@ import { Search } from "lucide-react";
 
 import {
   CallCard,
-  CLINIC_LEADS,
-  ClinicLeadHeader,
-  ClinicLeadRow,
+  SAMPLE_LEADS,
+  SampleLeadHeader,
+  SampleLeadRow,
   LeadCapturedCard,
 } from "./callCards";
 import { Chip, Window } from "./kit";
@@ -23,7 +23,7 @@ import { MockStage } from "./stage";
  * - phone: the two cards, stacked — a table at 328px is unreadable.
  *
  * The leads screen is drawn from `app/c/[slug]/leads` (status chips "All" + the stages,
- * the search placeholder, the List/Board toggle) with the clinic template's captured
+ * the search placeholder, the List/Board toggle) with the education template's captured
  * fields as columns.
  *
  * ## Motion
@@ -38,7 +38,7 @@ import { MockStage } from "./stage";
 export function HeroProduct() {
   return (
     <MockStage
-      label="Illustration: a caller rings a dental clinic and speaks Telugu with the AI agent; the call becomes a captured lead — name, reason and preferred slot — at the top of the clinic's lead list."
+      label="Illustration: a caller rings a coaching centre and speaks Telugu with the AI agent; the call becomes a captured lead — name, course and class — at the top of the centre's lead list."
       className="relative"
     >
       {/* Phone: the two cards, in the order they happen. */}
@@ -72,10 +72,10 @@ export function HeroProduct() {
             </span>
             <span className="ml-auto text-[11px] text-ink-muted">126 leads</span>
           </span>
-          <ClinicLeadHeader />
+          <SampleLeadHeader />
           <span className="block divide-y divide-line">
-            {CLINIC_LEADS.map((lead, i) => (
-              <ClinicLeadRow
+            {SAMPLE_LEADS.map((lead, i) => (
+              <SampleLeadRow
                 key={lead.name}
                 lead={lead}
                 highlight={i === 0}

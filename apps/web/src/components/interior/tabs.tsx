@@ -3,18 +3,11 @@
 // Adapted from interior.dev (github.com/ddoemonn/interior @3148000), MIT License,
 // Copyright (c) 2026 ozzy. Full notice: ./LICENSE.
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
-import { motion, useReducedMotion } from "motion/react";
 
 import { ScrollRegion } from "@/components/ui";
 
-const INDICATOR = { type: "spring", stiffness: 620, damping: 42, mass: 0.35 } as const;
-
-const useIsoLayoutEffect =
-  typeof window === "undefined" ? useEffect : useLayoutEffect;
-
-const PANEL = { type: "spring", stiffness: 460, damping: 38, mass: 0.8 } as const;
 
 export type TabItem = {
   value: string;
@@ -180,6 +173,15 @@ export type TabsProps = {
   className?: string;
 };
 
+/**
+ * PLAIN UNDERLINE TABS (REDESIGN-2): a row of words on a hairline, the selected one in ink
+ * with a brand underline. No card around them, no filled strip, no sliding plateau: the
+ * founder asked for almost no motion, and a tab switch is a state change the underline
+ * already shows. The panel takes its spacing from the caller (`panelClassName`), so a tab
+ * row, a form and a list on one screen share one left edge.
+ *
+ * The behaviour (roving focus, arrow keys, ids) is `useTabs`, unchanged.
+ */
 export function Tabs({
   items,
   value,
@@ -192,130 +194,46 @@ export function Tabs({
   className = "",
 }: TabsProps) {
   const tabs = useTabs({ items, value, defaultValue, onValueChange, activation });
-  const reduced = useReducedMotion();
-
-  const rowRef = useRef<HTMLDivElement | null>(null);
-  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const [plateau, setPlateau] = useState({ x: 0, width: 0, ready: false });
-
-  const selectedIndex = items.findIndex((item) => item.value === tabs.value);
-
-  useIsoLayoutEffect(() => {
-    const node = tabRefs.current[selectedIndex];
-    if (!node) return;
-
-    const read = () => {
-      setPlateau((prev) =>
-        prev.x === node.offsetLeft &&
-        prev.width === node.offsetWidth &&
-        prev.ready
-          ? prev
-          : { x: node.offsetLeft, width: node.offsetWidth, ready: true },
-      );
-    };
-
-    read();
-    const row = rowRef.current;
-    if (!row || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(read);
-    observer.observe(row);
-    return () => observer.disconnect();
-  }, [selectedIndex, items]);
 
   return (
-    <div
-      className={`w-full overflow-hidden rounded-[12px] border border-line bg-surface shadow-[0_1px_2px_rgba(28,25,23,0.06),0_4px_10px_-8px_rgba(28,25,23,0.45)] dark:shadow-[0_1px_6px_rgba(0,0,0,0.45)] ${className}`}
-    >
-      {/* Mobile: the tab row scrolls horizontally inside a ScrollRegion (role=region +
-          tabIndex + name — keyboard-reachable, per tests/responsive.test.ts) so many tabs
-          never overflow the page at 360px. The tablist row is `w-max` so it can exceed the
-          region and scroll; the plateau indicator is an absolute child positioned by
-          offsetLeft, so it stays under its tab as the row scrolls. */}
+    <div className={`w-full ${className}`}>
+      {/* On a phone the row scrolls sideways inside a ScrollRegion (focusable and named,
+          per tests/responsive.test.ts), so many tabs never widen the page at 360px. */}
       <ScrollRegion
         label={label}
-        className="border-b border-line bg-app [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="border-b border-line [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-      <div
-        {...tabs.tabListProps}
-        ref={rowRef}
-        aria-label={label}
-        className="relative flex w-max gap-1 px-1 pt-1"
-      >
-        <motion.span
-          layout
-          aria-hidden
-          style={{
-            borderTopLeftRadius: 8,
-            borderTopRightRadius: 8,
-            borderBottomLeftRadius: 0,
-            borderBottomRightRadius: 0,
-            left: plateau.x,
-            width: plateau.width,
-            opacity: plateau.ready ? 1 : 0,
-          }}
-          className="absolute bottom-[-1px] top-1 bg-surface"
-          transition={reduced ? { duration: 0 } : INDICATOR}
-        >
-          <motion.span
-            layout
-            aria-hidden
-            style={{ borderTopLeftRadius: 8, borderTopRightRadius: 8 }}
-            transition={reduced ? { duration: 0 } : INDICATOR}
-            className="absolute inset-0 border border-b-0 border-line"
-          />
-        </motion.span>
-
-        {items.map((item, index) => {
-          const selected = item.value === tabs.value;
-          const tabProps = tabs.getTabProps(item, index);
-          return (
-            <button
-              key={item.value}
-              {...tabProps}
-              // BOTH refs. `getTabProps` registers the node for roving focus (`focusAt`);
-              // this component also measures it for the plateau. Passing only the second
-              // overrode the first, so arrow keys moved the selection while focus stayed
-              // on a button that now had `tabIndex=-1`.
-              ref={(node) => {
-                tabProps.ref(node);
-                tabRefs.current[index] = node;
-              }}
-              className={`relative flex h-8 shrink-0 items-center justify-center rounded-t-[8px] px-3.5 text-[12.5px] outline-none transition-colors duration-150 after:pointer-events-none after:absolute after:inset-0 after:rounded-t-[8px] after:content-[''] focus-visible:after:shadow-[inset_0_0_0_1px_#16a05d] dark:focus-visible:after:shadow-[inset_0_0_0_1px_#22c55e] ${
-                item.disabled
-                  ? "cursor-default text-ink-faint"
-                  : selected
-                    ? "text-ink"
-                    : "text-ink-muted hover:bg-ink/[0.04] hover:text-ink"
-              }`}
-            >
-              <span className="relative grid place-items-center leading-[1.4]">
-                <span aria-hidden className="invisible col-start-1 row-start-1 font-medium">
-                  {item.label}
-                </span>
-                <span
-                  className={`col-start-1 row-start-1 ${selected ? "font-medium" : ""}`}
-                >
-                  {item.label}
-                </span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
+        <div {...tabs.tabListProps} aria-label={label} className="flex w-max gap-6">
+          {items.map((item, index) => {
+            const selected = item.value === tabs.value;
+            const tabProps = tabs.getTabProps(item, index);
+            return (
+              <button
+                key={item.value}
+                {...tabProps}
+                className={`-mb-px flex h-10 shrink-0 items-center border-b-2 text-body outline-none transition-colors duration-(--duration-fast) focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-brand touch:h-11 ${
+                  item.disabled
+                    ? "cursor-default border-transparent text-ink-faint"
+                    : selected
+                      ? "border-brand-strong font-medium text-ink"
+                      : "border-transparent text-ink-muted hover:text-ink"
+                }`}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
       </ScrollRegion>
 
       {renderPanel ? (
-        <motion.div
+        <div
           key={tabs.value}
-          custom={tabs.direction}
           {...tabs.getPanelProps(tabs.value)}
-          initial={reduced ? false : { opacity: 0, x: tabs.direction * 12 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={reduced ? { duration: 0 } : PANEL}
-          className={`rounded-[11px] text-[13.5px] leading-relaxed text-ink outline-none focus-visible:shadow-[inset_0_0_0_1px_#16a05d] dark:focus-visible:shadow-[inset_0_0_0_1px_#22c55e] ${panelClassName}`}
+          className={`text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand ${panelClassName}`}
         >
           {renderPanel(tabs.value)}
-        </motion.div>
+        </div>
       ) : null}
     </div>
   );

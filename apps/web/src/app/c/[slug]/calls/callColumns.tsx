@@ -35,7 +35,7 @@ export function OutcomeTag({ value }: { value: string | null | undefined }) {
   const words = value.replace(/_/g, " ");
   return (
     <span
-      className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[12px] font-medium ${
+      className={`whitespace-nowrap rounded-full px-2 py-0.5 text-meta font-medium ${
         lookup(OUTCOME_TONES, value) ?? "bg-brand-soft text-brand-strong"
       }`}
     >
@@ -93,10 +93,10 @@ export function callColumns({
             <CallState call={call} />
           </span>
         </div>
-        <p title={call.summary ?? undefined} className="mt-0.5 truncate text-[13px] text-ink-muted">
+        <p title={call.summary ?? undefined} className="mt-0.5 truncate text-meta text-ink-muted">
           {call.summary ?? (isLive(call) ? "On the line now" : "No summary yet")}
         </p>
-        <p className="mt-0.5 truncate text-[12px] text-ink-faint md:hidden">
+        <p className="mt-0.5 truncate text-meta text-ink-faint md:hidden">
           {call.agent_name ?? "—"} · {formatDuration(call.duration_s)} · {formatIST(call.started_at)}
         </p>
       </div>
@@ -116,9 +116,9 @@ export function callColumns({
     hideBelow: "lg",
     sort: { value: (call) => call.agent_name },
     cell: (call) => (
-      <span className="whitespace-nowrap text-[13px] text-ink-muted">
+      <span className="whitespace-nowrap text-meta text-ink-muted">
         {call.agent_name ?? "—"}
-        <span className="block text-[12px] text-ink-faint">
+        <span className="block text-meta text-ink-faint">
           <Direction value={call.direction} />
         </span>
       </span>
@@ -132,7 +132,7 @@ export function callColumns({
     flash: (call) => (call.duration_s === null ? null : String(call.duration_s)),
     sort: compact ? undefined : { value: (call) => call.duration_s, kind: "number", first: "desc" },
     cell: (call) => (
-      <span className="whitespace-nowrap text-[13px] tabular-nums text-ink-muted">
+      <span className="whitespace-nowrap text-meta tabular-nums text-ink-muted">
         {formatDuration(call.duration_s)}
       </span>
     ),
@@ -144,7 +144,7 @@ export function callColumns({
     hideBelow: "md",
     sort: compact ? undefined : { value: (call) => call.started_at, kind: "time", first: "desc" },
     cell: (call) => (
-      <span className="whitespace-nowrap text-[13px] tabular-nums text-ink-faint">
+      <span className="whitespace-nowrap text-meta tabular-nums text-ink-faint">
         {formatIST(call.started_at)}
       </span>
     ),

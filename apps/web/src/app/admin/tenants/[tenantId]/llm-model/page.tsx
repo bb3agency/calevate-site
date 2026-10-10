@@ -1,10 +1,11 @@
 "use client";
 
+import { SavedNote } from "@/components/admin/kit";
+import { Section } from "@/components/console/section";
 import { use, useState } from "react";
-import { AlertTriangle, CheckCircle2, Wrench } from "lucide-react";
+import { AlertTriangle, Wrench } from "lucide-react";
 
 import {
-  Card,
   FIELD_LABEL,
   NoticeBox,
   PRIMARY_BUTTON,
@@ -133,7 +134,7 @@ export default function LlmModelPage({
   if (!tenant) return null;
 
   return (
-    <div className="max-w-3xl space-y-5">
+    <div className="max-w-3xl space-y-10">
       <PageHeader
         title="Language model"
         description="Which model this client's agents think with, and what it costs them and us. Speech is unchanged."
@@ -155,7 +156,7 @@ export default function LlmModelPage({
           icon={<AlertTriangle className="h-5 w-5" />}
           title="Cannot change the model while the current one is unreadable"
         >
-          <p className="mt-1 text-xs opacity-90">
+          <p className="mt-1 text-meta opacity-90">
             We could not read what this client is on, or what the alternatives cost. A
             change replaces whatever is on file, so making one now could undo a
             colleague&apos;s and move this client&apos;s per-minute charge without anyone
@@ -209,10 +210,10 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
   const effectiveOption = modelOption(defaults.available, defaults.effective_default);
 
   return (
-    <Card title="Where this client stands">
-      <dl className="grid gap-3 text-xs sm:grid-cols-3">
+    <Section title="Where this client stands">
+      <dl className="grid gap-3 text-meta sm:grid-cols-3">
         <div>
-          <dt className="text-ink-faint">Platform default</dt>
+          <dt className="text-ink-muted">Platform default</dt>
           <dd className="mt-0.5 font-medium text-ink">
             {platform === undefined ? (
               "— this build names none"
@@ -225,7 +226,7 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
           </dd>
         </div>
         <div>
-          <dt className="text-ink-faint">This client&apos;s own default</dt>
+          <dt className="text-ink-muted">This client&apos;s own default</dt>
           <dd className="mt-0.5 font-medium text-ink">
             {chosen === null ? (
               "None — follows the platform default"
@@ -238,7 +239,7 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
           </dd>
         </div>
         <div>
-          <dt className="text-ink-faint">In effect</dt>
+          <dt className="text-ink-muted">In effect</dt>
           <dd className="mt-0.5 font-medium text-ink">
             {defaults.effective_default}
             {effectiveOption === undefined ? null : <PerMinute option={effectiveOption} />}
@@ -256,14 +257,14 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
           title="This client is pinned to a model the platform no longer offers"
           className="mt-4"
         >
-          <p className="mt-1 text-xs opacity-90">
+          <p className="mt-1 text-meta opacity-90">
             The choice on file is not in the list below, so nothing here can price it and
             it cannot be re-selected. Move this client onto a model that is offered, or
             clear the choice and put them back on the platform default.
           </p>
         </NoticeBox>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -278,7 +279,7 @@ function MoneyWarning() {
       icon={<AlertTriangle className="h-5 w-5" />}
       title="This changes what this client is billed, and what it costs us"
     >
-      <ul className="mt-1 space-y-1 text-xs opacity-90">
+      <ul className="mt-1 space-y-1 text-meta opacity-90">
         <li>
           Each model shows{" "}
           <span className="font-medium">what it adds to this client&apos;s bill</span>{" "}
@@ -500,7 +501,7 @@ function ChoiceForm({
   };
 
   return (
-    <Card
+    <Section
       title="Choose a model"
       info={
         <>
@@ -548,7 +549,7 @@ function ChoiceForm({
                 <div key={group.key} role="group" aria-labelledby={headingId} className="space-y-2">
                   <p
                     id={headingId}
-                    className="text-[13px] font-medium text-ink-muted"
+                    className="text-meta font-medium text-ink-muted"
                   >
                     {group.label}
                   </p>
@@ -565,7 +566,7 @@ function ChoiceForm({
                 </div>
               );
             })}
-            <label className="flex cursor-pointer gap-2 rounded-card border border-line p-3 text-xs hover:bg-black/5 dark:hover:bg-white/5">
+            <label className="flex cursor-pointer gap-2 rounded-md px-2 py-2.5 text-meta hover:bg-ink/[0.03] dark:hover:bg-white/5">
               <input
                 type="radio"
                 name="llm-default"
@@ -594,11 +595,11 @@ function ChoiceForm({
             operator who reads only the first line has read the part that matters. */}
         <MoneyWarning />
 
-        <div className="rounded-card border border-line bg-app p-3 text-xs text-ink-muted">
+        <div className="border-l-2 border-line py-1 pl-3 text-meta text-ink-muted">
           <p className="font-medium text-ink">This will record, against {tenantName}:</p>
           <ul className="mt-1.5 space-y-1">
             <li>
-              <span className="text-ink-faint">Their agents run on</span> —{" "}
+              <span className="text-ink-muted">Their agents run on</span> —{" "}
               {projected === null
                 ? "nothing this screen can name; there is no platform default to fall back to."
                 : `${projected}, ${
@@ -608,7 +609,7 @@ function ChoiceForm({
                   }`}
             </li>
             <li>
-              <span className="text-ink-faint">They are charged extra</span> —{" "}
+              <span className="text-ink-muted">They are charged extra</span> —{" "}
               {projectedSurcharge === undefined
                 ? "a charge this screen cannot state; that model is not in the priced list."
                 : compareRates(projectedSurcharge, "0") === "same"
@@ -616,18 +617,18 @@ function ChoiceForm({
                   : `${formatRupeeRate(projectedSurcharge)} per minute${surchargeChange === null ? "" : `, ${surchargeChange}`}.`}
             </li>
             <li>
-              <span className="text-ink-faint">It costs us</span> —{" "}
+              <span className="text-ink-muted">It costs us</span> —{" "}
               {projectedOption === undefined
                 ? "a cost this screen cannot state; that model is not in the priced list."
                 : `${formatRupeeRate(projectedOption.platform_cost_inr_per_minute)} per minute of a five-minute call${costChange === null ? "" : `, ${costChange}`}.`}
             </li>
             <li>
-              <span className="text-ink-faint">Scope</span> — every agent on this account
+              <span className="text-ink-muted">Scope</span> — every agent on this account
               that has not been given a model of its own. An agent with its own choice keeps
               it.
             </li>
             <li>
-              <span className="text-ink-faint">Audit</span> — one entry, against the admin
+              <span className="text-ink-muted">Audit</span> — one entry, against the admin
               account sending this request. Taken from your session, not from this form.
               There is no undo; putting it back is another change and another entry.
             </li>
@@ -665,10 +666,10 @@ function ChoiceForm({
           >
             {set.isPending ? "Saving…" : "Save this model"}
           </button>
-          {blocked && <span className="text-xs text-warn">{blocked}</span>}
+          {blocked && <span className="text-meta text-warn">{blocked}</span>}
         </div>
       </form>
-    </Card>
+    </Section>
   );
 }
 
@@ -704,10 +705,10 @@ function ModelOption({
   const describedBy = `llm-option-${option.model}-detail`;
   return (
     <label
-      className={`flex gap-2 rounded-card border border-line p-3 text-xs ${
+      className={`flex gap-2 rounded-md px-2 py-2.5 text-meta ${
         undeployed
           ? "cursor-not-allowed opacity-60"
-          : "cursor-pointer hover:bg-black/5 dark:hover:bg-white/5"
+          : "cursor-pointer hover:bg-ink/[0.03] dark:hover:bg-white/5"
       }`}
     >
       <input
@@ -750,7 +751,7 @@ function ModelOption({
             the same sentence on every option, and the summary below says it once, about
             the option actually selected. */}
         {change === null ? null : (
-          <span className="mt-0.5 block text-ink-faint">{change}</span>
+          <span className="mt-0.5 block text-ink-muted">{change}</span>
         )}
         {undeployed && (
           <span className="mt-0.5 block font-medium text-warn">
@@ -786,8 +787,7 @@ function Recorded({
   if (sent === undefined) return null;
   const landed = projectedModel(sent, defaults);
   return (
-    <NoticeBox tone="ok" icon={<CheckCircle2 className="h-5 w-5" />}>
-      <p className="text-xs">
+    <SavedNote>
         {sent.default_llm_model === null ? (
           <>
             Cleared. This client follows the platform default again
@@ -799,8 +799,7 @@ function Recorded({
             <span className="font-medium">{sent.default_llm_model}</span>, whatever the
             platform default becomes.
           </>
-        )}{" "}
-      </p>
-    </NoticeBox>
+        )}
+    </SavedNote>
   );
 }

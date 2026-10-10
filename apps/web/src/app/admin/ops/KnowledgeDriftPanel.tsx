@@ -53,7 +53,7 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
   return (
     <section aria-labelledby="kb-drift-heading" className="space-y-3">
       <div className="flex items-center gap-1">
-        <h3 id="kb-drift-heading" className="text-sm font-semibold text-ink">
+        <h3 id="kb-drift-heading" className="text-body font-semibold text-ink">
           What it is answering from
         </h3>
         <InfoTip label="Knowledge drift">
@@ -160,7 +160,7 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
         )}
 
         {read !== null && (
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-left text-meta">
             <caption className="sr-only">Live agents by knowledge check</caption>
             <tbody>
               <tr>

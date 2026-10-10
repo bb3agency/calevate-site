@@ -3,14 +3,14 @@
 import { useState } from "react";
 import { BookOpenCheck } from "lucide-react";
 
+import { Section } from "@/components/console/section";
 import {
-  Card,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
   MonoValue,
   NoticeBox,
-  PRIMARY_BUTTON_SM,
+  PRIMARY_BUTTON,
   ProblemNotice,
   istDateToInstant,
 } from "@/components/ui";
@@ -67,14 +67,17 @@ export function DltRegistrationPanel({ tenantId, write }: { tenantId: string; wr
   const [registeredAt, setRegisteredAt] = useState("");
 
   return (
-    <Card title="Entity registration">
-      <p className="-mt-1 mb-3 text-sm text-ink-muted">
-        The client&apos;s own registration with the <Term id="dlt" /> registrar as a
-        principal entity (<Term id="pe" term="PE" audience="operator" />), and their link to
-        us. The registrar issues three separate registrations and none implies another: this
-        one is the client&apos;s own entity, the number header is its own, the voice template
-        is a third. The campaign launch check asks for all three by name.
-      </p>
+    <Section
+      title="Entity registration"
+      description={
+        <>
+          The client&apos;s own registration with the <Term id="dlt" /> registrar as a
+          principal entity (<Term id="pe" term="PE" audience="operator" />), and their link to
+          us.
+        </>
+      }
+      info="The registrar issues three separate registrations and none implies another: this one is the client's own entity, the number header is its own, the voice template is a third. The campaign launch check asks for all three by name."
+    >
 
       {record.error && <ProblemNotice error={record.error} />}
       {record.data && (
@@ -82,7 +85,7 @@ export function DltRegistrationPanel({ tenantId, write }: { tenantId: string; wr
            wrote — never the stored state on load. Echoing what was recorded is the honest
            version; claiming to display a current state we did not read would be worse. */
         <NoticeBox tone="ok" icon={<BookOpenCheck className="h-4 w-4" />}>
-          <p className="text-xs">
+          <p>
             Recorded: entity registration{" "}
             <span className="font-medium">{record.data.status.replace(/_/g, " ")}</span>,{" "}
             <Term id="tm" term="TM" audience="operator" />{" "}
@@ -99,7 +102,7 @@ export function DltRegistrationPanel({ tenantId, write }: { tenantId: string; wr
       )}
 
       <form
-        className="mt-3 max-w-xl space-y-3"
+        className="mt-4 max-w-sm space-y-4"
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
@@ -116,7 +119,7 @@ export function DltRegistrationPanel({ tenantId, write }: { tenantId: string; wr
           });
         }}
       >
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-4">
           <div>
             <label htmlFor="dlt-pe-status" className={FIELD_LABEL}>
               Entity registration status
@@ -194,14 +197,16 @@ export function DltRegistrationPanel({ tenantId, write }: { tenantId: string; wr
           </div>
         </div>
         <span className={FIELD_HINT}>Re-recording is normal — it updates what is on file.</span>
-        <button
-          type="submit"
-          className={PRIMARY_BUTTON_SM}
-          disabled={record.isPending || !write.allowed}
-        >
-          {record.isPending ? "Recording…" : "Record registration"}
-        </button>
+        <div className="flex justify-end">
+          <button
+            type="submit"
+            className={PRIMARY_BUTTON}
+            disabled={record.isPending || !write.allowed}
+          >
+            {record.isPending ? "Recording…" : "Record registration"}
+          </button>
+        </div>
       </form>
-    </Card>
+    </Section>
   );
 }

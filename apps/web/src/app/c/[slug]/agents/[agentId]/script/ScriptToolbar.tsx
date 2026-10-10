@@ -59,13 +59,13 @@ export function ScriptToolbar({
     : hasPending
       ? { label: `v${version ?? "?"} waiting to apply`, tone: "border-warn-line bg-warn-soft text-ink" }
       : version === null
-        ? { label: "No script yet", tone: "border-line bg-app text-ink-muted" }
-        : { label: `v${version} saved`, tone: "border-line bg-app text-ink-muted" };
+        ? { label: "No script yet", tone: "border-line bg-surface-muted text-ink-muted" }
+        : { label: `v${version} saved`, tone: "border-line bg-surface-muted text-ink-muted" };
 
   const applyFirst = hasPending && !unsaved;
 
   return (
-    <div className="sticky -top-4 z-20 -mx-4 -mt-4 border-b border-line bg-app/95 px-4 py-3 backdrop-blur-sm lg:-top-6 lg:-mx-8 lg:-mt-6 lg:px-8">
+    <div className="sticky -top-4 z-20 -mx-4 -mt-4 border-b border-line bg-surface/95 px-4 py-3 backdrop-blur-sm lg:-top-6 lg:-mx-8 lg:-mt-6 lg:px-8">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="flex min-w-0 flex-1 basis-56 items-center gap-3">
           <Link
@@ -76,7 +76,7 @@ export function ScriptToolbar({
             <ArrowLeft aria-hidden className="h-4 w-4" />
           </Link>
           <div className="min-w-0">
-            <h2 className="truncate text-[17px] font-semibold text-ink">Script</h2>
+            <h2 className="truncate text-heading text-ink">Script</h2>
             <p className="truncate text-xs text-ink-muted">{agentName}</p>
           </div>
           <span

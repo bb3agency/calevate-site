@@ -1,5 +1,7 @@
 "use client";
 
+import { Section } from "@/components/console/section";
+
 /**
  * A PHONE NUMBER IN THE BUSINESS'S OWN NAME — three steps, and where this account stands on
  * each (D-693).
@@ -22,7 +24,6 @@ import { useState, type ReactNode } from "react";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
 import {
-  Card,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -141,14 +142,14 @@ function StepRow({
         ? { text: "Next step", tone: "bg-ink/[0.06] text-ink" }
         : { text: "Waiting", tone: "border border-line text-ink-muted" };
   return (
-    <li className="rounded-card border border-line p-4">
+    <li className="py-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold text-ink">
+        <h3 className="text-body font-semibold text-ink">
           {index}. {title}
         </h3>
-        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge.tone}`}>{badge.text}</span>
+        <span className={`rounded-full px-2 py-0.5 text-meta font-medium ${badge.tone}`}>{badge.text}</span>
       </div>
-      <div className="mt-2 space-y-2 text-sm text-ink-muted">{children}</div>
+      <div className="mt-2 space-y-2 text-body text-ink-muted">{children}</div>
     </li>
   );
 }
@@ -187,9 +188,9 @@ export function OwnNumbersJourney({ status }: { status: OwnNumbersStatus }) {
   const ready = status.step === "ready";
 
   return (
-    <Card title="Get a phone number in your business's name" density="compact">
+    <Section title="Get a phone number in your business's name">
       <div className="space-y-4 p-4">
-        <p className="text-sm text-ink-muted">
+        <p className="text-body text-ink-muted">
           Your phone numbers are registered in your business&apos;s own name. Three steps get you
           there, and this shows where each one stands.
         </p>
@@ -286,7 +287,7 @@ export function OwnNumbersJourney({ status }: { status: OwnNumbersStatus }) {
         <RestrictionNote reason={write.reason} />
         {ready && <BuyOwnNumber canBuy={write.allowed} />}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -332,7 +333,7 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
 
   return (
     <section aria-labelledby="buy-own-number" className="space-y-3">
-      <h3 id="buy-own-number" className="text-sm font-semibold text-ink">
+      <h3 id="buy-own-number" className="text-body font-semibold text-ink">
         Choose a number
       </h3>
 
@@ -360,7 +361,7 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
       )}
 
       {cities.data.length === 0 ? (
-        <p className="text-sm text-ink-muted">No city has numbers free right now. Please check again later.</p>
+        <p className="text-body text-ink-muted">No city has numbers free right now. Please check again later.</p>
       ) : (
         <form
           noValidate
@@ -404,24 +405,24 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
         (numbers === undefined ? (
           <Skeleton rows={3} label="Finding numbers" />
         ) : numbers.length === 0 ? (
-          <p className="text-sm text-ink-muted">
+          <p className="text-body text-ink-muted">
             No number is free in {search.city} right now. Try another city.
           </p>
         ) : (
           <>
-            <ul className="space-y-2">
+            <ul className="border-y border-line">
               {numbers.map((offer) => (
                 <li
                   key={offer.number}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line p-3"
+                  className="flex flex-wrap items-center justify-between gap-3 border-b border-line py-3 last:border-b-0"
                 >
                   <div>
                     <MonoValue className="text-ink">{formatPhone(offer.e164)}</MonoValue>
-                    {offer.city && <p className="mt-1 text-xs text-ink-muted">{offer.city}</p>}
+                    {offer.city && <p className="mt-1 text-meta text-ink-muted">{offer.city}</p>}
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     {offer.inr_per_month !== null && (
-                      <span className="text-sm font-medium text-ink">{formatINR(offer.inr_per_month)} a month</span>
+                      <span className="text-body font-medium text-ink">{formatINR(offer.inr_per_month)} a month</span>
                     )}
                     <button
                       type="button"
@@ -503,7 +504,7 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
             <legend className={FIELD_LABEL}>What this number is for</legend>
             <div className="mt-2 space-y-2">
               {DIRECTIONS.map((option) => (
-                <label key={option.value} className="flex items-start gap-2 text-sm text-ink">
+                <label key={option.value} className="flex items-start gap-2 text-body text-ink">
                   <input
                     type="radio"
                     className="mt-1"
@@ -517,7 +518,7 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
                   />
                   <span>
                     {option.label}
-                    <span className="block text-xs text-ink-muted">{option.hint}</span>
+                    <span className="block text-meta text-ink-muted">{option.hint}</span>
                   </span>
                 </label>
               ))}
@@ -556,7 +557,7 @@ export function ReleaseOwnNumber({ numberId, e164 }: { numberId: string; e164: s
 
   if (release.data?.released) {
     return (
-      <p className="text-sm text-ink-muted">
+      <p className="text-body text-ink-muted">
         {formatPhone(e164)} is released. Its monthly charge has stopped.
       </p>
     );

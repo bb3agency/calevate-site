@@ -14,7 +14,8 @@ import { asText } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
-import { AGENT_STATUS_TONE, StatePill } from "../../../statePill";
+import { StatusPill, sentenceCase } from "@/components/admin/kit";
+import { AGENT_STATUS_TONE } from "../../../statePill";
 import { CallCapPanel } from "./sections/callCap";
 import { ExperimentPanel } from "./sections/experiment";
 import { GoLivePanel, PublishingPanel } from "./sections/live";
@@ -154,7 +155,7 @@ export function AgentPromptScreen({ tenantId, agentId }: { tenantId: string; age
   );
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-4xl space-y-8">
       <PageHeader
         // The agent's NAME, because a client with four agents makes any generic title
         // ambiguous; it renders once the roster has answered.
@@ -162,14 +163,14 @@ export function AgentPromptScreen({ tenantId, agentId }: { tenantId: string; age
         status={
           <>
             {pending.data && (
-              <StatePill tone={lookup(AGENT_STATUS_TONE, pending.data.agent_status) ?? "neutral"}>
-                {pending.data.agent_status}
-              </StatePill>
+              <StatusPill tone={lookup(AGENT_STATUS_TONE, pending.data.agent_status) ?? "neutral"}>
+                {sentenceCase(pending.data.agent_status)}
+              </StatusPill>
             )}
             {pending.data && !pending.data.published && (
-              <StatePill tone="warn">not on the voice platform</StatePill>
+              <StatusPill tone="warn">Not on the voice platform</StatusPill>
             )}
-            {pending.data?.has_pending && <StatePill tone="warn">change staged</StatePill>}
+            {pending.data?.has_pending && <StatusPill tone="warn">Change staged</StatusPill>}
           </>
         }
         description="Every save is a new version, staged until someone presses Apply to live calls."

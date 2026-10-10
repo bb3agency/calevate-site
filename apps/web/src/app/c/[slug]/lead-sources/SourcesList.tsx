@@ -1,9 +1,11 @@
 "use client";
 
-import { FlaskConical } from "lucide-react";
+import { FlaskConical, Webhook } from "lucide-react";
 
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
+import { IconTile } from "@/components/console/iconTile";
 import { RowMenu, type RowMenuItem } from "@/components/console/rowMenu";
 import { CopyButton } from "@/components/interior/copy-button";
 import {
@@ -18,7 +20,7 @@ import type { Agent } from "@/lib/api/agents";
 import { API_BASE } from "@/lib/api/client";
 import type { IngestActivity, LeadSource, useLeadSources } from "@/lib/api/leadSources";
 
-import { META_SOURCE, sourceLabel } from "./sourceKinds";
+import { META_SOURCE, sourceLabel, sourceLogo } from "./sourceKinds";
 
 /** One row's name, everywhere it is spoken: the kind plus the last eight characters of its id (uuid7 ids share their leading, time-ordered half). */
 export function rowName(source: LeadSource): string {
@@ -70,7 +72,7 @@ export function SourcesList({
   }
   if (items.length === 0) {
     return (
-      <EmptyState message="No lead sources yet. Add one, then point your form at the address we give you." />
+      <EmptyState illustration={<EmptySketch kind="deliveries" />} message="No lead sources yet. Add one, then point your form at the address we give you." />
     );
   }
 
@@ -88,23 +90,26 @@ export function SourcesList({
       header: "Source",
       sort: { value: (row) => row.source },
       cell: (row) => (
+        <div className="flex min-w-0 items-start gap-3">
+        <IconTile service={sourceLogo(row.source)} icon={Webhook} />
         <div className="min-w-0">
-          <p className="text-sm font-medium text-ink">{sourceLabel(row.source)}</p>
-          <p className="text-xs text-ink-faint">
+          <p className="text-body font-medium text-ink">{sourceLabel(row.source)}</p>
+          <p className="text-meta text-ink-faint">
             <MonoValue>{row.id.slice(-8)}</MonoValue>
             {/* The fingerprint, never the secret: enough to tell which key we hold. */}
             {" · "}key ···{row.secret_fingerprint}
           </p>
           {row.previous_secret_expires_at && (
-            <p className="mt-0.5 text-xs text-warn">
+            <p className="mt-0.5 text-meta text-warn">
               Your previous secret still works until {formatIST(row.previous_secret_expires_at)}.
             </p>
           )}
           {row.source === META_SOURCE && waiting(row.id) > 0 && (
-            <p className="mt-0.5 text-xs text-warn">
+            <p className="mt-0.5 text-meta text-warn">
               {waiting(row.id)} unread {waiting(row.id) === 1 ? "lead" : "leads"} to recover
             </p>
           )}
+        </div>
         </div>
       ),
     },
@@ -112,7 +117,7 @@ export function SourcesList({
       id: "agent",
       header: "Answered by",
       hideBelow: "md",
-      cell: (row) => <span className="text-sm text-ink-muted">{agentName(row.agent_id)}</span>,
+      cell: (row) => <span className="text-body text-ink-muted">{agentName(row.agent_id)}</span>,
     },
     {
       id: "active",
@@ -121,7 +126,7 @@ export function SourcesList({
       cell: (row) => (
         <ToggleSwitch
           label={
-            <span className="text-xs text-ink-muted">
+            <span className="text-meta text-ink-muted">
               {row.active ? "On" : "Off"}
               <span className="sr-only"> — {rowName(row)}</span>
             </span>

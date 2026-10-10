@@ -2,7 +2,7 @@
 
 import { AlertTriangle, CheckCircle2, Clock, FileQuestion } from "lucide-react";
 
-import { Panel } from "@/components/console/panel";
+import { Section } from "@/components/console/section";
 import {
   MonoValue,
   NOTICE_TONES,
@@ -10,6 +10,7 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { useKbDelivery, type AgentDelivery, type DeliveryState } from "@/lib/api/kb";
 import { useClientSession } from "@/lib/api/session";
@@ -52,15 +53,15 @@ export function KnowledgeDelivery({ className }: { className?: string }) {
 
   if (delivery.isLoading) {
     return (
-      <Panel title={DELIVERY_TITLE} className={className}>
+      <Section title={DELIVERY_TITLE} className={className}>
         <Skeleton rows={3} />
-      </Panel>
+      </Section>
     );
   }
 
   if (delivery.error || !delivery.data) {
     return (
-      <Panel title={DELIVERY_TITLE} className={className}>
+      <Section title={DELIVERY_TITLE} className={className}>
         <ProblemNotice
           error={
             delivery.error ??
@@ -68,14 +69,14 @@ export function KnowledgeDelivery({ className }: { className?: string }) {
           }
           onRetry={() => void delivery.refetch()}
         />
-      </Panel>
+      </Section>
     );
   }
 
   const { items, not_delivered_count } = delivery.data;
 
   return (
-    <Panel
+    <Section
       title={DELIVERY_TITLE}
       className={className}
       action={
@@ -86,26 +87,25 @@ export function KnowledgeDelivery({ className }: { className?: string }) {
           </span>
         ) : undefined
       }
-      bodyClassName="px-3 pb-3"
     >
-      <p className="px-1 pb-3 text-[12px] text-ink-muted">
+      <p className="pb-3 text-meta text-ink-muted">
         Every one of your agents answers from the same business knowledge. Adding something
         is not the same as your agents knowing it yet — this is what each agent is actually
         answering callers out of, right now.
       </p>
       {items.length === 0 ? (
-        <EmptyState
+        <EmptyState illustration={<EmptySketch kind="knowledge" />}
           message="No agents yet"
           hint="You can still add knowledge now. It reaches your first agent as soon as that agent is set up, and this is where you will see it arrive."
         />
       ) : (
-        <ul className="space-y-2" aria-label="Whether your knowledge is live on each agent">
+        <ul className="divide-y divide-line border-y border-line" aria-label="Whether your knowledge is live on each agent">
           {items.map((row) => (
             <DeliveryRow key={row.agent_id} row={row} />
           ))}
         </ul>
       )}
-    </Panel>
+    </Section>
   );
 }
 
@@ -167,7 +167,7 @@ function DeliveryRow({ row }: { row: AgentDelivery }) {
   const Icon = copy.icon;
 
   return (
-    <li className="rounded-xl border border-line bg-surface p-3 sm:p-4">
+    <li className="py-3.5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         {/* `h3`: this row sits inside a `Card`, whose title is the `h2`, so anything
             deeper skips a level — WCAG 2.2 1.3.1, and axe's `heading-order` reports it
@@ -183,10 +183,10 @@ function DeliveryRow({ row }: { row: AgentDelivery }) {
         </span>
       </div>
 
-      <p className="mt-2 text-[13px] text-ink-muted">{sentence(row)}</p>
+      <p className="mt-2 text-meta text-ink-muted">{sentence(row)}</p>
 
       {row.state === "not_delivered" && row.pack_id ? (
-        <p className="mt-2 text-[12px] text-ink-faint">
+        <p className="mt-2 text-meta text-ink-faint">
           Reference for support:{" "}
           {/* The first twelve characters identify the version unambiguously in practice
               and are what a person can actually read aloud; the full value is the

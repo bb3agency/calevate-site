@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { Metric } from "@/components/console/metric";
 import { PageHeader } from "@/components/console/pageHeader";
-import { Panel } from "@/components/console/panel";
+import { Section } from "@/components/console/section";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import {
   ProblemNotice,
@@ -186,7 +186,7 @@ export function PerformanceScreen() {
   const data = perf.data;
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-10 pb-12">
       <PageHeader
         description={
           /* `data.days` — the period the SERVER measured, never the one the control asked
@@ -228,7 +228,7 @@ export function PerformanceScreen() {
           {/* null vs 0% is a distinction the server makes ON PURPOSE (PerformanceOut):
               0% means calls happened and none became conversations — bad news worth
               showing — while null means there was nothing to grade. */}
-          <div className="grid grid-cols-2 gap-x-6 gap-y-5 border-b border-line pb-6 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-x-10 gap-y-6 lg:grid-cols-4">
             <Metric
               label="Calls answered"
               value={ratePct(data.connect_rate_pct) ?? "—"}
@@ -258,18 +258,18 @@ export function PerformanceScreen() {
             />
           </div>
 
-          <div className="grid items-start gap-5 lg:grid-cols-12">
-            <Panel title="From calls to customers" info={FUNNEL_NOTE} className="lg:col-span-7">
+          <div className="grid items-start gap-10 lg:grid-cols-12 lg:gap-12">
+            <Section title="From calls to customers" info={FUNNEL_NOTE} className="lg:col-span-7">
               <Funnel funnel={data.funnel} />
-            </Panel>
-            <Panel title="How calls ended" info={OUTCOMES_NOTE} className="lg:col-span-5">
+            </Section>
+            <Section title="How calls ended" info={OUTCOMES_NOTE} className="lg:col-span-5">
               <Outcomes outcomes={data.outcomes} />
-            </Panel>
+            </Section>
           </div>
 
-          <Panel title="Busiest hours (IST)" info={HOURS_NOTE}>
+          <Section title="Busiest hours (IST)" info={HOURS_NOTE}>
             <HourHistogram hours={data.busiest_hours_ist} calls={data.funnel.calls} />
-          </Panel>
+          </Section>
         </>
       )}
     </div>

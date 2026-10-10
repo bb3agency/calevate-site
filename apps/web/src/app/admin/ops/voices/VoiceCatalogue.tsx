@@ -78,10 +78,10 @@ export function VoiceCatalogue({
   return (
     <section aria-labelledby="voices-list" className="space-y-4">
       <div>
-        <h2 id="voices-list" className="text-[17px] font-semibold text-ink">
+        <h2 id="voices-list" className="text-heading text-ink">
           The voices this platform offers
         </h2>
-        <p className="mt-1 text-sm tabular-nums text-ink-muted">
+        <p className="mt-1 text-body tabular-nums text-ink-muted">
           Offered {formatCount(catalogue.offered)} of {formatCount(catalogue.voices.length)}
           {" · "}
           {formatCount(withdrawn)} withdrawn{" · "}
@@ -124,7 +124,7 @@ export function VoiceCatalogue({
           ]}
         />
         {scope === "decided" && undecided > 0 && (
-          <span className="text-xs text-ink-muted">
+          <span className="text-meta text-ink-muted">
             {formatCount(undecided)} more are on the platform and have not been added. Nothing
             needs to be done with them.
           </span>

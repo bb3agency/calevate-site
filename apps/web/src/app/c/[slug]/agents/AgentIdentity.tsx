@@ -53,7 +53,9 @@ import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { hasKey } from "@/lib/lookup";
 
-import { DirectionPicker } from "./DirectionChoice";
+import { DIRECTIONS, DirectionPicker } from "./DirectionChoice";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 
 export function AgentIdentity({ agent }: { agent: Agent }) {
   const session = useClientSession();
@@ -74,6 +76,44 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
      screen cannot silently change it. */
   const [language, setLanguage] = useState<AgentLanguage | null>(
     hasKey(LANGUAGE_NAMES, agent.language_primary) ? agent.language_primary : null,
+  );
+
+  useCopilotSurface(
+    isDeleted(agent)
+      ? null
+      : {
+          route: "/c/{slug}/agents/{id}",
+          title: "Agent: what it is",
+          realm: "client",
+          fields: [
+            { id: "agent-name", label: "Name (only you see it)", type: "text", value: name },
+            {
+              id: "agent-direction",
+              label: "What it does",
+              type: "select",
+              value: direction,
+              options: DIRECTIONS.map((d) => ({ value: d.value, label: d.label })),
+              help: "Changing this on a switched-on agent changes which numbers it answers.",
+            },
+            {
+              id: "agent-language",
+              label: "Language",
+              type: "select",
+              value: language ?? agent.language_primary,
+              options: LANGUAGE_CHOICES.map((c) => ({ value: c.value, label: c.label })),
+            },
+          ],
+          facts: [{ key: "agent_id", label: "Agent id", value: agent.id }],
+          apply: (items) => {
+            for (const item of items) {
+              const value = asText(item.value);
+              if (item.field_id === "agent-name" && value.trim()) setName(value);
+              const dir = DIRECTIONS.find((d) => d.value === value);
+              if (item.field_id === "agent-direction" && dir) setDirection(dir.value);
+              if (item.field_id === "agent-language" && hasKey(LANGUAGE_NAMES, value)) setLanguage(value);
+            }
+          },
+        },
   );
 
   if (isDeleted(agent)) {

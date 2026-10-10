@@ -140,6 +140,10 @@ class WhatsAppConfig(BaseModel):
     country_code: str = Field(default="+91", max_length=8)
 
 
+#: A 24-hour clock time, zero-padded, so two values compare correctly as strings.
+HHMM_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
+
+
 class CalendarConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -151,9 +155,25 @@ class CalendarConfig(BaseModel):
     end_param: str | None = Field(default=None, max_length=64)
     duration_min: int | None = Field(default=None, ge=1, le=1440)
     summary_param: str | None = Field(default=None, max_length=64)
+    # The hours this business takes bookings, India time. The executor refuses a booking
+    # outside them and offers only free times inside them, so the rule holds whatever the
+    # agent says. Absent means any time of day, as before.
+    opens: str | None = Field(default=None, pattern=HHMM_PATTERN)
+    closes: str | None = Field(default=None, pattern=HHMM_PATTERN)
+    #: ISO weekdays it takes bookings on (1 = Monday … 7 = Sunday); absent means every day.
+    open_days: list[int] | None = Field(default=None, min_length=1, max_length=7)
 
     @model_validator(mode="after")
     def _operation_fields(self) -> CalendarConfig:
+        if (self.opens is None) != (self.closes is None):
+            raise ValueError("booking hours need both an opening and a closing time")
+        if self.opens is not None and self.closes is not None and self.opens >= self.closes:
+            raise ValueError("booking hours must open before they close")
+        if self.open_days is not None and (
+            len(set(self.open_days)) != len(self.open_days)
+            or any(day < 1 or day > 7 for day in self.open_days)
+        ):
+            raise ValueError("booking days are weekdays 1 (Monday) to 7 (Sunday), each once")
         if self.start_param is None:
             raise ValueError("a calendar action needs a start-time parameter")
         if self.operation == "check" and self.end_param is None:

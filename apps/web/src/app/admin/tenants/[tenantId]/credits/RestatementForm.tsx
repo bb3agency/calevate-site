@@ -87,7 +87,7 @@ export function RestatementForm({
   if (wallet.payments.length === 0) {
     // A restatement always names a payment we have already recorded — it cannot create one.
     return (
-      <p className="text-sm text-ink-muted">
+      <p className="text-body text-ink-muted">
         No payment has been recorded on this wallet, so there is none to restate. This
         repairs a payment we entered for too little; it never creates one.
       </p>
@@ -96,7 +96,7 @@ export function RestatementForm({
 
   return (
     <div>
-      <p className="text-xs text-ink-muted">
+      <p className="text-meta text-ink-muted">
         For a bank transfer entered for less than it actually moved — ₹5,000 typed for a
         ₹50,000 UTR. The difference is credited against the SAME reference, so the wallet
         still shows one payment and the ledger still matches the statement.
@@ -145,7 +145,7 @@ export function RestatementForm({
             icon={<Info aria-hidden className="h-5 w-5" />}
             title={`${payment.payment_ref} credits ${formatINR(payment.credited_inr)} today`}
           >
-            <p className="mt-1 text-xs">
+            <p className="mt-1">
               Enter the <span className="font-semibold">total the bank moved</span>, not
               the difference — the amount to credit is worked out on the server, from
               this figure. Recorded on {formatIST(payment.first_at)}
@@ -234,7 +234,7 @@ export function RestatementForm({
 
         {/* WHAT THE BUTTON DOES, ABOVE THE BUTTON: the act, that it cannot be undone, the
             mistake this control admits and how it is recovered, then that it is recorded. */}
-        <div className="flex gap-3 rounded-card border border-line bg-surface p-4 text-sm">
+        <div className="flex gap-3 border-l-2 border-danger py-1 pl-4 text-body">
           <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
           <div className="min-w-0">
             <p className="font-semibold text-ink">
@@ -253,7 +253,7 @@ export function RestatementForm({
               the entry — the repair is to take the excess back with “Correct a wrong
               entry” above, which is bounded by what this entry put in.
             </p>
-            <p className="mt-1 text-xs text-ink-faint">
+            <p className="mt-1 text-meta text-ink-muted">
               Recorded in the audit log against your admin account with the reason you type
               above, in the same transaction as the money. The confirmation the route
               demands carries the exact total, so it cannot be reused for a different one.
@@ -282,7 +282,7 @@ export function RestatementForm({
         <RestrictionNote reason={write.reason} />
 
         {write.allowed && (
-          <p className="flex items-start gap-2 text-xs text-ink-muted">
+          <p className="flex items-start gap-2 text-meta text-ink-muted">
             <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             {!payment
               ? "Pick the payment that was under-recorded — a restatement always names one bank transfer."
@@ -318,7 +318,7 @@ function RestatementOutcome({
         icon={<Info aria-hidden className="h-5 w-5" />}
         title="Already restated — nothing was credited"
       >
-        <p className="mt-1 text-xs">
+        <p className="mt-1">
           <span className="font-mono">{result.payment_ref}</span> was already restated to{" "}
           {formatINR(result.credited_inr)}, so no second entry was written and the balance
           did not move. It stands at {formatINR(result.balance_inr)}.{" "}
@@ -327,7 +327,7 @@ function RestatementOutcome({
             reference doing its job.
           </span>
         </p>
-        <p className="mt-2 text-xs">
+        <p className="mt-2 text-meta">
           The entry that already existed:{" "}
           <span className="font-mono">{result.entry_id}</span>. If the statement shows
           MORE again, restate it to that higher total; the amounts never add up twice.
@@ -341,13 +341,13 @@ function RestatementOutcome({
       icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
       title={`Restated — ${formatINR(result.added_inr)} credited to ${clientName}`}
     >
-      <p className="mt-1 text-xs">
+      <p className="mt-1">
         <span className="font-mono">{result.payment_ref}</span> now credits{" "}
         {formatINR(result.credited_inr)} — one bank transfer, whatever it took on the
         ledger to record it. The wallet holds {formatINR(result.balance_inr)}
         {result.is_low ? ", which is still under the low-balance line." : "."}
       </p>
-      <p className="mt-2 text-xs">
+      <p className="mt-2 text-meta">
         The second entry is <span className="font-mono">{result.entry_id}</span>, on the
         ledger below as <span className="font-mono">{result.ref}</span> and there
         permanently. The entry it completes is still there too.

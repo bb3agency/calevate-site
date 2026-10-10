@@ -10,8 +10,8 @@ import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { RowMenu } from "@/components/console/rowMenu";
 import { SegmentedControl } from "@/components/interior/segmented-control";
+import { ADMIN_PAGE_WIDE, StatusPill } from "@/components/admin/kit";
 import {
-  Card,
   NoticeBox,
   ProblemNotice,
   Skeleton,
@@ -97,7 +97,7 @@ export function QaQueueScreen() {
   });
 
   return (
-    <div className="space-y-5 pb-12">
+    <div className={ADMIN_PAGE_WIDE}>
       <PageHeader
         description={
           <>
@@ -130,16 +130,14 @@ export function QaQueueScreen() {
 
       {queue.error && <ProblemNotice error={queue.error} onRetry={() => void queue.refetch()} />}
 
-      <Card bodyClassName="p-0">
+      <div>
         {queue.isLoading ? (
-          <div className="p-4">
-            <Skeleton rows={4} label="Loading the sampling queue" />
-          </div>
+          <Skeleton rows={4} label="Loading the sampling queue" />
         ) : /* `!rows` as well as `error`: an offline browser PAUSES the query, which reports
                neither loading nor error with no data — and "every call reviewed" off a
                request nobody made is the sentence this branch exists to refuse. */
         queue.error || !rows ? (
-          <div className="p-4">
+          <div>
             <NoticeBox
               tone="warn"
               icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
@@ -163,7 +161,7 @@ export function QaQueueScreen() {
             label="Calls drawn for the weekly QA spot-check"
           />
         )}
-      </Card>
+      </div>
     </div>
   );
 }
@@ -171,16 +169,13 @@ export function QaQueueScreen() {
 function QueueSummary({ rows, pending }: { rows: QaSample[]; pending: boolean }) {
   const defects = rows.filter((row) => row.verdict === "defect").length;
   return (
-    <p className="flex flex-wrap items-center gap-2 text-sm">
+    <p className="flex flex-wrap items-center gap-2 text-body">
       <span className="font-medium text-ink">
         {rows.length} {rows.length === 1 ? "call" : "calls"}
         {pending ? " waiting for review" : " sampled"}
       </span>
       {!pending && defects > 0 && (
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-danger-line bg-danger-soft px-2.5 py-0.5 text-xs font-medium text-danger">
-          <TriangleAlert aria-hidden className="h-3.5 w-3.5" />
-          {defects} marked as a defect
-        </span>
+        <StatusPill tone="stop">{defects} marked as a defect</StatusPill>
       )}
     </p>
   );
@@ -202,7 +197,7 @@ function ReviewState({ row }: { row: QaSample }) {
     return (
       <span>
         <span className="font-medium text-ink">{verdict.label}</span>
-        <span className="block text-xs text-ink-faint">{formatIST(row.reviewed_at)}</span>
+        <span className="block text-meta text-ink-muted">{formatIST(row.reviewed_at)}</span>
       </span>
     );
   }
@@ -227,20 +222,20 @@ const COLUMNS: DataColumn<QaSample>[] = [
       <div className="min-w-0">
         <Link
           href={`/admin/qa-sampling/${row.id}`}
-          className="rounded-sm font-semibold text-ink after:absolute after:inset-0 after:content-[''] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          className="rounded-sm font-medium text-ink after:absolute after:inset-0 after:content-[''] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
         >
           {row.tenant_name}
           <span className="sr-only">, {row.verdict ? "open the review" : "review this call"}</span>
         </Link>
-        <div className="text-xs text-ink-faint">/c/{row.tenant_slug}</div>
-        <div className="mt-1.5 space-y-0.5 text-xs text-ink-muted sm:hidden">
+        <div className="text-meta text-ink-muted">/c/{row.tenant_slug}</div>
+        <div className="mt-1.5 space-y-0.5 text-meta text-ink-muted sm:hidden">
           <p>
             {formatIST(row.started_at)} · {formatDuration(row.duration_s)} · {row.direction}
           </p>
           <p>
             Week of {row.week_start} · #{row.selection_rank} of {row.target}
           </p>
-          <div className="pt-1 text-sm">
+          <div className="pt-1 text-body">
             <ReviewState row={row} />
           </div>
         </div>
@@ -255,7 +250,7 @@ const COLUMNS: DataColumn<QaSample>[] = [
     cell: (row) => (
       <div>
         <div className="text-ink">{formatIST(row.started_at)}</div>
-        <div className="text-xs text-ink-faint">{callLine(row)}</div>
+        <div className="text-meta text-ink-muted">{callLine(row)}</div>
       </div>
     ),
   },
@@ -266,7 +261,7 @@ const COLUMNS: DataColumn<QaSample>[] = [
     cell: (row) => (
       <div className="text-ink">
         {row.week_start}
-        <div className="text-xs text-ink-faint">
+        <div className="text-meta text-ink-muted">
           {row.population} {row.population === 1 ? "call" : "calls"} that week
         </div>
       </div>
@@ -282,7 +277,7 @@ const COLUMNS: DataColumn<QaSample>[] = [
       <div className="text-ink">
         #{row.selection_rank} of {row.target}
         {row.population > 0 && (
-          <div className="text-xs text-ink-faint">
+          <div className="text-meta text-ink-muted">
             {Math.round((row.target / row.population) * 100)}% sampled
           </div>
         )}

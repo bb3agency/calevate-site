@@ -1,7 +1,8 @@
 "use client";
 
 import { useAdminAccess } from "@/app/admin/access";
-import { Card, ProblemNotice, Skeleton } from "@/components/ui";
+import { Section } from "@/components/console/section";
+import { ProblemNotice, Skeleton } from "@/components/ui";
 import { usePlatformState } from "@/lib/api/admin";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
@@ -276,20 +277,20 @@ export function OpsSurface() {
   });
 
   return (
-    <div className="max-w-3xl space-y-5 pb-12">
-      <p className="text-sm text-ink-muted">
-        Platform-wide switches. Every one applies to every client at once and is recorded
-        with your reason.
-      </p>
+    <div className="max-w-3xl space-y-10 pb-12">
+      <div className="space-y-4">
+        <p className="text-body text-ink-muted">
+          Platform-wide switches. Every one applies to every client at once and is recorded
+          with your reason.
+        </p>
 
-      <OpsStatusStrip platform={platform} deadLetters={deadLetters} engineDrift={engineDrift} />
+        <OpsStatusStrip platform={platform} deadLetters={deadLetters} engineDrift={engineDrift} />
+      </div>
 
       {state.error && <ProblemNotice error={state.error} onRetry={() => state.refetch()} />}
 
       {state.isLoading ? (
-        <Card>
-          <Skeleton rows={4} />
-        </Card>
+        <Skeleton rows={4} />
       ) : state.data ? (
         <>
           {/* THE PRIMARY SURFACE: the big red switch, first under the facts. */}
@@ -319,7 +320,7 @@ export function OpsSurface() {
           invites starts on the agent's own screen (D-121/D-123). One card, two questions —
           is the agent CONFIGURED as we published, and is it ANSWERING from approved text. */}
       <div id="drift" className="scroll-mt-4">
-        <Card
+        <Section
           title="What the voice platform is running"
           info={
             <p>
@@ -328,11 +329,11 @@ export function OpsSurface() {
             </p>
           }
         >
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-10 lg:grid-cols-2">
             <EngineDriftPanel drift={engineDrift} />
             <KnowledgeDriftPanel drift={kbDrift} />
           </div>
-        </Card>
+        </Section>
       </div>
 
       {/* Every client's own customer workspace against the plan (D-693). Renders nothing

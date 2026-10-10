@@ -3,7 +3,7 @@
 /**
  * BOOK APPOINTMENTS — the guided setup, in the shape the founder approved (REDESIGN-2):
  *
- *   Book appointments
+ *   Take bookings          (a clinic reads "Book appointments", verticalExamples)
  *   Your agent can check your Google Calendar and book callers in.
  *    Calendar   Google · sri@…   Change
  *    Length     1 hour
@@ -19,7 +19,7 @@ import { useCallback, useState } from "react";
 
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
-import { Disclosure, FIELD, FIELD_HINT, FIELD_LABEL, PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
+import { Disclosure, FIELD, FIELD_HINT, FIELD_LABEL, FilterChip, PRIMARY_BUTTON, ProblemNotice } from "@/components/ui";
 import {
   useCreateAction,
   useSetMasterSwitch,
@@ -27,13 +27,15 @@ import {
   type ActionTool,
 } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 
 import { AccountRow } from "./AccountRow";
 import {
   BOOKING_DEFAULTS,
   HOUR_CHOICES,
-  JOBS,
   LENGTH_CHOICES,
+  WEEKDAYS,
   bookingTools,
   hourLabel,
   lengthLabel,
@@ -42,7 +44,6 @@ import {
   type BookingDraft,
 } from "./jobs";
 
-const BOOKING = JOBS[0]!;
 const SELECT = `${FIELD} mt-0 w-auto`;
 
 export function BookingSetup({
@@ -78,12 +79,54 @@ export function BookingSetup({
     [],
   );
 
+  // The form, declared so the assistant can read and fill it ("make bookings 30 minutes,
+  // 10 to 5"). Nothing is saved until the owner presses the button.
+  const hourOptions = HOUR_CHOICES.map((h) => ({ value: String(h), label: hourLabel(h) }));
+  useCopilotSurface({
+    route: "/c/{slug}/agents/{id}",
+    title: editing ? "Change booking" : "Set up booking",
+    realm: "client",
+    fields: [
+      {
+        id: "booking-length",
+        label: "Length of each booking",
+        type: "select",
+        value: String(draft.durationMin),
+        options: LENGTH_CHOICES.map((m) => ({ value: String(m), label: lengthLabel(m) })),
+      },
+      { id: "booking-from", label: "Bookings from (India time)", type: "select", value: String(draft.from), options: hourOptions },
+      { id: "booking-to", label: "Bookings until (India time)", type: "select", value: String(draft.to), options: hourOptions },
+      { id: "booking-calendar-id", label: "Which calendar", type: "text", value: draft.calendarId },
+    ],
+    facts: [
+      { key: "calendar_connected", label: "A Google Calendar is chosen", value: draft.credentialId ? "yes" : "no" },
+      { key: "booking_days", label: "Days it takes bookings", value: WEEKDAYS.filter((w) => draft.days.includes(w.day)).map((w) => w.long).join(", ") || "none" },
+    ],
+    apply: (items) => {
+      for (const item of items) {
+        const raw = asText(item.value);
+        const n = Number(raw);
+        if (item.field_id === "booking-length" && LENGTH_CHOICES.includes(n)) setDraft((d) => ({ ...d, durationMin: n }));
+        if (item.field_id === "booking-from" && HOUR_CHOICES.includes(n)) setDraft((d) => ({ ...d, from: n }));
+        if (item.field_id === "booking-to" && HOUR_CHOICES.includes(n)) setDraft((d) => ({ ...d, to: n }));
+        if (item.field_id === "booking-calendar-id" && raw.trim()) setDraft((d) => ({ ...d, calendarId: raw.trim() }));
+      }
+    },
+  });
+
   const hoursValid = draft.to > draft.from;
   const blocked = !draft.credentialId
     ? "Connect a Google Calendar first."
     : !hoursValid
       ? "The closing hour has to be after the opening hour."
-      : null;
+      : draft.days.length === 0
+        ? "Pick at least one day."
+        : null;
+  const toggleDay = (day: number) =>
+    setDraft((d) => ({
+      ...d,
+      days: d.days.includes(day) ? d.days.filter((x) => x !== day) : [...d.days, day].sort((a, b) => a - b),
+    }));
 
   async function submit() {
     setBusy(true);
@@ -115,7 +158,7 @@ export function BookingSetup({
         if (!blocked && !busy) void submit();
       }}
     >
-      <Section headingLevel={3} title={BOOKING.title} description={BOOKING.line}>
+      <Section headingLevel={3} title={editing ? "Change the settings" : "Set it up"}>
         <SettingRows className="border-y border-line">
           <AccountRow
             label="Calendar"
@@ -143,7 +186,7 @@ export function BookingSetup({
           />
           <SettingRow
             label="Hours"
-            hint="India time. Your agent offers and books only inside these hours."
+            hint="India time. Times outside these are never offered or booked."
             control={
               <span className="flex items-center gap-2">
                 <select
@@ -173,6 +216,21 @@ export function BookingSetup({
                     </option>
                   ))}
                 </select>
+              </span>
+            }
+          />
+          <SettingRow
+            label="Days"
+            control={
+              <span role="group" aria-label="Days it takes bookings" className="flex flex-wrap gap-1.5">
+                {WEEKDAYS.map((w) => (
+                  <FilterChip
+                    key={w.day}
+                    label={w.short}
+                    active={draft.days.includes(w.day)}
+                    onClick={() => toggleDay(w.day)}
+                  />
+                ))}
               </span>
             }
           />

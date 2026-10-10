@@ -3,22 +3,24 @@
 import Link from "next/link";
 import { ArrowLeft, ListChecks, Plus } from "lucide-react";
 
-import { Card, SECONDARY_BUTTON } from "@/components/ui";
+import { HAIRLINE_LIST } from "@/components/admin/kit";
+import { Section } from "@/components/console/section";
+import { SECONDARY_BUTTON } from "@/components/ui";
 import { viewAsHref } from "@/lib/api/session";
 import { Term } from "@/lib/glossary";
 
 /** What the operator does next for a client just created and invited. */
 export function NextSteps({ created }: { created: { id: string; slug: string } }) {
   return (
-    <div className="space-y-4">
-      <Card title="What happens next">
+    <div className="space-y-6">
+      <Section title="What happens next">
         {/* The account this wizard just created is immediately HELD on three gates that
             each have a working screen — KYC, commercial terms, first-campaign release —
             and this card used to name neither, so the account dropped silently into
             /admin/holds to be discovered later from a queue instead of continued now
             from the flow that created it (ux-audit F-7). The three links, in the order
             the holds bite; then the two genuinely-manual items. */}
-        <ol className="space-y-1.5 text-sm text-ink-muted">
+        <ol className={`${HAIRLINE_LIST} text-body text-ink-muted [&>li]:py-2.5`}>
           <li className="flex gap-2">
             <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
             <span>
@@ -81,7 +83,7 @@ export function NextSteps({ created }: { created: { id: string; slug: string } }
             A test call signed off before the agent goes live — still done by hand
           </li>
         </ol>
-      </Card>
+      </Section>
       <div className="flex flex-wrap gap-2">
         <Link href={`/admin/tenants/${created.id}`} className={SECONDARY_BUTTON}>
           <Plus aria-hidden className="h-3.5 w-3.5" />

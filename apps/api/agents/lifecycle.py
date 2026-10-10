@@ -81,6 +81,7 @@ from apps.api.agents.service import (
     retire_in_call_actions,
     route_inbound_numbers,
 )
+from apps.api.agents.starters import StarterJob, apply_starter, direction_for
 from apps.api.agents.write_guard import archived_refusal
 from apps.api.compliance.disclosure import (
     ai_disclosure_for,
@@ -251,6 +252,8 @@ async def create_agent(
     direction: AgentDirection,
     language_primary: str,
     max_call_duration_s: int | None = None,
+    starter: StarterJob | None = None,
+    created_by: UUID | None = None,
 ) -> UUID:
     """Mint a DRAFT agent with the compliance floor already satisfied, and return its id.
 
@@ -284,10 +287,15 @@ async def create_agent(
     create form, because the create form is the one place a client is not yet thinking
     about TRAI.
 
-    **NO SCRIPT, AND THAT IS THE POINT OF `draft`.** `publish_agent` refuses an agent with
-    no prompt version by name (`agent_has_no_script`), so a newly created agent cannot be
-    activated until somebody writes what it says. The alternative — seeding a placeholder —
-    is the defect `_assert_has_a_script` exists to have removed.
+    **NO SCRIPT UNLESS THE OWNER PICKED A JOB, AND THAT IS THE POINT OF `draft`.**
+    `publish_agent` refuses an agent with no prompt version by name (`agent_has_no_script`),
+    so an agent created without a `starter` cannot be activated until somebody writes what
+    it says; seeding a placeholder is the defect `_assert_has_a_script` exists to have
+    removed. A `starter` (D-705) is not a placeholder: the owner chose a job, and
+    `agents/starters.apply_starter` writes that job's ready-made script for the account's
+    business type through the builder's own save, plus the type's captured details, in this
+    transaction. The agent is still a draft and still needs publishing; `direction` must
+    be the job's (`starters.direction_for`).
 
     The tenant must still be OPEN, for `publish_agent`'s reason one step earlier: an agent
     created against a churned or erased account is a row on a retention clock, and the
@@ -305,14 +313,18 @@ async def create_agent(
             title="Unrecognised calling direction",
             detail=f"An agent's direction must be one of: {', '.join(AGENT_DIRECTIONS)}.",
         )
+    if starter is not None:
+        direction_for(starter, direction)
 
-    business = (
-        await session.execute(
-            text("SELECT name FROM organizations WHERE id = :tid"), {"tid": tenant_id}
-        )
-    ).scalar()
     # `assert_account_open` above has already 404'd an invisible or absent tenant, so this
     # read cannot be empty; `str()` is for the type, not for a case.
+    org = (
+        await session.execute(
+            text("SELECT name, vertical_template FROM organizations WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+    ).one()
+    business, vertical_template = org[0], org[1]
     ai_line = ai_disclosure_for(language=language_primary, business=str(business))
     recording_line = recording_notice_for(language=language_primary)
     # Sentence three, in the agent's own language and written whether or not memory is on
@@ -350,6 +362,16 @@ async def create_agent(
             "engine": get_settings().engine,
         },
     )
+    if starter is not None:
+        await apply_starter(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            job=starter,
+            vertical_template=vertical_template,
+            business=str(business),
+            created_by=created_by,
+        )
     log.info(
         "agent_created",
         extra={
@@ -357,6 +379,7 @@ async def create_agent(
             "tenant_id": str(tenant_id),
             "direction": direction,
             "language_primary": language_primary,
+            "starter": starter,
         },
     )
     return agent_id

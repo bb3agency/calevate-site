@@ -62,8 +62,8 @@ export function Masthead({
 }) {
   return (
     <header className="border-b border-slate-200 pb-4">
-      <h1 className="text-sm font-bold uppercase tracking-[0.2em]">{title}</h1>
-      <p className="mt-3 text-xs text-slate-600">{numberLabel}</p>
+      <h1 className="text-body font-bold uppercase tracking-[0.2em]">{title}</h1>
+      <p className="mt-3 text-meta text-slate-600">{numberLabel}</p>
       <p className="break-all font-mono text-2xl font-semibold tracking-tight">{number}</p>
     </header>
   );
@@ -72,7 +72,7 @@ export function Masthead({
 /** Label/value pairs under the masthead: dates, the billing month, what was paid for. */
 export function MetaRows({ rows }: { rows: ReadonlyArray<readonly [string, ReactNode]> }) {
   return (
-    <dl className="mt-4 space-y-1 text-xs">
+    <dl className="mt-4 space-y-1 text-meta">
       {rows.map(([label, value]) => (
         <div key={label} className="flex gap-2">
           <dt className="font-semibold sm:min-w-[7.5rem]">{label}</dt>
@@ -86,8 +86,8 @@ export function MetaRows({ rows }: { rows: ReadonlyArray<readonly [string, React
 /** One party to the document, or the place of supply, on a tinted card. */
 export function PartyCard({ heading, children }: { heading: string; children: ReactNode }) {
   return (
-    <section className="rounded bg-slate-100 p-3 text-sm break-inside-avoid">
-      <h2 className="text-xs font-semibold uppercase tracking-wide">{heading}</h2>
+    <section className="rounded bg-slate-100 p-3 text-body break-inside-avoid">
+      <h2 className="text-meta font-semibold uppercase tracking-wide">{heading}</h2>
       <div className="mt-1.5 space-y-0.5">{children}</div>
     </section>
   );
@@ -96,7 +96,7 @@ export function PartyCard({ heading, children }: { heading: string; children: Re
 /** A party's secondary line: an address, an email, a GSTIN sentence. */
 export function PartyDetail({ children, preLine = false }: { children: ReactNode; preLine?: boolean }) {
   return (
-    <p className={clsx("text-xs text-slate-700", preLine && "whitespace-pre-line")}>{children}</p>
+    <p className={clsx("text-meta text-slate-700", preLine && "whitespace-pre-line")}>{children}</p>
   );
 }
 
@@ -114,7 +114,7 @@ export function TotalsBlock({
   total: string;
 }) {
   return (
-    <dl className="w-full space-y-1 text-sm break-inside-avoid sm:max-w-xs">
+    <dl className="w-full space-y-1 text-body break-inside-avoid sm:max-w-xs">
       {rows.map(([label, value]) => (
         <div key={label} className="flex items-center justify-between gap-4">
           <dt className="text-slate-600">{label}</dt>
@@ -127,7 +127,7 @@ export function TotalsBlock({
           rows.length > 0 && "mt-2 border-t border-slate-200 pt-2",
         )}
       >
-        <dt className="text-xs font-semibold uppercase tracking-wide">{totalLabel}</dt>
+        <dt className="text-meta font-semibold uppercase tracking-wide">{totalLabel}</dt>
         <dd className="font-mono text-xl font-bold tracking-tight tabular-nums">{total}</dd>
       </div>
     </dl>
