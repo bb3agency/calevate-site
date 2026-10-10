@@ -233,25 +233,23 @@ async def test_an_unpriced_rung_is_listed_and_refused(
     assert not row.offerable and row.reason == "Not available yet: this voice has not been priced."
 
 
-async def test_a_client_reads_tiers_and_opaque_ids_never_the_engines_model_names(
+async def test_a_client_reads_the_engines_model_names_and_opaque_ids(
     priced: set[str],
 ) -> None:
-    """D-679/D-680: a client reads our tier word and an opaque id; the operator keeps the
-    engine's own name, and the id is opaque in both realms."""
+    """A client reads the engine's own model name with our tier where one is known (founder,
+    10 Oct 2026, overriding D-679 for this picker); the id stays opaque in both realms."""
     tiered = PRANA.model_copy(update={"tier": "standard"})
     unnamed = SLOW.model_copy(update={"tier": None})
     engine = HostingEngine(models=(tiered, unnamed))
     with selected(engine):
         client_view = await engine_catalogue(_client())
         operator_view = await engine_catalogue(_operator())
-    assert [m.label for m in client_view.models] == ["Standard", "Additional model 1"]
+    assert [m.label for m in client_view.models] == ["Prana · Standard", "Slow"]
     assert [m.model_id for m in client_view.models] == [
         engine_model_token("prana-voice"),
         engine_model_token("gpt-slow"),
     ]
-    body = client_view.model_dump_json().lower()
-    for leaked in ("prana", "gpt"):
-        assert leaked not in body, leaked
+    assert all("gpt" not in m.model_id for m in client_view.models)
     assert [m.label for m in operator_view.models] == ["Prana", "Slow"]
 
 

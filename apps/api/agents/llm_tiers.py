@@ -243,17 +243,18 @@ async def engine_model_from_client(value: str | None) -> str | None:
 
 
 def engine_model_labels(models: Sequence[CatalogueModel]) -> dict[str, str]:
-    """What a client reads for each engine model, keyed by model id: the tier the adapter
-    classified it as, else "Additional model N" in the engine's own order."""
-    labels: dict[str, str] = {}
-    unnamed = 0
-    for model in models:
-        if model.tier is not None:
-            labels[model.model_id] = LLM_TIER_LABELS[model.tier]
-        else:
-            unnamed += 1
-            labels[model.model_id] = f"Additional model {unnamed}"
-    return labels
+    """What a client reads for each engine model, keyed by model id: the engine's own model
+    name, followed by our tier where the adapter classified one.
+
+    The real name is shown by founder decision (10 Oct 2026), a deliberate exception to
+    D-679 for this picker only: "Additional model N" told an owner nothing to choose by.
+    """
+    return {
+        model.model_id: (
+            model.label if model.tier is None else f"{model.label} · {LLM_TIER_LABELS[model.tier]}"
+        )
+        for model in models
+    }
 
 
 __all__ = [

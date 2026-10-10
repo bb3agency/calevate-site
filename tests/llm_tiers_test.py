@@ -9,7 +9,7 @@ What is pinned here, without a database:
 3. The surcharge follows the RESOLVED model, through the same predicate billing uses.
 4. A stored model reads as the tier pointed at it, else as its price class; re-choosing the
    tier an account already reads as keeps its model.
-5. The engine catalogue's opaque ids round-trip, and unnamed models get a neutral label.
+5. The engine catalogue's opaque ids round-trip, and models show their own names.
 """
 
 from __future__ import annotations
@@ -211,7 +211,7 @@ def test_engine_tokens_are_opaque_stable_and_round_trip() -> None:
     assert engine_model_for_token(catalogue, engine_model_token("gone")) is None
 
 
-def test_unclassified_engine_models_get_a_neutral_numbered_label() -> None:
+def test_engine_models_show_their_own_name_with_our_tier_where_known() -> None:
     models = [
         CatalogueModel(model_id="a", label="Vendor A", call_capable=True, plan_allows=True),
         CatalogueModel(
@@ -220,7 +220,7 @@ def test_unclassified_engine_models_get_a_neutral_numbered_label() -> None:
         CatalogueModel(model_id="c", label="Vendor C", call_capable=True, plan_allows=True),
     ]
     assert engine_model_labels(models) == {
-        "a": "Additional model 1",
-        "b": "Pro",
-        "c": "Additional model 2",
+        "a": "Vendor A",
+        "b": "Vendor B · Pro",
+        "c": "Vendor C",
     }
