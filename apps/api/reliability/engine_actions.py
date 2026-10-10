@@ -70,25 +70,32 @@ ACTIONS_PATH: Final = "/v1/worker/engine-actions"
 AGENT_QUERY_PARAM: Final = "agent"
 
 #: Tool leaf -> the action name the model sees. Names are the vendor's pattern
-#: `^[a-z][a-z0-9_]{2,39}$` (create-action.md:412) and avoid the reserved built-ins
-#: (agent/custom-api.md:87-88) and the built-in call-back, which the adapter switches off.
+#: `^[a-z][a-z0-9_]{2,39}$` (create-action.md:412) and must not read as one of the agent's
+#: built-in tools (`thinnest_actions.clashes_with_built_in`). The vendor refused the earlier
+#: set on 10 Oct 2026 without naming the clash, so every name here is far from every
+#: built-in id.
 OPT_OUT: Final = "opt-out"
 CALLBACK: Final = "callback"
 CALLBACK_CANCEL: Final = "callback-cancel"
 HANDOFF: Final = "handoff"
 ACTION_NAMES: Final[dict[str, str]] = {
-    OPT_OUT: "record_do_not_call",
-    CALLBACK: "schedule_call_back",
-    CALLBACK_CANCEL: "cancel_call_back",
-    HANDOFF: "request_human_handoff",
+    OPT_OUT: "add_number_to_do_not_call",
+    CALLBACK: "arrange_return_call",
+    CALLBACK_CANCEL: "cancel_return_call",
+    HANDOFF: "connect_to_staff_member",
 }
+#: The names registered before 10 Oct 2026. An agent published under them may still hold
+#: them, so publishing and retiring remove them as ours.
+LEGACY_ACTION_NAMES: Final = frozenset(
+    {"record_do_not_call", "schedule_call_back", "cancel_call_back", "request_human_handoff"}
+)
 
 _OPT_OUT_DESCRIPTION = (
     "Call this the moment the caller asks not to be contacted again: 'stop calling me', "
     "'remove my number', 'don't call again', or the same in any language. It is what "
     "actually removes them, so call it before you promise anything. Do NOT call it when "
     "they only want a different time or no call-back about this one thing; use "
-    "cancel_call_back for that. Read the answer's 'say' before you speak: it tells you "
+    "cancel_return_call for that. Read the answer's 'say' before you speak: it tells you "
     "whether they were really removed."
 )
 _CALLBACK_DESCRIPTION = (
@@ -102,7 +109,7 @@ _CALLBACK_DESCRIPTION = (
 _CALLBACK_CANCEL_DESCRIPTION = (
     "Call this when the caller no longer wants a call back they were promised: "
     "'actually, don't ring me back'. It cancels every call back waiting for them. It does "
-    "NOT stop other calls: if they asked never to be called again, use record_do_not_call "
+    "NOT stop other calls: if they asked never to be called again, use add_number_to_do_not_call "
     "instead. Do what the answer's 'say' tells you."
 )
 _HANDOFF_DESCRIPTION = (
@@ -544,8 +551,11 @@ async def ensure_agent_actions(
     wanted_names = {d.name for d in clients} | set(ACTION_NAMES.values())
     for stale in held.values():
         # A client action we registered that is no longer live on the agent: switched
-        # off, deleted, its connection removed, or the master switch turned off.
-        if is_client_action(engine, stale.url) and stale.name not in wanted_names:
+        # off, deleted, its connection removed, or the master switch turned off. Or one of
+        # ours under a name this module no longer uses.
+        if stale.name in LEGACY_ACTION_NAMES or (
+            is_client_action(engine, stale.url) and stale.name not in wanted_names
+        ):
             await actions.delete(engine_agent_ref, stale.action_id)
             removed += 1
     for wanted in (*definitions(engine, engine_agent_ref), *clients):
@@ -602,7 +612,7 @@ async def retire_agent_actions(
     if engine not in ACTION_ENGINES or not engine_agent_ref:
         return 0
     actions = client or thinnest_actions()
-    ours = set(ACTION_NAMES.values())
+    ours = set(ACTION_NAMES.values()) | LEGACY_ACTION_NAMES
     removed = 0
     for action in await actions.list_actions(engine_agent_ref):
         if action.name in ours or is_client_action(engine, action.url):

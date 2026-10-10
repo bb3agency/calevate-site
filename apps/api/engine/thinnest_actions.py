@@ -44,11 +44,14 @@ import httpx
 from calevate_shared.engine_scope import raw_of, scope_of, scoped_handle
 
 from apps.api.core.errors import ProblemError
+from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import NO_CREDENTIALS_REASON, engine_not_configured
 from apps.api.engine.thinnest import AUTH_HEADER, AUTH_SCHEME, BASE_URL
 from apps.api.engine.thinnest_workspace import workspace_headers
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, vendor_request
+
+log = get_logger(__name__)
 
 ENGINE: Final = "thinnest"
 
@@ -142,6 +145,38 @@ _MAX_URL: Final = 2048
 _MAX_PARAMS: Final = 20
 _MAX_BODY: Final = 8000
 _MAX_SPOKEN: Final = 200
+#: The agent's built-in tool ids (snapshots/2026-10-08/pages/api-reference/tools/
+#: list-built-in-tools.md:672-680) and the reserved names (agent/custom-api.md:123-124).
+#: On 10 Oct 2026 the vendor refused one of our action names as "one of the agent's
+#: built-in tools" without saying which, and none of ours equalled an id here, so its
+#: comparison is looser than equality and is not documented. Comparing with underscores
+#: removed catches the one near match we had (`schedule_call_back` / `schedule_callback`).
+BUILT_IN_TOOL_NAMES: Final = frozenset(
+    {
+        "search_knowledge",
+        "capture_lead",
+        "escalate_to_human",
+        "schedule_callback",
+        "call_them_now",
+        "send_whatsapp",
+        "send_sms",
+        "reply_by_email",
+        "send_media",
+        "send_link",
+    }
+)
+
+
+def _squashed(name: str) -> str:
+    return name.replace("_", "")
+
+
+_BUILT_IN_SQUASHED: Final = frozenset(_squashed(n) for n in BUILT_IN_TOOL_NAMES)
+
+
+def clashes_with_built_in(name: str) -> bool:
+    """Whether the vendor would read `name` as one of the agent's built-in tools."""
+    return _squashed(name) in _BUILT_IN_SQUASHED
 
 
 def action_problems(definition: ActionDefinition) -> list[str]:
@@ -152,6 +187,8 @@ def action_problems(definition: ActionDefinition) -> list[str]:
             "its name must be 3 to 40 lower-case letters, numbers or underscores, "
             "starting with a letter"
         )
+    elif clashes_with_built_in(definition.name):
+        problems.append(f"its name '{definition.name}' is taken by one of the agent's own tools")
     if len(definition.description.strip()) < _MIN_DESCRIPTION:
         problems.append("its description must say in a sentence when to use it")
     if not definition.url.startswith("https://") or len(definition.url) > _MAX_URL:
@@ -379,15 +416,19 @@ class ThinnestActions:
         self, agent_ref: str, definition: ActionDefinition, *, secret: str
     ) -> VendorAction:
         assert_action_acceptable(definition)
-        return _action(
-            await self._request(
+        try:
+            created = await self._request(
                 "POST",
                 "/agents/{agent}/actions",
                 route="/agents/{id}/actions",
                 agent_ref=agent_ref,
                 json={**definition.wire(), "headers": {SECRET_HEADER: secret}},
             )
-        )
+        except ProblemError:
+            # The vendor's refusal does not say which action it was about; this line does.
+            log.warning("engine_action_create_refused", extra={"action_name": definition.name})
+            raise
+        return _action(created)
 
     async def update(
         self,

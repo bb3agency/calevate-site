@@ -108,7 +108,7 @@ _DEFAULT_REMEDIATION: dict[ErrorKind, str] = {
         "Change what you are doing so it fits the rule described here, then try again."
     ),
     "dependency": (
-        "An outside service did not answer. Wait a minute and try again. If it keeps "
+        "A service we rely on could not complete this. Wait a minute and try again. If it keeps "
         "happening, give our team the support reference shown with this message."
     ),
     "transient": "Wait a few seconds, then try again.",

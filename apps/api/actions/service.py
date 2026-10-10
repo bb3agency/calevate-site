@@ -53,14 +53,26 @@ RESERVED_ACTION_NAMES: frozenset[str] = frozenset(
         "search_knowledge",
         "capture_lead",
         "escalate_to_human",
+        "schedule_callback",
+        "call_them_now",
+        "send_whatsapp",
+        "send_sms",
+        "reply_by_email",
         "send_media",
         "send_link",
+        "add_number_to_do_not_call",
+        "arrange_return_call",
+        "cancel_return_call",
+        "connect_to_staff_member",
         "record_do_not_call",
         "schedule_call_back",
         "cancel_call_back",
         "request_human_handoff",
     }
 )
+#: Compared with underscores removed: the platform's clash rule is looser than equality and
+#: undocumented (`engine/thinnest_actions.BUILT_IN_TOOL_NAMES`).
+_RESERVED_SQUASHED: frozenset[str] = frozenset(n.replace("_", "") for n in RESERVED_ACTION_NAMES)
 
 # Ceilings on the caller-controlled counts this feature exposes in a response. A tenant mints
 # tools (like endpoints or knowledge sources), and `ActionsSettingsOut.tools` /
@@ -223,7 +235,7 @@ def _validate(
             ),
             remediation="Say when the agent should use it, and when not to.",
         )
-    if name in RESERVED_ACTION_NAMES:
+    if name.replace("_", "") in _RESERVED_SQUASHED:
         raise ProblemError(
             kind="validation",
             code="action_name_reserved",

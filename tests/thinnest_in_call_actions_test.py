@@ -401,6 +401,26 @@ async def test_unpublish_removes_ours_and_leaves_a_console_action(vendor: FakeTh
     assert list(vendor.actions[ref]) == ["act_theirs"]
 
 
+async def test_a_publish_removes_ours_under_a_retired_name(vendor: FakeThinnest) -> None:
+    tenant_id, _agent, ref = await _route()
+    vendor.actions.setdefault(ref, {})["act_old"] = {
+        "id": "act_old",
+        "agent": ref,
+        "name": "schedule_call_back",
+        "description": "the earlier name",
+        "method": "POST",
+        "url": "https://api.calevate.tech/v1/worker/engine-actions/thinnest/callback",
+        "parameters": [],
+        "bodyTemplate": None,
+        "headerNames": [],
+        "enabled": True,
+    }
+    await _ensure(tenant_id, ref)
+    names = {a["name"] for a in vendor.actions[ref].values()}
+    assert "schedule_call_back" not in names
+    assert "arrange_return_call" in names
+
+
 # --- the endpoint: authentication ------------------------------------------------
 
 

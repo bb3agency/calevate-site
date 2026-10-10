@@ -75,3 +75,17 @@ def test_a_broken_action_is_refused_in_words_before_any_request() -> None:
         assert_action_acceptable(_action(name="Book Visit"))
     assert refused.value.code == "engine_action_invalid"
     assert "'Book Visit'" in refused.value.detail
+
+
+@pytest.mark.parametrize("name", ["schedule_callback", "schedule_call_back", "send_s_m_s"])
+def test_a_name_that_reads_as_a_built_in_tool_is_refused(name: str) -> None:
+    problems = action_problems(_action(name=name))
+    assert any("taken by one of the agent's own tools" in p for p in problems), problems
+
+
+def test_no_platform_action_name_reads_as_a_built_in_tool() -> None:
+    from apps.api.engine.thinnest_actions import clashes_with_built_in
+
+    for name in engine_actions.ACTION_NAMES.values():
+        assert not clashes_with_built_in(name), name
+    assert not set(engine_actions.ACTION_NAMES.values()) & engine_actions.LEGACY_ACTION_NAMES
