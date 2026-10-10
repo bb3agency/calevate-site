@@ -345,6 +345,9 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "numbers",
         "Phone-number provider",
         "Which telephony vendor may sell this deployment a phone number.",
+        # On an engine with its own numbers (ThinnestAI) every number is recorded under
+        # that engine whatever this says, and the value is only a carrier name.
+        _OWNED_RUNTIME,
     ),
     # ---- calling limits --------------------------------------------------------------
     "carrier_cps": _m(

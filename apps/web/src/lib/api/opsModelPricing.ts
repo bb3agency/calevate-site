@@ -156,3 +156,73 @@ export function useAttestEmbeddingPrice() {
     onSuccess: () => void client.invalidateQueries({ queryKey: OPS_MODEL_PRICES_QUERY_KEY }),
   });
 }
+
+/* ── RUPEE-BILLED PLATFORM MODELS (Sarvam) ─────────────────────────────────────────────
+ *
+ * Its own list and its own path because the vendor invoices in rupees with three rungs
+ * (input, cached input, output), which the dollar model-price row cannot hold without an
+ * invented exchange. Until a row here is confirmed, that model's calls are recorded with no
+ * cost: the reference figure is a pre-fill, never a bill (hard rule 7).
+ */
+
+export const OPS_INR_LLM_PRICES_PATH = "/v1/ops/inr-llm-prices";
+export const OPS_INR_LLM_PRICES_QUERY_KEY = ["admin", "ops", "inr-llm-prices"] as const;
+
+/** One rupee-billed model: its confirmed price (or nulls) beside the vendor reference. */
+export type InrLlmPrice = Schemas["InrLlmPriceOut"];
+export type InrLlmPrices = Schemas["InrLlmPricesOut"];
+
+/** Copied verbatim from `model_price_routes.inr_llm_attest_confirmation`. */
+export function inrLlmAttestConfirmation(model: string): string {
+  return `attest_inr_llm_price:${model}`;
+}
+
+export function useInrLlmPrices(): UseQueryResult<InrLlmPrices> {
+  return useQuery({
+    queryKey: OPS_INR_LLM_PRICES_QUERY_KEY,
+    queryFn: () => apiRequest<InrLlmPrices>(adminSession(), OPS_INR_LLM_PRICES_PATH),
+    refetchInterval: 60_000,
+  });
+}
+
+export interface AttestInrLlmPriceInput {
+  model: string;
+  /** Rupees per MILLION tokens, each the exact string the operator typed. */
+  inInrPerMtok: string;
+  /** Omitted when blank: a vendor with no cached-input rung. */
+  cachedInInrPerMtok?: string;
+  outInrPerMtok: string;
+  sourceNote: string;
+  /** ISO instant with an offset, or omitted for "from now on". */
+  effectiveFrom?: string;
+}
+
+export function useAttestInrLlmPrice() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      model,
+      inInrPerMtok,
+      cachedInInrPerMtok,
+      outInrPerMtok,
+      sourceNote,
+      effectiveFrom,
+    }: AttestInrLlmPriceInput) =>
+      apiRequest<InrLlmPrice>(
+        adminSession(),
+        `${OPS_INR_LLM_PRICES_PATH}/${encodeURIComponent(model)}`,
+        {
+          method: "POST",
+          body: {
+            in_inr_per_mtok: inInrPerMtok,
+            ...(cachedInInrPerMtok ? { cached_in_inr_per_mtok: cachedInInrPerMtok } : {}),
+            out_inr_per_mtok: outInrPerMtok,
+            source_note: sourceNote,
+            ...(effectiveFrom ? { effective_from: effectiveFrom } : {}),
+          },
+          confirmAction: inrLlmAttestConfirmation(model),
+        },
+      ),
+    onSuccess: () => void client.invalidateQueries({ queryKey: OPS_INR_LLM_PRICES_QUERY_KEY }),
+  });
+}

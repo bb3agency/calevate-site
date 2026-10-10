@@ -1,5 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { OPS_INR_LLM_PRICES } from "./fixtures/opsInrLlmPrices";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import OpsConfigPage from "@/app/admin/ops/config/page";
@@ -233,6 +234,7 @@ function configRoutes(
     // read too — an unrouted one paints a `ProblemNotice` (retry button, alert) onto a
     // screen these cases assert the exact controls of.
     [OPS_MODEL_PRICES_PATH]: modelPrices(),
+    "/v1/ops/inr-llm-prices": OPS_INR_LLM_PRICES,
     // The exchange-rate panel shares this screen too, and is stubbed for the same reason.
     [OPS_FX_RATE_PATH]: fxRate(),
     [NUMBER_PRICING_PATH]: NUMBER_PRICE,

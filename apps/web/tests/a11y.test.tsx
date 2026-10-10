@@ -1,5 +1,6 @@
 import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { OPS_INR_LLM_PRICES } from "./fixtures/opsInrLlmPrices";
 
 import type { AiQuota } from "@/lib/api/aiQuota";
 import type { Margin } from "@/lib/api/admin";
@@ -3665,6 +3666,7 @@ const ADMIN_SCREENS: Screen[] = [
       },
       "/v1/ops/tts-prices/plan-fees": { month: "2026-10", as_of: "2026-10-02T06:30:00Z", fees: [{ provider: "cartesia", tier_label: "Studio", reference_plan_inr: "440.00", attested: null }] },
       "/v1/ops/model-prices": OPS_MODEL_PRICES,
+      "/v1/ops/inr-llm-prices": OPS_INR_LLM_PRICES,
       // The per-minute rate panel (D-678), with one rate unattested so its warning is scanned.
       "/v1/ops/engine-minute-prices": {
         as_of: "2026-10-02T06:30:00Z",

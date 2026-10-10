@@ -6,6 +6,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { OPS_INR_LLM_PRICES } from "./fixtures/opsInrLlmPrices";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
@@ -350,6 +351,7 @@ function opsRoutes(extra: Routes = {}, identity: unknown = SUPERADMIN): Routes {
       [ADMIN_ME_PATH]: identity,
       [OPS_CONFIG_PATH]: configList([configField()]),
       [OPS_MODEL_PRICES_PATH]: MODEL_PRICES,
+      "/v1/ops/inr-llm-prices": OPS_INR_LLM_PRICES,
       // The rate card shares the `/admin/ops/config` screen since D-547 — the same reason
       // every other panel's route is stubbed here: an unrouted request throws in the
       // harness, and a panel left unreadable paints a notice over a screen these cases

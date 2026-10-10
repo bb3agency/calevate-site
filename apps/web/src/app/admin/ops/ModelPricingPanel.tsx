@@ -28,6 +28,8 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
+  istDateStamp,
+  istDateToInstant,
 } from "@/components/ui";
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import { useFormValidation } from "@/components/formValidation";
@@ -40,9 +42,12 @@ import {
 } from "@/lib/api/opsTtsPricing";
 import {
   useAttestEmbeddingPrice,
+  useAttestInrLlmPrice,
   useAttestModelPrice,
+  useInrLlmPrices,
   useModelPrices,
   type EmbeddingPrice,
+  type InrLlmPrice,
   type ModelPrice,
   type ModelPrices,
 } from "@/lib/api/opsModelPricing";
@@ -148,7 +153,7 @@ export function ModelPricingPanel({
   return (
     <Section
       title="Model prices"
-      description="The price per million tokens that billing charges for each model, in US dollars. A model becomes available to customers only once its vendor key is installed and its price is confirmed."
+      description="The price per million tokens that billing charges for each model, in US dollars, or in rupees where the vendor bills in rupees. A model becomes available to customers only once its vendor key is installed and its price is confirmed."
       info={
         <p>
           Enter what your own vendor invoice or dashboard says — that figure is the only one
@@ -186,6 +191,10 @@ export function ModelPricingPanel({
             ))}
           </ul>
         )}
+
+        {/* Rupee-billed models sit with the other language models, on their own read so
+            a failure there never hides the dollar list, nor the reverse. */}
+        {state.status === "read" && <InrLlmPricesSection access={access} />}
 
         {/* THE VOICE LEG, on the same panel and for the same reason (D-547): a price an
             operator reads off their own invoice is one act whichever vendor sold it, and
@@ -1047,6 +1056,318 @@ function AttestTtsForm({ price, onDone }: { price: TtsPrice; onDone: () => void 
         value={confirm}
         onChange={setConfirm}
         hint="A correction is added as a new entry — nothing is overwritten — so a past month still resolves the price that was live in it."
+      />
+
+      <div className="flex gap-2">
+        <button type="submit" disabled={!ready || save.isPending} className={PRIMARY_BUTTON_SM}>
+          <Save aria-hidden className="h-3.5 w-3.5" />
+          {save.isPending ? "Saving…" : "Confirm price"}
+        </button>
+        <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * RUPEE-BILLED MODELS (Sarvam 105B): the assistant's standby and the first post-call
+ * extraction pass. The vendor invoices in rupees with three rungs, so these rows have their
+ * own read and their own form rather than a dollar row with an invented exchange.
+ *
+ * Until a row is confirmed, that model's calls are recorded with no cost: the reference is
+ * printed beside its source and date as the pre-fill to check, never as the figure billed
+ * (hard rule 7). The cost is ours either way; it is never charged to a client's AI quota.
+ */
+function InrLlmPricesSection({
+  access,
+}: {
+  access: { allowed: boolean; reason: string | null };
+}) {
+  const query = useInrLlmPrices();
+
+  return (
+    <section className="space-y-2 border-t border-line pt-4">
+      <div>
+        <h3 className="text-body font-semibold text-ink">Billed in rupees</h3>
+        <p className="text-meta text-ink-muted">
+          Models whose vendor bills us in rupees per million tokens. We absorb this cost;
+          it is never charged to a client&apos;s AI allowance.
+        </p>
+      </div>
+
+      {isForbidden(query.error) ? (
+        <p className="text-meta text-ink-muted">
+          {forbiddenReason(query.error) ??
+            "The API refused this read: your admin account may not manage platform configuration."}
+        </p>
+      ) : query.error ? (
+        <ProblemNotice error={query.error} onRetry={() => query.refetch()} />
+      ) : query.isLoading || !query.data ? (
+        <Skeleton rows={2} />
+      ) : query.data.prices.length === 0 ? (
+        <p className="text-meta text-ink-muted">
+          No platform model is billed in rupees on this deployment.
+        </p>
+      ) : (
+        <ul className="divide-y divide-line border-y border-line">
+          {query.data.prices.map((row) => (
+            <li key={row.model}>
+              <InrLlmPriceRow price={row} access={access} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** Model ids as a person says them; an unknown id prints as itself. */
+const INR_MODEL_LABELS: Record<string, string> = {
+  "sarvam-105b": "Sarvam 105B",
+};
+
+export function inrLlmVerdict(price: InrLlmPrice): { label: string; tone: "ok" | "warn" } {
+  return price.billable
+    ? { label: "Price confirmed", tone: "ok" }
+    : { label: "Recorded at no cost until confirmed", tone: "warn" };
+}
+
+function InrFigure({
+  attested,
+  reference,
+}: {
+  attested: string | null;
+  reference: string;
+}) {
+  // Strings verbatim, never Number()d (hard rule 7).
+  return attested ? (
+    <MonoValue>{attested}</MonoValue>
+  ) : (
+    <span className="text-ink-muted">
+      <MonoValue>{reference}</MonoValue> (reference)
+    </span>
+  );
+}
+
+function InrLlmPriceRow({
+  price,
+  access,
+}: {
+  price: InrLlmPrice;
+  access: { allowed: boolean; reason: string | null };
+}) {
+  const [open, setOpen] = useState(false);
+  const v = inrLlmVerdict(price);
+  const label = lookup(INR_MODEL_LABELS, price.model);
+
+  return (
+    <div className="py-3.5 sm:px-2">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-body text-ink">{label ?? <MonoValue>{price.model}</MonoValue>}</p>
+          {label && (
+            <p className="mt-0.5 text-meta text-ink-muted">
+              <MonoValue>{price.model}</MonoValue>
+            </p>
+          )}
+        </div>
+        <span
+          className={`inline-flex items-center gap-1 text-meta font-medium ${
+            v.tone === "ok" ? "text-brand" : "text-warn"
+          }`}
+        >
+          {v.tone === "ok" ? (
+            <BadgeCheck aria-hidden className="h-3.5 w-3.5" />
+          ) : (
+            <TriangleAlert aria-hidden className="h-3.5 w-3.5" />
+          )}
+          {v.label}
+        </span>
+      </div>
+
+      <dl className="mt-2 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-0.5 text-meta">
+        <dt className="text-ink-muted">Input (₹ per million tokens)</dt>
+        <dd className="text-ink">
+          <InrFigure attested={price.in_inr_per_mtok} reference={price.reference_in_inr_per_mtok} />
+        </dd>
+        <dt className="text-ink-muted">Cached input (₹ per million tokens)</dt>
+        <dd className="text-ink">
+          {price.billable && price.cached_in_inr_per_mtok === null ? (
+            <span className="text-ink-muted">billed as input</span>
+          ) : (
+            <InrFigure
+              attested={price.cached_in_inr_per_mtok}
+              reference={price.reference_cached_in_inr_per_mtok}
+            />
+          )}
+        </dd>
+        <dt className="text-ink-muted">Output (₹ per million tokens)</dt>
+        <dd className="text-ink">
+          <InrFigure attested={price.out_inr_per_mtok} reference={price.reference_out_inr_per_mtok} />
+        </dd>
+        <dt className="text-ink-muted">Reference</dt>
+        <dd className="min-w-0 break-words text-ink">
+          {price.reference_source}, read {price.reference_read_on}
+        </dd>
+        {price.source_note && (
+          <>
+            <dt className="text-ink-muted">Confirmed from</dt>
+            <dd className="min-w-0 break-words text-ink">{price.source_note}</dd>
+          </>
+        )}
+      </dl>
+
+      {!price.billable && (
+        <p className="mt-2 text-meta text-ink-muted">
+          Until you confirm a price, every standby answer and post-call extraction on this
+          model is recorded at ₹0, so the spend board understates what we pay.
+        </p>
+      )}
+
+      {access.allowed ? (
+        <div className="mt-3">
+          {open ? (
+            <InrLlmAttestForm price={price} onDone={() => setOpen(false)} />
+          ) : (
+            <button
+              type="button"
+              className={TEXT_ACTION}
+              aria-expanded={false}
+              onClick={() => setOpen(true)}
+            >
+              {price.billable ? "Update price" : "Confirm price"}
+            </button>
+          )}
+        </div>
+      ) : (
+        <p className="mt-3 text-meta text-ink-muted">
+          {access.reason ?? "Your admin account cannot change platform configuration."}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function InrLlmAttestForm({ price, onDone }: { price: InrLlmPrice; onDone: () => void }) {
+  // Prefilled from what is in force, else the vendor reference: the operator checks each
+  // figure against the invoice rather than retyping three numbers.
+  const [inInr, setInInr] = useState(price.in_inr_per_mtok ?? price.reference_in_inr_per_mtok);
+  const [cachedInr, setCachedInr] = useState(
+    price.billable ? (price.cached_in_inr_per_mtok ?? "") : price.reference_cached_in_inr_per_mtok,
+  );
+  const [outInr, setOutInr] = useState(price.out_inr_per_mtok ?? price.reference_out_inr_per_mtok);
+  const [sourceNote, setSourceNote] = useState("");
+  const [startsOn, setStartsOn] = useState("");
+  const [confirm, setConfirm] = useState("");
+
+  const save = useAttestInrLlmPrice();
+  const word = "CONFIRM";
+  const valid = useFormValidation();
+  const ready = confirmationMatches(confirm, word, "exact");
+  const id = `inr-${price.model}`;
+
+  return (
+    <form
+      className="space-y-3"
+      noValidate
+      onSubmit={valid.onSubmit(() => {
+        if (!ready || save.isPending) return;
+        const effectiveFrom = startsOn ? istDateToInstant(startsOn) : null;
+        save.mutate(
+          {
+            model: price.model,
+            inInrPerMtok: inInr.trim(),
+            cachedInInrPerMtok: cachedInr.trim() || undefined,
+            outInrPerMtok: outInr.trim(),
+            sourceNote: sourceNote.trim(),
+            effectiveFrom: effectiveFrom ?? undefined,
+          },
+          { onSuccess: onDone },
+        );
+      })}
+    >
+      {save.error && <WriteFailure error={save.error} actionLabel="Confirm price" />}
+
+      <label className="block">
+        <span className={FIELD_LABEL}>Input (₹ per million tokens)</span>
+        <input
+          {...valid.field(`${id}-in`, "Enter the input price you were billed.")}
+          required
+          value={inInr}
+          onChange={(e) => setInInr(e.target.value)}
+          // `text`, not `number`: money reaches the server as the exact string typed.
+          inputMode="decimal"
+          className={`${FIELD} font-mono`}
+        />
+        {valid.error(`${id}-in`)}
+      </label>
+
+      <label className="block">
+        <span className={FIELD_LABEL}>Cached input (₹ per million tokens)</span>
+        <input
+          value={cachedInr}
+          onChange={(e) => setCachedInr(e.target.value)}
+          inputMode="decimal"
+          className={`${FIELD} font-mono`}
+        />
+        <span className={FIELD_HINT}>Leave empty if the vendor has no cached-input price.</span>
+      </label>
+
+      <label className="block">
+        <span className={FIELD_LABEL}>Output (₹ per million tokens)</span>
+        <input
+          {...valid.field(`${id}-out`, "Enter the output price you were billed.")}
+          required
+          value={outInr}
+          onChange={(e) => setOutInr(e.target.value)}
+          inputMode="decimal"
+          className={`${FIELD} font-mono`}
+        />
+        {valid.error(`${id}-out`)}
+        <span className={FIELD_HINT}>
+          Prefilled from {price.reference_source} (read {price.reference_read_on}). Check each
+          figure against your invoice.
+        </span>
+      </label>
+
+      <label className="block">
+        <span className={FIELD_LABEL}>Source</span>
+        <input
+          {...valid.field(`${id}-source`, "Say where you read this figure.")}
+          required
+          minLength={3}
+          maxLength={500}
+          value={sourceNote}
+          onChange={(e) => setSourceNote(e.target.value)}
+          placeholder="e.g. Sarvam invoice Oct 2026, or sarvam.ai/api-pricing read today"
+          className={FIELD}
+        />
+        {valid.error(`${id}-source`)}
+      </label>
+
+      <label className="block">
+        <span className={FIELD_LABEL}>Starts on (IST, optional)</span>
+        <input
+          type="date"
+          value={startsOn}
+          min={istDateStamp()}
+          onChange={(e) => setStartsOn(e.target.value)}
+          className={FIELD}
+        />
+        <span className={FIELD_HINT}>
+          Empty means from now. A later date applies from midnight India time that day.
+        </span>
+      </label>
+
+      <TypedConfirmation
+        match="exact"
+        id={`confirm-inr-price-${price.model}`}
+        phrase={word}
+        value={confirm}
+        onChange={setConfirm}
+        hint="A correction is added as a new entry, nothing is overwritten, so a past month still resolves the price that was live in it."
       />
 
       <div className="flex gap-2">

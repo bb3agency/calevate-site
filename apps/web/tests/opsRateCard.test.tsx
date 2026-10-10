@@ -19,14 +19,15 @@ import {
   type SpeakingRate,
 } from "@/lib/api/opsRateCard";
 import { OPS_TTS_PRICES_PATH, type TtsPrice } from "@/lib/api/opsTtsPricing";
-import { embeddingVerdict, ttsVerdict } from "@/app/admin/ops/ModelPricingPanel";
+import { embeddingVerdict, inrLlmVerdict, ttsVerdict } from "@/app/admin/ops/ModelPricingPanel";
 import { type EmbeddingPrice } from "@/lib/api/opsModelPricing";
 import {
   OPS_CONFIG_PATH,
   type ConfigField,
   type ConfigList,
 } from "@/lib/api/opsConfig";
-import { OPS_MODEL_PRICES_PATH } from "@/lib/api/opsModelPricing";
+import { OPS_INR_LLM_PRICES_PATH, OPS_MODEL_PRICES_PATH } from "@/lib/api/opsModelPricing";
+import { inrLlmPrices, inrLlmRow } from "./fixtures/opsInrLlmPrices";
 import { OPS_DASHBOARD_DATA_USE_PATH } from "@/lib/api/opsDashboardDataUse";
 import { OPS_FX_RATE_PATH } from "@/lib/api/opsFxRate";
 import { NUMBER_PRICING_PATH, type NumberPrice } from "@/lib/api/numberPricing";
@@ -448,6 +449,7 @@ function routes(extra: Routes = {}): Routes {
       embedding_prices: [embeddingRow()],
     },
     [OPS_DASHBOARD_DATA_USE_PATH]: DASHBOARD_DATA_USE,
+    [OPS_INR_LLM_PRICES_PATH]: inrLlmPrices(),
     [OPS_FX_RATE_PATH]: FX_RATE,
     [NUMBER_PRICING_PATH]: NUMBER_PRICE,
     // The voice plan-fee panel shares the billing section.
@@ -887,6 +889,123 @@ describe("the encoder price that decides whether an upload is indexed at all", (
       "This deployment did not send any indexing prices",
     );
     expect(container.textContent).toContain("not as free");
+  });
+});
+
+describe("the rupee price of the standby model (Sarvam 105B)", () => {
+  beforeEach(() => openSection("language-models"));
+
+  it("lists the model with its reference, source and date, and says it is unpriced", async () => {
+    const { container } = renderOps(routes());
+
+    await screen.findByText("Sarvam 105B");
+    const row = screen.getByText("Sarvam 105B").closest("li") as HTMLElement;
+    expect(row.textContent).toContain("29.28");
+    expect(row.textContent).toContain("10.98");
+    expect(row.textContent).toContain("73.20");
+    expect(row.textContent).toContain("https://www.sarvam.ai/api-pricing, read 2026-10-10");
+    expect(row.textContent).toContain("Recorded at no cost until confirmed");
+    expect(within(row).getByRole("button", { name: "Confirm price" })).toBeTruthy();
+    expect(container.textContent).toContain("Billed in rupees");
+  });
+
+  it("offers Update price and prints the confirmed figures once attested", async () => {
+    renderOps(
+      routes({
+        [OPS_INR_LLM_PRICES_PATH]: inrLlmPrices([
+          inrLlmRow({
+            billable: true,
+            in_inr_per_mtok: "29.280000",
+            cached_in_inr_per_mtok: "10.980000",
+            out_inr_per_mtok: "73.200000",
+            source_note: "Sarvam invoice Oct 2026",
+          }),
+        ]),
+      }),
+    );
+
+    await screen.findByText("Sarvam 105B");
+    const row = screen.getByText("Sarvam 105B").closest("li") as HTMLElement;
+    expect(row.textContent).toContain("29.280000");
+    expect(row.textContent).toContain("Price confirmed");
+    expect(row.textContent).toContain("Sarvam invoice Oct 2026");
+    expect(row.textContent).not.toContain("(reference)");
+    expect(within(row).getByRole("button", { name: "Update price" })).toBeTruthy();
+  });
+
+  it("posts the prefilled rupee strings with the step-up bound to the model", async () => {
+    const path = `POST ${OPS_INR_LLM_PRICES_PATH}/sarvam-105b`;
+    const { calls } = renderOps(routes({ [path]: inrLlmRow({ billable: true }) }));
+
+    await screen.findByText("Sarvam 105B");
+    const row = screen.getByText("Sarvam 105B").closest("li") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Confirm price" }));
+
+    const input = within(row).getByLabelText(/^Input \(₹ per million tokens\)/) as HTMLInputElement;
+    expect(input.value).toBe("29.28");
+    fireEvent.change(within(row).getByLabelText(/^Output \(₹ per million tokens\)/), {
+      target: { value: "73.2000" },
+    });
+    fireEvent.change(within(row).getByPlaceholderText(/Sarvam invoice Oct 2026/), {
+      target: { value: "Sarvam invoice Oct 2026" },
+    });
+    fireEvent.change(within(row).getByLabelText(/Type CONFIRM/), {
+      target: { value: "CONFIRM" },
+    });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    const write = await waitForCall(calls, path);
+    expect(JSON.parse(write.body ?? "null")).toEqual({
+      in_inr_per_mtok: "29.28",
+      cached_in_inr_per_mtok: "10.98",
+      out_inr_per_mtok: "73.2000",
+      source_note: "Sarvam invoice Oct 2026",
+    });
+    expect(write.headers["X-Confirm-Action"]).toBe("attest_inr_llm_price:sarvam-105b");
+  });
+
+  it("sends a chosen start date as midnight India time, and omits an empty cached rung", async () => {
+    const path = `POST ${OPS_INR_LLM_PRICES_PATH}/sarvam-105b`;
+    const { calls } = renderOps(routes({ [path]: inrLlmRow({ billable: true }) }));
+
+    await screen.findByText("Sarvam 105B");
+    const row = screen.getByText("Sarvam 105B").closest("li") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Confirm price" }));
+    fireEvent.change(within(row).getByLabelText(/^Cached input/), { target: { value: "" } });
+    fireEvent.change(within(row).getByLabelText(/Starts on/), {
+      target: { value: "2099-11-01" },
+    });
+    fireEvent.change(within(row).getByPlaceholderText(/Sarvam invoice Oct 2026/), {
+      target: { value: "Sarvam price notice" },
+    });
+    fireEvent.change(within(row).getByLabelText(/Type CONFIRM/), {
+      target: { value: "CONFIRM" },
+    });
+    fireEvent.submit(within(row).getByLabelText(/Starts on/).closest("form") as HTMLFormElement);
+
+    const write = await waitForCall(calls, path);
+    const body = JSON.parse(write.body ?? "null") as Record<string, unknown>;
+    expect(body).not.toHaveProperty("cached_in_inr_per_mtok");
+    expect(body.effective_from).toBe("2099-10-31T18:30:00.000Z");
+  });
+
+  it("keeps the dollar list when the rupee read fails", async () => {
+    renderOps(
+      routes({
+        [OPS_INR_LLM_PRICES_PATH]: problem(503, {
+          code: "unavailable",
+          title: "Service unavailable",
+        }),
+      }),
+    );
+
+    await screen.findByText(/Knowledge indexing prices/);
+    expect(screen.queryByText("Sarvam 105B")).toBeNull();
+  });
+
+  it("names its verdict from the wire flag alone", () => {
+    expect(inrLlmVerdict(inrLlmRow()).tone).toBe("warn");
+    expect(inrLlmVerdict(inrLlmRow({ billable: true })).label).toBe("Price confirmed");
   });
 });
 
