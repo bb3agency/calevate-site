@@ -219,7 +219,7 @@ const DICTATED_CATALOGUE: VoiceCatalogue = {
   source: "engine",
   voices: [],
   tiers: [],
-  note: "The voice platform in use supplies its own voices, so a voice cannot be chosen here. Nothing is wrong with this agent.",
+  note: "The calling platform in use has its own voices. Choose one of them below.",
 };
 
 /** The platform publishes no catalogue of its own — the list renders nothing. */
@@ -649,13 +649,13 @@ describe("the voice panel", () => {
       [ENGINE_CATALOGUE_PATH]: NO_ENGINE_CATALOGUE,
     });
 
-    await screen.findByText(/supplies its own voices/);
+    await screen.findByText(/has its own voices/);
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
     expect(screen.queryByRole("button", { name: "Set voice" })).toBeNull();
     // The server's sentence, verbatim — the panel does not compose its own from the flags
     // and get the tone wrong.
     expect(container.textContent).toContain(
-      "Nothing is wrong with this agent.",
+      "The calling platform in use has its own voices. Choose one of them below.",
     );
     // Still answering the question it can answer.
     expect(container.textContent).toContain("Callers hear now");

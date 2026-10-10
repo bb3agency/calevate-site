@@ -594,7 +594,7 @@ async def test_the_catalog_is_closed_and_the_write_refused_when_the_engine_dicta
     assert listing["selectable"] is False
     assert listing["control"] == "engine"
     assert listing["voices"] == [], "a voice this engine cannot speak is not an option"
-    assert "supplies its own voices" in listing["note"]
+    assert "has its own voices" in listing["note"]
 
     assert write.status_code >= 400, write.text
     problem = write.json()

@@ -98,7 +98,15 @@ export function VoiceNow({ state, published }: { state: PendingState; published:
   // voice has been set on this agent."): an agent published with none speaks in the
   // calling system's default, which is not a voice we can name — but it is not "unknown".
   const noneSet = voice.live === null && voice.configured === null;
-  const heard = voice.live
+  // A voice the calling platform supplies itself carries no provider and no entry in our
+  // catalogue; the server's headline names it ("Callers hear Anika."), shown instead of its id.
+  const shown = voice.live ?? voice.configured;
+  const engineVoice = shown != null && shown.provider === null && shown.catalog === null;
+  const heard = engineVoice
+    ? published
+      ? "Chosen"
+      : "Chosen, used once switched on"
+    : voice.live
     ? clientVoiceName(voice.live)
     : noneSet
       ? "None chosen"
@@ -111,7 +119,9 @@ export function VoiceNow({ state, published }: { state: PendingState; published:
       <SettingRow
         label="Voice callers hear"
         hint={
-          voice.live
+          engineVoice
+            ? voice.headline
+            : voice.live
             ? "The voice the calling system is speaking in right now."
             : noneSet
               ? voice.headline

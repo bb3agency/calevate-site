@@ -294,6 +294,9 @@ class AgentVoice:
     voice_id: str
     provider: str | None
     catalog: Voice | None
+    #: The name of a voice the engine supplies itself (D-687 hosted catalogue), which
+    #: `agents/voices.CATALOG` does not hold. None for a voice of our own.
+    label: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -586,6 +589,9 @@ class _AgentRow:
     live_tts_provider: str | None
     verify_state: str
     verified_at: datetime | None
+    #: The voice chosen from an engine's own catalogue (ThinnestAI), and its name there.
+    engine_voice_id: str | None = None
+    engine_voice_label: str | None = None
 
     @property
     def is_live(self) -> bool:
@@ -609,7 +615,9 @@ class _AgentRow:
 _AGENT_SQL = (
     "SELECT a.status, a.engine_agent_ref, d.version, d.created_at, l.version, "
     "a.max_call_duration_s, a.tts_voice, a.tts_provider, a.live_tts_voice, "
-    "a.live_tts_provider, a.live_verify_state, a.live_verified_at FROM agents a "
+    "a.live_tts_provider, a.live_verify_state, a.live_verified_at, a.engine_voice_id, "
+    "hv.label FROM agents a "
+    "LEFT JOIN platform_voice_catalog hv ON hv.voice_id = a.engine_voice_id "
     "LEFT JOIN prompt_versions d ON d.id = a.system_prompt_id "
     "LEFT JOIN prompt_versions l ON l.id = a.live_prompt_id "
     "WHERE a.id = :aid AND a.deleted_at IS NULL"
@@ -633,6 +641,8 @@ async def _load(session: AsyncSession, agent_id: UUID) -> _AgentRow:
         live_tts_provider=row[9],
         verify_state=str(row[10]),
         verified_at=row[11],
+        engine_voice_id=row[12],
+        engine_voice_label=row[13],
     )
 
 
@@ -805,7 +815,9 @@ def _reading(voice: AgentVoice) -> str:
     says what the raw id is, and `VoiceState.unnamed_note` carries it beside this string
     (D-617).
     """
-    return voice.catalog.label if voice.catalog else voice.voice_id
+    if voice.catalog:
+        return voice.catalog.label
+    return voice.label or voice.voice_id
 
 
 #: What a reader is told when a voice on this agent has no catalogue entry to name it by.
@@ -821,7 +833,7 @@ VOICE_NOT_IN_CATALOGUE_NOTE: Final = (
     "name to it, because the voice is not in the list of voices this platform currently "
     "offers — so it is not one of the choices below either. The agent goes on speaking in "
     "it and callers hear no difference; it simply cannot be re-selected once it is changed. "
-    "Ask your account manager if this voice should be offered again."
+    "Ask us if this voice should be offered again."
 )
 
 
@@ -832,12 +844,41 @@ def _unnamed_note(voices: tuple[AgentVoice | None, ...]) -> str | None:
     are the same unnameable string or one of them is absent, and two identical paragraphs
     under two labels is how a reader concludes something different is wrong with each.
     """
-    if any(voice is not None and voice.catalog is None for voice in voices):
+    if any(voice is not None and voice.catalog is None and voice.label is None for voice in voices):
         return VOICE_NOT_IN_CATALOGUE_NOTE
     return None
 
 
+def _engine_voice_state(row: _AgentRow) -> VoiceState:
+    """The voice of an agent whose engine supplies its own voices (ThinnestAI).
+
+    Choosing one in the catalogue re-publishes a live agent in the same request, so what
+    is configured is what a published agent holds: nothing here can be "waiting for the
+    next publish".
+    """
+    chosen = AgentVoice(
+        voice_id=str(row.engine_voice_id),
+        provider=None,
+        catalog=None,
+        label=row.engine_voice_label,
+    )
+    reading = _reading(chosen)
+    return VoiceState(
+        configured=chosen,
+        live=chosen if row.published else None,
+        republish_required=False,
+        headline=(
+            f"Callers hear {reading}."
+            if row.published
+            else f"This agent is not on the voice platform yet; publishing it will use {reading}."
+        ),
+        unnamed_note=_unnamed_note((chosen,)),
+    )
+
+
 def _voice_state(row: _AgentRow) -> VoiceState:
+    if row.engine_voice_id and not row.tts_voice:
+        return _engine_voice_state(row)
     configured = _agent_voice(row.tts_voice, row.tts_provider)
     live = _agent_voice(row.live_tts_voice, row.live_tts_provider)
     return VoiceState(
@@ -1811,7 +1852,7 @@ async def set_agent_voice(
             # chosen — {…}"; a problem+json `detail` is a sentence on its own.
             detail=f"{refusal[:1].upper()}{refusal[1:]}.",
             remediation=(
-                "Pick another voice, or ask your account manager about this one."
+                "Pick another voice, or ask us about this one."
                 if audience == "client"
                 else "Clear the ground named above, then set the voice again."
             ),

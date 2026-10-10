@@ -390,10 +390,7 @@ def _catalogue_note(capability: VoiceSelectionCapability, *, offerable: int) -> 
     second opinion about the same fact.
     """
     if not capability.available:
-        return (
-            "The voice platform in use supplies its own voices, so a voice cannot be chosen "
-            "here. Nothing is wrong with this agent."
-        )
+        return "The calling platform in use has its own voices. Choose one of them below."
     if catalogue_source() == "unsynced":
         # NOBODY HAS SYNCED. The voices exist on the platform account; this deployment has
         # never read them. The person who can fix it is an administrator, in two steps, and
@@ -481,7 +478,7 @@ def _tier_note(
     if audience == "client":
         return (
             f"No {label} voice is available on your account at the moment, so there is "
-            "nothing to choose in that quality here. Ask your account manager if you want one."
+            "nothing to choose in that quality here. Ask us if you want one."
         )
     if in_catalogue == 0:
         return (

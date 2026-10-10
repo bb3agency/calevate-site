@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useState, type ReactNode } from "react";
-import { CheckCircle2, Clock, Lock, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Lock, TriangleAlert } from "lucide-react";
 
 import { MonoValue } from "@/app/admin/ops/opsLanguage";
 import { WriteFailure } from "@/app/admin/writeFailure";
@@ -29,8 +29,9 @@ type Access = { allowed: boolean; reason: string | null };
 /**
  * One setting as one label–value row: the name and the value in force on one line, with
  * "Change" (and "Reset to default" when the value is not the default) as text actions
- * after the value. Under it, one meta line says where the value came from and when a
- * change applies; amber only when applying it takes another step (a restart, a republish).
+ * after the value. Under it, one meta line says where the value came from. When a change
+ * takes effect is a fixed property of the setting, not a state, so it lives in Details and
+ * in the change drawer; on the row it read as a pending task that never cleared.
  *
  * The key, the environment variable and the full timing explanation sit in a closed
  * "Details" disclosure: an engineer reads them, the operator decides on the row. The form
@@ -150,13 +151,10 @@ export function ConfigRow({ field, access }: { field: ConfigField; access: Acces
 }
 
 /**
- * Where the value came from, and when a change applies, as one line of plain text rather
- * than a row of chips. Colour is kept for the one case that needs action after saving.
+ * Where the value came from, as one line of plain text rather than a row of chips.
  */
 function MetaLine({ field, recessive }: { field: ConfigField; recessive: boolean }) {
   const state = settingState(field);
-  const applies = appliesCopy(field);
-  const pending = applies.tone === "warn";
   const parts: ReactNode[] = [];
   const only = recessive ? engineOnlyLabel(field.engine_scope) : null;
   if (only) parts.push(<span key="only">{only}</span>);
@@ -166,14 +164,6 @@ function MetaLine({ field, recessive }: { field: ConfigField; recessive: boolean
       {state.label}
     </span>,
   );
-  if (field.editable) {
-    parts.push(
-      <span key="applies" className={`inline-flex items-center gap-1 ${pending ? "text-warn" : ""}`}>
-        {pending && <Clock aria-hidden className="h-3 w-3 shrink-0" />}
-        {applies.label}
-      </span>,
-    );
-  }
   return (
     <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-meta text-ink-muted">
       {/* The separator travels with the part after it, so a wrapped line never ends on a dot. */}
