@@ -8,6 +8,7 @@ import {
   type NoticeTone,
 } from "@/components/ui";
 import { providerLabel } from "@/lib/api/llmModels";
+import { lookup } from "@/lib/lookup";
 import type { ConfigControl, ConfigField, ConfigOption, ConfigValue } from "@/lib/api/opsConfig";
 
 /**
@@ -363,12 +364,37 @@ function sentenceCase(text: string): string {
 export function appliesCopy(field: ConfigField): AppliesCopy {
   const timing = timingCopy(field.applies);
   const caveat = field.caveat ? sentenceCase(field.caveat) : "";
+  const covered = caveat !== "" && lookup(COVERS, field.applies)?.test(caveat) === true;
   return {
     applies: field.applies,
     label: timing.label,
     tone: timing.tone,
-    sentence: caveat ? `${timing.help} ${caveat}` : timing.help,
+    sentence: covered ? caveat : caveat ? `${timing.help} ${caveat}` : timing.help,
   };
+}
+
+/**
+ * The consequence each generic timing sentence states. A caveat that states it too is the
+ * more specific of the two (it names what is cached and where), so the generic sentence is
+ * dropped rather than printed beside its own paraphrase: most `on_restart` caveats the API
+ * serves end "…until every server process is restarted", which is the generic sentence
+ * again in other words.
+ */
+const COVERS: Record<string, RegExp> = {
+  on_restart: /restart/i,
+  needs_republish: /re-?publish/i,
+  env_only: /never (?:takes? effect|be read|read)/i,
+};
+
+
+/**
+ * "Only for Cartesia", from the API's `engine_scope` ("Used only when the voice engine is
+ * Cartesia."). A scope in any other shape is shown as the API wrote it.
+ */
+export function engineOnlyLabel(scope: string | null): string | null {
+  if (!scope) return null;
+  const named = /voice engine is (.+?)\.?$/i.exec(scope.trim());
+  return named ? `Only for ${named[1]}` : scope.trim();
 }
 
 /** Why this setting cannot be changed here, in one sentence. */

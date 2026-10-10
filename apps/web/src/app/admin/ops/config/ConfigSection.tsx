@@ -44,7 +44,9 @@ export function ConfigSectionBody({
       {unused.length > 0 && (
         <Disclosure
           title="Not used by the current engine"
+          variant="inline"
           headingLevel={3}
+          className="[&>summary_h3]:font-semibold"
           subtitle={
             <>
               {unused.length === 1 ? "1 setting" : `${unused.length} settings`} only another

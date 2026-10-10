@@ -54,6 +54,15 @@ import { etagOf } from "./configField";
 const REASON_MIN = 3;
 
 /**
+ * A one-tap reason as a quiet pill. Not `FilterChip`, whose `capitalize` would turn
+ * "Correcting a mistake" into title case; the same shape and tones otherwise.
+ */
+const REASON_PILL =
+  "press inline-flex items-center gap-1 rounded-full border px-3 py-1 text-meta touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2";
+const REASON_PILL_ON = "border-ink/60 bg-ink/[0.06] font-medium text-ink";
+const REASON_PILL_OFF = "border-line text-ink-muted hover:bg-ink/[0.04] hover:text-ink";
+
+/**
  * Changing ONE setting: the new value in the control that fits it, a before → after
  * preview, the reason (it is the audit log), and Save.
  *
@@ -213,13 +222,15 @@ export function ConfigForm({
       )}
       {!refused && revert.error && <WriteFailure error={revert.error} actionLabel="Revert to default" />}
 
+      {/* 1 · the value: what it is, what it becomes. */}
+      <div className="space-y-4">
       <p className="text-body text-ink-muted">
-        Now: <span className="font-semibold text-ink">{displayValue(field, field.value)}</span>{" "}
+        Now: <span className="font-medium text-ink tabular-nums">{displayValue(field, field.value)}</span>{" "}
         <span className="text-meta">({settingState(field).label})</span>
       </p>
 
       {reverting ? (
-        <div className="space-y-2 border-l-2 border-line py-1 pl-3 text-body">
+        <div className="space-y-2 text-body">
           <p className="text-ink">
             Going back to the default:{" "}
             <span className="font-semibold">{displayValue(field, field.default)}</span>.
@@ -258,48 +269,54 @@ export function ConfigForm({
       )}
 
       {changed && (
-        <div aria-live="polite" className="border-l-2 border-line py-1 pl-3">
+        <div aria-live="polite">
           <p className={FIELD_LABEL}>{reverting ? "What reverting does" : "What changes"}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-body">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-body tabular-nums">
             <span className="min-w-0 break-words text-ink-muted line-through decoration-ink-faint [overflow-wrap:anywhere]">
               {displayValue(field, field.value)}
             </span>
             <ArrowRight aria-label="becomes" className="h-4 w-4 shrink-0 text-ink-muted" />
-            <span className="min-w-0 break-words font-semibold text-ink [overflow-wrap:anywhere]">
+            <span className="min-w-0 break-words font-medium text-ink [overflow-wrap:anywhere]">
               {displayValue(field, next)}
             </span>
           </div>
         </div>
       )}
+      </div>
 
-      {/* WHAT SAVING WILL AND WILL NOT DO, in the same form as the button that does it. */}
-      {applies.applies === "live" && !field.caveat ? (
-        <p className="flex items-start gap-1.5 text-meta text-ink-muted">
-          <CheckCircle2 aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>
-            <span className="font-medium text-ink">{applies.label}.</span> {applies.sentence}
+      {/* 2 · WHAT SAVING WILL AND WILL NOT DO, in the same form as the button that does
+          it. A sentence, not a box: every restart-bound setting would otherwise carry one. */}
+      <div className="space-y-4 border-t border-line pt-5">
+        <p className="flex items-start gap-2 text-meta text-ink-muted">
+          {applies.applies === "live" && !field.caveat ? (
+            <CheckCircle2 aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand" />
+          ) : (
+            <Clock
+              aria-hidden
+              className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${applies.tone === "warn" ? "text-warn" : ""}`}
+            />
+          )}
+          <span className="max-w-prose">
+            <span className={`font-medium ${applies.tone === "warn" ? "text-warn" : "text-ink"}`}>
+              {applies.label}.
+            </span>{" "}
+            {applies.sentence}
           </span>
         </p>
-      ) : (
-        <NoticeBox
-          tone={applies.tone === "ok" ? "neutral" : applies.tone}
-          icon={<Clock aria-hidden className="h-5 w-5" />}
-          title={applies.label}
-        >
-          <p className="mt-1">{applies.sentence}</p>
-        </NoticeBox>
-      )}
 
-      {high && field.control.risk_reason && (
-        <NoticeBox
-          tone="warn"
-          icon={<ShieldAlert aria-hidden className="h-5 w-5" />}
-          title="This setting needs care"
-        >
-          <p className="mt-1">{field.control.risk_reason}</p>
-        </NoticeBox>
-      )}
+        {high && field.control.risk_reason && (
+          <NoticeBox
+            tone="warn"
+            icon={<ShieldAlert aria-hidden className="h-5 w-5" />}
+            title="This setting needs care"
+          >
+            <p className="mt-1">{field.control.risk_reason}</p>
+          </NoticeBox>
+        )}
+      </div>
 
+      {/* 3 · the reason, which is the audit log, and the typed confirmation. */}
+      <div className="space-y-4 border-t border-line pt-5">
       {reverting ? (
         <p className={FIELD_HINT}>The audit log records this as a return to the default.</p>
       ) : (
@@ -307,16 +324,16 @@ export function ConfigForm({
           <label htmlFor={reasonId} className={FIELD_LABEL}>
             Why are you changing it?
           </label>
-          <div className="mt-1 flex flex-wrap gap-1.5">
+          <div className="mt-2 flex flex-wrap gap-1.5">
             {REASON_PRESETS.map((preset) => (
               <button
                 key={preset}
                 type="button"
                 aria-pressed={reason === preset}
                 onClick={() => setReason(preset)}
-                className={SECONDARY_BUTTON_SM}
+                className={`${REASON_PILL} ${reason === preset ? REASON_PILL_ON : REASON_PILL_OFF}`}
               >
-                {reason === preset && <Check aria-hidden className="h-3.5 w-3.5 text-brand" />}
+                {reason === preset && <Check aria-hidden className="h-3 w-3" />}
                 {preset}
               </button>
             ))}
@@ -346,6 +363,7 @@ export function ConfigForm({
           hint="Typing the new value is a second look at exactly what will apply."
         />
       )}
+      </div>
 
       <div className="sticky bottom-0 -mx-4 -mb-4 flex flex-wrap items-center gap-2 border-t border-line bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:-mx-5 sm:px-5 sm:pb-3">
         <button type="submit" disabled={!ready} className={PRIMARY_BUTTON}>
