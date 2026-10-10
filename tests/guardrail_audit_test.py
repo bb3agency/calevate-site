@@ -543,6 +543,8 @@ class TestRlsCoverage:
             # `unit_cost_paid`: it is published beside the metered total, and their
             # difference is the allotment nobody spoke into.
             "platform_tts_plan_fees",
+            # The attested rupee price of an INR-billed platform LLM (Sarvam).
+            "platform_inr_llm_prices",
             # D-678: the attested per-minute engine price, `platform_tts_prices`' twin.
             "platform_engine_minute_prices",
             "platform_tts_volume",

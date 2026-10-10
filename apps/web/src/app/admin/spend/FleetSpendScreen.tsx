@@ -71,6 +71,11 @@ export function FleetSpendScreen() {
           { key: "margin_inr", label: "Fleet margin (₹)", value: data.margin_inr },
           { key: "margin_pct", label: "Fleet margin (%)", value: data.margin_pct ?? "nothing billed this month" },
           {
+            key: "ai_absorbed_inr",
+            label: "Dashboard AI we absorbed across the fleet (₹), outside revenue, cost and margin",
+            value: data.ai_absorbed_inr,
+          },
+          {
             key: "loss_making",
             label: "Clients whose month is losing money",
             value: String(data.tenants.filter((row) => losing(row.margin_inr)).length),
@@ -158,6 +163,12 @@ function Totals({ data }: { data: FleetSpend }) {
         value={data.margin_pct === null ? "not billed yet" : `${data.margin_pct}%`}
         hint={`${formatCount(data.clients)} live ${data.clients === 1 ? "client" : "clients"} walked.`}
       />
+      {/* Outside the margin: the assistant has no matching revenue (AbsorbedAiSpendOut). */}
+      <Metric
+        label="AI we absorb"
+        value={formatINR(data.ai_absorbed_inr)}
+        hint="Assistant and AI tools. Not billed, not in the margin."
+      />
     </MetricRow>
   );
 }
@@ -208,6 +219,22 @@ function ClientTable({ data }: { data: FleetSpend }) {
             </>
           )}
           {formatINR(tenant.margin_inr)}
+        </span>
+      ),
+    },
+    {
+      id: "ai",
+      header: "AI we absorb",
+      align: "right",
+      hideBelow: "md",
+      cell: (tenant) => (
+        <span className={`${num} text-ink-muted`}>
+          {formatINR(tenant.ai_absorbed_inr)}
+          {tenant.ai_requests > 0 && (
+            <span className="block text-meta">
+              {formatCount(tenant.ai_requests)} {tenant.ai_requests === 1 ? "action" : "actions"}
+            </span>
+          )}
         </span>
       ),
     },

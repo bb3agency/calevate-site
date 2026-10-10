@@ -86,6 +86,10 @@ class SecretRecord:
     applies: str
     #: What the operator must still do, or `None`. Non-null for everything but `live`.
     caveat: str | None
+    #: Whether the newest version is a credential rather than a removal. `version` alone
+    #: cannot say it: a removed key keeps its version number, because the removal IS a
+    #: version (migration c2b7e5a94d18), and its `created_*` say who removed it and when.
+    installed: bool
 
 
 def manageable_secret_keys() -> tuple[str, ...]:
@@ -154,7 +158,7 @@ async def read_secrets(session: AsyncSession) -> list[SecretRecord]:
         await session.execute(
             text(
                 "SELECT DISTINCT ON (s.key) s.key, s.version, s.last_four, s.kek_version, "
-                "s.created_at, a.name, a.id, "
+                "s.created_at, a.name, a.id, s.removed, "
                 "(SELECT count(*) FROM platform_secrets c WHERE c.key = s.key) AS versions "
                 "FROM platform_secrets s "
                 "LEFT JOIN admin_users a ON a.id = s.created_by "
@@ -172,9 +176,10 @@ async def read_secrets(session: AsyncSession) -> list[SecretRecord]:
             created_at=r[4].isoformat(),
             created_by=r[5] or (str(r[6]) if r[6] is not None else None),
             shadowed_by_env=env_declares(str(r[0])),
-            versions=int(r[7]),
+            versions=int(r[8]),
             applies=applies_rule(str(r[0])).applies,
             caveat=applies_rule(str(r[0])).caveat,
+            installed=not r[7],
         )
         for r in rows
     }
@@ -193,6 +198,7 @@ async def read_secrets(session: AsyncSession) -> list[SecretRecord]:
                 versions=0,
                 applies=applies_rule(key).applies,
                 caveat=applies_rule(key).caveat,
+                installed=False,
             ),
         )
         for key in manageable_secret_keys()
@@ -301,6 +307,100 @@ async def set_secret(
         versions=version,
         applies=applies_rule(key).applies,
         caveat=applies_rule(key).caveat,
+        installed=True,
+    )
+
+
+async def remove_secret(session: AsyncSession, *, key: str, actor_id: uuid.UUID) -> SecretRecord:
+    """Stop using a stored credential by appending a REMOVAL version. Never an UPDATE.
+
+    The caller MUST have step-up confirmed and MUST write the audit row on this same
+    session, exactly as for `set_secret`.
+
+    A removal is a version for the table's own reason (hard rule 4): which key was live
+    when a call was billed stays answerable, and a later install simply lands one version
+    higher. The tombstone seals the empty string rather than leaving the envelope empty, so
+    `rewrap_all` treats every row alike.
+
+    Refused when the ENVIRONMENT sets the key: the environment wins (§4), so a removal here
+    would leave the key in force while the console reported it gone. Refused when nothing
+    is installed, because a second tombstone records a change nobody made.
+    """
+    _refuse_unmanageable(key)
+    if env_declares(key):
+        raise ProblemError(
+            kind="business_rule",
+            code="secret_set_in_environment",
+            title="This key is set in the server environment",
+            detail=(
+                f"{key!r} is set on the server as {env_var_for(key)}, and the server's own "
+                "setting always wins, so removing it here would change nothing."
+            ),
+            remediation=f"Remove {env_var_for(key)} from the server environment and restart.",
+        )
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"),
+        {"k": f"platform_secret:{key}"},
+    )
+    current = (
+        await session.execute(
+            text(
+                "SELECT removed FROM platform_secrets WHERE key = :k ORDER BY version DESC LIMIT 1"
+            ),
+            {"k": key},
+        )
+    ).first()
+    if current is None or current[0]:
+        raise ProblemError(
+            kind="conflict",
+            code="secret_not_installed",
+            title="There is no stored key to remove",
+            detail=f"{key!r} has no stored value in force, so there is nothing to remove.",
+            remediation="Reload the list: somebody may have removed it already.",
+        )
+    envelope = seal("", context=secret_context(key))
+    row = (
+        await session.execute(
+            text(
+                "INSERT INTO platform_secrets (key, version, ciphertext, nonce, dek_wrapped, "
+                "dek_nonce, kek_version, last_four, created_by, removed) "
+                "SELECT :k, MAX(version) + 1, :ct, :n, :dw, :dn, :kek, '', :by, true "
+                "FROM platform_secrets WHERE key = :k "
+                "RETURNING version, created_at"
+            ),
+            {
+                "k": key,
+                "ct": envelope.ciphertext,
+                "n": envelope.nonce,
+                "dw": envelope.dek_wrapped,
+                "dn": envelope.dek_nonce,
+                "kek": envelope.kek_id,
+                "by": actor_id,
+            },
+        )
+    ).one()
+    version = int(row[0])
+    await session.execute(
+        text(
+            "UPDATE platform_secrets SET retired_at = now() "
+            "WHERE key = :k AND version < :v AND retired_at IS NULL"
+        ),
+        {"k": key, "v": version},
+    )
+    log.info("platform_secret_removed", extra={"config_key": key, "secret_version": version})
+    return SecretRecord(
+        key=key,
+        env_var=env_var_for(key),
+        version=version,
+        last_four="",
+        kek_id=envelope.kek_id,
+        created_at=row[1].isoformat(),
+        created_by=str(actor_id),
+        shadowed_by_env=False,
+        versions=version,
+        applies=applies_rule(key).applies,
+        caveat=applies_rule(key).caveat,
+        installed=False,
     )
 
 
@@ -335,15 +435,22 @@ async def resolve_secrets(session: AsyncSession, *, ring: KekRing | None = None)
         await session.execute(
             text(
                 "SELECT DISTINCT ON (key) key, ciphertext, nonce, dek_wrapped, dek_nonce, "
-                "kek_version FROM platform_secrets ORDER BY key, version DESC"
+                "kek_version, removed FROM platform_secrets ORDER BY key, version DESC"
             )
         )
     ).all()
     values: dict[str, str] = {}
     unreadable: list[str] = []
-    for key, ciphertext, nonce, dek_wrapped, dek_nonce, kek_version in rows:
+    for key, ciphertext, nonce, dek_wrapped, dek_nonce, kek_version, removed in rows:
         name = str(key)
-        if name not in Settings.model_fields or name in ENV_ONLY_KEYS or env_declares(name):
+        # A removal is the newest version and means "not set": omitting the key lets
+        # `apply_platform_overrides` put the code default back in force.
+        if (
+            removed
+            or name not in Settings.model_fields
+            or name in ENV_ONLY_KEYS
+            or env_declares(name)
+        ):
             continue
         envelope = Envelope(
             ciphertext=bytes(ciphertext),

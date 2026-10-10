@@ -156,10 +156,8 @@ function StarterPreviewStep({
     create.mutate(
       {
         name: trimmed,
+        // The job decides the direction on the server, so none is sent.
         starter: job.job,
-        // The job decides the direction on the server; sending the preview's own value
-        // satisfies the request type and can never contradict it (starter_direction_mismatch).
-        direction: preview.direction,
         language_primary: language,
       },
       {

@@ -377,3 +377,62 @@ async def test_the_queue_is_tenant_scoped_like_everything_else() -> None:
     async with tenant_session(tenant_b) as session:
         queue = await attention_queue(session)
     assert queue["total"] == 0, "tenant B never sees tenant A's blocked leads"
+
+
+async def test_a_hot_lead_appears_by_name_and_never_by_number() -> None:
+    tenant_id, agent_id = await _tenant()
+    lead_id = uuid7()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, name, source, status, "
+                "created_at, updated_at) VALUES (:i, :t, :a, '+919876543210', 'Asha', "
+                "'inbound_call', 'hot', now(), now())"
+            ),
+            {"i": lead_id, "t": tenant_id, "a": agent_id},
+        )
+        queue = await attention_queue(session)
+    assert queue["counts"] == {"lead_hot": 1}
+    item = queue["items"][0]
+    assert item["title"] == "Asha is a hot lead"
+    assert "98765" not in item["title"] + item["detail"]
+    assert item["href"] == f"/leads/{lead_id}"
+
+
+async def test_a_failed_call_appears_and_an_unanswered_one_does_not() -> None:
+    tenant_id, agent_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        for status in ("failed", "no_answer"):
+            await session.execute(
+                text(
+                    "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                    "status, created_at, updated_at) VALUES (:i, :t, :a, :e, 'outbound', :s, "
+                    "now(), now())"
+                ),
+                {"i": uuid7(), "t": tenant_id, "a": agent_id, "e": f"e-{uuid7()}", "s": status},
+            )
+        queue = await attention_queue(session)
+    assert queue["counts"] == {"call_failed": 1}
+    assert queue["items"][0]["title"] == "A call to a caller failed"
+
+
+async def test_low_credit_is_one_live_item_and_a_healthy_wallet_is_none() -> None:
+    from decimal import Decimal
+
+    from apps.api.billing.service import record_entry
+
+    tenant_id, _ = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await record_entry(
+            session, tenant_id=tenant_id, delta=Decimal("150.00"), reason="topup", ref="t1"
+        )
+        queue = await attention_queue(session)
+    assert queue["counts"] == {"credit_low": 1}
+    assert queue["items"][0]["title"] == "Your credit is running low"
+
+    async with tenant_session(tenant_id) as session:
+        await record_entry(
+            session, tenant_id=tenant_id, delta=Decimal("500.00"), reason="topup", ref="t2"
+        )
+        queue = await attention_queue(session)
+    assert queue["total"] == 0

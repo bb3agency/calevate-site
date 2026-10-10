@@ -1,24 +1,14 @@
 /**
- * The step list: what a CLIENT sees of a tool call, in the states that are not the happy one.
+ * The step list: what a CLIENT sees of the assistant's tool calls.
  *
- * ## Why this file exists
- *
- * The rows are the only place a tool's own answer reaches the person VERBATIM — the server
- * puts up to `service.MAX_STEP_CHARS` of the result into `detail` — so every sentence
- * `copilot/tools.py` composes for an empty or partial result is read twice: once by the
- * model, and once here. That makes the empty-state wording a UI string, and it makes the
- * rendering of a long, blank or failed result something to pin rather than assume.
- *
- * ## What is deliberately NOT changed here
- *
- * The machine tool name and the timing are shown to a client on purpose (`StepList`'s own
- * header argues it: `agents_list` is what the server logs and what a person quoting this
- * panel in a support message needs to say, and a prose label per tool would be a second
- * naming of every tool kept in a different file from the registry). These tests pin that
- * decision so a later "friendlier" relabelling has to be a decision rather than a drift.
+ * The founder's decision (10 Oct 2026) replaced the earlier one this file used to pin: no
+ * machine tool names and no millisecond timings on a client's screen. Each step reads as
+ * the server's plain label (`apps/api/copilot/step_labels.py`), the settled steps fold into
+ * one quiet line under the answer, and a step's own sentence appears only when the list is
+ * opened and only when the answer has not already said it.
  */
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { StepList } from "../src/components/copilot/StepList";
@@ -27,104 +17,75 @@ import type { CopilotStep } from "../src/lib/copilot/types";
 function step(over: Partial<CopilotStep> = {}): CopilotStep {
   return {
     id: "s1",
-    tool: "business_snapshot",
+    tool: "search_calls",
     status: "done",
     args: '{"days": 7}',
     detail: "This account has no calls yet.",
     elapsed_ms: 120,
+    label: "Searched your calls",
     ...over,
   };
 }
 
-describe("a tool call, as the person sees it", () => {
+const open = () => fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+describe("the assistant's steps, as the person sees them", () => {
   it("renders nothing at all when no tool has run", () => {
     const { container } = render(<StepList steps={[]} />);
     expect(container.firstChild).toBeNull();
   });
 
-  it("shows the tool's own sentence, which is what the empty-state wording is for", () => {
-    render(<StepList steps={[step()]} />);
-    expect(screen.getByText("This account has no calls yet.")).toBeTruthy();
-    expect(screen.getByText("business_snapshot")).toBeTruthy();
-    expect(screen.getByText("120 ms")).toBeTruthy();
+  it("shows a running step by its label with no machine name, args or timing", () => {
+    render(<StepList steps={[step({ status: "running", detail: null, elapsed_ms: null, label: "Searching your calls…" })]} />);
+    expect(screen.getByText("Searching your calls…")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/search_calls|\{"days"|ms\b/);
   });
 
-  it("renders a row with no detail rather than an empty paragraph", () => {
-    // A `running` step has no result yet, and a terminal one can carry an empty string.
-    // An empty `<p>` is a blank line of padding under the tool name that reads as a
-    // rendering fault on the one screen whose job is to look competent.
-    const { container } = render(
+  it("folds settled steps into one line, closed, that opens to their labels", () => {
+    render(
       <StepList
-        steps={[step({ detail: null }), step({ id: "s2", detail: "" })]}
+        steps={[step(), step({ id: "s2", tool: "calls_recent", label: "Checked recent calls" })]}
       />,
     );
-    expect(container.querySelectorAll("p.text-ink-muted")).toHaveLength(0);
+    expect(screen.getByText("Checked 2 things")).toBeTruthy();
+    expect(screen.queryByText("Searched your calls")).toBeNull();
+    open();
+    expect(screen.getByText("Searched your calls")).toBeTruthy();
+    expect(screen.getByText("Checked recent calls")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/search_calls|calls_recent|120 ms/);
+  });
+
+  it("says a sentence once, and not at all when the answer already said it", () => {
+    const same = "This account has no calls yet.";
+    const { rerender } = render(
+      <StepList steps={[step(), step({ id: "s2", label: "Checked recent calls" })]} answer="Hello." />,
+    );
+    open();
+    expect(screen.getAllByText(same)).toHaveLength(1);
+    rerender(
+      <StepList steps={[step(), step({ id: "s2", label: "Checked recent calls" })]} answer={`${same} Try again later.`} />,
+    );
+    expect(screen.queryByText(same)).toBeNull();
   });
 
   it("wraps a long result instead of pushing the panel sideways", () => {
-    // The server truncates at 200 characters; it does not guarantee a space in them.
     const detail = "x".repeat(200);
     const { container } = render(<StepList steps={[step({ detail })]} />);
-    const rendered = container.querySelector("p.text-ink-muted");
-    expect(rendered?.textContent).toBe(detail);
+    open();
+    const rendered = [...container.querySelectorAll("span")].find((node) => node.textContent === detail);
     expect(rendered?.className).toContain("break-words");
   });
 
-  it("shows the arguments only while the call is in flight", () => {
-    const { rerender } = render(
-      <StepList steps={[step({ status: "running", detail: null })]} />,
-    );
-    expect(screen.getByText('{"days": 7}')).toBeTruthy();
-    // Once the answer is on screen it is the more useful of the two, and the row has to
-    // stay one or two lines — a step list taller than the answer has inverted the panel.
-    rerender(<StepList steps={[step({ status: "done" })]} />);
-    expect(screen.queryByText('{"days": 7}')).toBeNull();
+  it("says plainly when a step did not finish, with no stack trace", () => {
+    render(<StepList steps={[step({ status: "failed", label: "Searching your calls…", detail: null })]} />);
+    expect(screen.getByText("Could not finish what it tried")).toBeTruthy();
+    open();
+    expect(screen.getByText("Could not finish searching your calls")).toBeTruthy();
   });
 
-  it("says a lookup failed without the person having to read a stack trace", () => {
-    render(
-      <StepList
-        steps={[
-          step({
-            status: "failed",
-            detail: "`calls_recent` could not be read just now.",
-          }),
-        ]}
-      />,
-    );
-    expect(
-      screen.getByText("`calls_recent` could not be read just now."),
-    ).toBeTruthy();
-  });
-
-  it("keeps the machine tool name, deliberately (see this file's header)", () => {
-    render(<StepList steps={[step({ tool: "leads_semantic_search" })]} />);
-    expect(screen.getByText("leads_semantic_search")).toBeTruthy();
-  });
-});
-
-/**
- * A FRAME THAT TIMED NOTHING. `CopilotStepEvent` requires only `id`, `tool`, `status` and
- * `args` (`apps/api/copilot/stream_contract_test.py::EXPECTED`), and a refusal that ran no
- * tool reports NO duration rather than "0 ms" — so both `elapsed_ms` and `detail` can be
- * absent from the frame entirely, not merely null.
- */
-describe("a step with no duration", () => {
-  it("shows no time rather than NaN when the frame omits elapsed_ms", () => {
-    render(
-      <StepList
-        steps={[
-          {
-            id: "r1",
-            tool: "leads_search",
-            status: "refused",
-            args: '{"status":"hot"}',
-          } as CopilotStep,
-        ]}
-      />,
-    );
-    // FAILS IF: the check is `!== null` — `undefined` passes it and `elapsed()` renders
-    // "NaNms" beside the tool name.
-    expect(document.body.textContent).not.toMatch(/NaN/);
+  it("never echoes the machine name when the server sent no label", () => {
+    render(<StepList steps={[{ id: "r1", tool: "leads_search", status: "refused", args: "" } as CopilotStep]} />);
+    open();
+    expect(document.body.textContent).not.toMatch(/leads_search|NaN/);
   });
 });

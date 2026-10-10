@@ -12,13 +12,15 @@ AI-inferred). `params` is the authoritative registry of bindings, each with a st
 source of truth for "how is this value filled" and the request template is pure structure.
 
   - static   a fixed value applied on OUR side; never sent to the engine.
-  - lead_var a call variable (the caller's number, the call id) Bolna substitutes at call
-             time and sends to us, OR that we resolve from call context.
+  - lead_var a call variable (the caller's number, the call id) we resolve from our record
+             of the call, or a detail the agent captured about this caller on an earlier
+             call (`field:<key>`, resolved from `leads.data`).
   - ai       an argument the LLM extracts from the conversation, declared to the engine.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Literal
@@ -49,6 +51,21 @@ class PreparedRequest:
 # `caller_phone` is "the other party on the call": `from_number` inbound, `to_number` outbound.
 CALL_VARS: frozenset[str] = frozenset({"caller_phone", "from_number", "to_number", "call_sid"})
 
+#: A `lead_var` may instead name one of the agent's captured details (its extraction schema)
+#: as `field:<key>`. The value is what this agent has already captured about the caller on an
+#: earlier call (`leads.data`), read at call time. The shape is checked here; that the key is
+#: in THIS agent's schema is checked on write by `service._assert_lead_fields`, which has the
+#: session this model does not.
+LEAD_FIELD_PREFIX = "field:"
+_LEAD_FIELD_RE = re.compile(r"^field:[a-z][a-z0-9_]{0,39}$")
+
+
+def lead_field_key(lead_var: str | None) -> str | None:
+    """The extraction key a `field:<key>` binding names, or None for a call variable."""
+    if lead_var is None or not _LEAD_FIELD_RE.match(lead_var):
+        return None
+    return lead_var[len(LEAD_FIELD_PREFIX) :]
+
 
 class ParamSpec(BaseModel):
     """One named binding. `config` references it by `name`."""
@@ -72,8 +89,15 @@ class ParamSpec(BaseModel):
     def _coherent(self) -> ParamSpec:
         if self.source == "static" and self.value is None:
             raise ValueError(f"static param {self.name!r} needs a value")
-        if self.source == "lead_var" and self.lead_var not in CALL_VARS:
-            raise ValueError(f"lead_var param {self.name!r} must name one of {sorted(CALL_VARS)}")
+        if (
+            self.source == "lead_var"
+            and self.lead_var not in CALL_VARS
+            and lead_field_key(self.lead_var) is None
+        ):
+            raise ValueError(
+                f"lead_var param {self.name!r} must name one of {sorted(CALL_VARS)} "
+                f"or a captured detail as {LEAD_FIELD_PREFIX}<key>"
+            )
         if self.source == "ai" and not self.description.strip():
             # The description is what the LLM reads to fill the argument — an empty one is
             # an argument the model cannot reliably collect (custom-function-calls.md).

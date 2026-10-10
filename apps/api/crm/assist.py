@@ -94,12 +94,15 @@ from decimal import Decimal
 from typing import Final, Protocol
 from uuid import UUID
 
+from calevate_shared.engine import SARVAM_DEFAULT_LLM
 from calevate_shared.extraction import ExtractionSchemaSpec
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import record_ai_assist_usage
+from apps.api.billing.models import ASSIST_FEATURE_STANDBY
 from apps.api.billing.platform_ai import record_platform_ai_usage
+from apps.api.billing.rates import llm_price_is_billable
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -373,15 +376,13 @@ async def meter_assist(
     not be handled the same way — `AssistResult`'s own docstring says so, and this is the
     caller that has to mean it:
 
-    * **A Sarvam fallback.** D-36 prices that leg at zero, so there is nothing to charge
-      and no `ai_assist_ktok_*` quantity to state. Nothing is written. Writing `qty = 0`
-      rows instead was rejected on D-140's ground: an assist that certainly consumed
-      thousands of Sarvam tokens recorded as zero thousand is a FABRICATED quantity, and
-      a fabricated quantity in an append-only ledger looks exactly like a real one. It
-      would also move `read_ai_quota`'s `requests_used` — `COUNT(DISTINCT ref)` over the
-      paid unit types — so the screen would count a paid assist that never happened, and
-      the rupee ceiling (the number that actually blocks) and the request count (the
-      number a person plans around) would start disagreeing about the same month.
+    * **A Sarvam standby.** Sarvam 105B is priced per token since D-36's "free" was
+      superseded (10 Oct 2026), and the founder's decision is that WE absorb it:
+      `_meter_standby` records it at its attested cost under `ASSIST_FEATURE_STANDBY`, which
+      the client's allowance never counts, and reports `metered=False`. With no attested
+      price or no usage block, nothing is written — never `qty = 0` rows, which D-140
+      refused as a FABRICATED quantity that would also move `read_ai_quota`'s
+      `requests_used`.
     * **An Azure answer Azure did not count.** We paid Microsoft and cannot say how much.
       Also unwritten, for the same reason and with the opposite severity: this is a
       METERING OUTAGE — every assist in this state is spend the per-tenant ceiling and
@@ -427,6 +428,15 @@ async def meter_assist(
     # missing value.
     model = model or get_settings().azure_openai_model
     usage = result.usage
+    if result.capability.provider == SARVAM_PROVIDER:
+        return await _meter_standby(
+            session,
+            tenant_id=tenant_id,
+            ref=ref,
+            usage=usage,
+            feature=feature,
+            fallback_reason=result.capability.fallback_reason,
+        )
     if usage is None:
         if result.capability.provider in (AZURE_PROVIDER, GOOGLE_PROVIDER):
             # BOTH PAID LEGS, ONE ALERT. Azure and the account's own Gemini (D-478) are both
@@ -453,19 +463,6 @@ async def meter_assist(
                 ref=ref,
                 model=model,
                 feature=feature,
-            )
-        elif result.capability.provider == SARVAM_PROVIDER:
-            # The ordinary, correct, free case. Logged so that "why did the counter not
-            # move" has an answer that is not a shrug.
-            log.info(
-                "ai_assist_unmetered_fallback",
-                extra={
-                    "tenant_id": str(tenant_id),
-                    "ref": ref,
-                    "provider": result.capability.provider,
-                    "fallback_reason": result.capability.fallback_reason,
-                    "feature": feature,
-                },
             )
         else:
             # THE CLOSED SET IS NOW CLOSED, and this arm is why. The free branch above
@@ -524,6 +521,64 @@ async def meter_assist(
     return AssistMetering(metered=metered.recorded, cost_inr=metered.cost_inr)
 
 
+def _billable_standby_usage(
+    usage: TokenUsage | None, *, event: str = "ai_assist_unmetered_fallback", **ids: str
+) -> TokenUsage | None:
+    """This Sarvam answer's usage if it may be recorded at a cost, else None (and why, logged).
+
+    Sarvam 105B is priced per token (VENDOR-PUBLISHED, `rates.SARVAM_LLM_PRICE_SOURCE`,
+    read 10 Oct 2026), so a standby answer is spend. It reaches `unit_cost_paid` only on an
+    operator's attestation (hard rule 7); until one exists the answer is recorded nowhere,
+    which is the behaviour this leg always had, now logged as unpriced rather than free.
+    """
+    if usage is None:
+        log.info(event, extra={**ids, "reason": "no_usage_block"})
+        return None
+    if not llm_price_is_billable(SARVAM_DEFAULT_LLM):
+        log.info(event, extra={**ids, "reason": "price_not_attested"})
+        return None
+    return usage
+
+
+async def _meter_standby(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    ref: str,
+    usage: TokenUsage | None,
+    feature: str,
+    fallback_reason: str | None,
+) -> AssistMetering:
+    """The Sarvam standby, ABSORBED (founder, 10 Oct 2026): recorded on the ledger at its
+    true cost under `ASSIST_FEATURE_STANDBY`, which the AI allowance and the fair-use cap
+    exclude, and reported as NOT metered, because `metered` is what the client is told they
+    were charged for."""
+    ids = {
+        "tenant_id": str(tenant_id),
+        "ref": ref,
+        "feature": feature,
+        "provider": SARVAM_PROVIDER,
+        "fallback_reason": str(fallback_reason),
+    }
+    usage = _billable_standby_usage(usage, **ids)
+    if usage is None:
+        return AssistMetering(metered=False, cost_inr=Decimal("0"))
+    recorded = await record_ai_assist_usage(
+        session,
+        tenant_id=tenant_id,
+        ref=ref,
+        tokens_in=usage.prompt_tokens,
+        tokens_out=usage.output_tokens,
+        model=SARVAM_DEFAULT_LLM,
+        feature=ASSIST_FEATURE_STANDBY,
+        extra_meta={
+            "standby_for": feature,
+            "cached_prompt_tokens": str(usage.cached_prompt_tokens),
+        },
+    )
+    return AssistMetering(metered=False, cost_inr=recorded.cost_inr)
+
+
 async def meter_platform_assist(
     session: AsyncSession,
     *,
@@ -540,9 +595,8 @@ async def meter_platform_assist(
     `meter_assist` above for the arguments, which are not restated here because restating
     them is how two meters come to disagree about what a missing `usage` block means:
 
-    * **Sarvam** — D-36 prices the leg at zero, so there is no quantity to state and
-      nothing is written. A `qty = 0` row would be a FABRICATED quantity on an append-only
-      ledger (D-140), indistinguishable from a real one.
+    * **Sarvam** — priced per token since 10 Oct 2026; recorded on the platform ledger at
+      its attested price, and not at all (never as `qty = 0`, D-140) until one is attested.
     * **A paid leg that returned no `usage`** — a METERING OUTAGE. Alerted, never
       estimated. It matters MORE here than on the tenant ledger, not less: the platform
       brake is the ONLY ceiling this surface has (`platform_ai.require_platform_ai`), so
@@ -563,6 +617,21 @@ async def meter_platform_assist(
     """
     model = model or get_settings().azure_openai_model
     usage = result.usage
+    if result.capability.provider == SARVAM_PROVIDER:
+        # The platform already pays here, so the standby is recorded like any other leg —
+        # once its price is attested — on the platform ledger.
+        usage = _billable_standby_usage(
+            usage,
+            event="admin_ai_assist_unmetered_fallback",
+            admin_user_id=str(admin_user_id),
+            ref=ref,
+            feature=feature,
+            provider=SARVAM_PROVIDER,
+            fallback_reason=str(result.capability.fallback_reason),
+        )
+        if usage is None:
+            return AssistMetering(metered=False, cost_inr=Decimal("0"))
+        model = SARVAM_DEFAULT_LLM
     if usage is None:
         if result.capability.provider in (AZURE_PROVIDER, GOOGLE_PROVIDER):
             alert(
@@ -582,17 +651,6 @@ async def meter_platform_assist(
                 ref=ref,
                 model=model,
                 feature=feature,
-            )
-        elif result.capability.provider == SARVAM_PROVIDER:
-            log.info(
-                "admin_ai_assist_unmetered_fallback",
-                extra={
-                    "admin_user_id": str(admin_user_id),
-                    "ref": ref,
-                    "provider": result.capability.provider,
-                    "fallback_reason": result.capability.fallback_reason,
-                    "feature": feature,
-                },
             )
         else:
             alert(

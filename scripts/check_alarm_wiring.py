@@ -75,6 +75,7 @@ from pathlib import Path
 
 from apps.api.core.alarm_severity import ALARM_SEVERITY as _ALARM_SEVERITY
 from apps.api.core.alarm_severity import ALARM_SEVERITY_FAMILIES as _FAMILIES
+from apps.api.core.alarm_severity import REPEAT_WHILE_OPEN_S as _REPEAT_WHILE_OPEN_S
 from apps.api.core.alarm_severity import SEVERITIES
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -716,6 +717,48 @@ def broken_runbook_citations() -> list[str]:
     return failures
 
 
+#: The reminder registry, bound at module scope for `CLASSIFIED`'s reason.
+REPEATING: dict[str, float] = dict(_REPEAT_WHILE_OPEN_S)
+
+#: Shorter than this, a reminder is the 26-message thread D-591 removed; the delivery
+#: thread only sees an ongoing condition once per `ALERT_REPEAT_INTERVAL_S` anyway.
+MIN_REPEAT_S = 900.0
+
+
+def repeat_failures(
+    raised: dict[str, set[str]] | None = None,
+    classified: dict[str, str] | None = None,
+    repeating: dict[str, float] | None = None,
+) -> list[str]:
+    """Every REPEAT_WHILE_OPEN_S entry is a raised `page` with a sane interval.
+
+    A reminder on a code that does not mail is a promise of an email that cannot be sent,
+    and a reminder on a code nothing raises reads as evidence that an alarm exists.
+    """
+    raised = raised_codes()[0] if raised is None else raised
+    registry = CLASSIFIED if classified is None else classified
+    entries = REPEATING if repeating is None else repeating
+    failures: list[str] = []
+    for code, interval in sorted(entries.items()):
+        if code not in raised:
+            failures.append(
+                f"REPEATS, NEVER RAISED: REPEAT_WHILE_OPEN_S names `{code}` and nothing in the "
+                "tree raises it."
+            )
+        if registry.get(code) != "page":
+            failures.append(
+                f"REPEATS, NEVER MAILS: REPEAT_WHILE_OPEN_S names `{code}`, which is "
+                f"`{registry.get(code)}`, not `page`. Only a `page` mails, so the reminder "
+                "could never be sent."
+            )
+        if interval < MIN_REPEAT_S:
+            failures.append(
+                f"REPEATS TOO OFTEN: `{code}` re-mails every {interval:.0f}s; the floor is "
+                f"{MIN_REPEAT_S:.0f}s."
+            )
+    return failures
+
+
 def evaluate() -> list[str]:
     failures: list[str] = []
     codes, stages, scan_failures = raised_codes()
@@ -763,6 +806,7 @@ def evaluate() -> list[str]:
 
     failures.extend(stage_disagreements(stages, documented_stages()))
     failures.extend(severity_failures(codes, CLASSIFIED))
+    failures.extend(repeat_failures(codes, CLASSIFIED))
     failures.extend(broken_runbook_citations())
     failures.extend(dangling_names({*codes, *documented, *metrics, *documented_metric_names}))
     return failures

@@ -262,6 +262,9 @@ _APPEND_ONLY_PROBE_SET = {
     # probe that could fail on the constraint instead of on the trigger would report a
     # protected ledger as protected for the wrong reason (`fx_rate_observations`' own note).
     "platform_tts_prices": "source_note = source_note || 'x'",
+    # Not tenant-scoped either; `source_note` for `platform_tts_prices`' reason (the prices
+    # carry `ck_platform_inr_llm_prices_positive`).
+    "platform_inr_llm_prices": "source_note = source_note || 'x'",
     # D-547 Phase D.3: not tenant-scoped either, for `platform_model_prices`' reason.
     # `source_note` rather than `plan_inr`, which carries
     # `ck_platform_tts_plan_fees_positive`, or `month`, which carries the month-shape CHECK
@@ -808,6 +811,10 @@ class RestoreDrill:
             "INSERT INTO platform_tts_plan_fees (provider, month, effective_from, plan_inr, "
             "attested_by, source_note) VALUES ('cartesia', '2026-01', now(), 4312.00, "
             f"'{ADMIN_ID}', 'restore-drill fixture')",
+            # One attested INR LLM price, for the same reason. A FIXTURE.
+            "INSERT INTO platform_inr_llm_prices (model, effective_from, in_inr_per_mtok, "
+            "out_inr_per_mtok, attested_by, source_note) VALUES ('sarvam-105b', now(), "
+            f"29.280000, 73.200000, '{ADMIN_ID}', 'restore-drill fixture')",
             # D-678: one attested engine minute price, for the same reason. A FIXTURE.
             "INSERT INTO platform_engine_minute_prices (engine, rate_key, effective_from, "
             "inr_per_min, attested_by, source_note) VALUES ('thinnest', 'platform', now(), "

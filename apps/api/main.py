@@ -208,6 +208,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.model_price_routes import (
         embedding_router as ops_embedding_prices_router,
     )
+    from apps.api.ops.model_price_routes import inr_llm_router as ops_inr_llm_prices_router
     from apps.api.ops.model_price_routes import router as ops_model_prices_router
     from apps.api.ops.model_price_routes import tts_router as ops_tts_prices_router
     from apps.api.ops.routes import router as ops_router
@@ -527,6 +528,8 @@ def _mount_routers(application: FastAPI) -> None:
     # model price, and the same module because it is the same panel and the same act
     # (`ops/model_price_routes.tts_router`).
     application.include_router(ops_tts_prices_router)
+    # The RUPEE-billed platform LLM price (Sarvam), on the same panel for the same act.
+    application.include_router(ops_inr_llm_prices_router)
     # The per-minute ENGINE price (D-678): an engine that reports no cost per call is
     # metered only at a rate an operator attested (`billing/engine_minutes.py`).
     application.include_router(ops_engine_minute_prices_router)

@@ -455,9 +455,12 @@ describe("§5.7 defect 9 — a dropped connection and a dead session are differe
       />,
     );
     // BUILD-LOG §52: loading is a loading state, and a screen reader is not left on
-    // silence while it happens.
-    expect(view.container.querySelector('[role="status"]')).not.toBeNull();
-    expect(view.container.textContent).toContain("Nothing has been signed out");
+    // silence while it happens. REDESIGN-2 draws it as a quiet skeleton: the words are for
+    // the screen reader, so they live in the status and nowhere visible.
+    const status = view.container.querySelector('[role="status"]');
+    expect(status).not.toBeNull();
+    expect(status?.textContent).toContain("Checking your operator console session");
+    expect(status?.querySelector(".sr-only")?.textContent).toContain("Checking your");
   });
 });
 

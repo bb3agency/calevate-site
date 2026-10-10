@@ -1395,7 +1395,7 @@ describe("an action that can be undone (D-694)", () => {
 });
 
 describe("live tool-execution visibility", () => {
-  it("SHOWS ONE ROW PER CALL, updated in place, with the tool and how long it took", async () => {
+  it("SHOWS ONE ROW PER CALL, updated in place, in words rather than a tool name", async () => {
     const running = {
       id: "r1",
       tool: "campaigns_list",
@@ -1403,12 +1403,14 @@ describe("live tool-execution visibility", () => {
       args: '{"limit":5}',
       detail: null,
       elapsed_ms: null,
+      label: "Checking your campaigns…",
     };
     const finished = {
       ...running,
       status: "done",
       detail: "2 campaigns.",
       elapsed_ms: 84,
+      label: "Checked your campaigns",
     };
     stubCopilot({
       chunks: [
@@ -1423,9 +1425,12 @@ describe("live tool-execution visibility", () => {
 
     // ONE row for one call: the terminal frame REPLACED its own `running` one rather than
     // following it, which is what keeps a two-lookup turn from looking like four.
-    expect((await screen.findAllByText("campaigns_list")).length).toBe(1);
+    const line = await screen.findByRole("button", { name: /Checked 1 thing/ });
+    fireEvent.click(line);
+    expect(screen.getAllByText("Checked your campaigns").length).toBe(1);
     expect(screen.getAllByText("2 campaigns.").length).toBe(1);
-    expect(screen.getAllByText("84 ms").length).toBe(1);
+    expect(screen.queryByText("campaigns_list")).toBeNull();
+    expect(screen.queryByText("84 ms")).toBeNull();
   });
 });
 

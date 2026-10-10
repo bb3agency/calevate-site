@@ -308,6 +308,30 @@
 }
 
 /*
+ * THE ASSISTANT'S ANSWER ARRIVING (`components/copilot/answerText.tsx`). Each new block
+ * fades in once: opacity with a 2px blur and lift, 200 ms. Only under no-preference, so
+ * reduced motion shows the text at once; `both` keeps a delayed block hidden until its turn.
+ */
+@keyframes answer-in {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+}
+
+@utility answer-reveal {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: answer-in 200ms var(--ease-out-strong) both;
+  }
+}
+
+/*
  * A PANE THAT REPLACES ANOTHER — a settings section, a step of a flow. It fades up 4px as
  * it mounts (`@starting-style`, so keying the element on the section is the trigger).
  * There is no exit: the old pane unmounts at once, which is the right asymmetry. Reduced

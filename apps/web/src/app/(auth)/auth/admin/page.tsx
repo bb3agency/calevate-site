@@ -25,26 +25,27 @@
  * holds, and verifying the address the six-digit code is sent to.
  */
 
-import { useCallback } from "react";
+import type { ReactNode } from "react";
 
-import { useMutation } from "@tanstack/react-query";
+import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { LogOut, ShieldCheck, Smartphone } from "lucide-react";
 
 import { Providers } from "@/app/providers";
 import { AuthPageFrame } from "@/components/authPage";
+import { BACK_LINK, EmailRow, SessionsSection } from "@/components/authn/accountSections";
 import { AdminIdleTimeoutModal } from "@/components/authn/adminIdleTimeoutModal";
-import { ChangePasswordForm } from "@/components/authn/changePasswordForm";
-import { EmailVerificationPanel } from "@/components/authn/emailVerificationPanel";
+import { PasswordRow } from "@/components/authn/passwordRow";
+import { AccountPageSkeleton } from "@/components/authn/skeletons";
 import { StepUpPrompt } from "@/components/authn/stepUpPrompt";
-import { AuthProblemNotice } from "@/components/authn/fields";
-import { DANGER_BUTTON, NoticeBox, SECONDARY_BUTTON } from "@/components/ui";
+import { Section } from "@/components/console/section";
+import { SettingRows } from "@/components/console/settingRow";
+import { StatusPill } from "@/components/console/statusPill";
 import {
+  ADMIN_CONSOLE_PATH,
   ADMIN_SIGN_IN_PATH,
   adminAuthn,
   changeAdminPassword,
 } from "@/lib/authn/adminAuthn";
-import { ADMIN_CONSOLE_PATH } from "@/lib/authn/adminAuthn";
 import { adminConsoleUrl } from "@/lib/consoleOrigin";
 import {
   AdminSessionGate,
@@ -56,14 +57,18 @@ export default function AdminSessionPage() {
   return (
     <Providers>
       <AdminSessionProvider>
-        <AuthPageFrame realmLabel="Operator console">
-          <div className="space-y-4">
-            <h1 className="text-2xl font-semibold tracking-tight text-ink">
-              Your operator session
-            </h1>
-            <AdminSessionGate>
+        <AuthPageFrame realmLabel="Operator console" width="wide" ground="surface">
+          <div>
+            <header className="space-y-3">
+              <Link href={adminConsoleUrl(ADMIN_CONSOLE_PATH)} className={BACK_LINK}>
+                <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
+                Back to the operator console
+              </Link>
+              <h1 className="text-title text-ink">Your operator account</h1>
+            </header>
+            <AdminGate>
               <AdminSessionBody />
-            </AdminSessionGate>
+            </AdminGate>
           </div>
         </AuthPageFrame>
       </AdminSessionProvider>
@@ -71,119 +76,55 @@ export default function AdminSessionPage() {
   );
 }
 
+/** The realm's fail-closed gate, with this page's own skeleton for the wait. */
+function AdminGate({ children }: { children: ReactNode }) {
+  const { status } = useAdminSession();
+  if (status === "restoring") return <AccountPageSkeleton />;
+  return <AdminSessionGate>{children}</AdminSessionGate>;
+}
+
 function AdminSessionBody() {
   const { session, retry } = useAdminSession();
 
-  const leave = useCallback(() => {
-    window.location.assign(ADMIN_SIGN_IN_PATH);
-  }, []);
-
-  const signOut = useMutation({ mutationFn: () => adminAuthn.signOut(), onSuccess: leave });
-  const signOutAll = useMutation({
-    mutationFn: () => adminAuthn.signOutEverywhere(),
-    onSuccess: leave,
-  });
-
   return (
     <>
-      {/* Enabled only while there is a session to protect — no listeners and no timers on
+      {/* Enabled only while there is a session to protect: no listeners and no timers on
           a signed-out page. */}
       <AdminIdleTimeoutModal enabled={session !== null} />
-      {/* THE PROMPT HAS TO BE MOUNTED SOMEWHERE ON THIS PAGE, and this page is outside
-          `app/admin/layout.tsx` (the shell that mounts it for the console). Without it
-          `requireStepUp` would return a promise nobody can ever settle: the password
-          change would hang on a stale second factor with no way to prove one — the same
-          deadlock `lib/api/session.tsx` records for the client shell. */}
+      {/* The step-up prompt has to be mounted on this page, which is outside
+          `app/admin/layout.tsx`: without it `requireStepUp` returns a promise nobody can
+          settle, and the password change hangs on a stale second factor. */}
       <StepUpPrompt />
 
-      <div className="divide-y divide-line [&>*]:py-6 [&>*:first-child]:pt-0">
-      <div>
-        <div className="space-y-3 text-body text-ink-muted">
-          <NoticeBox
-            tone="ok"
-            icon={<ShieldCheck aria-hidden className="h-4 w-4" />}
-            title="You are signed in to the operator console"
-          >
-            <p className="mt-1">
-              Two-factor authentication is complete on this session. It ends by itself
-              after 30 minutes without activity, and after 8 hours regardless.
-            </p>
-          </NoticeBox>
-          <p>
-            This console warns you a few minutes before an idle session ends, so you can
-            keep it open without losing what you were doing.
-          </p>
+      {session?.mfa_complete ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <StatusPill tone="ok">Two-factor complete</StatusPill>
         </div>
-      </div>
+      ) : null}
 
-      <div>
-        <div className="space-y-3">
-          <h2 className="text-heading text-ink">Email address</h2>
-          <EmailVerificationPanel
-            authn={adminAuthn}
-            verified={session?.email_verified ?? false}
-            onVerified={retry}
-          />
-        </div>
-      </div>
+      <div className="mt-10 space-y-10">
+        <Section title="Sign-in">
+          <SettingRows className="border-y border-line">
+            <EmailRow
+              authn={adminAuthn}
+              verified={session?.email_verified ?? false}
+              onVerified={retry}
+            />
+            {/* `changeAdminPassword`, not `adminAuthn.changePassword`: this realm's route
+                also requires a second factor proved in the last 30 minutes, and the
+                wrapper turns that refusal into the step-up prompt instead of a dead end. */}
+            <PasswordRow realm="admin" changePassword={changeAdminPassword} />
+          </SettingRows>
+        </Section>
 
-      <div>
-        <div className="space-y-3">
-          <h2 className="text-heading text-ink">Change password</h2>
-          {/* `changeAdminPassword`, not `adminAuthn.changePassword`: this realm's route
-              also requires a second factor proved in the last 30 minutes, and the wrapper
-              is what turns that refusal into the prompt below instead of a dead end. */}
-          <ChangePasswordForm realm="admin" changePassword={changeAdminPassword} />
-        </div>
+        <SessionsSection
+          authn={adminAuthn}
+          signInPath={ADMIN_SIGN_IN_PATH}
+          lifetime="A session ends after 30 minutes without activity, and after 8 hours regardless. You are warned a few minutes before an idle session ends."
+          everywhereHint="Use it if a laptop or phone has gone missing."
+          everywhereConsequence="Every operator session on this account ends, on every device, including this one. You will need your password and an emailed code to sign in again."
+        />
       </div>
-
-      <div>
-        <div className="space-y-3 text-body text-ink-muted">
-          <h2 className="text-heading text-ink">Ending sessions</h2>
-          <p>
-            Signing out ends this browser&apos;s session. Signing out everywhere ends every
-            operator session on this account, on every device — use it if a laptop or phone
-            has gone missing.
-          </p>
-          <AuthProblemNotice error={signOut.error ?? signOutAll.error} />
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className={SECONDARY_BUTTON}
-              disabled={signOut.isPending || signOutAll.isPending}
-              onClick={() => {
-                if (signOut.isPending) return;
-                signOut.mutate();
-              }}
-            >
-              <LogOut aria-hidden className="h-4 w-4" />
-              {signOut.isPending ? "Signing out…" : "Sign out"}
-            </button>
-            <button
-              type="button"
-              className={DANGER_BUTTON}
-              disabled={signOut.isPending || signOutAll.isPending}
-              onClick={() => {
-                if (signOutAll.isPending) return;
-                signOutAll.mutate();
-              }}
-            >
-              <Smartphone aria-hidden className="h-4 w-4" />
-              {signOutAll.isPending ? "Signing out…" : "Sign out everywhere"}
-            </button>
-          </div>
-        </div>
-      </div>
-      </div>
-
-      <p className="text-body text-ink-muted">
-        <Link
-          href={adminConsoleUrl(ADMIN_CONSOLE_PATH)}
-          className="text-brand-strong underline underline-offset-2 dark:text-brand-bright"
-        >
-          Open the operator console
-        </Link>
-      </p>
     </>
   );
 }

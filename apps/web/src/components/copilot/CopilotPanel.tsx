@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Eraser, Undo2, X } from "lucide-react";
+import { Eraser, Info, Undo2, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 
 import { AcceptChargeDialog, extraUnavailableSentence } from "@/components/aiExtraDialog";
@@ -450,7 +450,12 @@ export function CopilotPanel({
                 {turn.content}
               </p>
             ) : (
-              <AnswerText key={turn.id ?? turn.localKey ?? `at-${index}`} text={turn.content} />
+              <AnswerText
+                key={turn.id ?? turn.localKey ?? `at-${index}`}
+                text={turn.content}
+                // Said in THIS session (a stored turn has an id): fade it in once.
+                reveal={turn.id == null && turn.localKey !== undefined}
+              />
             ),
           )}
           {/* THE ANSWER ARRIVING — the one thing in this panel that is announced.
@@ -484,7 +489,7 @@ export function CopilotPanel({
               conversation.streaming !== "" && (
                 // Through the SAME renderer as a finished answer, so a list does not
                 // arrive as asterisks and then reflow into bullets when the stream ends.
-                <AnswerText text={conversation.streaming} />
+                <AnswerText text={conversation.streaming} reveal />
               )
             ))}
           </div>
@@ -495,7 +500,14 @@ export function CopilotPanel({
             would talk over the answer — which is the thing a screen-reader user is waiting
             for and which IS announced. Kept after the answer has arrived too, so a person
             can still see which of their data was read and what each lookup returned. */}
-        <StepList steps={conversation.steps} />
+        <StepList
+          steps={conversation.steps}
+          answer={
+            conversation.streaming ??
+            conversation.turns.findLast((turn) => turn.role === "assistant")?.content ??
+            ""
+          }
+        />
 
         {/* A CHANGE THE ASSISTANT IS OFFERING TO MAKE — not one it has made.
             `aria-live="polite"` on the wrapper rather than focus management on the card:
@@ -571,7 +583,10 @@ export function CopilotPanel({
             disclosure sentence (D-127 G-6), and a console that paraphrases it is a
             console making its own claim about what happened to the data. */}
         {conversation.disclosure !== null && (
-          <p className="text-xs text-ink-faint">{conversation.disclosure}</p>
+          <p className="flex items-start gap-1.5 text-meta text-ink-muted">
+            <Info aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-faint" />
+            <span>{conversation.disclosure}</span>
+          </p>
         )}
 
         {/* WITH SOMETHING TO DO ABOUT IT. A stream that died mid-answer is

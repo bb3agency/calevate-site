@@ -131,6 +131,7 @@ EXPECTED: dict[str, dict[str, Any]] = {
             # `None` while the step is running AND when nothing was timed at all — a
             # refusal that ran nothing reports no duration rather than "0 ms".
             "elapsed_ms": '{"anyOf": [{"type": "integer"}, {"type": "null"}]}',
+            "label": '{"anyOf": [{"type": "string"}, {"type": "null"}]}',
         },
         "required": ["args", "id", "status", "tool"],
     },

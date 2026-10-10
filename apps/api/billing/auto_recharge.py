@@ -291,16 +291,22 @@ async def save_auto_recharge(
                 "payment.",
                 remediation="Lower the recharge amount, or approve a new payment method.",
             )
+    # The INSERT arm always proposes `enabled = false` and only the UPDATE arm takes `:en`:
+    # Postgres checks CHECK constraints on the proposed row BEFORE it detects the conflict,
+    # so proposing `enabled = true` with no token trips
+    # `ck_auto_recharge_settings_enabled_needs_confirmed_token` even when the existing row
+    # holds a confirmed one. Switching on needs that row (refused above), so the INSERT arm
+    # is only ever reached with `enabled` False.
     await session.execute(
         text(
             "INSERT INTO auto_recharge_settings (id, tenant_id, enabled, threshold_inr, "
-            "amount_inr, monthly_cap_inr) VALUES (:id, :tid, :en, :th, :amt, :cap) "
-            "ON CONFLICT (tenant_id) DO UPDATE SET enabled = EXCLUDED.enabled, "
+            "amount_inr, monthly_cap_inr) VALUES (:id, :tid, false, :th, :amt, :cap) "
+            "ON CONFLICT (tenant_id) DO UPDATE SET enabled = CAST(:en AS boolean), "
             "threshold_inr = EXCLUDED.threshold_inr, amount_inr = EXCLUDED.amount_inr, "
             "monthly_cap_inr = EXCLUDED.monthly_cap_inr, "
-            "consecutive_failures = CASE WHEN EXCLUDED.enabled "
+            "consecutive_failures = CASE WHEN CAST(:en AS boolean) "
             "THEN 0 ELSE auto_recharge_settings.consecutive_failures END, "
-            "disabled_reason = CASE WHEN EXCLUDED.enabled THEN NULL "
+            "disabled_reason = CASE WHEN CAST(:en AS boolean) THEN NULL "
             "ELSE auto_recharge_settings.disabled_reason END, updated_at = now()"
         ),
         {

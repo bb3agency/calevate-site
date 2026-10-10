@@ -52,6 +52,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
 from apps.api.billing.rates import llm_price_is_billable
+from apps.api.core import provider_health
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.workers import chat
@@ -255,12 +256,13 @@ async def _vectors_for(
     A width that disagrees drops the ROW and not the batch: one malformed vector among
     sixteen is one entry the dense arm cannot reach, which is a state the format already has.
     """
-    outcome = await chat.embed(
-        leg,
-        [embedding_input(entry) for entry in batch],
-        dimensions=EMBEDDING_DIMS,
-        timeout_s=EMBED_TIMEOUT_S,
-    )
+    async with provider_health.watch("embeddings", chat.provider_of(leg)):
+        outcome = await chat.embed(
+            leg,
+            [embedding_input(entry) for entry in batch],
+            dimensions=EMBEDDING_DIMS,
+            timeout_s=EMBED_TIMEOUT_S,
+        )
     if outcome.usage is not None:
         await record_ai_assist_usage(
             session,

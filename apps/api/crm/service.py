@@ -2272,6 +2272,17 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
         )
     ).first()
 
+    # The week before, for the "more than the week before" comparisons. Its own statement
+    # because the main one's window IS its WHERE clause (D-215); this one is bounded the
+    # same way, one week earlier, so `ix_calls_tenant_started` serves both.
+    since_14d = since_7d - timedelta(days=7)
+    calls_prev = (
+        await session.execute(
+            text("SELECT count(*) FROM calls WHERE started_at >= :start AND started_at < :end"),
+            {"start": since_14d, "end": since_7d},
+        )
+    ).scalar_one()
+
     sentiment = (
         await session.execute(
             text(
@@ -2294,10 +2305,11 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
         await session.execute(
             text(
                 "SELECT count(*) FILTER (WHERE created_at >= :since) AS new_leads, "
-                "count(*) FILTER (WHERE status = 'hot') AS hot_open "
+                "count(*) FILTER (WHERE status = 'hot') AS hot_open, "
+                "count(*) FILTER (WHERE created_at >= :prev AND created_at < :since) AS prev "
                 "FROM leads WHERE deleted_at IS NULL"
             ),
-            {"since": since_7d},
+            {"since": since_7d, "prev": since_14d},
         )
     ).first()
     daily = (
@@ -2349,6 +2361,8 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
         outcome_split={row[0]: int(row[1]) for row in outcome},
         leads_new_7d=int(leads[0] or 0) if leads else 0,
         hot_leads_open=int(leads[1] or 0) if leads else 0,
+        calls_prev_7d=int(calls_prev or 0),
+        leads_new_prev_7d=int(leads[2] or 0) if leads else 0,
         minutes_used_month=counters.minutes_used,
         # Named columns rather than positional: six of them, and a chart that swaps
         # `failed` for `no_answer` is wrong in a way nobody reading it would notice.

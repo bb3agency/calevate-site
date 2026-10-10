@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import ClientAccountPage from "@/app/(auth)/auth/account/page";
@@ -28,6 +28,8 @@ const ME = {
   role: "owner",
   permissions: ["org:read", "org:manage"],
   impersonating: false,
+  email: "lakshmi@example.com",
+  name: "Lakshmi Rao",
   organization: {
     id: "0192f0aa-0000-7000-8000-0000000000d1",
     name: "Sri Lakshmi Dental",
@@ -53,6 +55,14 @@ afterEach(() => {
 });
 
 describe("the account this session is in", () => {
+  it("names the person by the name and address the server answered with", async () => {
+    await renderPage({ "/v1/me": ME });
+
+    expect(await screen.findByText("Lakshmi Rao")).toBeTruthy();
+    expect(screen.getByText("lakshmi@example.com")).toBeTruthy();
+  });
+
+
   it("names the account and the role the server answered with", async () => {
     await renderPage({ "/v1/me": ME });
 
@@ -93,7 +103,7 @@ describe("the account this session is in", () => {
     // The refusal is on screen…
     expect(
       await screen.findByText(
-        /this is the separate read that says which account/,
+        /the separate read that says which account/,
       ),
     ).toBeTruthy();
     // …and nothing on the page claims an account, a role or a slug. A placeholder here is
@@ -101,6 +111,8 @@ describe("the account this session is in", () => {
     expect(screen.queryByText("Sri Lakshmi Dental")).toBeNull();
     expect(screen.queryByText("Your role")).toBeNull();
     expect(screen.queryByText("—")).toBeNull();
+    // …with a way to ask again, in place.
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
     // The session itself is untouched by a failed identity read: the controls this page
     // exists for are all still there.
     expect(
@@ -111,7 +123,7 @@ describe("the account this session is in", () => {
   it("offers the way back to the console, through the junction that resolves it", async () => {
     await renderPage({ "/v1/me": ME });
 
-    const back = await screen.findByRole("link", { name: "Open your console" });
+    const back = await screen.findByRole("link", { name: "Back to your console" });
     // `/c`, not `/c/<slug>`: the junction is the one place "which console is mine" is
     // answered, and it stays right in the case a slug-built link would be dead — the read
     // that failed.
@@ -123,9 +135,38 @@ describe("the account this session is in", () => {
 
     expect(
       await screen.findByText(
-        "It is the only address we email a code or a password reset link to, so keep it one you can open.",
+        "Sign-in codes and password reset links only go here.",
       ),
     ).toBeTruthy();
+    expect(screen.getByText("Verified")).toBeTruthy();
     expect(screen.queryByText("Nothing to do here.")).toBeNull();
+  });
+});
+
+describe("ending every session", () => {
+  it("asks first, and keeps a refusal inside the question", async () => {
+    const calls = await renderPage({
+      "/v1/me": ME,
+      "POST /v1/auth/client/logout/all": problem(503, {
+        type: "urn:calevate:common/unavailable",
+        title: "Service unavailable",
+        detail: "We could not reach the sign-in service.",
+        kind: "server",
+      }),
+    });
+
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "Sign out everywhere" }));
+    });
+    // One click opens the question; nothing has been sent yet.
+    const dialog = screen.getByRole("dialog", { name: "Sign out everywhere?" });
+    expect(calls.some((c) => c.path.endsWith("/logout/all"))).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Sign out everywhere" }));
+    });
+    expect(calls.some((c) => c.path.endsWith("/logout/all"))).toBe(true);
+    // The refusal is where the decision is being made, not behind a closed dialog.
+    expect(await within(dialog).findByText(/could not reach the sign-in service/)).toBeTruthy();
   });
 });

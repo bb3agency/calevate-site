@@ -1,40 +1,36 @@
 "use client";
 
 /**
- * `/auth/account` — a client user's own session: verify the address, end sessions (D-174).
+ * `/auth/account`: a client user's own sign-in. Verify the address, change the password,
+ * end sessions (D-174).
  *
- * The client-realm twin of `/auth/admin`, and it mounts this realm's §5.5 quartet so none
- * of it is unrendered. What it does NOT carry is the idle-timeout modal: §5.6 puts that on
- * the admin realm only, and `REALM_TIMEOUTS` says why — 30 minutes idle there against 12
- * hours here, "because their blast radii differ by an order of magnitude". A modal warning
- * a clinic receptionist twice a day is a control that teaches people to dismiss controls.
+ * The client-realm twin of `/auth/admin`. It does not carry the idle-timeout modal: §5.6
+ * puts that on the admin realm only (30 minutes idle there against 12 hours here, because
+ * the blast radii differ by an order of magnitude).
  *
  * It is not the client dashboard: that lives at `/c/<slug>` and authenticates with the
- * SAME session this page manages — `core/auth.py` reads the realm's `__Host-` cookie
- * (`authn/cookies.read_token`) and D-177 left no identity vendor behind it. This note
- * used to say the dashboard "still authenticates through Clerk, because
- * `apps/api/core/auth.py` does not yet read the first-party session cookie"; that was the
- * migration state, and it closed.
+ * same first-party session this page manages (`authn/cookies.read_token`, D-177).
+ *
+ * Layout (REDESIGN-2): a header naming the person and the account, then label–value
+ * settings rows in three plain sections on the white ground. No cards, no always-open
+ * forms; the password form opens in place from its row, and "Sign out everywhere" asks.
  */
 
-import { useCallback } from "react";
+import type { ReactNode } from "react";
 
-import { useMutation, type UseQueryResult } from "@tanstack/react-query";
+import type { UseQueryResult } from "@tanstack/react-query";
+import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { Building2, LogOut, ShieldCheck, Smartphone, UserRound } from "lucide-react";
 
 import { Providers } from "@/app/providers";
 import { AuthPageFrame } from "@/components/authPage";
-import { ChangePasswordForm } from "@/components/authn/changePasswordForm";
-import { EmailVerificationPanel } from "@/components/authn/emailVerificationPanel";
+import { BACK_LINK, EmailRow, SessionsSection } from "@/components/authn/accountSections";
 import { AuthProblemNotice } from "@/components/authn/fields";
-import {
-  Card,
-  Fact,
-  NoticeBox,
-  SECONDARY_BUTTON,
-  Skeleton,
-} from "@/components/ui";
+import { PasswordRow } from "@/components/authn/passwordRow";
+import { AccountPageSkeleton, AccountRowsSkeleton, IdentityBars } from "@/components/authn/skeletons";
+import { Section, TEXT_ACTION } from "@/components/console/section";
+import { SettingRow, SettingRows } from "@/components/console/settingRow";
+import { StatusPill } from "@/components/console/statusPill";
 import type { Me } from "@/lib/api/client";
 import { useUnscopedMe } from "@/lib/api/hooks";
 import { CLIENT_SIGN_IN_PATH, clientAuthn } from "@/lib/authn/clientAuthn";
@@ -48,12 +44,21 @@ export default function ClientAccountPage() {
   return (
     <Providers>
       <ClientSessionProvider>
-        <AuthPageFrame realmLabel="Client console">
-          <div className="space-y-4">
-            <h1 className="text-2xl font-semibold tracking-tight text-ink">Your account</h1>
-            <ClientSessionGate>
+        <AuthPageFrame realmLabel="Client console" width="wide" ground="surface">
+          <div>
+            {/* `/c` rather than `/c/<slug>`, even when the slug is on screen: `/c` is the
+                junction that resolves "which console is mine" and already renders every
+                failure of that question, including the read this page could not make. */}
+            <header className="space-y-3">
+              <Link href="/c" className={BACK_LINK}>
+                <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
+                Back to your console
+              </Link>
+              <h1 className="text-title text-ink">Your account</h1>
+            </header>
+            <AccountGate>
               <ClientAccountBody />
-            </ClientSessionGate>
+            </AccountGate>
           </div>
         </AuthPageFrame>
       </ClientSessionProvider>
@@ -61,158 +66,108 @@ export default function ClientAccountPage() {
   );
 }
 
+/**
+ * The realm's fail-closed gate, except that the wait is drawn as this page's own skeleton.
+ * Every other state (unreachable, partial, signed out) is the shared gate's.
+ */
+function AccountGate({ children }: { children: ReactNode }) {
+  const { status } = useClientSession();
+  if (status === "restoring") return <AccountPageSkeleton />;
+  return <ClientSessionGate>{children}</ClientSessionGate>;
+}
+
 function ClientAccountBody() {
   const { session, retry } = useClientSession();
-  // WHICH ACCOUNT THIS SESSION IS IN, from the server — the one thing this page could not
-  // previously say. The session itself carries a realm, a subject id and a verified flag
-  // and nothing a person recognises, so "Your account" named no account: an owner of two
-  // businesses, or a colleague invited to one, had no way to tell from this screen whose
-  // account they were about to change the password on.
-  //
-  // `useUnscopedMe` rather than `useMe(session)`: this page is inside a session and
-  // outside an account, and has no slug to key by (`lib/api/hooks.ts`).
+  // Who this is and which account the session is in, from the server: the session row
+  // itself carries a realm, a subject id and a verified flag, nothing a person recognises.
+  // `useUnscopedMe` because this page is inside a session and outside an account.
   const me = useUnscopedMe();
-
-  const leave = useCallback(() => {
-    window.location.assign(CLIENT_SIGN_IN_PATH);
-  }, []);
-
-  const signOut = useMutation({ mutationFn: () => clientAuthn.signOut(), onSuccess: leave });
-  const signOutAll = useMutation({
-    mutationFn: () => clientAuthn.signOutEverywhere(),
-    onSuccess: leave,
-  });
 
   return (
     <>
-      <Card>
-        <div className="space-y-4 text-sm text-ink-muted">
-          <NoticeBox
-            tone="ok"
-            icon={<ShieldCheck aria-hidden className="h-4 w-4" />}
-            title="You are signed in"
-          >
-            <p className="mt-1">
-              This session ends by itself after 12 hours without activity, and after 14 days
-              regardless.
-            </p>
-          </NoticeBox>
-          <WhoseAccount me={me} />
-        </div>
-      </Card>
+      <Identity me={me} />
 
-      <Card>
-        <div className="space-y-3">
-          <h2 className="text-base font-semibold text-ink">Email address</h2>
-          <EmailVerificationPanel
-            authn={clientAuthn}
-            verified={session?.email_verified ?? false}
-            onVerified={retry}
-          />
-        </div>
-      </Card>
+      <div className="mt-10 space-y-10">
+        <Section title="Sign-in">
+          <SettingRows className="border-y border-line">
+            <EmailRow
+              authn={clientAuthn}
+              email={me.data?.email}
+              verified={session?.email_verified ?? false}
+              onVerified={retry}
+            />
+            {/* The bare call: the client realm has no step-up to answer. */}
+            <PasswordRow
+              realm="client"
+              changePassword={(input) => clientAuthn.changePassword(input)}
+            />
+          </SettingRows>
+        </Section>
 
-      <Card>
-        <div className="space-y-3">
-          <h2 className="text-base font-semibold text-ink">Change password</h2>
-          {/* The CLIENT realm's own call, unwrapped: there is no step-up on this realm to
-              answer — `service.MFA_REQUIRED_REALMS` is `{"admin"}`, so nothing here ever
-              stamps the `mfa_verified_at` a freshness check would read. What proves it is
-              them is the current password, which the API demands on both realms. */}
-          <ChangePasswordForm
-            realm="client"
-            changePassword={(input) => clientAuthn.changePassword(input)}
-          />
-        </div>
-      </Card>
+        <SessionsSection
+          authn={clientAuthn}
+          signInPath={CLIENT_SIGN_IN_PATH}
+          lifetime="A session ends after 12 hours without activity, and after 14 days regardless."
+          everywhereHint="Your phone, other browsers, and this one."
+          everywhereConsequence="Every session on this account ends, on every device, including this one. You will need your password to sign in again."
+        />
 
-      <Card>
-        <div className="space-y-3 text-sm text-ink-muted">
-          <h2 className="text-base font-semibold text-ink">Ending sessions</h2>
-          <p>
-            Signing out ends this browser&apos;s session. Signing out everywhere ends every
-            session on this account, on every device.
-          </p>
-          <AuthProblemNotice error={signOut.error ?? signOutAll.error} />
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className={SECONDARY_BUTTON}
-              disabled={signOut.isPending || signOutAll.isPending}
-              onClick={() => {
-                if (signOut.isPending) return;
-                signOut.mutate();
-              }}
-            >
-              <LogOut aria-hidden className="h-4 w-4" />
-              {signOut.isPending ? "Signing out…" : "Sign out"}
-            </button>
-            <button
-              type="button"
-              className={SECONDARY_BUTTON}
-              disabled={signOut.isPending || signOutAll.isPending}
-              onClick={() => {
-                if (signOutAll.isPending) return;
-                signOutAll.mutate();
-              }}
-            >
-              <Smartphone aria-hidden className="h-4 w-4" />
-              {signOutAll.isPending ? "Signing out…" : "Sign out everywhere"}
-            </button>
-          </div>
-        </div>
-      </Card>
-
-      {/* THE WAY BACK, and there was none. The console links here (the sidebar footer's
-          "Your account"); this page linked nowhere, so verifying an address or changing a
-          password ended on a screen whose only exits were two sign-out buttons. The
-          operator realm already had its twin of this line (`/auth/admin`), which is the
-          precedent this follows rather than a new pattern.
-
-          `/c` rather than `/c/<slug>`, EVEN WHERE THE SLUG IS ON SCREEN ABOVE: `/c` is the
-          junction that resolves "which console is mine" and already renders every failure
-          of that question. A second link built from `me.data` would be a second answer to
-          it, dead in exactly the case the junction handles — the read that failed. */}
-      <p className="text-sm text-ink-muted">
-        <Link
-          href="/c"
-          className="text-brand-strong underline underline-offset-2 dark:text-brand-bright"
-        >
-          Open your console
-        </Link>
-      </p>
+        <Section title="Account">
+          <AccountRows me={me} />
+        </Section>
+      </div>
     </>
   );
 }
 
 /**
- * The account this session is in, and what this person is in it.
- *
- * §52 throughout: in flight is a skeleton, a failed read is a refusal, and neither is an
- * account name. Nothing here is coalesced to a placeholder — a dash where an account name
- * belongs is indistinguishable from a dash where the API is dead, which is the defect the
- * console sidebar had to grow an amber arm for.
+ * The person (name, else address) in the account, and their role in it, under the
+ * heading. In flight is a skeleton and a failed read prints nothing here (the Account
+ * section carries the refusal): a placeholder name cannot be told apart from a dead API.
  */
-function WhoseAccount({ me }: { me: UseQueryResult<Me> }) {
+function Identity({ me }: { me: UseQueryResult<Me> }) {
+  if (me.error != null) return null;
+  if (!me.data) return <IdentityBars />;
+  const { organization, role, name } = me.data;
+  if (!organization && !role) return null;
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-body">
+      {name ? <span className="font-medium text-ink [overflow-wrap:anywhere]">{name}</span> : null}
+      {name && organization ? <span className="text-ink-faint">in</span> : null}
+      {organization && (
+        <span
+          className={`min-w-0 [overflow-wrap:anywhere] ${name ? "text-ink-muted" : "font-medium text-ink"}`}
+        >
+          {organization.name}
+        </span>
+      )}
+      {role && <StatusPill className="capitalize">{role}</StatusPill>}
+    </div>
+  );
+}
+
+/** The account's id and what this person may do in it, or why neither can be shown. */
+function AccountRows({ me }: { me: UseQueryResult<Me> }) {
   if (me.error != null) {
     return (
-      <div className="space-y-2">
+      <div className="space-y-3">
         <AuthProblemNotice error={me.error} />
-        <p>
-          Your sign-in is fine — this is the separate read that says which account it
-          belongs to. Reload to try again. If you belong to more than one Calevate account,
-          open the one you want from its own link: this page can only describe one.
+        <p className="text-meta text-ink-muted">
+          Your sign-in is fine. This is the separate read that says which account it belongs
+          to.{" "}
+          <button type="button" className={TEXT_ACTION} onClick={() => void me.refetch()}>
+            Try again
+          </button>
         </p>
       </div>
     );
   }
-  if (!me.data) return <Skeleton rows={2} label="Reading your account…" />;
+  if (!me.data) return <AccountRowsSkeleton />;
 
-  const organization = me.data.organization;
-  const role = me.data.role;
+  const { organization, role, permissions } = me.data;
   if (!organization && !role) {
     return (
-      <p>
+      <p className="text-body text-ink-muted">
         This sign-in is not attached to an account yet. Ask whoever invited you to send the
         invitation again.
       </p>
@@ -220,33 +175,21 @@ function WhoseAccount({ me }: { me: UseQueryResult<Me> }) {
   }
 
   return (
-    <dl className="grid gap-4 sm:grid-cols-2">
-      {organization && (
-        <Fact
-          label="Account"
-          icon={<Building2 aria-hidden className="h-3.5 w-3.5" />}
-          hint={organization.slug}
-        >
-          {organization.name}
-        </Fact>
-      )}
+    <SettingRows className="border-y border-line">
+      {organization && <SettingRow label="Account ID" value={organization.slug} />}
       {role && (
-        <Fact
-          label="Your role"
-          icon={<UserRound aria-hidden className="h-3.5 w-3.5" />}
-          // DERIVED FROM THE PERMISSIONS THE SERVER SENT, not from the word "owner": the
-          // set is what every gated control on the console previews itself against
-          // (`useWriteAccess`), so the sentence here and the controls there cannot
-          // disagree about what this person may do.
+        <SettingRow
+          label="What you can do"
+          // Derived from the permissions the server sent, not from the role's name: the set
+          // is what every gated console control previews itself against (`useWriteAccess`),
+          // so this sentence and those controls cannot disagree.
           hint={
-            me.data.permissions.includes("org:manage")
+            permissions.includes("org:manage")
               ? "You can change this account's settings and invite colleagues."
               : "Settings, billing and the team are your account owner's to change."
           }
-        >
-          <span className="capitalize">{role}</span>
-        </Fact>
+        />
       )}
-    </dl>
+    </SettingRows>
   );
 }

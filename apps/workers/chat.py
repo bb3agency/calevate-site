@@ -101,6 +101,10 @@ class TokenUsage:
 
     prompt_tokens: int
     output_tokens: int
+    #: How many of `prompt_tokens` the vendor served from its prompt cache — a SUBSET, never
+    #: an addition (OpenAI's `usage.prompt_tokens_details.cached_tokens`). 0 when the
+    #: response does not say. Kept so a leg with a cached-input rate can be reconciled.
+    cached_prompt_tokens: int = 0
 
     def plus(self, other: TokenUsage) -> TokenUsage:
         """The two turns of one multi-turn assist as one metered quantity.
@@ -113,6 +117,7 @@ class TokenUsage:
         return TokenUsage(
             prompt_tokens=self.prompt_tokens + other.prompt_tokens,
             output_tokens=self.output_tokens + other.output_tokens,
+            cached_prompt_tokens=self.cached_prompt_tokens + other.cached_prompt_tokens,
         )
 
 
@@ -143,7 +148,12 @@ def usage_from_body(body: Mapping[str, Any]) -> TokenUsage | None:
     total_out = _count("completion_tokens")
     if total_in == 0 and total_out == 0:
         return None
-    return TokenUsage(prompt_tokens=total_in, output_tokens=total_out)
+    details = raw.get("prompt_tokens_details")
+    cached = details.get("cached_tokens") if isinstance(details, dict) else None
+    cached_in = min(cached, total_in) if isinstance(cached, int) and cached > 0 else 0
+    return TokenUsage(
+        prompt_tokens=total_in, output_tokens=total_out, cached_prompt_tokens=cached_in
+    )
 
 
 #: WHICH VENDOR'S SPELLING OF THE OPENAI CHAT FORMAT A LEG SPEAKS.
@@ -425,6 +435,20 @@ def _tool_calls_of(message: Mapping[str, Any]) -> tuple[ToolCall, ...]:
             )
         )
     return tuple(calls)
+
+
+def provider_of(leg: ChatLeg) -> str:
+    """The provider this leg reaches, in `extraction`'s provider vocabulary.
+
+    For `core/provider_health`, which keys an outage per provider. The `openai` dialect is
+    two vendors, told apart by the ONE builder of the OpenAI-direct endpoint rather than by
+    a host literal (`scripts/check_model_residency.py` grants Azure host literals to one file).
+    """
+    if leg.dialect == "openai":
+        from calevate_shared.engine import openai_base_url
+
+        return "openai" if leg.url.startswith(openai_base_url()) else "azure"
+    return leg.dialect
 
 
 async def complete(
@@ -793,6 +817,7 @@ __all__ = [
     "ToolCall",
     "complete",
     "embed",
+    "provider_of",
     "stream",
     "usage_from_body",
 ]

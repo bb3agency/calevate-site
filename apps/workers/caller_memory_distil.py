@@ -106,6 +106,7 @@ from apps.api.compliance.caller_memory import (
     clean_fact,
     remember,
 )
+from apps.api.core import provider_health
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
@@ -371,17 +372,18 @@ async def _distil_call(
         return 0, False
 
     transcript = "\n".join(f"{row[0]}: {row[1]}" for row in turns)
-    outcome = await chat.complete(
-        leg,
-        [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": transcript},
-        ],
-        timeout_s=DISTIL_TIMEOUT_S,
-        temperature=0,
-        response_format={"type": "json_object"},
-        max_tokens=DISTIL_MAX_TOKENS,
-    )
+    async with provider_health.watch("memory", chat.provider_of(leg)):
+        outcome = await chat.complete(
+            leg,
+            [
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": transcript},
+            ],
+            timeout_s=DISTIL_TIMEOUT_S,
+            temperature=0,
+            response_format={"type": "json_object"},
+            max_tokens=DISTIL_MAX_TOKENS,
+        )
     if outcome.finish_reason == "length":
         # The valve fired. The JSON is truncated, so `facts_of` returns nothing; the log
         # line is what tells an operator a run HIT the ceiling, which means it spent it.

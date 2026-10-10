@@ -4,13 +4,17 @@ import { useState, type ReactNode } from "react";
 import { CheckCircle2, Lock, TriangleAlert } from "lucide-react";
 
 import { MonoValue, TimingBadge, ToneBadge } from "@/app/admin/ops/opsLanguage";
+import { WriteFailure } from "@/app/admin/writeFailure";
+import { ConfirmDialog } from "@/components/confirmDialog";
 import { Drawer } from "@/components/console/drawer";
+import { TEXT_ACTION } from "@/components/console/section";
 import { CopyButton } from "@/components/interior/copy-button";
+import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import { Disclosure, NoticeBox, SECONDARY_BUTTON_SM } from "@/components/ui";
-import type { ConfigField, ConfigWrite } from "@/lib/api/opsConfig";
+import { useRevertConfig, type ConfigField, type ConfigWrite } from "@/lib/api/opsConfig";
 
 import { ConfigForm } from "./ConfigForm";
-import { appliesCopy, displayValue, lockedReason, settingState } from "./configControl";
+import { appliesCopy, confirmPhrase, displayValue, lockedReason, settingState } from "./configControl";
 import { etagOf } from "./configField";
 
 type Access = { allowed: boolean; reason: string | null };
@@ -27,6 +31,7 @@ type Access = { allowed: boolean; reason: string | null };
  */
 export function ConfigRow({ field, access }: { field: ConfigField; access: Access }) {
   const [open, setOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [receipt, setReceipt] = useState<ConfigWrite | null>(null);
   const tag = etagOf(field);
   const state = settingState(field);
@@ -67,6 +72,10 @@ export function ConfigRow({ field, access }: { field: ConfigField; access: Acces
               setReceipt(null);
               setOpen(true);
             }}
+            onReset={() => {
+              setReceipt(null);
+              setResetting(true);
+            }}
           />
         </div>
       </div>
@@ -90,6 +99,18 @@ export function ConfigRow({ field, access }: { field: ConfigField; access: Acces
 
       {!open && receipt && (
         <WriteReceipt write={receipt} field={field} onDismiss={() => setReceipt(null)} />
+      )}
+
+      {resetting && tag !== null && (
+        <ResetDialog
+          field={field}
+          basis={tag}
+          onClose={() => setResetting(false)}
+          onWritten={(write) => {
+            setReceipt(write);
+            setResetting(false);
+          }}
+        />
       )}
 
       <div className="mt-1">
@@ -123,29 +144,113 @@ export function ConfigRow({ field, access }: { field: ConfigField; access: Acces
   );
 }
 
+/** Whether a stored value can be taken away: there is a row, and a default to fall back to. */
+export function canReset(field: ConfigField): boolean {
+  return field.editable && field.source === "db" && field.has_default;
+}
+
+/** "Clear" when the default is no value at all, otherwise "Reset to default". */
+export function resetLabel(field: ConfigField): string {
+  return field.default === null ? "Clear" : "Reset to default";
+}
+
 function RowAction({
   field,
   tag,
   access,
   onOpen,
+  onReset,
 }: {
   field: ConfigField;
   tag: string | null;
   access: Access;
   onOpen: () => void;
+  onReset: () => void;
 }) {
   if (!field.editable || tag === null) return null;
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      disabled={!access.allowed}
-      title={access.reason ?? undefined}
-      aria-label={`Change ${field.label}`}
-      className={`${SECONDARY_BUTTON_SM} shrink-0`}
+    <div className="flex shrink-0 items-center gap-4">
+      {canReset(field) && (
+        <button
+          type="button"
+          onClick={onReset}
+          disabled={!access.allowed}
+          title={access.reason ?? undefined}
+          aria-label={`${resetLabel(field)}: ${field.label}`}
+          className={TEXT_ACTION}
+        >
+          {resetLabel(field)}
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={onOpen}
+        disabled={!access.allowed}
+        title={access.reason ?? undefined}
+        aria-label={`Change ${field.label}`}
+        className={`${SECONDARY_BUTTON_SM} shrink-0`}
+      >
+        Change
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Removing the stored value so the default applies again. Conditional on the version tag
+ * the row was read at, like every write here, and a high-risk setting asks for the value
+ * it returns to, as the form does.
+ */
+function ResetDialog({
+  field,
+  basis,
+  onClose,
+  onWritten,
+}: {
+  field: ConfigField;
+  basis: string;
+  onClose: () => void;
+  onWritten: (write: ConfigWrite) => void;
+}) {
+  const revert = useRevertConfig();
+  const [confirm, setConfirm] = useState("");
+  const high = field.control.risk === "high";
+  const phrase = confirmPhrase(field, field.default);
+  const ready = !high || confirmationMatches(confirm, phrase);
+  const applies = appliesCopy(field);
+  const label = resetLabel(field);
+
+  return (
+    <ConfirmDialog
+      title={field.default === null ? `Clear ${field.label}?` : `Reset ${field.label} to its default?`}
+      confirmLabel={label}
+      pendingLabel="Saving…"
+      pending={revert.isPending}
+      confirmDisabled={!ready}
+      error={null}
+      onCancel={onClose}
+      onConfirm={() => {
+        if (!ready || revert.isPending) return;
+        revert.mutate({ key: field.key, ifMatch: basis }, { onSuccess: onWritten });
+      }}
     >
-      Change
-    </button>
+      <p className="text-ink">
+        {displayValue(field, field.value)} is removed and{" "}
+        <span className="font-semibold">{displayValue(field, field.default)}</span> applies.{" "}
+        {applies.sentence}
+      </p>
+      {high && field.control.risk_reason && <p>{field.control.risk_reason}</p>}
+      <p>The audit log records this as a return to the default.</p>
+      {revert.error && <WriteFailure error={revert.error} actionLabel={label} />}
+      {high && (
+        <TypedConfirmation
+          id={`reset-config-${field.key}`}
+          phrase={phrase}
+          value={confirm}
+          onChange={setConfirm}
+        />
+      )}
+    </ConfirmDialog>
   );
 }
 

@@ -353,6 +353,9 @@ class CopilotStepEvent(BaseModel):
     detail: str | None = None
     #: Wall time for this call. `None` while it is still running.
     elapsed_ms: int | None = None
+    #: What the person reads instead of `tool`: "Searching your calls…" while it runs,
+    #: "Searched your calls" once it has (`step_labels.STEP_LABELS`).
+    label: str | None = None
 
 
 class CopilotActionEvent(BaseModel):

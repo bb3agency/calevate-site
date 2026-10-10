@@ -143,6 +143,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.lots import AiAssistDemand
 from apps.api.billing.models import (
+    ABSORBED_ASSIST_FEATURES,
     AI_ASSIST_UNIT_TYPES,
     FREE_ASSIST_FEATURES,
     KB_INGESTION_FEATURES,
@@ -636,6 +637,50 @@ _USAGE_SQL = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class AiUsage:
+    """One tenant-month of the AI ledger: what it cost us and how many actions."""
+
+    used_inr: Decimal
+    requests: int
+    kb_used_inr: Decimal
+    kb_requests: int
+
+
+async def read_ai_usage(
+    session: AsyncSession, *, tenant_id: UUID, month: str, include_free: bool
+) -> AiUsage:
+    """The month's AI-ledger totals alone, without the plan and allowance reads.
+
+    The fleet money board walks every client and needs only these four figures; running
+    `read_ai_quota` per client would add three reads each for answers it discards. Both go
+    through `_USAGE_SQL`, so there is still one spelling of the AI ledger's sum.
+    """
+    parse_billing_month(month)
+    row = (
+        await session.execute(
+            text(_USAGE_SQL),
+            {
+                "tid": tenant_id,
+                "units": list(AI_ASSIST_UNIT_TYPES),
+                "kb_features": list(KB_INGESTION_FEATURES),
+                "free_features": (
+                    [] if include_free else [*FREE_ASSIST_FEATURES, *ABSORBED_ASSIST_FEATURES]
+                ),
+                **_month_bounds(month),
+            },
+        )
+    ).one()
+    # `Decimal(str(...))` — never `Decimal(float)` — on the way out of NUMERIC, the same
+    # discipline `billing/terms.py::_money` keeps.
+    return AiUsage(
+        used_inr=Decimal(str(row[0] or 0)),
+        requests=int(row[1] or 0),
+        kb_used_inr=Decimal(str(row[2] or 0)),
+        kb_requests=int(row[3] or 0),
+    )
+
+
 async def read_ai_quota(
     session: AsyncSession,
     *,
@@ -657,26 +702,13 @@ async def read_ai_quota(
     cannot parse is one we cannot honestly report a ceiling for.
     """
     period = month or current_billing_month()
-    parse_billing_month(period)
-
-    row = (
-        await session.execute(
-            text(_USAGE_SQL),
-            {
-                "tid": tenant_id,
-                "units": list(AI_ASSIST_UNIT_TYPES),
-                "kb_features": list(KB_INGESTION_FEATURES),
-                "free_features": [] if include_free else list(FREE_ASSIST_FEATURES),
-                **_month_bounds(period),
-            },
-        )
-    ).one()
-    # `Decimal(str(...))` — never `Decimal(float)` — on the way out of NUMERIC, the same
-    # discipline `billing/terms.py::_money` keeps.
-    used = Decimal(str(row[0] or 0))
-    requests = int(row[1] or 0)
-    kb_used = Decimal(str(row[2] or 0))
-    kb_requests = int(row[3] or 0)
+    usage = await read_ai_usage(
+        session, tenant_id=tenant_id, month=period, include_free=include_free
+    )
+    used = usage.used_inr
+    requests = usage.requests
+    kb_used = usage.kb_used_inr
+    kb_requests = usage.kb_requests
 
     tier = await plan_tier_of(session, tenant_id)
     # The wallet row IS the acceptance record (module docstring), so this read answers
@@ -962,8 +994,12 @@ async def record_ai_assist_usage(
     tokens_out: int,
     model: str,
     feature: str,
+    extra_meta: dict[str, str] | None = None,
 ) -> AssistMetered:
     """Meter one dashboard assist: two `usage_events` rows and the platform counter.
+
+    `extra_meta` adds ids to `meta` (never content): an absorbed standby names the surface
+    it stood in for, a post-call extraction its call, and a cached-input count rides along.
 
     THE ONLY WRITER of `ai_assist_ktok_*`. It is idempotent on `ref` in the DATABASE
     (`ux_usage_events_tenant_unit_ref`), not in a reader's `if`, because the failure it
@@ -1016,7 +1052,15 @@ async def record_ai_assist_usage(
     # gap an operator can see in the platform counter.
     inr_per_ktok = llm_inr_per_ktok(model)
 
-    meta = json.dumps({"kind": ASSIST_META_KIND, "model": model, "feature": feature, "ref": ref})
+    meta = json.dumps(
+        {
+            **(extra_meta or {}),
+            "kind": ASSIST_META_KIND,
+            "model": model,
+            "feature": feature,
+            "ref": ref,
+        }
+    )
     rows = (
         ("ai_assist_ktok_in", ktok(tokens_in), inr_per_ktok["in"]),
         ("ai_assist_ktok_out", ktok(tokens_out), inr_per_ktok["out"]),

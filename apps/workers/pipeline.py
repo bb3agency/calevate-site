@@ -39,6 +39,7 @@ from uuid import UUID
 
 from arq import Retry
 from calevate_shared.engine import (
+    SARVAM_DEFAULT_LLM,
     ExecutionListing,
     ExecutionSnapshot,
     ListingIncompleteReason,
@@ -59,6 +60,7 @@ from apps.api.agents.voices import (
     voice_tier,
     voice_tier_of_provider,
 )
+from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
 from apps.api.billing.caps import (
     CAPS_CTE,
     announce_cap_headroom,
@@ -73,6 +75,7 @@ from apps.api.billing.engine_minutes import (
     engine_minute_cost,
 )
 from apps.api.billing.lots import CallDemand
+from apps.api.billing.models import ASSIST_FEATURE_CALL_EXTRACTION
 from apps.api.billing.plans import (
     OVERAGE_RATE_SECOND_SQL,
     ist_billing_month,
@@ -88,6 +91,7 @@ from apps.api.billing.rates import (
     VoiceTier,
     client_billed_minutes,
     client_billed_seconds,
+    llm_price_is_billable,
     llm_surcharge_applies,
     llm_surcharge_billed_inr,
     prepaid_billed_inr,
@@ -150,10 +154,16 @@ from apps.api.reliability.service import (
 )
 from apps.api.tenancy.engine_workspace import engine_has_workspaces
 from apps.api.worker.service import POSTCALL_DEDUPE_PREFIX, REMETER_DEDUPE_PREFIX
+from apps.workers import extraction as extraction_module
 from apps.workers import storage
 from apps.workers.engine_charges import reconcile_call_charge
 from apps.workers.engine_delivery import execution_truth, post_call_truth, seal_listing
-from apps.workers.extraction import MODEL_FAILURE, extract_call, model_answered
+from apps.workers.extraction import (
+    MODEL_FAILURE,
+    SarvamExtractor,
+    extract_call,
+    model_answered,
+)
 from apps.workers.handoff import settle_handoff
 from apps.workers.moments import derive_moments, merge_moments
 from apps.workers.redaction import redact
@@ -1337,7 +1347,11 @@ async def _post_call_stages(
         )
         reused = extraction is not None
         if needs_extraction and extraction is None:
-            extraction = await extract_call(spec, transcript_text)
+            # Through the module, so a test that substitutes `extraction.get_extractor`
+            # substitutes the pass that is metered too.
+            extractor = extraction_module.get_extractor()
+            extraction = await extract_call(spec, transcript_text, extractor=extractor)
+            await _meter_extraction(tenant_id, call_id, extractor)
         set_span_attributes(
             stage,
             extract_status=(
@@ -1767,6 +1781,44 @@ async def _maybe_record_opt_out(
             signal=signal,
         )
     return "recorded" if record.evidence_written else "already"
+
+
+async def _meter_extraction(tenant_id: UUID, call_id: UUID, extractor: object) -> None:
+    """Record the first post-call extraction pass at OUR cost, when it can be priced.
+
+    Sarvam 105B is priced per token (VENDOR-PUBLISHED, `rates.SARVAM_LLM_PRICE_SOURCE`,
+    read 10 Oct 2026), superseding D-36's "free". The pass is part of serving the call, so
+    it lands under `ASSIST_FEATURE_CALL_EXTRACTION`, which the client's AI allowance never
+    counts. The price is the operator-attested one or nothing (hard rule 7): unattested, or
+    with no usage block, nothing is written — never a `qty = 0` row (D-140).
+
+    In its own transaction after the call: the model was paid whether or not the rest of
+    the pipeline lands, and a ref minted here means a retried pass is recorded again, which
+    is correct because it was paid again.
+    """
+    if not isinstance(extractor, SarvamExtractor) or extractor.last_usage is None:
+        return
+    usage = extractor.last_usage
+    if not llm_price_is_billable(SARVAM_DEFAULT_LLM):
+        log.info(
+            "extraction_cost_unpriced",
+            extra={"call_id": str(call_id), "model": SARVAM_DEFAULT_LLM},
+        )
+        return
+    async with tenant_session(tenant_id) as session:
+        await record_ai_assist_usage(
+            session,
+            tenant_id=tenant_id,
+            ref=new_assist_ref(),
+            tokens_in=usage.prompt_tokens,
+            tokens_out=usage.output_tokens,
+            model=SARVAM_DEFAULT_LLM,
+            feature=ASSIST_FEATURE_CALL_EXTRACTION,
+            extra_meta={
+                "call_id": str(call_id),
+                "cached_prompt_tokens": str(usage.cached_prompt_tokens),
+            },
+        )
 
 
 async def _settled_extraction(

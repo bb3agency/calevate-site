@@ -51,6 +51,7 @@ export function ConfirmDialog({
   pendingLabel,
   cancelLabel = "Cancel",
   pending,
+  confirmDisabled = false,
   error,
   onCancel,
   onConfirm,
@@ -64,6 +65,8 @@ export function ConfirmDialog({
   pendingLabel: string;
   cancelLabel?: string;
   pending: boolean;
+  /** Holds the confirm button until the body's own gate is met (a typed confirmation). */
+  confirmDisabled?: boolean;
   error: unknown;
   onCancel: () => void;
   onConfirm: () => void;
@@ -105,7 +108,7 @@ export function ConfirmDialog({
           <button type="button" className={SECONDARY_BUTTON} onClick={onCancel} disabled={pending}>
             {cancelLabel}
           </button>
-          <button type="button" className={DANGER_BUTTON} onClick={onConfirm} disabled={pending}>
+          <button type="button" className={DANGER_BUTTON} onClick={onConfirm} disabled={pending || confirmDisabled}>
             {pending ? pendingLabel : confirmLabel}
           </button>
         </div>

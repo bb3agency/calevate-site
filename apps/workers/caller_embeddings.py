@@ -89,6 +89,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import new_assist_ref, read_platform_ai_spend
 from apps.api.billing.platform_ai import record_platform_ai_usage
+from apps.api.core import provider_health
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
@@ -285,12 +286,13 @@ async def _embed_claimed(
     if not live:
         return 0
 
-    outcome = await chat.embed(
-        leg,
-        [bodies[key] for key in live],
-        dimensions=EMBEDDING_DIMS,
-        timeout_s=EMBED_TIMEOUT_S,
-    )
+    async with provider_health.watch("embeddings", chat.provider_of(leg)):
+        outcome = await chat.embed(
+            leg,
+            [bodies[key] for key in live],
+            dimensions=EMBEDDING_DIMS,
+            timeout_s=EMBED_TIMEOUT_S,
+        )
 
     stored = 0
     refused: list[ChunkKey] = []

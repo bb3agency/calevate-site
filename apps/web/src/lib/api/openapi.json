@@ -1672,14 +1672,20 @@
         "description": "A new agent, in the three facts a business owner actually has at creation time.\n\nNO DISCLOSURE FIELDS, deliberately. Both sentences are generated from the language\ntemplates by `lifecycle.create_agent` and are not accepted from the caller: the create\nform is the one place a client is not yet thinking about TRAI, and a free-text field\ncalled \"AI disclosure\" on it is how an agent ends up announcing \"Hi there!\". Changing\nthe wording is a reviewed surface, not a text input on the new-agent screen.\n\nNO SCRIPT FIELD either. Without `starter` the agent is born with no script and\n`publish_agent` refuses to activate it by name (`agent_has_no_script`). With `starter`\n(D-705) the owner picked a job and the agent is born with that job's ready-made script\nfor the account's business type, still a draft for them to review.",
         "properties": {
           "direction": {
-            "default": "inbound",
-            "enum": [
-              "inbound",
-              "outbound",
-              "both"
+            "anyOf": [
+              {
+                "enum": [
+                  "inbound",
+                  "outbound",
+                  "both"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Direction",
-            "type": "string"
+            "title": "Direction"
           },
           "language_primary": {
             "default": "te-IN",
@@ -3013,7 +3019,10 @@
               "campaign_stalled",
               "kb_rejected",
               "inbound_stopped",
-              "action_broken"
+              "action_broken",
+              "lead_hot",
+              "call_failed",
+              "credit_low"
             ],
             "title": "Kind",
             "type": "string"
@@ -10789,6 +10798,10 @@
             "title": "Calls 7D",
             "type": "integer"
           },
+          "calls_prev_7d": {
+            "title": "Calls Prev 7D",
+            "type": "integer"
+          },
           "calls_today": {
             "title": "Calls Today",
             "type": "integer"
@@ -10806,6 +10819,10 @@
           },
           "leads_new_7d": {
             "title": "Leads New 7D",
+            "type": "integer"
+          },
+          "leads_new_prev_7d": {
+            "title": "Leads New Prev 7D",
             "type": "integer"
           },
           "minutes_used_month": {
@@ -10833,6 +10850,8 @@
           "calls_7d",
           "leads_new_7d",
           "hot_leads_open",
+          "calls_prev_7d",
+          "leads_new_prev_7d",
           "minutes_used_month",
           "daily_7d"
         ],
@@ -14161,6 +14180,10 @@
         "additionalProperties": false,
         "description": "GET /v1/admin/spend \u2014 every live client's month, worst margin first.\n\nThe totals are sums of the rows, computed here rather than queried: `usage_events` is\nFORCE RLS'd and an untenanted session sees zero rows by design, so a cross-tenant\n`SUM` is unaskable in app code and reaching for the admin DB role to get one would\nbreak hard rule 1. `billing/models.PlatformAiSpend` records the same constraint and\nthe same answer one ledger over. Each client's numbers are read INSIDE that client's\nown `tenant_session`, so no query here sees two tenants at once.",
         "properties": {
+          "ai_absorbed_inr": {
+            "title": "Ai Absorbed Inr",
+            "type": "string"
+          },
           "clients": {
             "title": "Clients",
             "type": "integer"
@@ -14221,6 +14244,7 @@
           "cost_inr",
           "margin_inr",
           "margin_pct",
+          "ai_absorbed_inr",
           "tenants",
           "undecidable",
           "tts_plan"
@@ -14232,6 +14256,14 @@
         "additionalProperties": false,
         "description": "One client on the fleet board.",
         "properties": {
+          "ai_absorbed_inr": {
+            "title": "Ai Absorbed Inr",
+            "type": "string"
+          },
+          "ai_requests": {
+            "title": "Ai Requests",
+            "type": "integer"
+          },
           "calls": {
             "title": "Calls",
             "type": "integer"
@@ -14290,7 +14322,9 @@
           "revenue_inr",
           "cost_inr",
           "margin_inr",
-          "margin_pct"
+          "margin_pct",
+          "ai_absorbed_inr",
+          "ai_requests"
         ],
         "title": "FleetTenantOut",
         "type": "object"
@@ -16218,6 +16252,171 @@
           "items"
         ],
         "title": "IngestActivityOut",
+        "type": "object"
+      },
+      "InrLlmPriceAttestIn": {
+        "additionalProperties": false,
+        "description": "One rupee-billed model's price, as an operator types it off an invoice or the\nvendor's page: \u20b9 per MILLION tokens as decimal strings, never JSON numbers.",
+        "properties": {
+          "cached_in_inr_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cached In Inr Per Mtok"
+          },
+          "effective_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "in_inr_per_mtok": {
+            "title": "In Inr Per Mtok",
+            "type": "string"
+          },
+          "out_inr_per_mtok": {
+            "title": "Out Inr Per Mtok",
+            "type": "string"
+          },
+          "source_note": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Source Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "in_inr_per_mtok",
+          "out_inr_per_mtok",
+          "source_note"
+        ],
+        "title": "InrLlmPriceAttestIn",
+        "type": "object"
+      },
+      "InrLlmPriceOut": {
+        "additionalProperties": false,
+        "description": "One rupee-billed model: its attested price (if any) beside the vendor's reference.",
+        "properties": {
+          "billable": {
+            "title": "Billable",
+            "type": "boolean"
+          },
+          "cached_in_inr_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cached In Inr Per Mtok"
+          },
+          "in_inr_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "In Inr Per Mtok"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "out_inr_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Out Inr Per Mtok"
+          },
+          "reference_cached_in_inr_per_mtok": {
+            "title": "Reference Cached In Inr Per Mtok",
+            "type": "string"
+          },
+          "reference_in_inr_per_mtok": {
+            "title": "Reference In Inr Per Mtok",
+            "type": "string"
+          },
+          "reference_out_inr_per_mtok": {
+            "title": "Reference Out Inr Per Mtok",
+            "type": "string"
+          },
+          "reference_read_on": {
+            "title": "Reference Read On",
+            "type": "string"
+          },
+          "reference_source": {
+            "title": "Reference Source",
+            "type": "string"
+          },
+          "source_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Note"
+          }
+        },
+        "required": [
+          "model",
+          "billable",
+          "in_inr_per_mtok",
+          "cached_in_inr_per_mtok",
+          "out_inr_per_mtok",
+          "source_note",
+          "reference_in_inr_per_mtok",
+          "reference_cached_in_inr_per_mtok",
+          "reference_out_inr_per_mtok",
+          "reference_source",
+          "reference_read_on"
+        ],
+        "title": "InrLlmPriceOut",
+        "type": "object"
+      },
+      "InrLlmPricesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "title": "As Of",
+            "type": "string"
+          },
+          "prices": {
+            "items": {
+              "$ref": "#/components/schemas/InrLlmPriceOut"
+            },
+            "title": "Prices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "prices",
+          "as_of"
+        ],
+        "title": "InrLlmPricesOut",
         "type": "object"
       },
       "InvitationCreatedOut": {
@@ -20122,9 +20321,31 @@
       "MeOut": {
         "additionalProperties": false,
         "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
           "impersonating": {
             "title": "Impersonating",
             "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
           },
           "organization": {
             "anyOf": [
@@ -54863,6 +55084,102 @@
         "x-calevate-permission": "ops:manage"
       }
     },
+    "/v1/ops/inr-llm-prices": {
+      "get": {
+        "operationId": "list_inr_llm_prices_v1_ops_inr_llm_prices_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InrLlmPricesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Rupee-billed platform models (Sarvam) and their attested prices",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      }
+    },
+    "/v1/ops/inr-llm-prices/{model}": {
+      "post": {
+        "description": "Records what a rupee-billed platform model (Sarvam `sarvam-105b`: the assistant's standby and the first post-call extraction pass) costs THIS account, as a NEW effective-dated row. Requires `X-Confirm-Action: attest_inr_llm_price:<model>`. Figures are rupees per MILLION tokens as decimal strings. Until one exists, that leg's calls are recorded with no cost, because a reference price is not a bill.",
+        "operationId": "attest_inr_llm_v1_ops_inr_llm_prices__model__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "pattern": "^[a-z0-9][a-z0-9.\\-]*$",
+              "title": "Model",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InrLlmPriceAttestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InrLlmPriceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Attest a rupee-billed model's price (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      }
+    },
     "/v1/ops/kb-orphans": {
       "get": {
         "description": "The account-level knowledge cross-check, on demand.\n\n**THIS ROUTE WAS NAMED BY THREE ALARM REMEDIATIONS AND BY THE SWEEP ITSELF BEFORE IT\nEXISTED.** `workers/kb_orphans.account_kb_report` is public with the stated reason that\n\"the ops route calls it too, and the two must not be two readings of the same account\nthat can disagree about what `unclaimed` means\" \u2014 and there was no ops route, so an\noperator following `engine_kb_orphans_detected` mid-incident reached a 404. This calls\nthat same function rather than re-deriving the answer, which is the whole of why it is\na two-line handler.\n\n**IT RUNS THE VENDOR WALK, WHICH IS THE DEAREST READ THIS PRODUCT MAKES** (the sweep is\ndaily for that reason). Bounded by the adapter's own paging cap; an operator triggering\nit repeatedly costs vendor calls and nothing else.\n\n**NO STEP-UP AND NO AUDIT ROW**, this file's stated posture for a read: it writes\nnothing, deletes nothing, and demanding a confirmation to run a read teaches operators\nto type past confirmations. `tenant_id` appears where a CLAIM ROW attributes an object\n\u2014 that is an id, not caller data, and it is the column that tells an operator whose\ndocument they are looking at before they decide anything.\n\n**NOTHING IS EVER DELETED FROM HERE.** The verdicts are advisory by construction: an\n`unclaimed` object may be a hand-made upload from an incident, and adopting an\n`unrecorded` one by writing a claim row would invent a digest and an agent linkage\nnobody holds.",
@@ -55718,6 +56035,62 @@
       }
     },
     "/v1/ops/secrets/{key}": {
+      "delete": {
+        "description": "Appends a REMOVAL version, so the key reads as not set and every leg that needs it stops being offered; the history of earlier versions is kept. Requires `X-Confirm-Action: remove_secret:<key>`. A key the server environment sets cannot be removed here (422 `secret_set_in_environment`): remove it there. The key is not revoked at the vendor.",
+        "operationId": "remove_secret_route_v1_ops_secrets__key__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Remove a stored credential (step-up confirmed, audited, alerted)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:secrets"
+      },
       "put": {
         "description": "Seals the value with a fresh DEK and stores it as a NEW VERSION \u2014 the previous version is retired, never overwritten, so which key was live when a call was billed stays answerable. Requires `X-Confirm-Action: set_secret:<key>`. The value is never returned, logged or traced. Test it first: `POST /v1/ops/secrets/{key}/test`.",
         "operationId": "set_secret_route_v1_ops_secrets__key__put",

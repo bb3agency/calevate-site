@@ -24,6 +24,7 @@ import {
   type ActionTool,
   type ActionToolInput,
 } from "@/lib/api/actions";
+import { useAgent } from "@/lib/api/agents";
 import type { Session } from "@/lib/api/client";
 
 import { AccountRow } from "./AccountRow";
@@ -107,6 +108,8 @@ export function ActionForm({
   );
   const [draft, setDraft] = useState<KindDraft>(() => initialDraft(kind, existing));
   const pickCredential = useCallback((id: string) => setCredentialId(id), []);
+  // The details this agent captures, which "From the lead" can read by label.
+  const capturedFields = useAgent(session, agentId).data?.extraction_fields ?? [];
 
   const credentialKind = credentialKindFor(kind, provider);
   const fills = params.map((p) => p.name).filter(Boolean);
@@ -222,7 +225,9 @@ export function ActionForm({
               {valid.error("description")}
               <span className={FIELD_HINT}>Your agent decides when to do this from these words alone.</span>
             </div>
-            {kind !== "caller_lookup" ? <ParamEditor params={params} onChange={setParams} /> : null}
+            {kind !== "caller_lookup" ? (
+              <ParamEditor params={params} onChange={setParams} fields={capturedFields} />
+            ) : null}
             <div className="flex flex-wrap gap-3">
               {DURING_CALL_ONLY.includes(kind) ? null : (
                 <label className="block flex-1 sm:min-w-[12rem]">

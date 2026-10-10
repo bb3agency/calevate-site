@@ -54,6 +54,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.voice_offer import cartesia_credential_installed, default_tts_price_is_billable
 from apps.api.agents.voices import VoiceProvider, tts_models_for_provider
+from apps.api.billing import rates
 from apps.api.billing.plans import parse_billing_month
 from apps.api.billing.rates import voice_tier_label
 from apps.api.billing.service import current_billing_month
@@ -74,9 +75,11 @@ from apps.api.ops.model_pricing import (
     TtsPlanFeeAttestation,
     TtsPriceAttestation,
     attest_embedding_price,
+    attest_inr_llm_price,
     attest_price,
     attest_tts_plan_fee,
     attest_tts_price,
+    attested_inr_llm_prices,
     attested_model_prices,
     attested_tts_plan_fees,
     attested_tts_prices,
@@ -1375,11 +1378,203 @@ async def attest_voice_plan_fee(
     return TtsPlanFeeWriteOut(plan_fee=_plan_fee_row(attested), as_of=datetime.now(UTC).isoformat())
 
 
+# --- RUPEE-BILLED PLATFORM LLMs (Sarvam) ----------------------------------------------
+
+#: Its own prefix for the voice router's reason: a rupee figure with three rungs is not a
+#: `POST /v1/ops/model-prices/{model}` body, and sharing the path would make one route take
+#: two currencies.
+inr_llm_router = APIRouter(prefix="/v1/ops/inr-llm-prices", tags=["ops"])
+
+
+def inr_llm_attest_confirmation(model: str) -> str:
+    """The step-up string for attesting ONE rupee-billed model, bound to the model."""
+    return f"attest_inr_llm_price:{model}"
+
+
+class InrLlmPriceOut(BaseModel):
+    """One rupee-billed model: its attested price (if any) beside the vendor's reference."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str
+    #: Whether a cost for this model can reach `unit_cost_paid` (an attestation exists).
+    billable: bool
+    #: The attested figures, ₹ per MILLION tokens as decimal strings; None when unattested.
+    in_inr_per_mtok: str | None
+    cached_in_inr_per_mtok: str | None
+    out_inr_per_mtok: str | None
+    source_note: str | None
+    #: The vendor-published reference — the form's pre-fill, never billed from.
+    reference_in_inr_per_mtok: str
+    reference_cached_in_inr_per_mtok: str
+    reference_out_inr_per_mtok: str
+    reference_source: str
+    reference_read_on: str
+
+
+class InrLlmPricesOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prices: list[InrLlmPriceOut]
+    as_of: str
+
+
+class InrLlmPriceAttestIn(BaseModel):
+    """One rupee-billed model's price, as an operator types it off an invoice or the
+    vendor's page: ₹ per MILLION tokens as decimal strings, never JSON numbers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    in_inr_per_mtok: str
+    #: Omit for a vendor with no cached-input rung.
+    cached_in_inr_per_mtok: str | None = None
+    out_inr_per_mtok: str
+    effective_from: datetime | None = None
+    source_note: str = Field(min_length=3, max_length=500)
+
+    @field_validator("source_note")
+    @classmethod
+    def _not_whitespace(cls, value: str) -> str:
+        stripped = value.strip()
+        if len(stripped) < 3:
+            raise ValueError("say where this price came from — the invoice or the page")
+        return stripped
+
+    @field_validator("effective_from")
+    @classmethod
+    def _tz_aware(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            raise ValueError(
+                "effective_from must carry a timezone (send an ISO instant with an offset)"
+            )
+        return value
+
+
+def _inr_llm_row(model: str, attested: rates.InrLlmPriceAttestation | None) -> InrLlmPriceOut:
+    reference = rates.SARVAM_LLM_INR_PER_MTOK
+    return InrLlmPriceOut(
+        model=model,
+        billable=attested is not None,
+        in_inr_per_mtok=str(attested.in_inr_per_mtok) if attested else None,
+        cached_in_inr_per_mtok=(
+            str(attested.cached_in_inr_per_mtok)
+            if attested and attested.cached_in_inr_per_mtok is not None
+            else None
+        ),
+        out_inr_per_mtok=str(attested.out_inr_per_mtok) if attested else None,
+        source_note=attested.source if attested else None,
+        reference_in_inr_per_mtok=str(reference["in"]),
+        reference_cached_in_inr_per_mtok=str(reference["cached_in"]),
+        reference_out_inr_per_mtok=str(reference["out"]),
+        reference_source=rates.SARVAM_LLM_PRICE_SOURCE,
+        reference_read_on=rates.SARVAM_LLM_PRICE_READ_ON.isoformat(),
+    )
+
+
+@inr_llm_router.get(
+    "",
+    response_model=InrLlmPricesOut,
+    openapi_extra=permission_meta("platform:config"),
+    summary="Rupee-billed platform models (Sarvam) and their attested prices",
+)
+async def list_inr_llm_prices(session: GlobalSession, principal: PriceOperator) -> InrLlmPricesOut:
+    at = datetime.now(UTC)
+    attested = await attested_inr_llm_prices(session, at=at)
+    return InrLlmPricesOut(
+        prices=[
+            _inr_llm_row(model, attested.get(model)) for model in sorted(rates.INR_PRICED_LLMS)
+        ],
+        as_of=at.isoformat(),
+    )
+
+
+@inr_llm_router.post(
+    "/{model}",
+    response_model=InrLlmPriceOut,
+    openapi_extra=permission_meta("platform:config"),
+    summary="Attest a rupee-billed model's price (step-up confirmed, audited)",
+    description=(
+        "Records what a rupee-billed platform model (Sarvam `sarvam-105b`: the assistant's "
+        "standby and the first post-call extraction pass) costs THIS account, as a NEW "
+        "effective-dated row. Requires `X-Confirm-Action: attest_inr_llm_price:<model>`. "
+        "Figures are rupees per MILLION tokens as decimal strings. Until one exists, that "
+        "leg's calls are recorded with no cost, because a reference price is not a bill."
+    ),
+)
+async def attest_inr_llm(
+    payload: InrLlmPriceAttestIn,
+    session: GlobalSession,
+    request: Request,
+    tasks: BackgroundTasks,
+    principal: PriceOperator,
+    model: ModelId,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
+) -> InrLlmPriceOut:
+    """One attestation in, one audit row, in the same transaction — `attest_voice_price`."""
+    step_up.require(x_confirm_action, inr_llm_attest_confirmation(model))
+    if principal.user_id is None:
+        raise ProblemError(
+            kind="auth",
+            code="inr_llm_price_actor_unknown",
+            title="This session has no admin identity",
+            detail="A price attestation has to be attributable to an operator.",
+        )
+    unit = "rupees per million tokens"
+    try:
+        in_rate = _money("in_inr_per_mtok", payload.in_inr_per_mtok, unit=unit)
+        out_rate = _money("out_inr_per_mtok", payload.out_inr_per_mtok, unit=unit)
+        cached_rate = (
+            _money("cached_in_inr_per_mtok", payload.cached_in_inr_per_mtok, unit=unit)
+            if payload.cached_in_inr_per_mtok is not None
+            else None
+        )
+    except ValueError as exc:
+        raise ProblemError(
+            kind="validation",
+            code="inr_llm_price_invalid",
+            title="That is not a valid price",
+            detail=str(exc),
+            remediation="Type rupees per million tokens with a decimal point, like 29.28.",
+        ) from None
+    attested = await attest_inr_llm_price(
+        session,
+        model=model,
+        in_inr_per_mtok=in_rate,
+        cached_in_inr_per_mtok=cached_rate,
+        out_inr_per_mtok=out_rate,
+        effective_from=payload.effective_from or datetime.now(UTC),
+        source_note=payload.source_note,
+        actor_id=principal.user_id,
+    )
+    await write_audit(
+        session,
+        action="platform.inr_llm_price_attested",
+        actor=principal,
+        object_type="platform_inr_llm_prices",
+        object_id=model,
+        ip=client_request_ip(request),
+        summary={
+            "model": model,
+            "in_inr_per_mtok": str(in_rate),
+            "cached_in_inr_per_mtok": str(cached_rate) if cached_rate is not None else None,
+            "out_inr_per_mtok": str(out_rate),
+            "source_note": attested.source,
+        },
+    )
+    # The 30s poll is the guarantee; this makes the new price reach the meter sooner.
+    tasks.add_task(refresh_pricing_snapshot)
+    current = (await attested_inr_llm_prices(session, at=datetime.now(UTC))).get(model)
+    return _inr_llm_row(model, current)
+
+
 __all__ = [
     "BILLABLE_WITHOUT_ATTESTATION_REASON",
     "attest_confirmation",
     "embedding_attest_confirmation",
     "embedding_router",
+    "inr_llm_attest_confirmation",
+    "inr_llm_router",
     "router",
     "tts_attest_confirmation",
     "tts_plan_fee_confirmation",

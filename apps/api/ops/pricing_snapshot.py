@@ -69,12 +69,18 @@ from apps.api.agents.llm_models import (
 from apps.api.agents.voice_offer import default_tts_price_is_billable, install_tts_price_reader
 from apps.api.agents.voice_sync import load_voice_catalogue
 from apps.api.agents.voices import VoiceProvider
-from apps.api.billing.rates import LlmPriceAttestation, install_llm_price_attestations
+from apps.api.billing.rates import (
+    InrLlmPriceAttestation,
+    LlmPriceAttestation,
+    install_inr_llm_price_attestations,
+    install_llm_price_attestations,
+)
 from apps.api.core.logging import get_logger
 from apps.api.db.session import untenanted_session
 from apps.api.ops.model_pricing import (
     TTS_PROVIDERS,
     AttestedModelPrice,
+    attested_inr_llm_prices,
     attested_model_prices,
     dashboard_permitted_providers,
     installed_llm_legs,
@@ -107,6 +113,7 @@ class PricingSnapshot:
     #: because the engine bills us for that leg and reports what it charged; a BYOK leg is
     #: in it only once an operator has read a price off the vendor's invoice.
     billable_tts: frozenset[str]
+    inr_attestations: Mapping[str, InrLlmPriceAttestation] = MappingProxyType({})
 
 
 _EMPTY = PricingSnapshot(
@@ -179,6 +186,7 @@ async def refresh_pricing_snapshot() -> PricingSnapshot:
     try:
         async with untenanted_session() as session:
             priced = await attested_model_prices(session, at=datetime.now(UTC))
+            inr_priced = await attested_inr_llm_prices(session, at=datetime.now(UTC))
             # `installed_llm_legs` carries the stored-only credential rule (see its
             # docstring), so this reader reproduces
             # `agents.llm_models.installed_llm_providers()`'s default when nothing is
@@ -222,6 +230,7 @@ async def refresh_pricing_snapshot() -> PricingSnapshot:
         installed_providers=installed,
         dashboard_data_use=data_use,
         billable_tts=billable_tts,
+        inr_attestations=MappingProxyType(inr_priced),
     )
     return _snapshot
 
@@ -248,6 +257,11 @@ def _read_attestations() -> Mapping[str, LlmPriceAttestation]:
     return _snapshot.attestations
 
 
+def _read_inr_attestations() -> Mapping[str, InrLlmPriceAttestation]:
+    """The sync reader billing installs for rupee-billed LLMs. Zero IO."""
+    return _snapshot.inr_attestations
+
+
 def _read_installed_providers() -> frozenset[LlmProvider]:
     """The sync reader the picker installs. Zero IO."""
     return _snapshot.installed_providers
@@ -266,23 +280,25 @@ def _read_tts_price_billable(provider: str) -> bool:
 def install_pricing_readers() -> None:
     """Point the money module and the pickers at THIS process's snapshot.
 
-    Idempotent — installing twice registers the same four functions. Called from startup,
+    Idempotent — installing twice registers the same five functions. Called from startup,
     beside `start_pricing_refresher`; a process that installs but never refreshes serves the
     empty snapshot, which is the safe "nothing attested, Azure-only" default the catalogue
     lane designed for.
     """
     install_llm_price_attestations(_read_attestations)
+    install_inr_llm_price_attestations(_read_inr_attestations)
     install_llm_credential_reader(_read_installed_providers)
     install_dashboard_data_use_reader(_read_dashboard_data_use)
     install_tts_price_reader(_read_tts_price_billable)
 
 
 def uninstall_pricing_readers() -> None:
-    """Reset all FOUR seams to their empty default (it said "three" until 19 Sep 2026, and
+    """Reset all five seams to their empty default (it said "three" until 19 Sep 2026, and
     has installed four since the voice picker's TTS-price reader joined — a count in prose is
     the defect class hard rule 4 names). For tests, which must not leak a
     snapshot between cases — the mirror of the catalogue lane's `install_*(None)`."""
     install_llm_price_attestations(None)
+    install_inr_llm_price_attestations(None)
     install_llm_credential_reader(None)
     install_dashboard_data_use_reader(None)
     install_tts_price_reader(None)

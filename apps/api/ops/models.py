@@ -159,6 +159,14 @@ class PlatformSecret(Base):
     #: wrapping. NEVER deleted. These are the ONLY columns an UPDATE may touch, and the
     #: immutability trigger allows exactly that and nothing else — see the migration.
     retired_at: Mapped[datetime | None] = mapped_column()
+    #: A REMOVAL is a version too (migration c2b7e5a94d18): the newest version of a key is
+    #: in force unless it is a tombstone, which reads as "not set". A tombstone seals the
+    #: empty string so every row stays re-wrappable, and carries no `last_four`.
+    removed: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("NOT removed OR last_four = ''", name="removed_has_no_fragment"),
+    )
 
 
 class PlatformEngineHealth(Base):
@@ -331,6 +339,40 @@ class PlatformTtsPrice(Base):
     #: invoice 2026-09, ₹4,312 / 1.25M characters". It is the evidence that makes this an
     #: attestation rather than a guess, so NOT NULL.
     source_note: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class PlatformInrLlmPrice(Base):
+    """A platform LLM's price in RUPEES per million tokens, attested by an operator.
+
+    For a vendor that bills in INR with a cached-input rung (Sarvam `sarvam-105b`), which
+    `PlatformModelPrice`'s USD two-rung shape cannot hold without inventing a dollar figure.
+    The one door from this table to `unit_cost_paid` is `billing/rates
+    .inr_llm_inr_per_ktok`. Append-only, effective-dated and platform-scoped for
+    `PlatformTtsPrice`'s three reasons.
+    """
+
+    __tablename__ = "platform_inr_llm_prices"
+
+    model: Mapped[str] = mapped_column(Text, primary_key=True)
+    effective_from: Mapped[datetime] = mapped_column(primary_key=True)
+    in_inr_per_mtok: Mapped[Decimal] = mapped_column(Numeric(12, 6), nullable=False)
+    #: None when the vendor publishes no cached-input rung.
+    cached_in_inr_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(12, 6), nullable=True)
+    out_inr_per_mtok: Mapped[Decimal] = mapped_column(Numeric(12, 6), nullable=False)
+    attested_by: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=False
+    )
+    attested_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    source_note: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "in_inr_per_mtok > 0 AND out_inr_per_mtok > 0 "
+            "AND (cached_in_inr_per_mtok IS NULL OR cached_in_inr_per_mtok > 0)",
+            name="positive",
+        ),
+        Index("ix_platform_inr_llm_prices_model", "model", text("effective_from DESC")),
+    )
 
 
 class PlatformEngineMinutePrice(Base):

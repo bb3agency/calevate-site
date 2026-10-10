@@ -686,6 +686,77 @@ def sarvam_llm_reference_inr_per_ktok() -> Mapping[str, Decimal]:
     )
 
 
+#: Where the reference card above was last read. The public page now carries the same three
+#: figures the founder read off the dashboard on 27 Aug 2026.
+SARVAM_LLM_PRICE_SOURCE: Final = "https://www.sarvam.ai/api-pricing"
+SARVAM_LLM_PRICE_READ_ON: Final = date(2026, 10, 10)
+
+#: Platform LLMs billed in RUPEES, whose billing price is an `InrLlmPriceAttestation`
+#: (`platform_inr_llm_prices`) rather than an `LlmPriceAttestation` in dollars.
+INR_PRICED_LLMS: Final[frozenset[str]] = frozenset({SARVAM_PRICED_LLM})
+
+
+@dataclass(frozen=True, slots=True)
+class InrLlmPriceAttestation:
+    """An operator's reading of a rupee-billed LLM's price, per MILLION tokens.
+
+    The rupee twin of `LlmPriceAttestation`: the vendor publishes and invoices in INR, so
+    the attested figure is kept in INR and never passes through an exchange rate.
+    `cached_in_inr_per_mtok` is None for a vendor with no cached-input rung.
+    """
+
+    model: str
+    in_inr_per_mtok: Decimal
+    cached_in_inr_per_mtok: Decimal | None
+    out_inr_per_mtok: Decimal
+    attested_by: str
+    source: str
+
+
+InrLlmPriceAttestationReader = Callable[[], Mapping[str, InrLlmPriceAttestation]]
+
+_inr_attestation_reader: InrLlmPriceAttestationReader | None = None
+
+
+def install_inr_llm_price_attestations(reader: InrLlmPriceAttestationReader | None) -> None:
+    """Register where rupee LLM attestations come from (`install_llm_price_attestations`'
+    shape and reasons). `None` uninstalls."""
+    global _inr_attestation_reader
+    _inr_attestation_reader = reader
+
+
+def attested_inr_llm_prices() -> Mapping[str, InrLlmPriceAttestation]:
+    """Every rupee LLM attestation on file. Empty when nothing is installed."""
+    if _inr_attestation_reader is None:
+        return MappingProxyType({})
+    return _inr_attestation_reader()
+
+
+def _inr_mtok_to_ktok(inr_per_mtok: Decimal) -> Decimal:
+    return (inr_per_mtok / Decimal("1000")).quantize(MONEY_Q, rounding=ROUNDING)
+
+
+def inr_llm_inr_per_ktok(model: str) -> Mapping[str, Decimal] | None:
+    """`{"in", "cached_in", "out"}` ₹ per 1,000 tokens AS BILLED, or None when unattested.
+
+    THE ONE DOOR from a rupee-billed LLM to `unit_cost_paid` (hard rule 7), and it opens on
+    an operator attestation only — `SARVAM_LLM_INR_PER_MTOK` is a reference and has no path
+    here. None rather than a raise because the callers (a standby answer, a post-call
+    extraction) have already been served and must record "unpriced", not fail.
+    """
+    attested = attested_inr_llm_prices().get(model)
+    if attested is None:
+        return None
+    cached = attested.cached_in_inr_per_mtok or attested.in_inr_per_mtok
+    return MappingProxyType(
+        {
+            "in": _inr_mtok_to_ktok(attested.in_inr_per_mtok),
+            "cached_in": _inr_mtok_to_ktok(cached),
+            "out": _inr_mtok_to_ktok(attested.out_inr_per_mtok),
+        }
+    )
+
+
 # --- THE OPERATOR-ATTESTED BILLING PRICE ---------------------------------------------
 #
 # **WHY A BILL IS PRICED FROM AN ATTESTATION AND NOT FROM A PAGE.** This product now runs on
@@ -840,6 +911,8 @@ def llm_price_is_billable(model: str) -> bool:
     """
     if model in attested_llm_prices():
         return True
+    if model in attested_inr_llm_prices():
+        return True
     spec = LLM_MODELS.get(model)
     if spec is not None:
         return spec.price.evidence.verified
@@ -881,6 +954,15 @@ def llm_inr_per_ktok(model: str) -> Mapping[str, Decimal]:
     if attested is not None:
         return _usd_mtok_to_inr_ktok(
             input_usd=attested.input_usd_per_mtok, output_usd=attested.output_usd_per_mtok
+        )
+    inr = inr_llm_inr_per_ktok(model)
+    if inr is not None:
+        return MappingProxyType({"in": inr["in"], "out": inr["out"]})
+    if model in INR_PRICED_LLMS:
+        raise ValueError(
+            f"{model!r} is billed in rupees and no operator has attested its price. The "
+            "reference card (SARVAM_LLM_INR_PER_MTOK) has no path to unit_cost_paid; enter "
+            "the invoice figure in the ops console (POST /v1/ops/inr-llm-prices/{model})."
         )
     spec = LLM_MODELS.get(model)
     if spec is not None and spec.price.evidence.verified:
@@ -3274,6 +3356,7 @@ __all__ = [
     "ENGINE_REPORTS_TTS_MODEL",
     "ENGINE_RESERVED_INSTANCE_USD_PER_MIN",
     "ENGINE_TTS_MODEL_GENERATION_VERIFIED",
+    "INR_PRICED_LLMS",
     "LEDGER_RATE_ERROR_BUDGET",
     "LIST_PRICE_USD_INR",
     "MIN_GROSS_MARGIN",
@@ -3285,6 +3368,8 @@ __all__ = [
     "REFERENCE_CALL",
     "ROUNDING",
     "SARVAM_LLM_INR_PER_MTOK",
+    "SARVAM_LLM_PRICE_READ_ON",
+    "SARVAM_LLM_PRICE_SOURCE",
     "SARVAM_PRICED_LLM",
     "SELF_SERVE_COST_FLOOR_INR_PER_MIN",
     "STT_INR_PER_HOUR",
@@ -3316,6 +3401,8 @@ __all__ = [
     "CartesiaPlan",
     "ClearCostFloor",
     "CommittedPlanMargin",
+    "InrLlmPriceAttestation",
+    "InrLlmPriceAttestationReader",
     "LlmPriceAttestation",
     "LlmPriceAttestationReader",
     "RateMargin",
@@ -3327,6 +3414,7 @@ __all__ = [
     "VoiceTier",
     "assert_rate_is_meterable",
     "assumed_speaking_rate",
+    "attested_inr_llm_prices",
     "attested_llm_prices",
     "cartesia_best_marginal_cost_inr_per_min",
     "cartesia_cheapest_plan",
@@ -3347,6 +3435,8 @@ __all__ = [
     "cost_floor_inr_per_min",
     "ex_tts_cost_inr_per_min_at",
     "gross_margin_ratio",
+    "inr_llm_inr_per_ktok",
+    "install_inr_llm_price_attestations",
     "install_llm_price_attestations",
     "is_surchargeable_llm_model",
     "ledger_rate_error",

@@ -159,12 +159,13 @@ async def attested_model_prices(
 async def _stored_credential_keys(session: AsyncSession) -> frozenset[str]:
     """Credential keys the founder has INSTALLED in the ops panel (a stored version).
 
-    STORED (`version > 0`), not env-shadowed, and that is deliberate. The founder's stated
-    workflow is that every vendor key goes in the ops panel — so a stored version is the
-    signal that they have installed one — and counting a `.env`-declared key would make
-    offerability diverge between a dev machine that carries one in `.env` and CI that does
-    not (the exact local-vs-CI trap `_no_ambient_credentials` exists for, which cannot help
-    here because `env_declares` reads the `.env` FILE).
+    STORED (the newest version is a credential, not a removal), not env-shadowed, and that
+    is deliberate. The founder's stated workflow is that every vendor key goes in the ops
+    panel — so a stored version is the signal that they have installed one — and counting
+    a `.env`-declared key would make offerability diverge between a dev machine that
+    carries one in `.env` and CI that does not (the exact local-vs-CI trap
+    `_no_ambient_credentials` exists for, which cannot help here because `env_declares`
+    reads the `.env` FILE).
 
     ⚠ **THIS USED TO END "Azure's own key is env-injected … but its leg is always usable
     anyway (see `installed_llm_legs`), so this stored-only rule never hides Azure." THAT
@@ -176,7 +177,7 @@ async def _stored_credential_keys(session: AsyncSession) -> frozenset[str]:
     that an Azure model can never be un-offered, which is the defect the credential check
     was added to fix.
     """
-    return frozenset(r.key for r in await read_secrets(session) if r.version > 0)
+    return frozenset(r.key for r in await read_secrets(session) if r.installed)
 
 
 async def installed_llm_legs(session: AsyncSession) -> frozenset[LlmProvider]:
@@ -1499,6 +1500,137 @@ async def attest_tts_plan_fee(
     )
 
 
+# --- RUPEE-BILLED PLATFORM LLMs (Sarvam) ----------------------------------------------
+#
+# `attest_price`'s act for a vendor that invoices in INR with a cached-input rung, which
+# `platform_model_prices` (USD, two rungs) cannot hold without inventing a dollar figure.
+# The billing door is `billing/rates.inr_llm_inr_per_ktok`; the reference card it never
+# reads is `rates.SARVAM_LLM_INR_PER_MTOK`.
+
+
+def _require_inr_llm(model: str) -> str:
+    if model not in rates.INR_PRICED_LLMS:
+        raise ProblemError(
+            kind="not_found",
+            code="inr_llm_price_unknown_model",
+            title="No such rupee-billed model",
+            detail=f"{model!r} isn't a platform model billed in rupees.",
+            remediation=(
+                f"Rupee prices are attested for {sorted(rates.INR_PRICED_LLMS)}. Dollar-priced "
+                "models are attested on the model-prices list."
+            ),
+        )
+    return model
+
+
+async def attested_inr_llm_prices(
+    session: AsyncSession, *, at: datetime
+) -> dict[str, rates.InrLlmPriceAttestation]:
+    """Every rupee-billed model's attested price effective at `at` (`attested_tts_prices`'
+    resolution rule: the greatest `effective_from <= at`)."""
+    if at.tzinfo is None:
+        raise ValueError("`at` must be timezone-aware — a naive instant has no month")
+    rows = (
+        await session.execute(
+            text(
+                "SELECT DISTINCT ON (model) model, in_inr_per_mtok, cached_in_inr_per_mtok, "
+                "out_inr_per_mtok, attested_by, source_note FROM platform_inr_llm_prices "
+                "WHERE effective_from <= :at ORDER BY model, effective_from DESC"
+            ),
+            {"at": at},
+        )
+    ).all()
+    return {
+        str(row[0]): rates.InrLlmPriceAttestation(
+            model=str(row[0]),
+            in_inr_per_mtok=Decimal(str(row[1])),
+            cached_in_inr_per_mtok=Decimal(str(row[2])) if row[2] is not None else None,
+            out_inr_per_mtok=Decimal(str(row[3])),
+            attested_by=str(row[4]),
+            source=str(row[5]),
+        )
+        for row in rows
+    }
+
+
+async def attest_inr_llm_price(
+    session: AsyncSession,
+    *,
+    model: str,
+    in_inr_per_mtok: Decimal,
+    cached_in_inr_per_mtok: Decimal | None,
+    out_inr_per_mtok: Decimal,
+    effective_from: datetime,
+    source_note: str,
+    actor_id: object,
+) -> rates.InrLlmPriceAttestation:
+    """Record one rupee LLM price as a NEW effective-dated row. `attest_tts_price`'s contract:
+    the caller step-up confirms and writes the audit row on this session; a non-positive or
+    unmeterable figure and a duplicate instant are refused with a sentence."""
+    _require_inr_llm(model)
+    figures = {"input": in_inr_per_mtok, "output": out_inr_per_mtok}
+    if cached_in_inr_per_mtok is not None:
+        figures["cached input"] = cached_in_inr_per_mtok
+    for leg, figure in figures.items():
+        if figure <= 0:
+            raise ProblemError(
+                kind="validation",
+                code="inr_llm_price_not_positive",
+                title="A price must be greater than zero",
+                detail=f"The {leg} figure is rupees per million tokens and must be positive.",
+                remediation=(
+                    "Enter the figure from the vendor's invoice or pricing page. A zero is "
+                    "refused because it records every token on this model at nothing."
+                ),
+            )
+        _refuse_unmeterable_rate(
+            figure / Decimal("1000"),
+            subject=f"the attested {leg} price for {model!r}",
+            unit="1,000 tokens",
+        )
+    existing = (
+        await session.execute(
+            text("SELECT 1 FROM platform_inr_llm_prices WHERE model = :m AND effective_from = :ef"),
+            {"m": model, "ef": effective_from},
+        )
+    ).first()
+    if existing is not None:
+        raise ProblemError(
+            kind="conflict",
+            code="inr_llm_price_duplicate_instant",
+            title="A price already exists for this model at this instant",
+            detail=(
+                f"{model!r} already has an attestation effective from "
+                f"{effective_from.isoformat()}. A correction is a NEW effective instant."
+            ),
+            remediation="Attest again with a later effective date (the default is now).",
+        )
+    await session.execute(
+        text(
+            "INSERT INTO platform_inr_llm_prices (model, effective_from, in_inr_per_mtok, "
+            "cached_in_inr_per_mtok, out_inr_per_mtok, attested_by, source_note) "
+            "VALUES (:m, :ef, :inp, :cached, :out, :by, :note)"
+        ),
+        {
+            "m": model,
+            "ef": effective_from,
+            "inp": in_inr_per_mtok,
+            "cached": cached_in_inr_per_mtok,
+            "out": out_inr_per_mtok,
+            "by": actor_id,
+            "note": source_note,
+        },
+    )
+    return rates.InrLlmPriceAttestation(
+        model=model,
+        in_inr_per_mtok=in_inr_per_mtok,
+        cached_in_inr_per_mtok=cached_in_inr_per_mtok,
+        out_inr_per_mtok=out_inr_per_mtok,
+        attested_by=str(actor_id),
+        source=source_note,
+    )
+
+
 __all__ = [
     "PLAN_BILLED_TTS_PROVIDERS",
     "PROVIDER_CREDENTIAL",
@@ -1509,9 +1641,11 @@ __all__ = [
     "TtsPlanFeeAttestation",
     "TtsPriceAttestation",
     "attest_embedding_price",
+    "attest_inr_llm_price",
     "attest_price",
     "attest_tts_plan_fee",
     "attest_tts_price",
+    "attested_inr_llm_prices",
     "attested_model_prices",
     "attested_tts_plan_fees",
     "attested_tts_prices",

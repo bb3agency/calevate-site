@@ -284,9 +284,11 @@ async def test_the_wrapping_columns_are_the_only_ones_an_update_may_touch() -> N
         "last_four",
         "created_at",
         "created_by",
+        "removed",
     }, (
         "a column was added to platform_secrets — decide whether a KEK rewrap may change "
-        "it, and update migration b8e3f2a71c04's trigger accordingly"
+        "it, and update the trigger function accordingly (last replaced by migration "
+        "c2b7e5a94d18)"
     )
 
 

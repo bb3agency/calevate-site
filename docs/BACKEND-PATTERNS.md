@@ -300,6 +300,14 @@ touches no Redis, and the one database write it does make can only SUPPRESS A RE
 episode lookup that decides onset from continuation fails OPEN, so an unreachable database
 costs duplicate mail and never a missed page. Every call site passes a STABLE
 code rather than a formatted string, because the code is the deduplication key.
+Three refinements of the onset rule, each generic: `alert(..., episode=...)` splits one
+code into independent episodes (fingerprint `stage:code:episode`), a code in
+`alarm_severity.REPEAT_WHILE_OPEN_S` re-mails at that interval while its episode stays open
+(checked by `scripts/check_alarm_wiring.py`: only a raised `page` may repeat), and a caller
+that can SEE recovery calls `alerting.resolve_alert`, which closes the episode at once and
+sends the one CLEARED line the hourly sweep would otherwise send an hour late. The first
+user is `ai_provider_degraded` (`core/provider_health.py`, a platform AI provider's main
+leg failing).
 Metrics are **named domain recorders** (`record_pipeline_lag`,
 `record_webhook_ack_ms`, `record_extraction_failure`, `record_outbox_lag`), not
 ad-hoc counters — the recorder names become the SLO rule vocabulary (OPERATIONS §4).

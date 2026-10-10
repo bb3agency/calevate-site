@@ -384,6 +384,7 @@ All under the existing admin realm. Permission `platform:config` for §1's left 
 | `DELETE /v1/ops/config/{key}` | `platform:config` | revert to code default |
 | `GET /v1/ops/secrets` | `platform:secrets` | key, `last_four`, version, who, when, `kek_version`. **No plaintext, ever, on any route.** |
 | `PUT /v1/ops/secrets/{key}` | `platform:secrets` | new version; step-up `X-Confirm-Action: set_secret:<key>` |
+| `DELETE /v1/ops/secrets/{key}` | `platform:secrets` | appends a REMOVAL version (the key then reads as not set); step-up `X-Confirm-Action: remove_secret:<key>`; refused (422 `secret_set_in_environment`) for a key the environment sets |
 | `POST /v1/ops/secrets/{key}/test` | `platform:secrets` | **dry-run against the vendor** before the value goes live — see below |
 | `GET /v1/ops/secrets/kek` | `platform:secrets` | active KEK, and how many DEKs are still under another one — `platform_secrets` AND clients' `integration_credentials` (walked per tenant, `tenant_credentials_complete` false when the walk ran out of time) |
 | `POST /v1/ops/secrets/kek/rewrap` | `platform:secrets` | KEK rotation: re-wrap every DEK in both stores under the new KEK; step-up `X-Confirm-Action: rewrap_platform_keks` |
@@ -492,7 +493,7 @@ the operator's stated reason. It records **no value and no fragment beyond `last
 
 The audit rows land in the existing hash-chained `audit_log`, so "who changed the Bolna
 key on the day the margin moved" is answerable and tamper-evident. New action names:
-`platform.config_set`, `platform.config_reverted`, `platform.secret_set`,
+`platform.config_set`, `platform.config_reverted`, `platform.secret_set`, `platform.secret_removed`,
 `platform.secret_tested`, `platform.kek_rewrapped`, `platform.model_price_attested` (the
 model, the two USD-per-Mtok figures, the instant it takes effect and the operator's stated
 source — no secret, no PII).

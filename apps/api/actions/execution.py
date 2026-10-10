@@ -66,6 +66,7 @@ from apps.api.actions.schema import (
     PreparedRequest,
     SheetsConfig,
     WhatsAppConfig,
+    lead_field_key,
 )
 from apps.api.actions.service import LoadedTool
 from apps.api.compliance.trial_access import restricting_trial
@@ -150,9 +151,42 @@ def lead_values(params: list[dict[str, Any]], call: CallFacts) -> dict[str, Any]
     out: dict[str, Any] = {}
     for raw in params:
         spec = ParamSpec.model_validate(raw)
-        if spec.source == "lead_var" and spec.lead_var is not None:
+        if spec.source == "lead_var" and spec.lead_var in facts:
             out[spec.name] = facts.get(spec.lead_var)
     return out
+
+
+#: The details this agent captured about this caller on earlier calls. `leads` is unique on
+#: (tenant_id, phone_e164, agent_id) and RLS scopes the tenant, so this is one row or none.
+_LEAD_DATA_SQL = (
+    "SELECT data FROM leads WHERE agent_id = :aid AND phone_e164 = :phone "
+    "AND deleted_at IS NULL LIMIT 1"
+)
+
+
+async def captured_values(
+    session: AsyncSession, *, tool: LoadedTool, call: CallFacts
+) -> dict[str, Any]:
+    """`field:<key>` bindings filled from what the agent has already captured about the caller
+    (`leads.data`). A caller the agent has never captured anything for, or a detail it did not
+    get, resolves to None and the field is dropped downstream. No query when the action binds
+    no captured detail, so an ordinary in-call action pays nothing for this."""
+    wanted = {
+        spec.name: key
+        for spec in (ParamSpec.model_validate(raw) for raw in tool.params)
+        if spec.source == "lead_var" and (key := lead_field_key(spec.lead_var)) is not None
+    }
+    if not wanted:
+        return {}
+    data: Any = None
+    if call.caller_e164:
+        data = (
+            await session.execute(
+                text(_LEAD_DATA_SQL), {"aid": tool.agent_id, "phone": call.caller_e164}
+            )
+        ).scalar_one_or_none()
+    stored: dict[str, Any] = data if isinstance(data, dict) else {}
+    return {name: stored.get(key) for name, key in wanted.items()}
 
 
 def _stringify(value: Any) -> str:
@@ -242,6 +276,13 @@ async def execute_action(
     # With a call in hand its values are the only ones a call variable may take; without
     # one (a caller that supplies its own, such as a unit of the executor) `received` is used.
     merged = {**received, **lead_values(tool.params, call)} if call is not None else received
+    if call is not None:
+        captured = await captured_values(session, tool=tool, call=call)
+        if source == "test":
+            # The Test button's caller is the business's own number, which usually has no
+            # lead: the sample value typed for the detail stands in unless one was captured.
+            captured = {k: v for k, v in captured.items() if v is not None}
+        merged = {**merged, **captured}
     owns = client is None
     http = client or egress_client(timeout=REQUEST_TIMEOUT_S, follow_redirects=False)
     try:

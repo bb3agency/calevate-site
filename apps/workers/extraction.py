@@ -117,6 +117,7 @@ from calevate_shared.extraction import (
     validate_extraction,
 )
 
+from apps.api.core import provider_health
 from apps.api.core.alerting import record_extraction_failure
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -303,6 +304,9 @@ class SarvamExtractor:
         # switch read here instead would make the budget depend on who happened to import
         # first, which is the shape of bug that only shows up under load.
         self._timeout_s = timeout_s
+        #: What the last `run` cost, in Sarvam's own count, or None if it sent no `usage`
+        #: block. Read by the post-call pipeline to record the pass at our cost.
+        self.last_usage: TokenUsage | None = None
 
     @property
     def _leg(self) -> chat.ChatLeg:
@@ -321,6 +325,7 @@ class SarvamExtractor:
         # blindly turns "the model said nothing" into an IndexError that escapes
         # `extract_call`'s ladder and fails the whole post-call job — is now that module's
         # `_message_of`, so both legs and every future one inherit it.
+        self.last_usage = None
         outcome = await chat.complete(
             self._leg,
             [{"role": "user", "content": build_extraction_prompt(spec, transcript)}],
@@ -329,6 +334,8 @@ class SarvamExtractor:
             response_format={"type": "json_object"},
             max_tokens=EXTRACTION_MAX_TOKENS,
         )
+        # Before the truncation check: a truncated answer was still paid for.
+        self.last_usage = outcome.usage
         if outcome.finish_reason == "length":
             raise ExtractionTruncatedError(self.model_name)
         return _first_json_object(outcome.content)
@@ -1956,6 +1963,15 @@ def _nothing_was_said(spec: ExtractionSchemaSpec) -> ExtractionOutput:
     )
 
 
+def _provider_of(runner: Extractor) -> str | None:
+    """Which provider a runner calls, for `provider_health`; None for one that calls none."""
+    if isinstance(runner, SarvamExtractor):
+        return SARVAM_PROVIDER
+    if isinstance(runner, AzureOpenAIExtractor):
+        return AZURE_PROVIDER
+    return None
+
+
 async def extract_call(
     spec: ExtractionSchemaSpec, transcript: str, *, extractor: Extractor | None = None
 ) -> ExtractionOutput:
@@ -1981,15 +1997,30 @@ async def extract_call(
     if not transcript.strip():
         return _nothing_was_said(spec)
     runner = extractor or get_extractor()
+    provider = _provider_of(runner)
     try:
-        raw = await runner.run(spec, transcript)
+        if provider is None:
+            raw = await runner.run(spec, transcript)
+        else:
+            # The provider-health hook sits HERE, around the whole `run`, and not around
+            # each HTTP request: Azure's 400 → `json_object` degrade is two requests and
+            # one answer, and only the answer says whether the leg works.
+            async with provider_health.watch("extraction", provider):
+                raw = await runner.run(spec, transcript)
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
         # IndexError/TypeError belong here with the rest: a provider response whose
         # shape we did not expect is a MODEL failure, and this ladder exists so a model
         # failure costs the structured fields and never the call, the lead or the
         # metering (which all happen after this returns).
         record_extraction_failure(reason=type(exc).__name__)
-        log.warning("extraction_failed", extra={"model": runner.model_name})
+        log.warning(
+            "extraction_failed",
+            extra={
+                "model": runner.model_name,
+                "provider": provider,
+                **provider_health.failure_fields(exc),
+            },
+        )
         return ExtractionOutput(valid=False, errors={MODEL_FAILURE: type(exc).__name__})
 
     outcome = validate_extraction(spec, raw)

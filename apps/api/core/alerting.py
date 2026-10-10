@@ -110,7 +110,7 @@ import time
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
-from apps.api.core.alarm_severity import Severity, is_emailed, severity_of
+from apps.api.core.alarm_severity import Severity, is_emailed, repeat_while_open, severity_of
 from apps.api.core.logging import get_logger, redact_mapping, safe_extra
 
 if TYPE_CHECKING:  # `alert_records` imports psycopg; keep it off the ack path's imports.
@@ -156,7 +156,14 @@ FailureStage = Literal[
 ]
 
 
-def alert(stage: FailureStage, code: str, *, detail: str | None = None, **ids: str) -> None:
+def alert(
+    stage: FailureStage,
+    code: str,
+    *,
+    detail: str | None = None,
+    episode: str | None = None,
+    **ids: str,
+) -> None:
     """Fire the alert path. `detail` must be a message we authored — never a payload.
 
     Returns as soon as the log record is written and the notice is queued. Never
@@ -169,6 +176,12 @@ def alert(stage: FailureStage, code: str, *, detail: str | None = None, **ids: s
     place the decision is made and `scripts/check_alarm_wiring.py` refuses a code that is
     missing from it — so adding an alarm forces the choice, in a file whose whole content
     is those choices side by side. Unknown codes default to `page`: loud, not closed.
+
+    `episode` splits ONE code into independent conditions — `ai_provider_degraded` for
+    copilot/google and for embeddings/azure_openai are two outages with two onsets and two
+    clears. It extends the fingerprint (`stage:code:episode`) everywhere the fingerprint is
+    the key: suppression, the shared window and the `platform_alerts` episode. It must be
+    a value of OURS from a small closed set; it is never redacted because it is never data.
     """
     severity = severity_of(code)
     log.error(
@@ -182,7 +195,7 @@ def alert(stage: FailureStage, code: str, *, detail: str | None = None, **ids: s
         },
     )
     try:
-        _dispatch(stage, code, severity, detail, ids)
+        _dispatch(stage, code, severity, detail, ids, episode)
     except Exception as exc:
         log.error("alert_dispatch_failed", extra={"code": code, "reason": type(exc).__name__})
 
@@ -251,6 +264,17 @@ class AlertNotice:
     #: False when the token bucket refused this `page`: the notice is RECORDED on the
     #: console and not mailed. Its code is named in the next mail's `dropped:` line.
     mail_allowed: bool = True
+    #: See `alert(episode=...)`.
+    episode: str | None = None
+    #: Set by `_handle` on a REPEAT_WHILE_OPEN reminder, so the mail says it is one.
+    reminder: bool = False
+    #: A recovery report from `resolve_alert`, not an occurrence: close the episode.
+    resolve: bool = False
+
+    @property
+    def fingerprint(self) -> str:
+        base = f"{self.stage}:{self.code}"
+        return base if self.episode is None else f"{base}:{self.episode}"
 
 
 #: Bound on `_mail_refused`, for `ALERT_DROPPED_CODES_MAX`'s reason: it is a module global
@@ -301,6 +325,7 @@ def _dispatch(
     severity: Severity,
     detail: str | None,
     ids: dict[str, str],
+    episode: str | None = None,
 ) -> None:
     """Admit, then queue. NOTHING here decides whether an email is sent.
 
@@ -315,29 +340,66 @@ def _dispatch(
         # Reached from inside the delivery path. The log line above already happened;
         # queueing here is how a broken transport becomes an infinite loop.
         return
-    verdict = _admit(f"{stage}:{code}", code, severity)
+    fingerprint = f"{stage}:{code}" if episode is None else f"{stage}:{code}:{episode}"
+    verdict = _admit(fingerprint, code, severity)
     if verdict is None:
         return
     suppressed, rate_limited, rate_limited_codes, mail_allowed = verdict
-    notice = AlertNotice(
-        stage=stage,
-        code=code,
-        severity=severity,
-        detail=detail,
-        ids=dict(ids),
-        suppressed=suppressed,
-        rate_limited=rate_limited,
-        rate_limited_codes=rate_limited_codes,
-        mail_allowed=mail_allowed,
+    _enqueue(
+        AlertNotice(
+            stage=stage,
+            code=code,
+            severity=severity,
+            detail=detail,
+            ids=dict(ids),
+            suppressed=suppressed,
+            rate_limited=rate_limited,
+            rate_limited_codes=rate_limited_codes,
+            mail_allowed=mail_allowed,
+            episode=episode,
+        )
     )
+
+
+def _enqueue(notice: AlertNotice) -> None:
     try:
         _queue.put_nowait(notice)
     except queue.Full:
         # The alarm is not lost — the ERROR log line is already written. What is lost
         # is this SEND, and that fact is itself logged rather than swallowed.
-        log.error("alert_queue_overflow", extra={"code": code, "depth": ALERT_QUEUE_MAX})
+        log.error("alert_queue_overflow", extra={"code": notice.code, "depth": ALERT_QUEUE_MAX})
         return
     _ensure_worker()
+
+
+def resolve_alert(stage: FailureStage, code: str, *, episode: str | None = None) -> None:
+    """The condition behind this alarm has RECOVERED: close its episode and say so once.
+
+    For a caller that can observe recovery directly (`core/provider_health.py` sees the
+    provider answer again). Without this the episode waits out the sweep's hour of
+    silence, which is an hour of a stale "still broken" on the console and a relapse
+    inside that hour that never mails. Inline-safe for `alert()`'s reasons: it only
+    queues, and the database close and the clear mail happen on the delivery thread. The
+    clear mail goes only if the episode's onset was mailed, as with the sweep. Never raises.
+    """
+    if getattr(_local, "delivering", False):
+        return
+    try:
+        _enqueue(
+            AlertNotice(
+                stage=stage,
+                code=code,
+                severity=severity_of(code),
+                detail=None,
+                ids={},
+                suppressed=0,
+                rate_limited=0,
+                episode=episode,
+                resolve=True,
+            )
+        )
+    except Exception as exc:
+        log.error("alert_resolve_failed", extra={"code": code, "reason": type(exc).__name__})
 
 
 def _warn_unconfigured_once() -> None:
@@ -486,7 +548,7 @@ def _admit_shared(notice: AlertNotice) -> AlertNotice | None:
 
     verdict = admit(
         service=_service,
-        fingerprint=f"{notice.stage}:{notice.code}",
+        fingerprint=notice.fingerprint,
         window_s=ALERT_REPEAT_INTERVAL_S,
         burst=ALERT_BURST,
         budget_per_hour=ALERT_BUDGET_PER_HOUR,
@@ -544,6 +606,9 @@ def _handle(notice: AlertNotice) -> None:
     `outcome is None` means the database could not tell us whether this is new, and a
     `page` is sent on that. The only thing this path may do is SUPPRESS A REPEAT.
     """
+    if notice.resolve:
+        _handle_resolve(notice)
+        return
     outcome = _record_alert(notice)
     if not is_emailed(notice.severity):
         return
@@ -551,6 +616,23 @@ def _handle(notice: AlertNotice) -> None:
         log.info("alert_email_rate_limited", extra={"code": notice.code})
         return
     if outcome is not None and not outcome.opened and outcome.already_emailed:
+        repeat = repeat_while_open(notice.code)
+        if (
+            repeat is not None
+            and outcome.emailed_age_s is not None
+            and outcome.emailed_age_s >= repeat
+        ):
+            # REPEAT WHILE OPEN (`alarm_severity.REPEAT_WHILE_OPEN_S`): still broken, and
+            # the last reminder is old enough. Same path as an onset from here on, so the
+            # shared gate still stops four workers sending four reminders.
+            notice = replace(notice, reminder=True)
+            if _admit_shared(notice) is None:
+                return
+            if _deliver(notice):
+                from apps.api.core.alert_records import mark_emailed
+
+                mark_emailed(outcome.alert_id)
+            return
         # The condition is already open AND somebody has already been told. This is the
         # 26-message thread. `already_emailed` is in that condition rather than assumed:
         # an episode opened by a `page` whose transport then failed twice is an alarm
@@ -567,6 +649,39 @@ def _handle(notice: AlertNotice) -> None:
         from apps.api.core.alert_records import mark_emailed
 
         mark_emailed(outcome.alert_id)
+
+
+def _handle_resolve(notice: AlertNotice) -> None:
+    """Close the episode a recovery was reported for; mail the clear if its onset mailed.
+
+    Both suppression stamps are dropped too: a relapse after a recovery is a new onset,
+    and the 15-minute window left behind by the old episode would otherwise hold its
+    first notice back.
+    """
+    from apps.api.core.alert_records import clear_message, close_open
+    from apps.api.core.settings import get_settings
+
+    _forget(notice.fingerprint)
+    closed = close_open(notice.fingerprint)
+    if closed is None or not closed.emailed:
+        return
+    recipient = _recipient()
+    if recipient is None:
+        _warn_unconfigured_once()
+        return
+    subject, body = clear_message(
+        closed, app_env=get_settings().app_env, status="the condition reported recovery"
+    )
+    _local.delivering = True
+    try:
+        from apps.api.core.transport import get_transport
+
+        if get_transport().send(to=recipient, subject=subject, body=body):
+            log.info("alert_clear_delivered", extra={"code": notice.code})
+        else:
+            log.warning("alert_clear_notice_failed", extra={"code": notice.code})
+    finally:
+        _local.delivering = False
 
 
 def _record_alert(notice: AlertNotice) -> RecordOutcome | None:
@@ -588,6 +703,7 @@ def _record_alert(notice: AlertNotice) -> RecordOutcome | None:
         # +1 for this occurrence: `suppressed` counts only the ones withheld since the
         # last flush, and the flush itself is an occurrence too.
         occurrences=notice.suppressed + 1,
+        fingerprint=notice.fingerprint,
     )
 
 
@@ -637,7 +753,7 @@ def _deliver(notice: AlertNotice) -> bool:
                 "transport": transport.name,
             },
         )
-        _forget(f"{notice.stage}:{notice.code}")
+        _forget(notice.fingerprint)
         return False
     finally:
         _local.delivering = False
@@ -647,7 +763,8 @@ def _subject(notice: AlertNotice) -> str:
     """What a phone shows on a lock screen. Code first — it is the searchable token."""
     from apps.api.core.settings import get_settings
 
-    return f"[calevate/{get_settings().app_env}/{_service}] {notice.code}"
+    suffix = " (still open)" if notice.reminder else ""
+    return f"[calevate/{get_settings().app_env}/{_service}] {notice.code}{suffix}"
 
 
 def _body(notice: AlertNotice) -> str:
@@ -670,6 +787,11 @@ def _body(notice: AlertNotice) -> str:
         f"severity: {notice.severity}",
         f"service: {_service}",
     ]
+    if notice.reminder:
+        every = (repeat_while_open(notice.code) or 0.0) / 60
+        lines.append(
+            f"status:  STILL OPEN — reminder, repeated every {every:.0f} minutes until it clears"
+        )
     if detail:
         lines.append(f"detail:  {detail}")
     lines += [f"{key}: {value}" for key, value in sorted(safe.items())]
@@ -930,4 +1052,5 @@ __all__ = [
     "record_webhook_ack_ms",
     "record_webhook_replay_divergence",
     "reset_alerts",
+    "resolve_alert",
 ]

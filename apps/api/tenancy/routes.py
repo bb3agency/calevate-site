@@ -83,6 +83,17 @@ class MeOut(BaseModel):
     #: that reads like a restriction on them.
     withheld_acts: list[str] = []
     organization: OrganizationOut | None = None
+    #: The signed-in person's own address and name, for the account page's "signed in as".
+    #:
+    #: Here rather than on `SessionOut`: the session read is a bootstrap poll that declares
+    #: no permission, and a contact field on an undeclared route is what
+    #: `scripts/check_redaction_exposure.py` rule 2 refuses. This route declares
+    #: `org:read` and answers only the caller about themselves.
+    #:
+    #: `None` in a view-as session: the principal is an operator, not a member of this
+    #: account, and the client UI must never look like the client's own session (D-22).
+    email: str | None = None
+    name: str | None = None
 
 
 @router.get(
@@ -155,6 +166,19 @@ async def me(session: Session, principal: Principal = Depends(requires("org:read
         # rather than per-screen for the same reason the permission list is: the server
         # owns the ruling, the console asks.
         withheld_acts = sorted(VIEW_AS_WITHHELD_ACTS)
+    email: str | None = None
+    name: str | None = None
+    if not principal.impersonating and principal.user_id is not None:
+        # `users` is global with no RLS; reading by the principal's own id is what scopes
+        # it, so this can only ever return the caller's row.
+        own = (
+            await session.execute(
+                text("SELECT email, name FROM users WHERE id = :uid"),
+                {"uid": principal.user_id},
+            )
+        ).first()
+        if own is not None:
+            email, name = own[0], own[1]
     return MeOut(
         realm=principal.realm,
         user_id=principal.user_id,
@@ -163,6 +187,8 @@ async def me(session: Session, principal: Principal = Depends(requires("org:read
         impersonating=principal.impersonating,
         withheld_acts=withheld_acts,
         organization=org,
+        email=email,
+        name=name,
     )
 
 

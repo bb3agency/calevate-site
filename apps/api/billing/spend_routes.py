@@ -44,7 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.admin import service as admin_service
 from apps.api.billing import rates, tts_speaking_rate
 from apps.api.billing import service as billing
-from apps.api.billing.ai_quota import read_ai_quota
+from apps.api.billing.ai_quota import AiUsage, read_ai_quota, read_ai_usage
 from apps.api.billing.attribution import (
     AgentAttribution,
     CallAttribution,
@@ -407,6 +407,14 @@ class FleetTenantOut(Strict):
     cost_inr: str
     margin_inr: str
     margin_pct: str | None
+    #: The dashboard AI we absorbed for this client this month (assistant, re-summarise,
+    #: script drafting, knowledge preparation), exact paise. NOT in `cost_inr` or the
+    #: margin, for `AbsorbedAiSpendOut`'s reason: it has no matching revenue, and folding
+    #: it in would break the call-cost partition. Without it a client who only used the
+    #: assistant read ₹0.00 here while costing us real rupees.
+    ai_absorbed_inr: str
+    #: Distinct AI actions behind `ai_absorbed_inr`, one per user action.
+    ai_requests: int
 
 
 class FleetUndecidableOut(Strict):
@@ -518,6 +526,9 @@ class FleetSpendOut(Strict):
     cost_inr: str
     margin_inr: str
     margin_pct: str | None
+    #: The sum of every row's `ai_absorbed_inr`: AI cost we carried across the fleet,
+    #: outside the revenue, cost and margin totals above.
+    ai_absorbed_inr: str
     tenants: list[FleetTenantOut]
     #: THE CLIENTS THIS WALK COULD NOT PRICE, named (19 Sep 2026).
     #:
@@ -986,6 +997,7 @@ class _FleetRow:
     slug: str
     plan_tier: str
     margin: dict[str, object]
+    ai: AiUsage
 
 
 @router.get(
@@ -1053,6 +1065,11 @@ async def fleet_spend(
                         {"tid": tenant_id, "start": window_start, "next": window_next},
                     )
                 ).one()
+                # The free assistant counts: those rupees are ours to absorb whatever
+                # the client's allowance says.
+                ai = await read_ai_usage(
+                    scoped, tenant_id=tenant_id, month=period, include_free=True
+                )
         except ValueError as exc:
             # ONE CLIENT'S REFUSAL IS ONE ROW, NOT THE WHOLE BOARD (19 Sep 2026). This walk
             # had no isolation, so a single tenant `voice_tier_usage` could not price took
@@ -1091,6 +1108,7 @@ async def fleet_spend(
                 slug=str(org[2]),
                 plan_tier=str(org[3]),
                 margin=margin,
+                ai=ai,
             )
         )
 
@@ -1112,6 +1130,7 @@ async def fleet_spend(
     revenue = sum((_dec(r.margin["revenue_inr"]) for r in walked), Decimal("0.00"))
     cost = sum((_dec(r.margin["cost_inr"]) for r in walked), Decimal("0.00"))
     total_margin = revenue - cost
+    ai_absorbed = sum((r.ai.used_inr for r in walked), Decimal("0"))
     return FleetSpendOut(
         month=period,
         clients=len(walked),
@@ -1122,6 +1141,7 @@ async def fleet_spend(
         # through the SAME function `margin_for_tenant` uses per client rather than a
         # second copy of the rule (`billing.service.margin_pct`).
         margin_pct=_money(billing.margin_pct(margin_inr=total_margin, revenue_inr=revenue)),
+        ai_absorbed_inr=str(to_paise(ai_absorbed)),
         tenants=[
             FleetTenantOut(
                 tenant_id=str(r.tenant_id),
@@ -1134,6 +1154,8 @@ async def fleet_spend(
                 cost_inr=str(r.margin["cost_inr"]),
                 margin_inr=str(r.margin["margin_inr"]),
                 margin_pct=_money(_opt_dec(r.margin["margin_pct"])),
+                ai_absorbed_inr=str(to_paise(r.ai.used_inr)),
+                ai_requests=r.ai.requests,
             )
             # Worst first: the client we are losing the most on is the one an operator
             # opened this page for. Ties by name so the order is stable between renders.

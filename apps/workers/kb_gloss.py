@@ -108,6 +108,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
+from apps.api.core import provider_health
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
@@ -242,16 +243,17 @@ async def _gloss_one(
         )
         return False
 
-    outcome = await chat.complete(
-        leg,
-        [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": content},
-        ],
-        timeout_s=GLOSS_TIMEOUT_S,
-        temperature=0,
-        max_tokens=GLOSS_MAX_TOKENS,
-    )
+    async with provider_health.watch("kb_gloss", chat.provider_of(leg)):
+        outcome = await chat.complete(
+            leg,
+            [
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": content},
+            ],
+            timeout_s=GLOSS_TIMEOUT_S,
+            temperature=0,
+            max_tokens=GLOSS_MAX_TOKENS,
+        )
     if outcome.finish_reason == "length":
         # The valve fired, so this run SPENT the ceiling. A truncated gloss is still a
         # usable retrieval key — unlike truncated JSON it does not fail to parse — so it is

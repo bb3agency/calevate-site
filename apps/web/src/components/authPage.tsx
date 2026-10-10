@@ -29,15 +29,25 @@ export function AuthPageFrame({
   aside,
   /** `wide` for a form with more than a couple of fields (the workspace setup). */
   width = "narrow",
+  ground = "app",
   children,
 }: {
   realmLabel: string;
   aside?: ReactNode;
   width?: "narrow" | "wide";
+  /**
+   * `surface` (white) for a signed-in settings page, which reads as part of the console
+   * (REDESIGN-2: the client content area is `--surface`, grouping is hairlines, not
+   * cards). `app` (the recessed grey) for the public doors, where the form is a bounded
+   * card that needs the ground to stand on.
+   */
+  ground?: "app" | "surface";
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-app">
+    <div
+      className={`flex min-h-0 flex-1 flex-col overflow-y-auto ${ground === "surface" ? "bg-surface" : "bg-app"}`}
+    >
       {/* Offline matters MORE here than inside the consoles: a sign-in that cannot reach
           the API fails with a message about the request, and a person who cannot see that
           their connection is gone reads it as "my password is wrong". */}
@@ -53,7 +63,7 @@ export function AuthPageFrame({
                 accessible name — "Calevate". */}
             <Link
               href="/"
-              className="flex items-center rounded-md touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-app"
+              className={`flex items-center rounded-md touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${ground === "surface" ? "focus-visible:ring-offset-surface" : "focus-visible:ring-offset-app"}`}
             >
               <BrandWordmark height={36} />
             </Link>

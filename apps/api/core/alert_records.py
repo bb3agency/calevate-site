@@ -54,6 +54,7 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import uuid_utils
@@ -102,7 +103,8 @@ ON CONFLICT (fingerprint) WHERE cleared_at IS NULL DO UPDATE SET
     ids          = EXCLUDED.ids,
     severity     = EXCLUDED.severity,
     service      = EXCLUDED.service
-RETURNING id, (xmax = 0) AS opened, platform_alerts.emailed AS already_emailed
+RETURNING id, (xmax = 0) AS opened, platform_alerts.emailed AS already_emailed,
+    extract(epoch FROM now() - platform_alerts.emailed_at) AS emailed_age_s
 """
 
 _MARK_EMAILED = """
@@ -122,6 +124,9 @@ class RecordOutcome:
     #: SMTP blip swallow the incident — the property `alerting._forget` exists to protect,
     #: which the onset rule would otherwise have quietly repealed.
     already_emailed: bool
+    #: Seconds since this episode was last mailed, or None if it never was. Read only for a
+    #: code in `alarm_severity.REPEAT_WHILE_OPEN_S`, to decide whether a reminder is due.
+    emailed_age_s: float | None = None
 
 
 def _dsn() -> str | None:
@@ -148,6 +153,7 @@ def record(
     detail: str | None,
     ids: dict[str, str],
     occurrences: int,
+    fingerprint: str | None = None,
 ) -> RecordOutcome | None:
     """Open or extend this alarm's episode. `None` means "I could not tell" — mail anyway.
 
@@ -160,7 +166,7 @@ def record(
         # Generated here rather than by a column default: `RETURNING id` has to name a
         # value on the UPDATE arm too, and a client-side uuid keeps this one statement.
         "id": str(uuid.UUID(bytes=uuid_utils.uuid7().bytes)),
-        "fingerprint": f"{stage}:{code}",
+        "fingerprint": fingerprint or f"{stage}:{code}",
         "code": code,
         "stage": stage,
         "severity": severity,
@@ -193,7 +199,12 @@ def record(
         return None
     if row is None:  # pragma: no cover - RETURNING always yields on a successful upsert
         return None
-    return RecordOutcome(alert_id=str(row[0]), opened=bool(row[1]), already_emailed=bool(row[2]))
+    return RecordOutcome(
+        alert_id=str(row[0]),
+        opened=bool(row[1]),
+        already_emailed=bool(row[2]),
+        emailed_age_s=float(row[3]) if row[3] is not None else None,
+    )
 
 
 def mark_emailed(alert_id: str) -> None:
@@ -214,6 +225,85 @@ def mark_emailed(alert_id: str) -> None:
             conn.execute(_MARK_EMAILED, {"id": alert_id})
     except Exception as exc:
         log.warning("alert_mark_emailed_failed", extra={"reason": type(exc).__name__})
+
+
+_CLOSE_OPEN = """
+UPDATE platform_alerts SET cleared_at = now()
+WHERE fingerprint = %(fingerprint)s AND cleared_at IS NULL
+RETURNING code, stage, severity, service, occurrences, emailed, first_seen_at, last_seen_at
+"""
+
+
+@dataclass(frozen=True)
+class ClosedEpisode:
+    """What a clear notice needs about the episode that just closed."""
+
+    code: str
+    stage: str
+    severity: str
+    service: str
+    occurrences: int
+    emailed: bool
+    first_seen_at: datetime
+    last_seen_at: datetime
+
+
+def close_open(fingerprint: str) -> ClosedEpisode | None:
+    """Close this fingerprint's open episode NOW, because the condition reported recovery.
+
+    The sweep (`workers/alerts.sweep_alert_clears`) closes an episode after an hour of
+    silence because silence is all it can observe. A caller that can SEE the recovery — a
+    provider answering again — closes it here instead, so the "back to normal" line is not
+    an hour late and a relapse inside that hour opens a fresh episode that mails.
+    None when nothing was open or the database could not be reached; never raises.
+    """
+    dsn = _dsn()
+    if not dsn:
+        return None
+    try:
+        import psycopg
+
+        with psycopg.connect(dsn, **_CONNECT_KWARGS) as conn, conn.cursor() as cur:
+            cur.execute(_CLOSE_OPEN, {"fingerprint": fingerprint})
+            row = cur.fetchone()
+    except Exception as exc:
+        # The sweep closes it an hour later instead; nothing is lost but promptness.
+        log.warning("alert_close_failed", extra={"reason": type(exc).__name__})
+        return None
+    if row is None:
+        return None
+    return ClosedEpisode(
+        code=str(row[0]),
+        stage=str(row[1]),
+        severity=str(row[2]),
+        service=str(row[3]),
+        occurrences=int(row[4]),
+        emailed=bool(row[5]),
+        first_seen_at=row[6],
+        last_seen_at=row[7],
+    )
+
+
+def clear_message(episode: Any, *, app_env: str, status: str) -> tuple[str, str]:
+    """`(subject, body)` of the one-line "it cleared" mail. ONE composer for both closers.
+
+    `episode` is anything with `ClosedEpisode`'s attributes — the sweep passes its SQL row.
+    `status` says WHY it is over: a quiet period, or a recovery the caller observed.
+    """
+    minutes = (episode.last_seen_at - episode.first_seen_at).total_seconds() / 60
+    body = "\n".join(
+        [
+            f"stage:   {episode.stage}",
+            f"code:    {episode.code}",
+            f"service: {episode.service}",
+            f"status:  CLEARED — {status}",
+            f"lasted:  {minutes:.0f} minute(s), {episode.occurrences} occurrence(s)",
+            "",
+            "Nothing is required. The full history is on /admin/ops/alerts.",
+        ]
+    )
+    subject = f"[calevate/{app_env}/{episode.service}] {episode.code} cleared"
+    return subject, body
 
 
 def forget_all() -> None:
@@ -252,7 +342,10 @@ def forget_all() -> None:
 __all__ = [
     "MAX_DETAIL_CHARS",
     "RECORD_TIMEOUT_S",
+    "ClosedEpisode",
     "RecordOutcome",
+    "clear_message",
+    "close_open",
     "forget_all",
     "mark_emailed",
     "record",

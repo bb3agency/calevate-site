@@ -34,6 +34,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from apps.api.core.alert_records import clear_message
 from apps.api.core.alerting import ALERT_CLEAR_AFTER_S
 from apps.api.core.logging import get_logger
 from apps.api.db.session import untenanted_session
@@ -109,19 +110,11 @@ async def _announce_clear(row: Any) -> bool:
     recipient = settings.alerts_email or None
     if not recipient:
         return False
-    minutes = (row.last_seen_at - row.first_seen_at).total_seconds() / 60
-    body = "\n".join(
-        [
-            f"stage:   {row.stage}",
-            f"code:    {row.code}",
-            f"service: {row.service}",
-            f"status:  CLEARED — no further occurrence for {ALERT_CLEAR_AFTER_S / 60:.0f} minutes",
-            f"lasted:  {minutes:.0f} minute(s), {row.occurrences} occurrence(s)",
-            "",
-            "Nothing is required. The full history is on /admin/ops/alerts.",
-        ]
+    subject, body = clear_message(
+        row,
+        app_env=settings.app_env,
+        status=f"no further occurrence for {ALERT_CLEAR_AFTER_S / 60:.0f} minutes",
     )
-    subject = f"[calevate/{settings.app_env}/{row.service}] {row.code} cleared"
     try:
         # Off the event loop: `send` is blocking socket I/O (smtplib, or a sync httpx
         # POST) and this job shares its loop with the outbox and dispatch ticks.

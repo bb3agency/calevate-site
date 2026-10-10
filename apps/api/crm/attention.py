@@ -26,11 +26,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.service import LOW_BALANCE_INR
 from apps.api.core.logging import get_logger
 from apps.api.crm.schemas import AttentionKind
 
@@ -563,6 +565,110 @@ async def broken_actions(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -
     )
 
 
+#: Failed calls are news rather than a backlog: two days, not the fortnight, so a bad morning
+#: on a campaign does not sit on the bell for two weeks after it has been looked at.
+FAILED_CALL_DAYS = 2
+
+
+async def hot_leads(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> AttentionSource:
+    """Leads marked hot in the window and still hot: someone to ring back while it matters.
+    The title is the captured name only, never the number, because the same item becomes a
+    desktop notification that can show on a locked screen."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, name, updated_at, count(*) OVER () AS matching FROM leads "
+                "WHERE status = 'hot' AND deleted_at IS NULL "
+                "  AND updated_at > now() - make_interval(days => :window) "
+                "ORDER BY updated_at DESC, id LIMIT :limit"
+            ),
+            {"window": WINDOW_DAYS, "limit": limit},
+        )
+    ).all()
+    return AttentionSource(
+        kind="lead_hot",
+        items=[
+            AttentionItem(
+                kind="lead_hot",
+                id=str(row[0]),
+                title=f"{row[1]} is a hot lead" if row[1] else "A caller is a hot lead",
+                detail="They sounded ready to go ahead. Call them back while it is fresh.",
+                rule=None,
+                occurred_at=row[2],
+                href=f"/leads/{row[0]}",
+            )
+            for row in rows
+        ],
+        total=_matching(rows),
+    )
+
+
+async def failed_calls(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> AttentionSource:
+    """Calls that ended in `failed` (not unanswered or busy, which are ordinary outcomes)."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT c.id, c.direction, l.name, c.created_at, count(*) OVER () AS matching "
+                "FROM calls c LEFT JOIN leads l ON l.id = c.lead_id AND l.deleted_at IS NULL "
+                "WHERE c.status = 'failed' "
+                "  AND c.created_at > now() - make_interval(days => :window) "
+                "ORDER BY c.created_at DESC, c.id LIMIT :limit"
+            ),
+            {"window": FAILED_CALL_DAYS, "limit": limit},
+        )
+    ).all()
+    items: list[AttentionItem] = []
+    for call_id, direction, name, created_at, _matched in rows:
+        who = name or "a caller"
+        title = (
+            f"A call to {who} failed" if direction == "outbound" else f"A call from {who} failed"
+        )
+        items.append(
+            AttentionItem(
+                kind="call_failed",
+                id=str(call_id),
+                title=title,
+                detail="The call did not go through. Open it to see what happened.",
+                rule=None,
+                occurred_at=created_at,
+                href=f"/calls/{call_id}",
+            )
+        )
+    return AttentionSource(kind="call_failed", items=items, total=_matching(rows))
+
+
+async def low_credit(session: AsyncSession) -> AttentionSource:
+    """The wallet below the warning line (`billing.service.LOW_BALANCE_INR`) — a LIVE state,
+    read off the newest ledger entry under RLS, like the wallet screen. An account with no
+    ledger entry yet has never been funded and is told about that elsewhere, not here. At
+    zero or below the agents stop answering, which `inbound_stopped` says in full."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT balance_after, occurred_at FROM credit_ledger "
+                "ORDER BY occurred_at DESC, id DESC LIMIT 1"
+            )
+        )
+    ).first()
+    if row is None or Decimal(str(row[0])) >= LOW_BALANCE_INR:
+        return AttentionSource(kind="credit_low", items=[], total=0)
+    empty = Decimal(str(row[0])) <= 0
+    item = AttentionItem(
+        kind="credit_low",
+        id="credit-low",
+        title="Your credit has run out" if empty else "Your credit is running low",
+        detail=(
+            "Top up so your agents keep answering and calling."
+            if empty
+            else f"Below ₹{LOW_BALANCE_INR:.0f}. Top up before your calls stop."
+        ),
+        rule="no_credits" if empty else "low_balance",
+        occurred_at=row[1],
+        href="/credits",
+    )
+    return AttentionSource(kind="credit_low", items=[item], total=1)
+
+
 async def attention_queue(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> dict[str, Any]:
     """Every source, newest first, with per-kind counts for the nav badge.
 
@@ -621,6 +727,9 @@ async def attention_queue(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) 
         await knowledge_waiting(session, limit=limit),
         await inbound_stopped(session, limit=limit),
         await broken_actions(session, limit=limit),
+        await hot_leads(session, limit=limit),
+        await failed_calls(session, limit=limit),
+        await low_credit(session),
     ]
     items = sorted(
         (item for source in sources for item in source.items),
@@ -652,13 +761,17 @@ async def attention_queue(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) 
 __all__ = [
     "BLOCK_REMEDIES",
     "DEFAULT_LIMIT",
+    "FAILED_CALL_DAYS",
     "SHEET_FAILURE_REMEDIES",
     "WINDOW_DAYS",
     "AttentionItem",
     "AttentionSource",
     "attention_queue",
     "blocked_leads",
+    "failed_calls",
     "failed_deliveries",
+    "hot_leads",
     "knowledge_waiting",
+    "low_credit",
     "stalled_campaigns",
 ]

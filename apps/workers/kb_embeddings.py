@@ -85,6 +85,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
+from apps.api.core import provider_health
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
@@ -216,12 +217,13 @@ async def _embed_batch(
     RAISES on a transport failure so the CALLER can roll this batch back — the claims
     included, which is what returns those chunks to `pending` for the next tick.
     """
-    outcome = await chat.embed(
-        leg,
-        [embedding_input(content, gloss) for _, content, gloss in claimed],
-        dimensions=EMBEDDING_DIMS,
-        timeout_s=EMBED_TIMEOUT_S,
-    )
+    async with provider_health.watch("embeddings", chat.provider_of(leg)):
+        outcome = await chat.embed(
+            leg,
+            [embedding_input(content, gloss) for _, content, gloss in claimed],
+            dimensions=EMBEDDING_DIMS,
+            timeout_s=EMBED_TIMEOUT_S,
+        )
 
     stored = 0
     refused: list[UUID] = []

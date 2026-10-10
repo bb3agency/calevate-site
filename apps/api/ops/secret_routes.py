@@ -2,6 +2,7 @@
 
     GET  /v1/ops/secrets             key, last-4, version, who, when, kek id
     PUT  /v1/ops/secrets/{key}       new version; step-up `set_secret:<key>`
+    DELETE /v1/ops/secrets/{key}     a removal version; step-up `remove_secret:<key>`
     POST /v1/ops/secrets/{key}/test  dry-run against the vendor BEFORE it goes live
     POST /v1/ops/carrier/probe       the env-only carrier pair, as this process holds it
 
@@ -76,11 +77,13 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import StepUpGate
 from apps.api.ops.config_service import propagate
+from apps.api.ops.pricing_snapshot import refresh_pricing_snapshot
 from apps.api.ops.secret_probes import ProbeOutcome, probe_configured_carrier, probe_credential
 from apps.api.ops.secret_service import (
     SecretRecord,
     count_tenant_credential_keks,
     read_secrets,
+    remove_secret,
     rewrap_all,
     rewrap_tenant_credentials,
     set_secret,
@@ -228,7 +231,7 @@ def _out(record: SecretRecord, *, testable: bool) -> SecretOut:
     return SecretOut(
         key=record.key,
         env_var=record.env_var,
-        installed=record.version > 0,
+        installed=record.installed,
         version=record.version,
         versions=record.versions,
         last_four=record.last_four,
@@ -460,6 +463,72 @@ async def set_secret_route(
             dedupe_key=f"studio-voice-key:{record.version}",
         )
     tasks.add_task(propagate)
+    # Which LLM legs hold a key decides which models are offered; refresh it here rather
+    # than leave this process offering a leg for one more poll interval.
+    tasks.add_task(refresh_pricing_snapshot)
+    return _out(record, testable=_testable(key))
+
+
+def secret_removal_confirmation(key: str) -> str:
+    """The step-up string for removing ONE credential. Bound to the key, and distinct
+    from `secret_confirmation` so consent to rotating a key is not consent to removing it."""
+    return f"remove_secret:{key}"
+
+
+@router.delete(
+    "/{key}",
+    response_model=SecretOut,
+    openapi_extra=permission_meta("platform:secrets"),
+    summary="Remove a stored credential (step-up confirmed, audited, alerted)",
+    description=(
+        "Appends a REMOVAL version, so the key reads as not set and every leg that needs it "
+        "stops being offered; the history of earlier versions is kept. Requires "
+        "`X-Confirm-Action: remove_secret:<key>`. A key the server environment sets cannot "
+        "be removed here (422 `secret_set_in_environment`): remove it there. The key is "
+        "not revoked at the vendor."
+    ),
+)
+async def remove_secret_route(
+    session: GlobalSession,
+    request: Request,
+    tasks: BackgroundTasks,
+    principal: SecretOperator,
+    key: SecretKey,
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
+) -> SecretOut:
+    """One removal version, one audit row, one alert, and the fleet re-reads within seconds."""
+    step_up.require(x_confirm_action, secret_removal_confirmation(key))
+    if principal.user_id is None:
+        raise ProblemError(
+            kind="auth",
+            code="secret_actor_unknown",
+            title="This session has no admin identity",
+            detail="Removing a credential has to be attributable to an operator.",
+        )
+    record = await remove_secret(session, key=key, actor_id=principal.user_id)
+    await write_audit(
+        session,
+        action="platform.secret_removed",
+        actor=principal,
+        object_type="platform_secrets",
+        object_id=key,
+        ip=client_request_ip(request),
+        summary={"config_key": key, "version": record.version},
+    )
+    alert(
+        "CORE_LOGIC",
+        "platform_secret_removed",
+        detail=(
+            f"A platform credential was removed: {key} (version {record.version}). "
+            "Everything using it stops until a new key is installed. If this was not you, "
+            "treat it as an incident."
+        ),
+        config_key=key,
+        actor_id=str(principal.user_id),
+    )
+    tasks.add_task(propagate)
+    tasks.add_task(refresh_pricing_snapshot)
     return _out(record, testable=_testable(key))
 
 

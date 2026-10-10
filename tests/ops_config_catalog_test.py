@@ -219,3 +219,19 @@ def test_engine_scoped_settings_follow_the_engine_in_force() -> None:
     # Unreadable capabilities hide nothing.
     assert _out(thinnest_only, ("pipecat", None)).used_by_current_engine is True
     assert _out(thinnest_only, on_pipecat).engine_scope is not None
+
+
+def test_an_engine_that_cannot_be_built_still_renders_the_screen_that_fixes_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api.ops import config_routes
+
+    def _broken() -> Any:
+        raise RuntimeError("THINNEST_API_KEY is not set")
+
+    monkeypatch.setattr(config_routes, "get_engine", _broken)
+    name, capabilities = config_routes._engine_in_force()
+    assert name == get_settings().engine
+    assert capabilities is None, "unknown capabilities mark nothing as unused"
+    thinnest_only = {field.key: field for field in _fields()}["thinnest_max_concurrent_calls"]
+    assert _out(thinnest_only, (name, capabilities)).used_by_current_engine is True

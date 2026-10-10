@@ -40,7 +40,7 @@ import { lookup } from "@/lib/lookup";
 
 import { ActionForm } from "./ActionForm";
 import { humanName, jobFor } from "./jobs";
-import { KINDS } from "./params";
+import { KINDS, LEAD_FIELD_PREFIX } from "./params";
 
 // The kinds whose test needs a number to stand in for the caller's: one of the business's
 // own (the server refuses any other for a WhatsApp or payment-link test).
@@ -200,7 +200,13 @@ export function TestPanel({
   const test = useTestAction(session, agentId);
   // `tool.params` is a list of open dicts on the wire; read fields defensively (String())
   // rather than asserting onto a generated type (the wire-fixture guard bans that).
-  const aiParams = tool.params.filter((p) => p.source === "ai");
+  // Values the agent collects, plus captured details: a test caller usually has no lead, so
+  // a sample stands in for the detail (the server prefers a value it actually captured).
+  const aiParams = tool.params.filter(
+    (p) =>
+      p.source === "ai" ||
+      (p.source === "lead_var" && String(p.lead_var).startsWith(LEAD_FIELD_PREFIX)),
+  );
   const [values, setValues] = useState<Record<string, string>>({});
   const [testPhone, setTestPhone] = useState("");
   const needsPhone = NEEDS_TEST_PHONE.includes(tool.kind);

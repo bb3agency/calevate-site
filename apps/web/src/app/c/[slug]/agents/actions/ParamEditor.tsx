@@ -15,7 +15,7 @@ import { X } from "lucide-react";
 import { TEXT_ACTION } from "@/components/console/section";
 import { FIELD, FIELD_HINT, FIELD_LABEL, QUIET_ICON_BUTTON } from "@/components/ui";
 
-import { LEAD_VARS, newParam, type DraftParam } from "./params";
+import { leadVarOptions, newParam, type CapturedField, type DraftParam } from "./params";
 
 const SOURCES: { value: DraftParam["source"]; label: string; hint: string }[] = [
   {
@@ -26,7 +26,7 @@ const SOURCES: { value: DraftParam["source"]; label: string; hint: string }[] = 
   {
     value: "lead_var",
     label: "From the lead",
-    hint: "Filled in from what is already known about this caller.",
+    hint: "Filled in from this call, or from what your agent captured about this caller before.",
   },
   { value: "static", label: "A fixed value", hint: "The same value is sent every time." },
 ];
@@ -34,9 +34,12 @@ const SOURCES: { value: DraftParam["source"]; label: string; hint: string }[] = 
 export function ParamEditor({
   params,
   onChange,
+  fields = [],
 }: {
   params: DraftParam[];
   onChange: (p: DraftParam[]) => void;
+  /** The details this agent captures, offered by label under "From the lead". */
+  fields?: readonly CapturedField[];
 }) {
   const patch = (index: number, next: Partial<DraftParam>) =>
     onChange(params.map((q, j) => (j === index ? { ...q, ...next } : q)));
@@ -110,7 +113,7 @@ export function ParamEditor({
                         aria-label={`Parameter ${i + 1} lead variable`}
                         onChange={(e) => patch(i, { lead_var: e.target.value })}
                       >
-                        {LEAD_VARS.map((v) => (
+                        {leadVarOptions(fields, p.lead_var).map((v) => (
                           <option key={v.value} value={v.value}>
                             {v.label}
                           </option>

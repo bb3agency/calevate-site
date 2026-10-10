@@ -30,6 +30,7 @@ from apps.api.actions.schema import (
     PaymentLinkConfig,
     SheetsConfig,
     WhatsAppConfig,
+    lead_field_key,
 )
 from apps.api.core.errors import ProblemError, validation_fields
 from apps.api.db.base import uuid7
@@ -279,6 +280,47 @@ def _validate(
     return params, config
 
 
+#: The agent's newest extraction schema — the same one its Leads columns and its next call's
+#: extraction use (`crm.service._AGENT_SCHEMA_SQL`). RLS scopes the row to this tenant.
+_AGENT_FIELDS_SQL = (
+    "SELECT fields FROM extraction_schemas WHERE agent_id = :aid ORDER BY version DESC LIMIT 1"
+)
+
+
+async def agent_field_keys(session: AsyncSession, *, agent_id: UUID) -> set[str]:
+    """The keys of the details this agent captures, for validating `field:<key>` bindings."""
+    raw = (await session.execute(text(_AGENT_FIELDS_SQL), {"aid": agent_id})).scalar_one_or_none()
+    if not isinstance(raw, list):
+        return set()
+    return {str(f["key"]) for f in raw if isinstance(f, dict) and isinstance(f.get("key"), str)}
+
+
+async def _assert_lead_fields(
+    session: AsyncSession, *, agent_id: UUID, params: list[ParamSpec]
+) -> None:
+    """A `field:<key>` binding must name a detail THIS agent captures. Checked on write, so a
+    binding to another agent's field, or to one never defined, is refused with its name rather
+    than resolving to nothing on every call."""
+    wanted = {
+        p.name: key
+        for p in params
+        if p.source == "lead_var" and (key := lead_field_key(p.lead_var)) is not None
+    }
+    if not wanted:
+        return
+    known = await agent_field_keys(session, agent_id=agent_id)
+    for name, key in wanted.items():
+        if key not in known:
+            raise ProblemError(
+                kind="validation",
+                code="action_param_field_unknown",
+                title="That detail is not one this agent captures",
+                detail=f"Parameter {name!r} reads a captured detail this agent does not have.",
+                remediation="Pick a detail this agent captures, or add it to that list.",
+                fields=[{"name": name, "reason": "unknown captured detail"}],
+            )
+
+
 def _cross_check(config: ActionConfig, known: set[str], *, provider: str | None) -> None:
     """Every binding NAME a config references must exist in `params`. A config that names a
     binding nobody defined is a request field that would be silently dropped."""
@@ -510,6 +552,7 @@ async def create_tool(
         params_raw=params,
         config_raw=config,
     )
+    await _assert_lead_fields(session, agent_id=agent_id, params=parsed_params)
     # A per-agent ceiling so the tool list a tenant can mint (and that every Actions-tab read
     # materialises) cannot grow without bound. Counted under RLS, so it is this tenant's own
     # tools for this agent. Checked before the INSERT rather than trusting the UI.
@@ -586,6 +629,7 @@ async def update_tool(
         params_raw=params,
         config_raw=config,
     )
+    await _assert_lead_fields(session, agent_id=existing.agent_id, params=parsed_params)
     await _assert_credential_fits(
         session, kind=kind, provider=provider, credential_id=credential_id, config=parsed_config
     )

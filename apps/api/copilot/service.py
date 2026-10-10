@@ -71,7 +71,9 @@ from apps.api.copilot.schemas import (
     CopilotRealm,
     CopilotStepEvent,
 )
+from apps.api.copilot.step_labels import step_label
 from apps.api.copilot.tools import ToolContext
+from apps.api.core import provider_health
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -82,8 +84,10 @@ from apps.workers.chat import TokenUsage
 from apps.workers.extraction import (
     AZURE_PROVIDER,
     GOOGLE_PROVIDER,
+    NO_CREDENTIAL_REASON,
+    QUOTA_EXHAUSTED_REASON,
     SARVAM_CHAT_URL,
-    TENANT_PROVIDER_UNSUPPORTED_REASON,
+    SARVAM_PROVIDER,
     AssistCapability,
     TenantModelLeg,
     assist_capability,
@@ -403,11 +407,25 @@ def background_tool() -> dict[str, Any]:
 MAX_STEP_CHARS: Final = 200
 
 #: What the done frame says when the assistant's usual model could not answer and a backup did
-#: (D-694, G-6). The client's words: what happened, nothing about vendors or settings.
+#: (D-694, D-127 G-6). G-6 requires two things and only two: that a DIFFERENT model wrote the
+#: answer, and (on the leg with no tools) what that costs the person. The panel shows it as
+#: one quiet line under the answer, so it is said in as few words as carry both; it names no
+#: vendor (D-679) and no setting.
 BACKUP_MODEL_DISCLOSURE: Final = (
-    "This answer came from the assistant's backup model, because its usual one was not "
-    "available just now."
+    "Answered by our backup model because the usual one wasn't available."
 )
+
+#: The same sentence, worded for WHY the backup answered, where the reason changes what the
+#: person should do: wait for a quota, or ask for the assistant to be switched on. Any other
+#: reason reads as `BACKUP_MODEL_DISCLOSURE`.
+_BACKUP_BY_REASON: Final[dict[str, str]] = {
+    NO_CREDENTIAL_REASON: (
+        "Answered by our backup model because the assistant isn't switched on for this account yet."
+    ),
+    QUOTA_EXHAUSTED_REASON: (
+        "Answered by our backup model because this month's assistant use is used up."
+    ),
+}
 
 
 #: Appended to `AssistCapability.disclosure` when the fallback leg answered.
@@ -423,8 +441,7 @@ BACKUP_MODEL_DISCLOSURE: Final = (
 #: has no tools at all, an unamended note left it either claiming a move that never happened
 #: or denying a screen that exists, which is the defect `screens.py` was written to end.
 FALLBACK_NO_TOOLS_NOTE: Final = (
-    " It can answer questions about this screen, but it cannot fill in fields, look up "
-    "your calls, leads, campaigns or agents, or open another screen for you."
+    " It can't look things up, change anything or open another screen right now."
 )
 
 
@@ -774,46 +791,52 @@ async def _answer_via_sarvam(
     screen, and `FALLBACK_NO_TOOLS_NOTE` is how the person is told that rather than left to
     discover it.
 
-    Metering is unaffected: D-36 prices this leg at zero, so `CopilotSpend.usage` stays
-    None and `meter_assist`'s Sarvam branch records nothing — the same shape re-summarise
-    and the script draft already have.
+    The answer's usage rides `CopilotSpend` so `meter_assist` can record it at our cost:
+    Sarvam 105B is priced per token (10 Oct 2026) and the standby is absorbed by us, never
+    charged to the client (`crm/assist._meter_standby`).
     """
     settings = get_settings()
     if not settings.sarvam_api_key:  # pragma: no cover - unreachable via the selector
         raise assist_unavailable(capability)
-    outcome = await chat.complete(
-        chat.ChatLeg(
-            url=SARVAM_CHAT_URL,
-            api_key=settings.sarvam_api_key,
-            wire_model=SARVAM_DEFAULT_LLM,
-            dialect="sarvam",
-        ),
-        # THE SAME PROMPT, PLUS ONE CORRECTION AT THE END. `build_messages` tells the model
-        # to call `set_fields`, and on this leg there is no such tool — a model told to use
-        # a capability it has not been given answers "I've filled that in for you" and fills
-        # nothing, which is the one failure mode worse than saying no. The correction goes
-        # LAST rather than into the shared prompt, so the cacheable prefix stays byte
-        # identical for the leg that has a cache (`prompt.py`, point 1).
-        [
-            *build_messages(payload, live, realm),
-            {"role": "system", "content": _NO_TOOL_NOTE},
-        ],
-        timeout_s=STREAM_IDLE_S,
-        temperature=0.2,
-        # The same safety valve as the Azure turn. `max_tokens` is on Sarvam's own
-        # client's fourteen-key request body (VERIFIED-VENDOR-SDK, `workers/chat.py::
-        # _request_body`), so unlike `tools` it is safe to send here — and this leg is
-        # PRICED (`billing/rates.SARVAM_LLM_INR_PER_MTOK`, ₹73.20/Mtok out) even though
-        # nothing meters it yet, so a runaway would be real unrecorded spend.
-        max_tokens=MAX_ANSWER_TOKENS,
-    )
+    # Counted as its own leg (`standby`): Sarvam failing here means the assistant has no
+    # answer left, and running out of Sarvam credit (API errors once credits run out,
+    # sarvam.ai/api-pricing, 10 Oct 2026) also stops post-call extraction.
+    async with provider_health.watch("standby", SARVAM_PROVIDER):
+        outcome = await chat.complete(
+            chat.ChatLeg(
+                url=SARVAM_CHAT_URL,
+                api_key=settings.sarvam_api_key,
+                wire_model=SARVAM_DEFAULT_LLM,
+                dialect="sarvam",
+            ),
+            # THE SAME PROMPT, PLUS ONE CORRECTION AT THE END. `build_messages` tells the model
+            # to call `set_fields`, and on this leg there is no such tool — a model told to use
+            # a capability it has not been given answers "I've filled that in for you" and fills
+            # nothing, which is the one failure mode worse than saying no. The correction goes
+            # LAST rather than into the shared prompt, so the cacheable prefix stays byte
+            # identical for the leg that has a cache (`prompt.py`, point 1).
+            [
+                *build_messages(payload, live, realm),
+                {"role": "system", "content": _NO_TOOL_NOTE},
+            ],
+            timeout_s=STREAM_IDLE_S,
+            temperature=0.2,
+            # The same safety valve as the Azure turn. `max_tokens` is on Sarvam's own
+            # client's fourteen-key request body (VERIFIED-VENDOR-SDK, `workers/chat.py::
+            # _request_body`), so unlike `tools` it is safe to send here — and this leg is
+            # PRICED (`billing/rates.SARVAM_LLM_INR_PER_MTOK`, ₹73.20/Mtok out), so a runaway
+            # is real spend.
+            max_tokens=MAX_ANSWER_TOKENS,
+        )
     # THE FALLBACK IS SUBJECT TO THE SAME RULE AS THE LOOP: a leg that answered nothing
     # says so. This one is the last rung of the ladder, so silence here is silence for the
     # whole question — there is nothing left to fall back to.
     yield CopilotEvent(
         text=strip_invisible(outcome.content or _no_answer_sentence(outcome.finish_reason))
     )
-    yield CopilotEvent(spend=CopilotSpend(usage=None, capability=capability))
+    yield CopilotEvent(
+        spend=CopilotSpend(usage=outcome.usage, capability=capability, model=SARVAM_DEFAULT_LLM)
+    )
 
 
 # --- the loop -------------------------------------------------------------------------
@@ -1167,7 +1190,11 @@ def _step_start(call: chat.ToolCall) -> CopilotStepEvent:
     inventing a second identifier would be a second way to name one thing.
     """
     return CopilotStepEvent(
-        id=call.id, tool=call.name, status="running", args=_preview(call.arguments or "")
+        id=call.id,
+        tool=call.name,
+        status="running",
+        args=_preview(call.arguments or ""),
+        label=step_label(call.name, running=True),
     )
 
 
@@ -1198,6 +1225,9 @@ def _step_end(
         args=_preview(call.arguments or ""),
         detail=_preview(detail),
         elapsed_ms=None if started_at is None else int((time.monotonic() - started_at) * 1000),
+        # A step that did not finish is named by what it was doing, not by a past tense
+        # that would claim it happened.
+        label=step_label(call.name, running=status != "done"),
     )
 
 
@@ -2159,12 +2189,18 @@ async def _answer_stream(
                 ):
                     streamed_anything = streamed_anything or event.text is not None
                     yield event
+            await provider_health.note_success("copilot", str(capability.provider))
             return
         except (httpx.HTTPError, TimeoutError) as failure:
             log.warning(
                 "copilot_provider_failed",
-                extra={"error": type(failure).__name__, "streamed": streamed_anything},
+                extra={
+                    **provider_health.failure_fields(failure),
+                    "provider": capability.provider,
+                    "streamed": streamed_anything,
+                },
             )
+            await provider_health.note_failure("copilot", str(capability.provider), failure)
             if streamed_anything:
                 raise
             # WHAT THE DEAD LEG ALREADY COST (hard rule 7). Emitted only when a turn
@@ -2327,15 +2363,14 @@ def disclosure_for(capability: AssistCapability) -> str | None:
     on either would tell somebody their fields could not be filled while the model was filling
     them, which is the one failure mode worse than saying no. So the note is for the only leg
     that genuinely has no tools: Sarvam."""
-    disclosure = capability.disclosure
-    if disclosure is None:
+    if capability.disclosure is None:
         return None
-    if capability.fallback_reason == TENANT_PROVIDER_UNSUPPORTED_REASON:
-        # SINCE D-694 THE "ACCOUNT'S MODEL" IS THE ASSISTANT'S OWN TIER MODEL, so the
-        # selector's sentence about "the AI model on your account" would be false here: the
-        # account's model runs its phone agents and was never asked. What happened is that
-        # the assistant's usual model was unavailable and a backup answered.
-        disclosure = BACKUP_MODEL_DISCLOSURE
+    # The selector's own sentence is written for every assist surface and is long; the
+    # panel's version is one line. SINCE D-694 the "account's model" is the assistant's own
+    # tier model, so the selector's "the AI model on your account" would also be false here
+    # (that model runs the phone agents and was never asked): what happened is that the
+    # assistant's usual model was unavailable and a backup answered.
+    disclosure = _BACKUP_BY_REASON.get(capability.fallback_reason or "", BACKUP_MODEL_DISCLOSURE)
     if capability.provider in (AZURE_PROVIDER, GOOGLE_PROVIDER):
         return disclosure
     return disclosure + FALLBACK_NO_TOOLS_NOTE

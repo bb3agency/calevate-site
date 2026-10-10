@@ -67,6 +67,12 @@ export function CallState({ call }: { call: Pick<CallSummary, "status" | "outcom
  * is the API's redacted text. Below `md` the status, agent and time fold under the
  * number, so a phone reads one row as two short lines rather than a scrolling table.
  */
+/** How the caller sounded, in a word; a dash until the call has been read. */
+export function sentimentWord(value: string | null | undefined): string {
+  if (!value) return "—";
+  return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
+}
+
 export function callColumns({
   callHref,
   compact = false,
@@ -149,5 +155,15 @@ export function callColumns({
       </span>
     ),
   };
-  return compact ? [caller, status, duration, started] : [caller, status, agent, duration, started];
+  const sentiment: DataColumn<CallSummary> = {
+    id: "sentiment",
+    header: "Caller sounded",
+    hideBelow: "md",
+    cell: (call) => (
+      <span className="whitespace-nowrap text-meta text-ink-muted">{sentimentWord(call.sentiment)}</span>
+    ),
+  };
+  return compact
+    ? [caller, status, sentiment, duration, started]
+    : [caller, status, agent, duration, started];
 }

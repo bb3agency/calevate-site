@@ -19,7 +19,8 @@
  * network.
  *
  * BUILD-LOG §52 governs the third: waiting is a waiting state, not a blank and not an
- * empty state, and it announces itself so a screen reader is not left on silence.
+ * empty state, and it announces itself so a screen reader is not left on silence. It is a
+ * quiet skeleton (REDESIGN-2): the words are for the screen reader, the bars for the eye.
  */
 
 import type { ReactNode } from "react";
@@ -29,6 +30,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { PlugZap, ShieldAlert } from "lucide-react";
 
+import { SessionWaitSkeleton } from "@/components/authn/skeletons";
 import { withNext } from "@/lib/authn/nextPath";
 import { markSignedOut } from "@/lib/authn/signedOutNotice";
 
@@ -114,26 +116,7 @@ export function SessionGate({
     );
 
   if (status === "restoring") {
-    return frame(
-      <Card>
-        {/* `role="status"` with `aria-live="polite"`: a gate that renders silently is a
-            screen reader user waiting on nothing. `Skeleton` is the app's loading shape
-            elsewhere; here the wait is the whole screen, so it gets a sentence. */}
-        <div
-          role="status"
-          aria-live="polite"
-          className="space-y-2 text-sm text-ink-muted"
-        >
-          <p className="font-medium text-ink">
-            Checking your {realmLabel} session…
-          </p>
-          <p>
-            This takes a moment on a slow connection. Nothing has been signed
-            out — we are asking the server whether your session is still good.
-          </p>
-        </div>
-      </Card>,
-    );
+    return frame(<SessionWaitSkeleton label={`Checking your ${realmLabel} session…`} />);
   }
 
   if (status === "partial") {
@@ -269,15 +252,6 @@ function SignedOutRedirect({
   // The redirect is an effect, so one paint happens first. It gets the waiting copy
   // rather than a blank — and `role="status"` so a screen reader is not left on silence
   // during a navigation it did not ask for.
-  return frame(
-    <Card>
-      <div
-        role="status"
-        aria-live="polite"
-        className="space-y-2 text-sm text-ink-muted"
-      >
-        <p className="font-medium text-ink">Taking you to sign in…</p>
-      </div>
-    </Card>,
-  );
+  return frame(<SessionWaitSkeleton label="Taking you to sign in…" />);
 }
+

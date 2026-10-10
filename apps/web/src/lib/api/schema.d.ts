@@ -8004,6 +8004,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/inr-llm-prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Rupee-billed platform models (Sarvam) and their attested prices */
+        get: operations["list_inr_llm_prices_v1_ops_inr_llm_prices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/inr-llm-prices/{model}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attest a rupee-billed model's price (step-up confirmed, audited)
+         * @description Records what a rupee-billed platform model (Sarvam `sarvam-105b`: the assistant's standby and the first post-call extraction pass) costs THIS account, as a NEW effective-dated row. Requires `X-Confirm-Action: attest_inr_llm_price:<model>`. Figures are rupees per MILLION tokens as decimal strings. Until one exists, that leg's calls are recorded with no cost, because a reference price is not a bill.
+         */
+        post: operations["attest_inr_llm_v1_ops_inr_llm_prices__model__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/kb-orphans": {
         parameters: {
             query?: never;
@@ -8395,7 +8432,11 @@ export interface paths {
          */
         put: operations["set_secret_route_v1_ops_secrets__key__put"];
         post?: never;
-        delete?: never;
+        /**
+         * Remove a stored credential (step-up confirmed, audited, alerted)
+         * @description Appends a REMOVAL version, so the key reads as not set and every leg that needs it stops being offered; the history of earlier versions is kept. Requires `X-Confirm-Action: remove_secret:<key>`. A key the server environment sets cannot be removed here (422 `secret_set_in_environment`): remove it there. The key is not revoked at the vendor.
+         */
+        delete: operations["remove_secret_route_v1_ops_secrets__key__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -9545,12 +9586,8 @@ export interface components {
          *     for the account's business type, still a draft for them to review.
          */
         AgentCreateIn: {
-            /**
-             * Direction
-             * @default inbound
-             * @enum {string}
-             */
-            direction: "inbound" | "outbound" | "both";
+            /** Direction */
+            direction?: ("inbound" | "outbound" | "both") | null;
             /**
              * Language Primary
              * @default te-IN
@@ -10102,7 +10139,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "lead_blocked" | "delivery_failed" | "campaign_stalled" | "kb_rejected" | "inbound_stopped" | "action_broken";
+            kind: "lead_blocked" | "delivery_failed" | "campaign_stalled" | "kb_rejected" | "inbound_stopped" | "action_broken" | "lead_hot" | "call_failed" | "credit_low";
             /**
              * Occurred At
              * Format: date-time
@@ -13119,6 +13156,8 @@ export interface components {
             avg_duration_s_7d?: number | null;
             /** Calls 7D */
             calls_7d: number;
+            /** Calls Prev 7D */
+            calls_prev_7d: number;
             /** Calls Today */
             calls_today: number;
             /** Daily 7D */
@@ -13127,6 +13166,8 @@ export interface components {
             hot_leads_open: number;
             /** Leads New 7D */
             leads_new_7d: number;
+            /** Leads New Prev 7D */
+            leads_new_prev_7d: number;
             /** Minutes Used Month */
             minutes_used_month: string;
             /** Outcome Split */
@@ -14576,6 +14617,8 @@ export interface components {
          *     own `tenant_session`, so no query here sees two tenants at once.
          */
         FleetSpendOut: {
+            /** Ai Absorbed Inr */
+            ai_absorbed_inr: string;
             /** Clients */
             clients: number;
             /** Cost Inr */
@@ -14600,6 +14643,10 @@ export interface components {
          * @description One client on the fleet board.
          */
         FleetTenantOut: {
+            /** Ai Absorbed Inr */
+            ai_absorbed_inr: string;
+            /** Ai Requests */
+            ai_requests: number;
             /** Calls */
             calls: number;
             /** Cost Inr */
@@ -15359,6 +15406,58 @@ export interface components {
         IngestActivityOut: {
             /** Items */
             items: components["schemas"]["IngestActivityItemOut"][];
+        };
+        /**
+         * InrLlmPriceAttestIn
+         * @description One rupee-billed model's price, as an operator types it off an invoice or the
+         *     vendor's page: ₹ per MILLION tokens as decimal strings, never JSON numbers.
+         */
+        InrLlmPriceAttestIn: {
+            /** Cached In Inr Per Mtok */
+            cached_in_inr_per_mtok?: string | null;
+            /** Effective From */
+            effective_from?: string | null;
+            /** In Inr Per Mtok */
+            in_inr_per_mtok: string;
+            /** Out Inr Per Mtok */
+            out_inr_per_mtok: string;
+            /** Source Note */
+            source_note: string;
+        };
+        /**
+         * InrLlmPriceOut
+         * @description One rupee-billed model: its attested price (if any) beside the vendor's reference.
+         */
+        InrLlmPriceOut: {
+            /** Billable */
+            billable: boolean;
+            /** Cached In Inr Per Mtok */
+            cached_in_inr_per_mtok: string | null;
+            /** In Inr Per Mtok */
+            in_inr_per_mtok: string | null;
+            /** Model */
+            model: string;
+            /** Out Inr Per Mtok */
+            out_inr_per_mtok: string | null;
+            /** Reference Cached In Inr Per Mtok */
+            reference_cached_in_inr_per_mtok: string;
+            /** Reference In Inr Per Mtok */
+            reference_in_inr_per_mtok: string;
+            /** Reference Out Inr Per Mtok */
+            reference_out_inr_per_mtok: string;
+            /** Reference Read On */
+            reference_read_on: string;
+            /** Reference Source */
+            reference_source: string;
+            /** Source Note */
+            source_note: string | null;
+        };
+        /** InrLlmPricesOut */
+        InrLlmPricesOut: {
+            /** As Of */
+            as_of: string;
+            /** Prices */
+            prices: components["schemas"]["InrLlmPriceOut"][];
         };
         /**
          * InvitationCreatedOut
@@ -17062,8 +17161,12 @@ export interface components {
         };
         /** MeOut */
         MeOut: {
+            /** Email */
+            email?: string | null;
             /** Impersonating */
             impersonating: boolean;
+            /** Name */
+            name?: string | null;
             organization?: components["schemas"]["OrganizationOut"] | null;
             /** Permissions */
             permissions: string[];
@@ -37068,6 +37171,72 @@ export interface operations {
             };
         };
     };
+    list_inr_llm_prices_v1_ops_inr_llm_prices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InrLlmPricesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    attest_inr_llm_v1_ops_inr_llm_prices__model__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                model: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InrLlmPriceAttestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InrLlmPriceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_kb_orphans_v1_ops_kb_orphans_get: {
         parameters: {
             query?: never;
@@ -37668,6 +37837,39 @@ export interface operations {
                 "application/json": components["schemas"]["SecretSetIn"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    remove_secret_route_v1_ops_secrets__key__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

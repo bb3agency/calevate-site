@@ -369,6 +369,12 @@ export interface CopilotStep {
    * that would claim a lookup happened instantly when no lookup happened.
    */
   elapsed_ms?: number | null;
+  /**
+   * The words a person reads for this step ("Searching your calls…" while it runs,
+   * "Searched your calls" once done), from the server's one label table
+   * (`apps/api/copilot/step_labels.py`). Optional: an older server sends none.
+   */
+  label?: string | null;
 }
 
 /**

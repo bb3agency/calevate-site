@@ -64,7 +64,7 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
 
   return (
     <div className="max-w-4xl space-y-6 pb-12">
-      <PageHeader description="What we stopped on your behalf, most urgent first, and what to do next." />
+      <PageHeader description="What needs you, most urgent first, and what to do next." />
 
       {queue.error && <ProblemNotice error={queue.error} onRetry={() => void queue.refetch()} />}
 

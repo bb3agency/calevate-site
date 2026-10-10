@@ -110,7 +110,7 @@ function TrialTestCall({
               maxLength={20}
               inputMode="tel"
               autoComplete="tel"
-              placeholder="9876543210"
+              placeholder="+91 98765 43210"
               className={`${FIELD_INLINE} mt-1 w-56 max-w-full font-mono`}
             />
           </label>

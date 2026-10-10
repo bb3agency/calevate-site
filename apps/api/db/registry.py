@@ -640,6 +640,18 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "correction is a new effective-dated row, never an edit, so a re-rendered month "
         "resolves the price its minutes were metered at."
     ),
+    "platform_inr_llm_prices": (
+        "platform-scoped, admin realm only. The operator-attested RUPEE price per million "
+        "tokens of a platform LLM billed in INR (Sarvam `sarvam-105b`: the dashboard "
+        "assistant's standby and the first post-call extraction pass), effective-dated — one "
+        "Sarvam account for the whole deployment, so there is no tenant whose row this could "
+        "be and it carries no tenant_id. The only figure that may reach `unit_cost_paid` for "
+        "that leg (hard rule 7). `ops/model_pricing.attest_inr_llm_price` is the only writer "
+        "and requires a step-up-confirmed caller writing the audit row on the same session; "
+        "the route is `POST /v1/ops/inr-llm-prices/{model}`. Holds a model id, three NUMERIC "
+        "figures, an attester id and a source note — no PII, no credential, no tenant data. "
+        "Append-only (see APPEND_ONLY_TABLES)."
+    ),
     "platform_engine_minute_prices": (
         "platform-scoped, admin realm only (D-678). The operator-attested rupees per billed "
         "minute an ENGINE charges us, per rate key, effective-dated — one ThinnestAI account "
@@ -999,6 +1011,9 @@ APPEND_ONLY_TABLES = [
     # twin's reason: a fee somebody could edit would silently restate what a closed month
     # cost us, on the one board that compares it against what our own meter attributed.
     "platform_tts_plan_fees",
+    # The attested rupee price of an INR-billed platform LLM (Sarvam). Append-only for
+    # `platform_tts_prices`' reason: an editable figure would re-price tokens already metered.
+    "platform_inr_llm_prices",
     # The attested per-minute engine price (D-678). Append-only for `platform_tts_prices`'
     # reason: an editable figure would silently re-price minutes already metered against it.
     "platform_engine_minute_prices",

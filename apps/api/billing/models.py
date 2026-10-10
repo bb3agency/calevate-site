@@ -156,6 +156,17 @@ KB_INGESTION_FEATURES = (
 #: reason; `copilot/fair_use_test.py` pins it to `crm/assist.ASSIST_FEATURE_COPILOT`.
 FREE_ASSIST_FEATURES = ("copilot",)
 
+#: The Sarvam standby answering because a client's main model failed (founder, 10 Oct 2026:
+#: "we absorb it"). Recorded on this ledger at its true cost — the platform brake and the
+#: spend board read it — and never counted against the client's monthly AI allowance or the
+#: assistant's fair-use cap. `meta.standby_for` names the surface it stood in for.
+ASSIST_FEATURE_STANDBY = "assist_standby"
+#: The first post-call extraction pass (Sarvam): part of serving the call, so absorbed too.
+ASSIST_FEATURE_CALL_EXTRACTION = "call_extraction"
+#: Features whose cost is OURS: excluded from the allowance like `FREE_ASSIST_FEATURES`, and
+#: unlike them not counted by the fair-use cap, which limits what a person asks for.
+ABSORBED_ASSIST_FEATURES = (ASSIST_FEATURE_STANDBY, ASSIST_FEATURE_CALL_EXTRACTION)
+
 # WHO PAYS FOR A ROW OF THIS UNIT — the one question every reader of `usage_events` has
 # to answer, and until now the only place it was answered was a NEGATIVE predicate in
 # `billing/service.py` (`_NOT_AI_UNITS`). Negative is the safe DIRECTION — a unit added

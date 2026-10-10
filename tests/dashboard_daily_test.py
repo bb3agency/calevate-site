@@ -258,3 +258,19 @@ async def test_the_series_never_shows_another_tenants_day() -> None:
     assert mine_that_day.total == 1, "the neighbouring tenant's three calls leaked in"
     assert mine_that_day.failed == 1
     assert mine_that_day.completed == 0
+
+
+async def test_the_week_before_is_counted_separately_for_the_comparison() -> None:
+    """`calls_prev_7d` is days 8 to 14 back: a call 10 days ago counts there and not in
+    `calls_7d`, and a call 20 days ago counts in neither."""
+    tenant_id, agent_id = await _tenant()
+    now = datetime.now(UTC)
+    async with tenant_session(tenant_id) as session:
+        await _call(session, tenant_id, agent_id, at=now - timedelta(days=1), status="completed")
+        await _call(session, tenant_id, agent_id, at=now - timedelta(days=2), status="completed")
+        await _call(session, tenant_id, agent_id, at=now - timedelta(days=10), status="completed")
+        await _call(session, tenant_id, agent_id, at=now - timedelta(days=20), status="completed")
+        out = await dashboard(session)
+    assert out.calls_7d == 2
+    assert out.calls_prev_7d == 1
+    assert out.leads_new_prev_7d == 0

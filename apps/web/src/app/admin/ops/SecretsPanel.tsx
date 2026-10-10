@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 
+import { ConfirmDialog } from "@/components/confirmDialog";
+
 import { StatusPill } from "@/components/admin/kit";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
@@ -39,6 +41,7 @@ import {
 } from "@/app/admin/ops/opsLanguage";
 import {
   useKekState,
+  useRemoveSecret,
   useRewrapKeks,
   useSecrets,
   useSetSecret,
@@ -220,6 +223,8 @@ function SecretRow({
   // The SERVER's row for what was just stored. Held here rather than in the form, which
   // unmounts — deliberately, because unmounting is what drops the plaintext.
   const [stored, setStored] = useState<PlatformSecret | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removedRow, setRemovedRow] = useState<PlatformSecret | null>(null);
 
   return (
     <div className="py-3.5 sm:px-2">
@@ -244,6 +249,12 @@ function SecretRow({
               {secret.versions > 1 && <> of {formatCount(secret.versions)}</>}) · last set{" "}
               {formatIST(secret.created_at)} by {secret.created_by ?? "unknown"}
             </p>
+          ) : secret.version > 0 ? (
+            // A removal is itself a version, so who removed it and when are on the row.
+            <p className="mt-1 text-meta text-ink-muted">
+              Removed {formatIST(secret.created_at)} by {secret.created_by ?? "unknown"} (version{" "}
+              <MonoValue>{secret.version}</MonoValue> of {formatCount(secret.versions)})
+            </p>
           ) : (
             // NOT an empty row: "nothing is installed" is a fact an operator acts on.
             <p className="mt-1 text-meta text-ink-muted">
@@ -256,28 +267,47 @@ function SecretRow({
             <p className="mt-1 flex items-start gap-1.5 text-meta text-warn">
               <TriangleAlert aria-hidden className="mt-0.5 h-3 w-3 shrink-0" />
               <span>
-                This key is also set on the server itself (as{" "}
-                <MonoValue>{secret.env_var}</MonoValue>), and the server&apos;s own setting
-                always wins — so anything you store here does nothing until it is removed
-                there. Rotating it on this screen would change nothing.
+                Set in the server environment; remove it there. It is set as{" "}
+                <MonoValue>{secret.env_var}</MonoValue>, and the server&apos;s own setting
+                always wins, so rotating or removing it on this screen would change nothing.
               </span>
             </p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            // A receipt for the previous install must not sit above the next one.
-            setStored(null);
-            setOpen((was) => !was);
-          }}
-          disabled={!access.allowed}
-          title={access.reason ?? undefined}
-          aria-expanded={open}
-          className={TEXT_ACTION}
-        >
-          {open ? "Cancel" : secret.installed ? "Rotate" : "Install"}
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={() => {
+              // A receipt for the previous install must not sit above the next one.
+              setStored(null);
+              setRemovedRow(null);
+              setOpen((was) => !was);
+            }}
+            disabled={!access.allowed}
+            title={access.reason ?? undefined}
+            aria-expanded={open}
+            className={TEXT_ACTION}
+          >
+            {open ? "Cancel" : secret.installed ? "Rotate" : "Install"}
+          </button>
+          {/* No Remove on an environment-set key: the server's own value would stay in force. */}
+          {secret.installed && !secret.shadowed_by_env && !open && (
+            <button
+              type="button"
+              onClick={() => {
+                setStored(null);
+                setRemovedRow(null);
+                setRemoving(true);
+              }}
+              disabled={!access.allowed}
+              title={access.reason ?? undefined}
+              aria-label={`Remove ${credentialLabel(secret.key)}`}
+              className={TEXT_ACTION}
+            >
+              Remove
+            </button>
+          )}
+        </div>
       </div>
 
       {open && (
@@ -291,6 +321,99 @@ function SecretRow({
       )}
 
       {!open && stored && <StoredReceipt stored={stored} />}
+      {!open && removedRow && <RemovedReceipt removed={removedRow} />}
+
+      {removing && (
+        <RemoveSecretDialog
+          secret={secret}
+          onClose={() => setRemoving(false)}
+          onRemoved={(row) => {
+            setRemovedRow(row);
+            setRemoving(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * What stops working when a key is removed, in the operator's terms. Named for the keys
+ * whose effect is known; every other key gets the general sentence rather than a guess.
+ */
+export function removalConsequence(key: string): string {
+  switch (key) {
+    case "gemini_api_key":
+      return "The assistant and anything using Google models will stop using Google until a new key is added.";
+    case "openai_api_key":
+      return "Anything using OpenAI models will stop using OpenAI until a new key is added.";
+    default:
+      return "Anything on this platform that uses this key stops using it until a new one is installed.";
+  }
+}
+
+/**
+ * Removing a key: the consequence first, then the same typed confirmation an install asks
+ * for. Red appears only on the final button, inside the dialog.
+ */
+function RemoveSecretDialog({
+  secret,
+  onClose,
+  onRemoved,
+}: {
+  secret: PlatformSecret;
+  onClose: () => void;
+  onRemoved: (row: PlatformSecret) => void;
+}) {
+  const remove = useRemoveSecret();
+  const [confirm, setConfirm] = useState("");
+  const word = secret.key.toUpperCase();
+  const ready = confirmationMatches(confirm, word, "exact");
+
+  return (
+    <ConfirmDialog
+      title={`Remove the ${credentialLabel(secret.key)}?`}
+      confirmLabel="Remove key"
+      pendingLabel="Removing…"
+      pending={remove.isPending}
+      confirmDisabled={!ready}
+      // A step-up refusal needs WriteFailure's re-confirm path, so the error is shown in
+      // the body rather than through the dialog's generic notice.
+      error={null}
+      onCancel={onClose}
+      onConfirm={() => {
+        if (!ready || remove.isPending) return;
+        remove.mutate({ key: secret.key }, { onSuccess: (row) => onRemoved(row) });
+      }}
+    >
+      <p className="text-ink">{removalConsequence(secret.key)}</p>
+      <p>
+        The key ending <MonoValue>…{secret.last_four}</MonoValue> stops being used here. Earlier
+        versions stay in the history, and the vendor still holds the key: revoke it in their
+        dashboard to stop it everywhere.
+      </p>
+      {remove.error && <WriteFailure error={remove.error} actionLabel="Remove" />}
+      <TypedConfirmation
+        match="exact"
+        id={`secret-remove-${secret.key}`}
+        phrase={word}
+        value={confirm}
+        onChange={setConfirm}
+      />
+    </ConfirmDialog>
+  );
+}
+
+function RemovedReceipt({ removed }: { removed: PlatformSecret }) {
+  return (
+    <div className="mt-3 border-t border-line pt-3">
+      <p role="status" className="flex items-start gap-2 text-body text-ink">
+        <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
+        <span>
+          Removed. <MonoValue>{removed.key}</MonoValue> is no longer set (version{" "}
+          <MonoValue>{removed.version}</MonoValue> of {formatCount(removed.versions)}).
+        </span>
+      </p>
     </div>
   );
 }

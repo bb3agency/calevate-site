@@ -37,6 +37,7 @@ import httpx
 from calevate_shared.call_script import CallScript, FaqEntry, ScriptStep
 from calevate_shared.engine import SARVAM_DEFAULT_LLM, azure_openai_base_url
 
+from apps.api.core import provider_health
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.workers import chat
@@ -224,6 +225,7 @@ async def _draft_via_azure(description: str) -> _RawDraft | None:
             log.warning(
                 "script_assist_azure_failed", extra={"status": refusal.response.status_code}
             )
+            await provider_health.note_failure("script", AZURE_PROVIDER, refusal)
             return None
         # The resource refused Structured Outputs (documented, unobserved here — see
         # `AzureOpenAIExtractor`). Degrade ONCE to plain json_object; the belt is
@@ -243,14 +245,19 @@ async def _draft_via_azure(description: str) -> _RawDraft | None:
                 "script_assist_azure_failed",
                 extra={"status": retry_refusal.response.status_code},
             )
+            await provider_health.note_failure("script", AZURE_PROVIDER, retry_refusal)
             return None
-    except httpx.HTTPError:
+    except httpx.HTTPError as failure:
         # A transport failure is the same OUTCOME as a refusal for this caller — the
         # selector is re-asked with `provider_unavailable=True` — and it used to escape
         # this function entirely, because the old hand-rolled `post` only ever looked at a
         # status code it had already received.
-        log.warning("script_assist_azure_unreachable")
+        log.warning(
+            "script_assist_azure_unreachable", extra=provider_health.failure_fields(failure)
+        )
+        await provider_health.note_failure("script", AZURE_PROVIDER, failure)
         return None
+    await provider_health.note_success("script", AZURE_PROVIDER)
     if outcome.finish_reason == "length":
         # The `_DRAFT_MAX_TOKENS` valve fired. The JSON was cut off mid-generation, so
         # parsing it would either fail (→ an inexplicable empty editor) or, worse, yield

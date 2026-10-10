@@ -87,12 +87,14 @@ describe("new agent from a job", () => {
 
     await waitFor(() => expect(nav.pushed).toContain("/c/acme/agents/agent-9?section=script&from=starter"));
     const post = calls.find((c) => c.method === "POST");
-    expect(JSON.parse(post?.body ?? "{}")).toMatchObject({
+    const body = JSON.parse(post?.body ?? "{}");
+    expect(body).toMatchObject({
       name: "Reception",
       starter: "answer_calls",
-      direction: "inbound",
       language_primary: "te-IN",
     });
+    // The job sets the direction on the server; the client sends none.
+    expect(body).not.toHaveProperty("direction");
   });
 
   it("refuses an empty name in place and sends nothing", async () => {

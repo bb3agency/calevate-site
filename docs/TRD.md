@@ -1640,10 +1640,16 @@ published as exposure rather than multiplied into a floor.
 > from and which `calevate_shared/engine.py`, `workers/script_assist.py` and
 > `copilot/service.py` each restate, is **withdrawn**. The card now lives in code at
 > `billing/rates.py::SARVAM_LLM_INR_PER_MTOK`, where it is a REFERENCE with no path to
-> `unit_cost_paid` (hard rule 7). **What follows from it and is NOT yet fixed:** the
-> disclosed dashboard-assist fallback and the post-call extraction pass run on a leg that
-> costs real money and are metered at ₹0.00 — a fabricated zero on an append-only ledger.
-> The metering call sites are the fix, and they are tracked separately from this card.
+> `unit_cost_paid` (hard rule 7). **Re-read 10 Oct 2026 on the public page
+> (https://www.sarvam.ai/api-pricing, VENDOR-PUBLISHED, founder-relayed): the same three
+> figures.** The metering is now wired: the post-call extraction pass and the assistant's
+> Sarvam standby are recorded at our cost (`ai_assist_ktok_*` under `call_extraction` /
+> `assist_standby`, absorbed, never counted against a client's AI allowance — founder,
+> 10 Oct 2026) once an operator attests the price (`POST /v1/ops/inr-llm-prices/sarvam-105b`,
+> table `platform_inr_llm_prices`). Until that attestation exists the legs record nothing
+> and log `ai_assist_unmetered_fallback` / `extraction_cost_unpriced` with the reason. Cached
+> input is priced at the full input rate (an upper bound): the ledger has no cached-input
+> unit, and the cached count rides `meta.cached_prompt_tokens`.
 > ⚠ **One gap this correction does NOT close:** `sarvam-105b` is described as "always-on
 > reasoning" and the pricing modal shows only Input / Cached input / Output — whether
 > hidden reasoning tokens are billed at the Output rate is **not stated anywhere the

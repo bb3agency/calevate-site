@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AttentionQueue } from "@/lib/api/attention";
+import type { AttentionKind, AttentionQueue } from "@/lib/api/attention";
 import { desktopAlertState, turnOnDesktopAlerts, useDesktopAlerts } from "@/lib/desktopAlerts";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
@@ -30,13 +30,13 @@ class FakeNotification {
   close() {}
 }
 
-function queue(ids: string[]): AttentionQueue {
+function queue(ids: string[], kind: AttentionKind = "lead_hot"): AttentionQueue {
   return {
     total: ids.length,
     counts: {},
     items: ids.map((id) => ({
       id,
-      kind: "delivery_failed",
+      kind,
       title: `Item ${id}`,
       detail: "Something needs you.",
       href: null,
@@ -86,5 +86,15 @@ describe("desktop alerts", () => {
     });
     rerender({ q: queue(["b", "a"]) });
     expect(created).toHaveLength(0);
+  });
+
+  it("pops up only for hot leads, failed calls and credit, not for every bell item", async () => {
+    permission = "granted";
+    await turnOnDesktopAlerts("acme");
+    const { rerender } = renderHook(({ q }) => useDesktopAlerts("acme", q, (p) => p), {
+      initialProps: { q: queue(["a"]) },
+    });
+    rerender({ q: { ...queue(["c"], "call_failed"), items: [...queue(["d"], "campaign_stalled").items, ...queue(["c"], "call_failed").items] } });
+    expect(created.map((n) => n.title)).toEqual(["Item c"]);
   });
 });

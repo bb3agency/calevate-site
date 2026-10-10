@@ -1,117 +1,126 @@
 "use client";
 
-import { Check, CircleSlash, Loader2, TriangleAlert } from "lucide-react";
+import { useId, useState } from "react";
+import { Check, ChevronDown, Loader2, TriangleAlert } from "lucide-react";
 
 import type { CopilotStep } from "@/lib/copilot/types";
 
 /**
- * What the assistant is DOING, while it does it.
+ * What the assistant DID to answer, under the answer.
  *
- * ## Why this exists at all
+ * ## In words, not in machine names
  *
- * Before it, the only thing this panel could show between a question and its answer was a
- * two-row skeleton. That is fine for one sentence composed in two seconds and wrong for
- * what the assistant now is: a run that may read four things and change one, over tens of
- * seconds, on the person's own account. The pattern that current agentic products converge
- * on is to show each tool call with its inputs, its result and how long it took — it is
- * what lets somebody tell a slow answer from a stuck one, see WHICH of their data was
- * read, and notice a run heading somewhere they did not intend while there is still time
- * to say so.
+ * Each step reads as the server's plain label ("Searched your calls"), never as the tool's
+ * identifier or its timing: those are for logs and support, and on a business owner's
+ * screen "search_calls 93 ms" is noise (ux-writing). The identifier stays on the frame
+ * (`step.tool`) and in the `title` of each row for anybody quoting it to support.
  *
- * ## Two frames, one row
+ * ## Quiet by default
  *
- * The server sends `running` when a call starts and exactly one terminal frame when it
- * ends, sharing an `id`; the conversation hook upserts on that id, so one call is one row
- * that changes state. Appending both would render a single lookup as two lines and make a
- * two-lookup turn look like four.
+ * While steps run, each running one shows as a line with a small spinner ("Searching your
+ * calls…"), which is how somebody tells a slow answer from a stuck one. Once they settle
+ * they fold into ONE muted line ("Checked 2 things") that opens to the list
+ * (progressive disclosure: the answer is the content, the steps are the receipt). A step
+ * that failed or was refused keeps the line in the warning tone and says so in words.
  *
- * ## Why the tool's machine name is shown
+ * ## No repeated sentences
  *
- * Deliberately, and not as a placeholder for a friendlier label. `agents_list` is what the
- * server logs, what the audit row and the tool registry call it, and what a person quoting
- * this panel in a support message needs to say. A prose label per tool would be a second
- * naming of every tool, kept in a different file from the registry, and the first one to
- * drift would be the one on screen. The SENTENCE a person reads is `detail`, which is the
- * tool's own answer.
+ * A step's own result line is shown only when the list is open, only once per distinct
+ * sentence, and only when the answer above has not already said it — an empty account
+ * produced the same "no calls yet" sentence three times, once in the answer and once per
+ * lookup.
  *
- * ## What is safe to render here
- *
- * `args` and `detail` are bounded previews the server has already stripped of invisible
- * characters and truncated (`service.MAX_STEP_CHARS`). They are the person's own account
- * data going back to the person's own screen — the request was refused outright if it
- * still carried an unredacted personal value — and they are never logged or stored on
- * either side. The list is not `aria-live`: it changes several times per second and
- * announcing every frame would talk over the answer, which is the thing a screen-reader
- * user is waiting for and which IS announced.
+ * The list is not `aria-live`: it changes several times per second while a run is going,
+ * and announcing every frame would talk over the answer, which IS announced.
  */
-export function StepList({ steps }: { steps: CopilotStep[] }) {
+export function StepList({ steps, answer = "" }: { steps: CopilotStep[]; answer?: string }) {
+  const [open, setOpen] = useState(false);
+  const listId = useId();
   if (steps.length === 0) return null;
+
+  const running = steps.filter((step) => step.status === "running");
+  if (running.length > 0) {
+    return (
+      <ul className="space-y-1 text-meta text-ink-muted">
+        {running.map((step) => (
+          <li key={step.id} className="flex items-center gap-1.5" title={step.tool}>
+            <Loader2 aria-hidden className="h-3.5 w-3.5 shrink-0 animate-spin text-ink-faint motion-reduce:animate-none" />
+            {labelOf(step)}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  const problems = steps.filter((step) => step.status === "failed" || step.status === "refused").length;
+  const summary =
+    problems > 0
+      ? problems === steps.length
+        ? "Could not finish what it tried"
+        : `${problems} of ${steps.length} steps did not finish`
+      : `Checked ${steps.length === 1 ? "1 thing" : `${steps.length} things`}`;
+  const shown = new Set<string>([normalise(answer)]);
+
   return (
-    <ol className="space-y-1">
-      {steps.map((step) => (
-        <li
-          key={step.id}
-          className="flex items-start gap-1.5 rounded-md bg-black/[0.03] px-2 py-1 text-xs dark:bg-white/[0.04]"
-        >
-          <StepIcon status={step.status} />
-          <div className="min-w-0 flex-1">
-            <p className="flex items-baseline gap-1.5">
-              <span className="font-mono text-[11px] text-ink">{step.tool}</span>
-              {/* `!= null` COVERS BOTH, and both happen: the field is null while the step
-                  is running and ABSENT on a frame that timed nothing (a refusal). `!==
-                  null` let `undefined` through and rendered "NaN ms" beside the tool's
-                  name — a number the person cannot act on, on the surface whose whole job
-                  is to say what the assistant is doing. */}
-              {step.elapsed_ms != null && (
-                <span className="text-ink-faint tabular-nums">{elapsed(step.elapsed_ms)}</span>
-              )}
-            </p>
-            {/* The arguments are shown only while the call is IN FLIGHT. Once the result is
-                on screen it is the more useful of the two and the row must stay one or two
-                lines — a panel whose step list is taller than its answer has inverted the
-                thing it was built to support. */}
-            {step.status === "running" && step.args !== "" && (
-              <p title={step.args} className="truncate font-mono text-[11px] text-ink-faint">
-                {step.args}
-              </p>
-            )}
-            {/* `break-words` because this is the TOOL'S OWN ANSWER, up to
-                `service.MAX_STEP_CHARS` of it, and the panel is 24rem wide at most. A
-                result with no space in it — a slug, a long id, a run of one word — has
-                nothing to wrap on, and an unbroken 200-character run pushes the row past
-                the panel's edge and takes the horizontal scrollbar with it. */}
-            {step.detail != null && step.detail !== "" && (
-              <p className="break-words text-ink-muted">{step.detail}</p>
-            )}
-          </div>
-        </li>
-      ))}
-    </ol>
+    <div className="text-meta text-ink-muted">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={listId}
+        onClick={() => setOpen((value) => !value)}
+        className="press inline-flex items-center gap-1.5 rounded-sm hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+      >
+        {problems > 0 ? (
+          <TriangleAlert aria-hidden className="h-3.5 w-3.5 text-warn" />
+        ) : (
+          <Check aria-hidden className="h-3.5 w-3.5 text-ink-faint" />
+        )}
+        {summary}
+        <ChevronDown aria-hidden className={`h-3.5 w-3.5 transition-transform duration-(--duration-fast) ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open ? (
+        <ul id={listId} className="mt-1.5 space-y-1.5 border-l border-line pl-3">
+          {steps.map((step) => {
+            const detail = freshDetail(step.detail, shown);
+            const failed = step.status === "failed" || step.status === "refused";
+            return (
+              <li key={step.id} title={step.tool}>
+                <span className={`flex items-center gap-1.5 ${failed ? "text-warn" : "text-ink"}`}>
+                  {failed ? <TriangleAlert aria-hidden className="h-3.5 w-3.5 shrink-0" /> : null}
+                  {labelOf(step)}
+                </span>
+                {detail ? <span className="block break-words">{detail}</span> : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
-/**
- * The status, as one glyph. `aria-hidden` on all four: the row's text already says which
- * tool ran and what it answered, and a screen reader reading "check mark" adds nothing a
- * person can act on.
- */
-function StepIcon({ status }: { status: CopilotStep["status"] }) {
-  const shared = "mt-0.5 h-3.5 w-3.5 shrink-0";
-  if (status === "running") {
-    return <Loader2 aria-hidden className={`${shared} animate-spin text-ink-faint`} />;
+/** The server's words for the step, in the tense of its status. */
+function labelOf(step: CopilotStep): string {
+  const label = step.label?.trim();
+  if (step.status === "failed" || step.status === "refused") {
+    if (!label) return "One step did not finish";
+    const doing = label.replace(/…$/, "");
+    return `Could not finish ${doing.charAt(0).toLowerCase()}${doing.slice(1)}`;
   }
-  if (status === "refused") return <CircleSlash aria-hidden className={`${shared} text-ink-muted`} />;
-  if (status === "failed") return <TriangleAlert aria-hidden className={`${shared} text-danger`} />;
-  return <Check aria-hidden className={`${shared} text-ink-faint`} />;
+  if (label) return label;
+  return step.status === "running" ? "Working…" : "Looked something up";
 }
 
-/**
- * A duration a person can read at a glance.
- *
- * Milliseconds below a second and one decimal above it: "840 ms" and "2.4 s" are both
- * immediately comparable, where "2437 ms" makes somebody count digits. No unit smaller
- * than a millisecond, because the server measures in whole ones.
- */
-function elapsed(ms: number): string {
-  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+function normalise(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** The detail, unless the answer or an earlier step already said it. Records what it shows. */
+function freshDetail(detail: string | null | undefined, shown: Set<string>): string | null {
+  if (!detail) return null;
+  const key = normalise(detail);
+  if (key === "") return null;
+  for (const seen of shown) if (seen.includes(key)) return null;
+  shown.add(key);
+  return detail;
 }

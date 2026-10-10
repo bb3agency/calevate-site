@@ -183,11 +183,11 @@ const SIGN_IN_COPY: Record<string, string> = {
   [AUTHN_CODES.passwordUnacceptable]:
     "That password is too easy to guess. Three or four unrelated words is the easiest way to a strong one.",
   // The two refusals of the signed-in change (`POST /password/change`). Both are shown AT
-  // THE FIELD they are about by `ChangePasswordForm` — the current-password input and the
-  // new-password input respectively — rather than only in the notice, so a screen-reader
-  // user hears which of the two boxes to go back to. The copy lives here, with every
-  // other authentication sentence, so the form does not become a second place that
-  // decides what a code means.
+  // THE FIELD they are about by `PasswordRow` (components/authn/passwordRow.tsx) — the
+  // current-password input and the new-password input respectively — rather than only in
+  // the notice, so a screen-reader user hears which of the two boxes to go back to. The
+  // copy lives here, with every other authentication sentence, so the form does not
+  // become a second place that decides what a code means.
   [AUTHN_CODES.invalidCurrentPassword]:
     "That is not the current password on this account. Check it and try again — nothing has been changed.",
   [AUTHN_CODES.passwordUnchanged]:

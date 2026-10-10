@@ -1,53 +1,51 @@
 "use client";
 
 /**
- * Verify the address on file, with a code emailed to it (D-174).
+ * Verify the address on file, with a code emailed to it (D-174). Rendered under an account
+ * page's Email address row once the person chooses "Verify"; the row already says the
+ * address is not verified, so this panel does not say it again.
  *
- * `POST /otp/request` + `POST /otp/verify`, both scoped to the CALLER'S OWN subject —
- * there is no parameter naming whose mailbox to mail, which is what stops this being a way
- * to send mail to arbitrary addresses. So there is no address field on this panel either,
- * and its absence is the feature.
+ * `POST /otp/request` + `POST /otp/verify`, both scoped to the CALLER'S OWN subject: there
+ * is no parameter naming whose mailbox to mail, which is what stops this being a way to
+ * send mail to arbitrary addresses. So there is no address field here either.
  *
- * The countdown is the resend cooldown and nothing else. **The API does not return the
- * code's expiry**, so a countdown to it would be this browser's guess dressed as a fact;
- * the ten minutes is stated as prose because that is what it is — see D-174 on the
- * `expires_at` the contract is missing.
+ * The countdown is the resend cooldown and nothing else. The API does not return the
+ * code's expiry, so the ten minutes is stated as prose rather than counted down (D-174).
  */
 
 import { useRef, useState } from "react";
 
 import { useMutation } from "@tanstack/react-query";
-import { MailCheck, ShieldCheck } from "lucide-react";
 
 import { AuthProblemNotice } from "@/components/authn/fields";
+import { TEXT_ACTION } from "@/components/console/section";
 import { OtpInput } from "@/components/interior/otp-input";
-import { NoticeBox, PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
 import type { RealmAuthn } from "@/lib/authn/realm";
 import { OTP_LENGTH, OTP_RESEND_COOLDOWN_MS } from "@/lib/authn/otp";
 import { useCountdown } from "@/lib/authn/useCountdown";
 
-
-
 export function EmailVerificationPanel({
   authn,
-  verified,
   onVerified,
 }: {
   authn: RealmAuthn;
-  verified: boolean;
-  /** Re-read the session, so the panel reflects the server's answer and not this one. */
+  /** Re-read the session, so the page reflects the server's answer and not this one. */
   onVerified: () => void;
 }) {
   const [code, setCode] = useState("");
   const [shakes, setShakes] = useState(0);
   const inFlight = useRef(false);
   const [resendReadyAt, setResendReadyAt] = useState<number | null>(null);
+  /** State, not `requestCode.isSuccess`: a resend in flight must not fold the code field away. */
+  const [sent, setSent] = useState(false);
   const cooldown = useCountdown(resendReadyAt);
 
   const requestCode = useMutation({
     mutationFn: () => authn.requestEmailCode(),
     onSuccess: () => {
       setCode("");
+      setSent(true);
       setResendReadyAt(Date.now() + OTP_RESEND_COOLDOWN_MS);
     },
   });
@@ -74,87 +72,67 @@ export function EmailVerificationPanel({
     verify.mutate(value);
   };
 
-  if (verified) {
+  const resend = () => {
+    if (requestCode.isPending || cooldown > 0) return;
+    requestCode.mutate();
+  };
+
+  if (!sent) {
     return (
-      <NoticeBox
-        tone="ok"
-        icon={<ShieldCheck aria-hidden className="h-4 w-4" />}
-        title="Your email address is verified"
-      >
-        {/* What a person wants at a verified address is what RESTS on it, because that is
-            what tells them whether losing the mailbox matters — not "Nothing to do here."
-            It is the only address a code is sent to (`POST /otp/request` takes no address;
-            it mails this session's own subject, `authn/routes.py`) and the only one a
-            password reset link goes to (`POST /password/reset/request`). Both hold on both
-            realms, which is why they live here rather than in either page. */}
-        <p className="mt-1">
-          It is the only address we email a code or a password reset link to, so keep it one
-          you can open.
+      <div className="space-y-3">
+        <p className="text-meta text-ink-muted">
+          We email a six-digit code to this address. It works for ten minutes.
         </p>
-      </NoticeBox>
+        <AuthProblemNotice error={requestCode.error} />
+        <button
+          type="button"
+          className={SECONDARY_BUTTON}
+          disabled={requestCode.isPending}
+          onClick={resend}
+        >
+          {requestCode.isPending ? "Sending…" : "Email me a code"}
+        </button>
+      </div>
     );
   }
 
   return (
-    <div className="space-y-3 text-sm text-ink-muted">
-      <NoticeBox
-        tone="warn"
-        icon={<MailCheck aria-hidden className="h-4 w-4" />}
-        title="Your email address is not verified yet"
-      >
-        <p className="mt-1">
-          We will email a six-digit code to the address on this account. It is good for ten
-          minutes, and a new code replaces the previous one.
-        </p>
-      </NoticeBox>
-
-      {requestCode.isSuccess && (
-        <form
-          className="space-y-3"
-          noValidate
-          onSubmit={(event) => {
-            event.preventDefault();
-            submitOnce(code);
-          }}
+    <form
+      className="space-y-3"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        submitOnce(code);
+      }}
+    >
+      <OtpInput
+        label="Six-digit code"
+        length={OTP_LENGTH}
+        value={code}
+        onChange={setCode}
+        onComplete={submitOnce}
+        status={verify.isError && code === "" ? "error" : "idle"}
+        shakeKey={shakes}
+        readOnly={verify.isPending}
+      />
+      <AuthProblemNotice error={verify.error ?? requestCode.error} />
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <button
+          type="submit"
+          className={PRIMARY_BUTTON}
+          disabled={verify.isPending || code.length !== OTP_LENGTH}
         >
-          <OtpInput
-            label="Six-digit code"
-            length={OTP_LENGTH}
-            value={code}
-            onChange={setCode}
-            onComplete={submitOnce}
-            status={verify.isError && code === "" ? "error" : "idle"}
-            shakeKey={shakes}
-            readOnly={verify.isPending}
-          />
-          <AuthProblemNotice error={verify.error} />
-          <button
-            type="submit"
-            className={PRIMARY_BUTTON}
-            disabled={verify.isPending || code.length !== OTP_LENGTH}
-          >
-            {verify.isPending ? "Checking…" : "Verify my address"}
-          </button>
-        </form>
-      )}
-
-      <AuthProblemNotice error={requestCode.error} />
-
-      <button
-        type="button"
-        className={SECONDARY_BUTTON}
-        disabled={requestCode.isPending || cooldown > 0}
-        onClick={() => {
-          if (requestCode.isPending || cooldown > 0) return;
-          requestCode.mutate();
-        }}
-      >
-        {cooldown > 0
-          ? `Send another code in ${cooldown}s`
-          : requestCode.isSuccess
-            ? "Send another code"
-            : "Email me a code"}
-      </button>
-    </div>
+          {verify.isPending ? "Checking…" : "Verify"}
+        </button>
+        <button
+          type="button"
+          className={TEXT_ACTION}
+          disabled={requestCode.isPending || cooldown > 0}
+          onClick={resend}
+        >
+          {cooldown > 0 ? `Send another code in ${cooldown}s` : "Send another code"}
+        </button>
+      </div>
+    </form>
   );
 }

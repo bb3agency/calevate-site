@@ -58,6 +58,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
 from apps.api.copilot.memory import KIND_EPISODIC, KIND_SEMANTIC, redacted_content
+from apps.api.core import provider_health
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
@@ -254,17 +255,18 @@ async def _distil_group(
     ids = [UUID(str(row[0])) for row in episodes]
     record = "\n---\n".join(str(row[1]) for row in episodes)
 
-    outcome = await chat.complete(
-        leg,
-        [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": record},
-        ],
-        timeout_s=DISTILL_TIMEOUT_S,
-        temperature=0,
-        response_format={"type": "json_object"},
-        max_tokens=DISTILL_MAX_TOKENS,
-    )
+    async with provider_health.watch("memory", chat.provider_of(leg)):
+        outcome = await chat.complete(
+            leg,
+            [
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": record},
+            ],
+            timeout_s=DISTILL_TIMEOUT_S,
+            temperature=0,
+            response_format={"type": "json_object"},
+            max_tokens=DISTILL_MAX_TOKENS,
+        )
     if outcome.finish_reason == "length":
         # The valve fired. The JSON is truncated, so `_facts_of` will return nothing; the
         # log line is what tells an operator a run HIT the ceiling, which means it spent it.

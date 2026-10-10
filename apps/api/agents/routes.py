@@ -399,10 +399,12 @@ class AgentCreateIn(BaseModel):
     #: outbound). The job sets `direction`; an explicit direction that contradicts it is
     #: refused with `starter_direction_mismatch`. Omitted: an empty draft, as before.
     starter: StarterJob | None = None
-    #: Defaulted to `inbound` because D-38 says the receptionist is the headline
-    #: capability, and because an agent that can only be called is the safe default: an
-    #: `outbound` default would make "I clicked create" the first step of a dialling motion.
-    direction: AgentDirection = "inbound"
+    #: Omitted: the starter's job decides it, or `inbound` with no starter, because D-38
+    #: says the receptionist is the headline capability and an agent that can only be
+    #: called is the safe default (an `outbound` default would make "I clicked create" the
+    #: first step of a dialling motion). Nullable rather than defaulted to `inbound` so the
+    #: generated client does not demand a direction the starter already sets.
+    direction: AgentDirection | None = None
     language_primary: OfferedLanguage = "te-IN"
     #: The cost-runaway guard. `null` means the platform default (600s), never unlimited.
     max_call_duration_s: int | None = Field(default=None, ge=CALL_CAP_MIN_S, le=CALL_CAP_MAX_S)
@@ -556,12 +558,10 @@ async def create_agent_route(
 ) -> AgentOut:
     """Mint a draft agent for the caller's own tenant."""
     assert principal.tenant_id is not None  # client realm; `requires()` resolves it
-    direction = payload.direction
+    direction: AgentDirection = payload.direction or "inbound"
     if payload.starter is not None:
-        # Only a direction the caller SENT can contradict the job; the field's default
-        # (`inbound`) is not a choice anybody made.
-        sent = payload.direction if "direction" in payload.model_fields_set else None
-        direction = starters.direction_for(payload.starter, sent)
+        # Only a direction the caller SENT can contradict the job.
+        direction = starters.direction_for(payload.starter, payload.direction)
     agent_id = await lifecycle.create_agent(
         session,
         tenant_id=principal.tenant_id,

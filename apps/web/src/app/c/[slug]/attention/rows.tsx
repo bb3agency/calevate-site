@@ -18,11 +18,14 @@ import { lookup } from "@/lib/lookup";
  */
 export const KIND_COPY: Record<AttentionKind, { label: string; dot: string; action: string; rank: number }> = {
   inbound_stopped: { label: "Calls not being answered", dot: "bg-danger", action: "Add credits", rank: 0 },
-  action_broken: { label: "Action needs a connection", dot: "bg-danger", action: "Reconnect", rank: 1 },
-  delivery_failed: { label: "Delivery failed", dot: "bg-danger", action: "Check the connection", rank: 2 },
-  campaign_stalled: { label: "Campaign stalled", dot: "bg-warn", action: "Open campaigns", rank: 3 },
-  lead_blocked: { label: "Call blocked", dot: "bg-warn", action: "Open leads", rank: 4 },
-  kb_rejected: { label: "Knowledge not accepted", dot: "bg-ink-faint", action: "Open knowledge", rank: 5 },
+  credit_low: { label: "Credit low", dot: "bg-warn", action: "Add credits", rank: 1 },
+  action_broken: { label: "Action needs a connection", dot: "bg-danger", action: "Reconnect", rank: 2 },
+  lead_hot: { label: "Hot lead", dot: "bg-brand", action: "Open the lead", rank: 3 },
+  call_failed: { label: "Call failed", dot: "bg-danger", action: "Open the call", rank: 4 },
+  delivery_failed: { label: "Delivery failed", dot: "bg-danger", action: "Check the connection", rank: 5 },
+  campaign_stalled: { label: "Campaign stalled", dot: "bg-warn", action: "Open campaigns", rank: 6 },
+  lead_blocked: { label: "Call blocked", dot: "bg-warn", action: "Open leads", rank: 7 },
+  kb_rejected: { label: "Knowledge not accepted", dot: "bg-ink-faint", action: "Open knowledge", rank: 8 },
 };
 
 /** Most urgent first, newest first within one kind. An unknown kind sorts after the known ones. */

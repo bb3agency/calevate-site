@@ -128,6 +128,7 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         ("/v1/admin/tenants/{tenant_id}/credits", "GET", "admin_api"),
         ("/v1/admin/tenants/{tenant_id}/agents/{agent_id}/publish", "POST", "costly"),
         ("/v1/ops/secrets/{key}", "PUT", "admin_api"),
+        ("/v1/ops/secrets/{key}", "DELETE", "admin_api"),
         ("/v1/ops/secrets/{key}/test", "POST", "costly"),
         # A credentialled vendor call per click, like the candidate test above it.
         ("/v1/ops/carrier/probe", "POST", "costly"),

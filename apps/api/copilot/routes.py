@@ -483,7 +483,7 @@ async def ask_copilot(
                     )
                     # TRUE IF ANY LEG WAS METERED. The flag reaches the browser as "this
                     # question was charged for", and a run whose Azure leg was metered and whose
-                    # Sarvam fallback was not (D-36 prices that leg at zero) WAS charged for.
+                    # Sarvam standby was not (we absorb that leg's cost) WAS charged for.
                     metered = metered or metering.metered
                 last = spends[-1]
                 await write_audit(

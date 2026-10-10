@@ -9,6 +9,7 @@ import { LiveCallsPill } from "@/components/console/liveCalls";
 import { SHELL_RAIL_CLASS } from "@/components/ui";
 import { useAttention } from "@/lib/api/attention";
 import { useClientRealm } from "@/lib/api/session";
+import { minutesLeftPhrase, useWallet, walletState } from "@/lib/api/wallet";
 import { clientNavigation } from "@/lib/clientNav";
 import { useDesktopAlerts } from "@/lib/desktopAlerts";
 
@@ -55,6 +56,7 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
           {/* Calls in progress now, from the existing 20-second call poll. Renders
               nothing unless at least one call is live. */}
           <LiveCallsPill slug={slug} />
+          <CreditChip slug={slug} />
           <Link
             href={href(`/c/${slug}/attention`)}
             aria-label={
@@ -91,5 +93,29 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
         </div>
       </div>
     </header>
+  );
+}
+
+/**
+ * Credit in the bar, ONLY when it is about to stop calls or already has. A healthy balance
+ * is on the dashboard and the billing screen; showing it on every screen would be one more
+ * thing in the bar that is usually not news (feedback-patterns: signal when it is
+ * actionable). Words carry the state, the warn colour only repeats them.
+ */
+function CreditChip({ slug }: { slug: string }) {
+  const { session, href } = useClientRealm();
+  const wallet = useWallet(session);
+  if (!wallet.data) return null;
+  const state = walletState(wallet.data);
+  if (state !== "low" && state !== "stopped") return null;
+  const text = state === "stopped" ? "Calls stopped" : (minutesLeftPhrase(wallet.data) ?? "Credit low");
+  return (
+    <Link
+      href={href(`/c/${slug}/billing?tab=credits`)}
+      className="press hidden h-9 items-center gap-1.5 rounded-full border border-line bg-surface px-3 text-[13px] font-medium text-warn hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 sm:inline-flex touch:h-11"
+    >
+      {text}
+      <span className="text-ink-muted">· Add credit</span>
+    </Link>
   );
 }

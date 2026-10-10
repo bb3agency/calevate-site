@@ -183,6 +183,8 @@ describe("editing a configured action", () => {
           sheets_share_with: null,
         },
         "/v1/integrations/credentials": [],
+        // The form reads the agent for its captured details ("From the lead" lists them).
+        "/v1/agents/agent-1": { id: "agent-1", extraction_fields: [{ key: "budget", label: "Budget", type: "string" }] },
         "PUT /v1/agents/agent-1/actions/tool-2": STORED,
       },
     );
@@ -212,6 +214,32 @@ describe("editing a configured action", () => {
       params: [{ name: "order_id", source: "ai", required: true, type: "string" }],
     });
     expect(calls.some((c) => c.method === "POST")).toBe(false);
+  });
+
+  it("offers the agent's captured details by label under From the lead, sent as field:<key>", async () => {
+    const { calls } = await renderClientPage(
+      <ToolRow tool={STORED} agentId="agent-1" session={SESSION} />,
+      {
+        "/v1/integrations/connections/status": {
+          google_calendar: false,
+          zoho_crm: false,
+          hubspot: false,
+          sheets_share_with: null,
+        },
+        "/v1/integrations/credentials": [],
+        "/v1/agents/agent-1": { id: "agent-1", extraction_fields: [{ key: "budget", label: "Budget", type: "string" }] },
+        "PUT /v1/agents/agent-1/actions/tool-2": STORED,
+      },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Manage lookup_order" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Change lookup_order" }));
+    fireEvent.change(await screen.findByLabelText("Parameter 1 value comes from"), { target: { value: "lead_var" } });
+    await screen.findByRole("option", { name: "Budget" });
+    fireEvent.change(screen.getByLabelText("Parameter 1 lead variable"), { target: { value: "field:budget" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    const sent = JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}");
+    expect(sent.params[0]).toMatchObject({ name: "order_id", source: "lead_var", lead_var: "field:budget" });
   });
 });
 

@@ -90,6 +90,32 @@ export const LEAD_VARS: { value: string; label: string }[] = [
   { value: "call_sid", label: "This call's reference" },
 ];
 
+/** How a parameter names one of the agent's captured details on the wire (`field:<key>`). */
+export const LEAD_FIELD_PREFIX = "field:";
+
+/** A detail the agent captures, as the parameter editor offers it. */
+export interface CapturedField {
+  key: string;
+  label: string;
+}
+
+/**
+ * Everything "From the lead" can read: the call facts, then the agent's own captured details
+ * by label. A stored binding to a detail the agent no longer captures stays listed, marked,
+ * so opening the form never silently rebinds it.
+ */
+export function leadVarOptions(
+  fields: readonly CapturedField[],
+  current?: string,
+): { value: string; label: string }[] {
+  const captured = fields.map((f) => ({ value: `${LEAD_FIELD_PREFIX}${f.key}`, label: f.label }));
+  const options = [...LEAD_VARS, ...captured];
+  if (current && !options.some((o) => o.value === current) && current.startsWith(LEAD_FIELD_PREFIX)) {
+    options.push({ value: current, label: `${current.slice(LEAD_FIELD_PREFIX.length)} (no longer captured)` });
+  }
+  return options;
+}
+
 /**
  * One parameter being drafted. `source` is the founder's spec's three bindings: a static
  * value, a lead/call variable, or AI-decided (the model fills it from the conversation).

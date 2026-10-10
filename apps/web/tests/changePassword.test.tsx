@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ClientAccountPage from "@/app/(auth)/auth/account/page";
 import AdminSessionPage from "@/app/(auth)/auth/admin/page";
-import { revokedSentence } from "@/components/authn/changePasswordForm";
+import { revokedSentence } from "@/components/authn/passwordRow";
 import { adminAuthn } from "@/lib/authn/adminAuthn";
 import { clientAuthn } from "@/lib/authn/clientAuthn";
 import { createRealmAuthn } from "@/lib/authn/realm";
@@ -63,9 +63,22 @@ async function renderPage(
   return calls;
 }
 
-/** Fill all three boxes and press the button. */
-async function fillAndSubmit(next = NEXT): Promise<void> {
-  fireEvent.change(await screen.findByLabelText("Current password"), {
+/**
+ * Both realms keep the form closed behind the Password row's "Change" action
+ * (REDESIGN-2), so every test opens it first, the way a person would.
+ */
+async function openPasswordForm(): Promise<void> {
+  await act(async () => {
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Change your password" }),
+    );
+  });
+}
+
+/** Open the form, fill all three boxes and press its submit. */
+async function fillAndSave(next = NEXT): Promise<void> {
+  await openPasswordForm();
+  fireEvent.change(screen.getByLabelText("Current password"), {
     target: { value: CURRENT },
   });
   fireEvent.change(screen.getByLabelText("New password"), {
@@ -75,7 +88,7 @@ async function fillAndSubmit(next = NEXT): Promise<void> {
     target: { value: next },
   });
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save new password" }));
   });
 }
 
@@ -106,6 +119,7 @@ afterEach(() => {
 describe("the client realm's account screen", () => {
   it("says every other session ends BEFORE anything is submitted", async () => {
     await renderPage(<ClientAccountPage />, {});
+    await openPasswordForm();
     // The person whose phone is about to be signed out has to be told while they can
     // still decide not to — a warning after the click is an explanation, not a choice.
     expect(
@@ -117,7 +131,7 @@ describe("the client realm's account screen", () => {
     const calls = await renderPage(<ClientAccountPage />, {
       "POST /v1/auth/client/password/change": CHANGED(2),
     });
-    await fillAndSubmit();
+    await fillAndSave();
 
     const change = calls.find(
       (c) => c.path === "/v1/auth/client/password/change",
@@ -131,7 +145,9 @@ describe("the client realm's account screen", () => {
     expect(status.textContent).toContain(
       "We signed you out of 2 other devices.",
     );
-    expect(status.textContent).toContain("You are still signed in here");
+    expect(status.textContent).toContain("Password changed.");
+    // The form closes on success and its three passwords are gone with it.
+    expect(screen.queryByLabelText("Current password")).toBeNull();
   });
 
   it("puts a wrong current password under the current-password box", async () => {
@@ -144,7 +160,7 @@ describe("the client realm's account screen", () => {
           "The current password you entered does not match the one on your account.",
       }),
     });
-    await fillAndSubmit();
+    await fillAndSave();
 
     await waitFor(() =>
       expect(fieldMessage("Current password")).toContain(
@@ -164,7 +180,7 @@ describe("the client realm's account screen", () => {
         detail: "The new password is the same as your current one.",
       }),
     });
-    await fillAndSubmit();
+    await fillAndSave();
 
     await waitFor(() =>
       expect(fieldMessage("New password")).toContain(
@@ -190,7 +206,7 @@ describe("the client realm's account screen", () => {
         ],
       }),
     });
-    await fillAndSubmit();
+    await fillAndSave();
 
     // NIST SP 800-63B-4 §3.1.1.2 requires the REASON to reach the person, and the reason
     // is composed from the string they typed — no fixed local sentence could name it.
@@ -206,11 +222,11 @@ describe("the client realm's account screen", () => {
     // Fourteen characters: legal on the admin realm, one short on this one. The floor is
     // per realm (NIST SP 800-63B-4 §3.1.1.2, `authn/policy.MIN_CHARS_BY_REALM`), and a
     // form showing the wrong realm's number is the §5.7 defect 8 shape one level up.
-    await fillAndSubmit("fourteen chars");
+    await fillAndSave("fourteen chars");
     expect(
       (
         screen.getByRole("button", {
-          name: "Change password",
+          name: "Save new password",
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
@@ -227,7 +243,7 @@ describe("the client realm's account screen", () => {
         detail: "Wait before trying again.",
       }),
     });
-    await fillAndSubmit();
+    await fillAndSave();
 
     // No field is at fault, so there is no field to hang it under.
     expect(await screen.findByText(AUTH)).toBeTruthy();
@@ -240,6 +256,7 @@ describe("the client realm's account screen", () => {
 
   it("keeps the button unusable until the repeat matches", async () => {
     await renderPage(<ClientAccountPage />, {});
+    await openPasswordForm();
     fireEvent.change(await screen.findByLabelText("Current password"), {
       target: { value: CURRENT },
     });
@@ -252,7 +269,7 @@ describe("the client realm's account screen", () => {
     expect(
       (
         screen.getByRole("button", {
-          name: "Change password",
+          name: "Save new password",
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
@@ -261,6 +278,7 @@ describe("the client realm's account screen", () => {
 
   it("gives each password box its own reveal control", async () => {
     await renderPage(<ClientAccountPage />, {});
+    await openPasswordForm();
     // The founder's decision is that every password field can be revealed; the a11y
     // requirement is that a screen-reader user listing the buttons can tell them apart.
     for (const name of [
@@ -277,11 +295,21 @@ describe("the client realm's account screen", () => {
 });
 
 describe("the admin realm's account screen", () => {
+  it("advertises THIS realm's floor, which is not the client's", async () => {
+    await renderPage(<AdminSessionPage />, {});
+    await openPasswordForm();
+    // 12 here and 15 on the client realm (`authn/policy.MIN_CHARS_BY_REALM`): the shared
+    // row takes the realm, and a form showing the other realm's number is the §5.7
+    // defect 8 shape one level up.
+    expect(screen.getByText(/At least 12 characters/)).toBeTruthy();
+  });
+
+
   it("sends the change to the ADMIN realm's route", async () => {
     const calls = await renderPage(<AdminSessionPage />, {
       "POST /v1/auth/admin/password/change": CHANGED(0),
     });
-    await fillAndSubmit();
+    await fillAndSave();
 
     expect(calls.some((c) => c.path === "/v1/auth/admin/password/change")).toBe(
       true,
@@ -317,7 +345,7 @@ describe("the admin realm's account screen", () => {
         };
       },
     });
-    await fillAndSubmit();
+    await fillAndSave();
 
     // The refusal opens the ONE prompt this console has, rather than a dead end telling
     // an operator to run two curls (`authn/stepup.reauthentication_required`).

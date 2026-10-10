@@ -158,6 +158,7 @@ const FLEET: FleetSpend = {
   cost_inr: "1200000.00",
   margin_inr: "-184100.00",
   margin_pct: null,
+  ai_absorbed_inr: "0.81",
   tenants: [
     {
       tenant_id: "t2",
@@ -170,6 +171,8 @@ const FLEET: FleetSpend = {
       cost_inr: "184100.00",
       margin_inr: "-184100.00",
       margin_pct: null,
+      ai_absorbed_inr: "0.81",
+      ai_requests: 3,
     },
     {
       tenant_id: "t1",
@@ -182,6 +185,8 @@ const FLEET: FleetSpend = {
       cost_inr: "1015900.10",
       margin_inr: "0.00",
       margin_pct: "0.00",
+      ai_absorbed_inr: "0.00",
+      ai_requests: 0,
     },
   ],
 };
@@ -792,6 +797,17 @@ describe("the operator's half", () => {
     // Colour is the one signal the a11y sweep cannot check and a colour-blind operator may
     // not have.
     expect(container.textContent).toContain("Losing money:");
+  });
+
+  it("shows the AI we absorb per client and in total, outside the margin", async () => {
+    const { container } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: FLEET,
+      [TTS_ROUTE]: TTS_MEASURED,
+    });
+    await screen.findByText("Vasavi Dental");
+    expect(screen.getByText("AI we absorb", { selector: "p" })).toBeTruthy();
+    const rows = container.querySelectorAll("tbody tr");
+    expect(within(rows[0] as HTMLElement).getByText("3 actions")).toBeTruthy();
   });
 
   it("names a client whose month could not be priced, instead of it vanishing", async () => {

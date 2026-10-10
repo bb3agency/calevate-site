@@ -29,9 +29,9 @@
  * the alternative is text that flickers between bold and not as tokens arrive.
  */
 
-import { memo, type ReactNode } from "react";
+import { memo, useEffect, useRef, type ReactNode } from "react";
 
-import { blocks } from "@/lib/copilot/answerBlocks";
+import { blocks, type Block } from "@/lib/copilot/answerBlocks";
 
 /** Bold, then inline code. Ordered so a `**` inside backticks stays literal. */
 const INLINE = /(\*\*[^*\n]+\*\*|`[^`\n]+`)/g;
@@ -67,23 +67,29 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
 export const AnswerText = memo(function AnswerText({
   text,
   className,
+  reveal = false,
 }: {
   text: string;
   className?: string;
+  /** Fade each block in the first time it is seen (the answer arriving); see `useReveal`. */
+  reveal?: boolean;
 }) {
+  const list = blocks(text);
+  const revealClass = useReveal(list, reveal);
   return (
     <div className={className}>
-      {blocks(text).map((block, i) => {
+      {list.map((block, i) => {
+        const cls = revealClass(i);
         if (block.kind === "lead") {
           return (
-            <p key={i} className="mt-2 font-semibold text-ink first:mt-0">
+            <p key={i} className={`mt-2 font-semibold text-ink first:mt-0 ${cls}`} style={delay(cls, i)}>
               {block.text}
             </p>
           );
         }
         if (block.kind === "bullets") {
           return (
-            <ul key={i} className="mt-1 list-disc space-y-1 pl-5 text-ink first:mt-0">
+            <ul key={i} className={`mt-1 list-disc space-y-1 pl-5 text-ink first:mt-0 ${cls}`} style={delay(cls, i)}>
               {block.items.map((item, j) => (
                 <li key={j}>{inline(item, `${i}-${j}`)}</li>
               ))}
@@ -92,7 +98,7 @@ export const AnswerText = memo(function AnswerText({
         }
         if (block.kind === "steps") {
           return (
-            <ol key={i} className="mt-1 list-decimal space-y-1 pl-5 text-ink first:mt-0">
+            <ol key={i} className={`mt-1 list-decimal space-y-1 pl-5 text-ink first:mt-0 ${cls}`} style={delay(cls, i)}>
               {block.items.map((item, j) => (
                 <li key={j}>{inline(item, `${i}-${j}`)}</li>
               ))}
@@ -100,7 +106,7 @@ export const AnswerText = memo(function AnswerText({
           );
         }
         return (
-          <p key={i} className="mt-2 whitespace-pre-wrap text-ink first:mt-0">
+          <p key={i} className={`mt-2 whitespace-pre-wrap text-ink first:mt-0 ${cls}`} style={delay(cls, i)}>
             {inline(block.lines.join("\n"), String(i))}
           </p>
         );
@@ -108,3 +114,46 @@ export const AnswerText = memo(function AnswerText({
     </div>
   );
 });
+
+/**
+ * THE ANSWER ARRIVING, AS A QUIET FADE (founder, REDESIGN-2; motion dial 2).
+ *
+ * Block by block — a paragraph, a list — rather than word by word: an answer arrives in a
+ * few large deltas, so a per-word stagger would hold back text that is already here, and a
+ * typewriter caret is theatre. Each new block fades in over 200 ms with a 2px blur and lift
+ * (`.answer-reveal` in globals.css), later blocks of the same arrival 60 ms apart, capped so
+ * the whole answer is readable within about half a second. Reduced motion shows it at once
+ * (the CSS turns the animation off).
+ *
+ * ONCE PER BLOCK, EVER. The streaming buffer and the finished turn are two components, so
+ * the finished answer mounts again the moment the stream ends; a block whose text was
+ * already shown is recorded in `SHOWN` and does not fade a second time. Whether a block
+ * animates is decided when its index is first rendered and never changes afterwards,
+ * because toggling the class on a mounted element would restart the animation.
+ */
+const SHOWN = new Set<string>();
+const SHOWN_CAP = 400;
+
+function signature(block: Block): string {
+  return JSON.stringify(block);
+}
+
+function useReveal(list: Block[], reveal: boolean): (index: number) => string {
+  const decided = useRef(new Map<number, boolean>());
+  if (reveal) {
+    for (let i = 0; i < list.length; i += 1) {
+      if (!decided.current.has(i)) decided.current.set(i, !SHOWN.has(signature(list[i]!)));
+    }
+  }
+  useEffect(() => {
+    if (!reveal) return;
+    if (SHOWN.size > SHOWN_CAP) SHOWN.clear();
+    for (const block of list) SHOWN.add(signature(block));
+  });
+  return (index) => (reveal && decided.current.get(index) ? "answer-reveal" : "");
+}
+
+/** Later blocks of one arrival start a little after earlier ones, never more than 240 ms. */
+function delay(cls: string, index: number): { animationDelay: string } | undefined {
+  return cls ? { animationDelay: `${Math.min(index * 60, 240)}ms` } : undefined;
+}

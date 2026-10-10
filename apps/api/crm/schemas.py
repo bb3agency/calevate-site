@@ -767,6 +767,11 @@ class DashboardOut(Strict):
     calls_7d: int
     leads_new_7d: int
     hot_leads_open: int
+    # The same two counts over the 7 days BEFORE the window above (days 8 to 14 back), so
+    # the screen can say "12 more than the week before" without a second request. Same
+    # rolling definition as `calls_7d`/`leads_new_7d`, one week earlier.
+    calls_prev_7d: int
+    leads_new_prev_7d: int
     # THE WINDOW IS IN THE NAME, like every other bounded number on this model (D-215).
     #
     # This shipped as `avg_duration_s` and was the only tile here with no time bound at
@@ -883,6 +888,9 @@ AttentionKind = Literal[
     "kb_rejected",
     "inbound_stopped",
     "action_broken",
+    "lead_hot",
+    "call_failed",
+    "credit_low",
 ]
 
 

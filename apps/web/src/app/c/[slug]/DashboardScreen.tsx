@@ -5,13 +5,16 @@ import Link from "next/link";
 import { ProblemNotice, Skeleton, formatCount, formatDuration } from "@/components/ui";
 import { Section } from "@/components/console/section";
 import { Metric, MetricRow } from "@/components/console/metric";
+import { useAgentStats, useAgents } from "@/lib/api/agents";
 import { useAttention } from "@/lib/api/attention";
 import { useCalls, useDashboard, useUsage } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { activeTrial, trialEndsAt, useWallet } from "@/lib/api/wallet";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
+import { weekOnWeek } from "@/lib/weekOnWeek";
 
+import { AgentsAtAGlance } from "./AgentsAtAGlance";
 import { CallingCreditTile } from "./CallingCreditTile";
 import { DailyCalls } from "./DailyCalls";
 import { KnowledgeGaps } from "./KnowledgeGaps";
@@ -23,6 +26,7 @@ import { SetupChecklist } from "./SetupChecklist";
 import { SpendThisMonth } from "./SpendThisMonth";
 import { TrialCallPanel } from "./TrialCallPanel";
 import { WhatNeedsYou } from "./WhatNeedsYou";
+import { WeekRecap } from "./WeekRecap";
 
 /**
  * The client's home screen.
@@ -38,8 +42,9 @@ import { WhatNeedsYou } from "./WhatNeedsYou";
  *
  * The tiles the design asked for that the API cannot answer are ABSENT rather than
  * approximated — cost per call, active campaigns, booked appointments, conversion
- * rate, and the "+18.4% vs last week" deltas under every figure. Each is a real
- * question and each needs an endpoint; `docs/BUILD-LOG.md` records which.
+ * rate. Each is a real question and each needs an endpoint; `docs/BUILD-LOG.md` records
+ * which. The week-on-week comparison is real now (`calls_prev_7d`, `leads_new_prev_7d`)
+ * and is said in words, once, rather than as a percentage under every figure.
  */
 
 export function DashboardScreen({ slug }: { slug: string }) {
@@ -70,6 +75,8 @@ export function DashboardScreen({ slug }: { slug: string }) {
   // the one list with a time cost attached to ignoring it (ux-audit D2). Renders
   // nothing until the server answers, and nothing on zero — exactly as the bell does.
   const attention = useAttention(session);
+  const agents = useAgents(session);
+  const agentStats = useAgentStats(session);
 
   /*
    * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
@@ -128,12 +135,14 @@ export function DashboardScreen({ slug }: { slug: string }) {
         ? [
             { key: "calls_today", label: "Calls today", value: String(dashboard.data.calls_today) },
             { key: "calls_7d", label: "Calls in the last 7 days", value: String(dashboard.data.calls_7d) },
+            { key: "calls_prev_7d", label: "Calls in the 7 days before that", value: String(dashboard.data.calls_prev_7d) },
             {
               key: "avg_duration_s_7d",
               label: "Average completed call length, last 7 days (seconds)",
               value: dashboard.data.avg_duration_s_7d == null ? "not measurable yet" : String(dashboard.data.avg_duration_s_7d),
             },
             { key: "leads_new_7d", label: "New leads in the last 7 days", value: String(dashboard.data.leads_new_7d) },
+            { key: "leads_new_prev_7d", label: "New leads in the 7 days before that", value: String(dashboard.data.leads_new_prev_7d) },
             { key: "hot_leads_open", label: "Hot leads waiting", value: String(dashboard.data.hot_leads_open) },
             {
               key: "after_hours_captured_7d",
@@ -207,6 +216,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
   }
 
   const data = dashboard.data;
+  const leadsTrend = weekOnWeek(data.leads_new_7d, data.leads_new_prev_7d);
 
   return (
     <div className="space-y-10 pb-12">
@@ -227,6 +237,16 @@ export function DashboardScreen({ slug }: { slug: string }) {
         href={(path) => href(`/c/${slug}${path}`)}
       />
 
+      {/* The week read as sentences: how busy, who was missed, how much was handled,
+          whether the agents are on, how long the credit lasts. */}
+      <WeekRecap
+        data={data}
+        usage={usage}
+        agents={agents.data}
+        wallet={wallet}
+        href={(path) => href(`/c/${slug}${path}`)}
+      />
+
       {/* THEN TODAY AND THIS WEEK — four figures on the page itself, no boxes: the numbers
           are the content, and a hairline under the strip is all the grouping they need.
           Each marks itself when a poll changes it. */}
@@ -235,7 +255,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
           label="Calls today"
           value={formatCount(data.calls_today)}
           flashValue={String(data.calls_today)}
-          hint={`${formatCount(data.calls_7d)} in the last 7 days`}
+          hint="Since midnight, India time"
         />
         {/* The window is part of the number: a seven-day average of COMPLETED calls
             (D-215), said in the hint so it is not read as an all-time figure. */}
@@ -250,9 +270,12 @@ export function DashboardScreen({ slug }: { slug: string }) {
           value={formatCount(data.leads_new_7d)}
           flashValue={String(data.leads_new_7d)}
           hint={
-            <Link href={href(`/c/${slug}/leads`)} className="underline decoration-ink/30 underline-offset-2 hover:text-ink">
-              Open leads
-            </Link>
+            <>
+              {leadsTrend ? <span className="block first-letter:uppercase">{leadsTrend}</span> : null}
+              <Link href={href(`/c/${slug}/leads`)} className="underline decoration-ink/30 underline-offset-2 hover:text-ink">
+                Open leads
+              </Link>
+            </>
           }
         />
         <Metric
@@ -269,6 +292,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
 
       <div className="grid items-start gap-10 lg:grid-cols-12 lg:gap-12">
         <div className="space-y-10 lg:col-span-8">
+          <AgentsAtAGlance agents={agents} stats={agentStats} href={(path) => href(`/c/${slug}${path}`)} />
           <Section title="Calls each day">
             <DailyCalls days={data.daily_7d} />
           </Section>

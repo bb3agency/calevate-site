@@ -538,6 +538,7 @@ const FLEET_SPEND = {
   cost_inr: "7100.00",
   margin_inr: "-851.00",
   margin_pct: null,
+  ai_absorbed_inr: "0.81",
   legs_unpriced: 0,
   tenants: [
     {
@@ -551,6 +552,8 @@ const FLEET_SPEND = {
       cost_inr: "5000.00",
       margin_inr: "-5000.00",
       margin_pct: null,
+      ai_absorbed_inr: "0.81",
+      ai_requests: 3,
       legs_unpriced: 0,
     },
     {
@@ -564,6 +567,8 @@ const FLEET_SPEND = {
       cost_inr: "2100.00",
       margin_inr: "4149.00",
       margin_pct: "66.40",
+      ai_absorbed_inr: "0.00",
+      ai_requests: 0,
       legs_unpriced: 0,
     },
   ],
@@ -969,6 +974,8 @@ const DASHBOARD = {
   calls_7d: 24,
   leads_new_7d: 9,
   hot_leads_open: 2,
+  calls_prev_7d: 0,
+  leads_new_prev_7d: 0,
   avg_duration_s_7d: 118,
   sentiment_split: { positive: 12, neutral: 8, negative: 4 },
   outcome_split: { appointment_booked: 9, enquiry: 15 },
@@ -1952,6 +1959,9 @@ const CLIENT_SCREENS: Screen[] = [
       // that carries a sentence and a link rather than a figure alone.
       "/v1/billing/wallet": WALLET_STOPPED,
       "/v1/calls?limit=6": [CALL],
+      // "Your agents" and "This week" read the roster and its activity.
+      "/v1/agents": [AGENT],
+      "/v1/agents/stats": [{ agent_id: "agent-1", status: "live", calls_total: 12, calls_connected: 9, calls_inbound: 0, calls_outbound: 12, last_call_at: "2026-08-13T05:00:00Z", outcomes: { resolved: 6, needs_follow_up: 2, transferred: 0, dropped: 1 } }],
       // The dashboard-home `KnowledgeGaps` card (all agents). One OPEN gap so the sweep
       // covers its populated markup — the count badge, the quote, the agent name and the
       // Teach/Dismiss controls — rather than the empty state.

@@ -60,6 +60,8 @@ const EMPTY_DASHBOARD: Dashboard = {
   calls_7d: 0,
   leads_new_7d: 0,
   hot_leads_open: 0,
+  calls_prev_7d: 0,
+  leads_new_prev_7d: 0,
   avg_duration_s_7d: null,
   sentiment_split: {},
   outcome_split: {},
@@ -233,6 +235,8 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/usage": USAGE,
     "/v1/billing/wallet": wallet(),
     "/v1/calls?limit=6": [],
+    "/v1/agents": [],
+    "/v1/agents/stats": [],
     "/v1/attention": { counts: {}, items: [], total: 0 },
     "/v1/knowledge-gaps?status=open&limit=20": { items: [], open_count: 0, total: 0 },
     "/v1/business-profile": businessProfileFixture(),
@@ -729,5 +733,21 @@ describe("the calling credit tile", () => {
     await screen.findByText("We could not read your balance just now.");
     // A failed read is not an empty wallet, and it is certainly not a stopped account.
     expect(container.textContent).not.toContain("Outgoing calls have stopped");
+  });
+});
+
+describe("this week, in sentences", () => {
+  it("compares with the week before and counts the calls that did not connect, from the reads", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/dashboard": { ...EMPTY_DASHBOARD, calls_7d: 29, calls_prev_7d: 17, daily_7d: WEEK },
+      }),
+    );
+    await screen.findByRole("heading", { name: "This week" });
+    const text = container.textContent ?? "";
+    expect(text).toContain("12 more than the week before");
+    const missed = WEEK.reduce((sum, day) => sum + day.failed + day.no_answer, 0);
+    expect(text).toContain(`${missed} calls did not connect`);
   });
 });

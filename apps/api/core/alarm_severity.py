@@ -607,12 +607,20 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "kb_ocr_unmeterable": "attention",
     "admin_ai_assist_unmeterable": "attention",
     "admin_ai_assist_unknown_provider": "attention",
+    # A platform AI provider's main leg is failing (`core/provider_health.py`): the copilot is
+    # answering on the standby, or extraction and embeddings are not landing at all. It
+    # pages because the founder asked to be told, and REPEATS hourly while open
+    # (`REPEAT_WHILE_OPEN_S`) because one provider outage is otherwise one email at 4am and
+    # silence for the rest of the day.
+    "ai_provider_degraded": "page",
     # The KEK cannot decrypt this deployment's credentials: no vendor call can be made.
     "platform_secret_unreadable": "page",
     # "Informational, and deliberately loud" — and the loud half stays, one rung down. It
     # fires on a rare deliberate act that is already in `audit_log`, and its real value is
     # as a tripwire somebody reads, which a console row serves.
     "platform_secret_set": "attention",
+    # Same tripwire as an install, for the opposite act: a removal stops a vendor leg.
+    "platform_secret_removed": "attention",
     "platform_config_never_loaded": "attention",
     "platform_config_stale": "attention",
     # An operator is standing at the console doing this on purpose.
@@ -911,6 +919,23 @@ ALARM_SEVERITY_FAMILIES: dict[str, Severity] = {
 }
 
 
+#: REPEAT WHILE OPEN — seconds between reminder emails for a `page` whose episode is still
+#: open. Everything not named here mails on onset only (D-591), which is right for a
+#: condition somebody fixes once; it is wrong for one that can stay broken for hours while
+#: the product quietly degrades, where a single 4am email is easy to sleep through. A
+#: reminder is still bounded by the onset machinery: it goes out only from a notice that
+#: reaches the delivery thread, so a condition that stops firing stops reminding.
+#: `scripts/check_alarm_wiring.py` refuses an entry whose code is not a raised `page`.
+REPEAT_WHILE_OPEN_S: dict[str, float] = {
+    "ai_provider_degraded": 3600.0,
+}
+
+
+def repeat_while_open(code: str) -> float | None:
+    """This code's reminder interval while its episode stays open, or None (onset only)."""
+    return REPEAT_WHILE_OPEN_S.get(code)
+
+
 def severity_of(code: str) -> Severity:
     """This code's severity — exact entry first, then its FAMILY, then the default.
 
@@ -940,8 +965,10 @@ __all__ = [
     "ALARM_SEVERITY_FAMILIES",
     "DEFAULT_SEVERITY",
     "EMAILED_SEVERITIES",
+    "REPEAT_WHILE_OPEN_S",
     "SEVERITIES",
     "Severity",
     "is_emailed",
+    "repeat_while_open",
     "severity_of",
 ]

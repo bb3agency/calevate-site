@@ -21,10 +21,22 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 
-import type { AttentionQueue } from "@/lib/api/attention";
+import type { AttentionKind, AttentionQueue } from "@/lib/api/attention";
 
 const KEY = (slug: string) => `calevate.desktopAlerts.${slug}`;
 const EVENT = "calevate:desktop-alerts";
+
+/**
+ * The kinds that pop up on the desktop (founder, 10 Oct 2026): hot leads, failed calls and
+ * low credit, plus agents that have stopped answering, which is low credit at its worst.
+ * Everything else stays on the bell only: a pop-up for a stalled campaign is noise.
+ */
+export const ALERT_KINDS: ReadonlySet<AttentionKind> = new Set<AttentionKind>([
+  "lead_hot",
+  "call_failed",
+  "credit_low",
+  "inbound_stopped",
+]);
 
 export type DesktopAlertState = "unsupported" | "denied" | "off" | "on";
 
@@ -106,14 +118,15 @@ export function useDesktopAlerts(slug: string, queue: AttentionQueue | undefined
       return;
     }
     const known = seen.current;
-    const fresh = items.filter((item) => !known.has(item.id));
+    const fresh = items.filter((item) => !known.has(item.id) && ALERT_KINDS.has(item.kind));
     for (const id of ids) known.add(id);
     if (state !== "on" || fresh.length === 0) return;
     for (const item of fresh) {
       const note = new Notification(item.title, { body: item.detail, tag: item.id });
       note.onclick = () => {
         window.focus();
-        router.push(item.href ? href(item.href) : href(`/c/${slug}/attention`));
+        // `item.href` is realm-relative ("/leads/…"), like the queue screen reads it.
+        router.push(href(`/c/${slug}${item.href ?? "/attention"}`));
         note.close();
       };
     }

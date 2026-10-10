@@ -766,6 +766,29 @@ async def test_the_fleet_board_sums_the_clients_it_walked() -> None:
     assert Decimal(body["revenue_inr"]) - Decimal(body["cost_inr"]) == Decimal(body["margin_inr"])
 
 
+async def test_a_client_who_only_used_the_assistant_shows_its_cost_on_the_fleet_board() -> None:
+    """The free assistant's cost is ours to absorb, so the fleet board shows it per client
+    and in total. It stays OUT of cost and margin: it has no matching revenue."""
+    tenant_id, _reception = await _tenant(monthly_fee=None)
+    absorbed = await _metered_assist(tenant_id)
+    token = await _make_admin()
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(spend_routes, "FLEET_BUDGET_S", 3600.0)
+        async with _client() as http:
+            response = await http.get(
+                "/v1/admin/spend", headers={"Authorization": f"Bearer {token}"}
+            )
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    mine = next(row for row in body["tenants"] if row["tenant_id"] == str(tenant_id))
+    assert mine["ai_absorbed_inr"] == str(to_paise(absorbed))
+    assert mine["ai_requests"] == 1
+    assert mine["cost_inr"] == "0.00", "AI cost must not leak into the call cost"
+    assert Decimal(body["ai_absorbed_inr"]) >= Decimal(mine["ai_absorbed_inr"])
+
+
 async def test_one_client_the_board_cannot_price_is_a_named_row_and_not_a_500() -> None:
     """THE ISOLATION, proved with a real refusal rather than a patched one.
 

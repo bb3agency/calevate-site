@@ -120,6 +120,7 @@ from calevate_shared.engine import (
 )
 
 from apps.api.agents.llm_models import client_content_data_use_reason, unofferable_reason
+from apps.api.core import provider_health
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.workers import chat
@@ -400,15 +401,16 @@ async def _transcribe(
         ],
     }
     try:
-        outcome = await chat.complete(
-            leg,
-            [message],
-            timeout_s=OCR_TIMEOUT_S,
-            # Transcription, not composition: there is one right answer on the page.
-            temperature=0,
-            max_tokens=OCR_MAX_OUTPUT_TOKENS,
-            client=http,
-        )
+        async with provider_health.watch("ocr", chat.provider_of(leg)):
+            outcome = await chat.complete(
+                leg,
+                [message],
+                timeout_s=OCR_TIMEOUT_S,
+                # Transcription, not composition: there is one right answer on the page.
+                temperature=0,
+                max_tokens=OCR_MAX_OUTPUT_TOKENS,
+                client=http,
+            )
     except httpx.HTTPStatusError as failure:
         log.warning(
             "document_ocr_provider_error",

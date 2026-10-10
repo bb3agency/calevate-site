@@ -20,6 +20,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 
 import { adminSession } from "./admin";
 import { apiRequest } from "./client";
+import { OPS_MODEL_PRICES_QUERY_KEY } from "./opsModelPricing";
 
 import type { components } from "./schema";
 
@@ -57,6 +58,12 @@ export const OPS_CARRIER_PROBE_PATH = "/v1/ops/carrier/probe";
  *  refused by the server rather than assumed. */
 export function secretConfirmation(key: string): string {
   return `set_secret:${key}`;
+}
+
+/** `remove_secret:<key>`, verbatim from `secret_removal_confirmation`. Distinct from the
+ *  install word, so consent to rotating a key is never consent to removing it. */
+export function secretRemovalConfirmation(key: string): string {
+  return `remove_secret:${key}`;
 }
 
 export const REWRAP_CONFIRMATION = "rewrap_platform_keks";
@@ -144,6 +151,28 @@ export function useSetSecret() {
       // The key-management panel counts DEKs per KEK, and a new version adds one under
       // the ACTIVE key — so its numbers move on every write here.
       void client.invalidateQueries({ queryKey: OPS_KEK_QUERY_KEY });
+    },
+  });
+}
+
+/**
+ * Remove a stored credential. The server appends a REMOVAL version, so the key reads as not
+ * set and every model on its vendor's leg stops being offered; nothing is revoked at the
+ * vendor. No value travels, so the `gcTime` argument above does not apply.
+ */
+export function useRemoveSecret() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ key }: { key: string }) =>
+      apiRequest<PlatformSecret>(adminSession(), `${OPS_SECRETS_PATH}/${key}`, {
+        method: "DELETE",
+        confirmAction: secretRemovalConfirmation(key),
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: OPS_SECRETS_QUERY_KEY });
+      void client.invalidateQueries({ queryKey: OPS_KEK_QUERY_KEY });
+      // Which models are offerable depends on which vendor keys are installed.
+      void client.invalidateQueries({ queryKey: OPS_MODEL_PRICES_QUERY_KEY });
     },
   });
 }

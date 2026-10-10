@@ -3271,3 +3271,140 @@ describe("a model withheld on merit says so, instead of asking for a price", () 
     );
   });
 });
+
+describe("removing a credential", () => {
+  beforeEach(() => openSection("credentials"));
+
+  const GEMINI_ROW = {
+    ...SECRETS_FIXTURE.secrets[0],
+    key: "gemini_api_key",
+    env_var: "GEMINI_API_KEY",
+    last_four: "a1b2",
+  };
+
+  it("offers a quiet Remove that confirms the consequence, the typed key and the bound header", async () => {
+    const { calls, container } = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
+        [OPS_SECRETS_PATH]: secretsList({ secrets: [GEMINI_ROW] }),
+        [`DELETE ${OPS_SECRETS_PATH}/gemini_api_key`]: {
+          ...GEMINI_ROW,
+          installed: false,
+          version: 3,
+          versions: 3,
+          last_four: "",
+        },
+      }),
+    );
+    await screen.findByText("gemini_api_key");
+    const remove = screen.getByRole("button", { name: "Remove Gemini API Key" });
+    // Quiet: a text action, never a filled red button on the row.
+    expect(remove.className).not.toMatch(/bg-danger/);
+    fireEvent.click(remove);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain(
+      "The assistant and anything using Google models will stop using Google until a new key is added.",
+    );
+    const confirm = within(dialog).getByRole("button", { name: "Remove key" });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(within(dialog).getByPlaceholderText("GEMINI_API_KEY"), {
+      target: { value: "GEMINI_API_KEY" },
+    });
+    expect((confirm as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
+    const write = calls.find((c) => c.method === "DELETE");
+    // The literal the API owns (`secret_removal_confirmation`), not the install word.
+    expect(write?.headers["X-Confirm-Action"]).toBe("remove_secret:gemini_api_key");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(container.textContent).toContain("is no longer set (version 3 of 3)");
+  });
+
+  it("closes on Cancel without sending anything", async () => {
+    const { calls } = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, { [OPS_SECRETS_PATH]: secretsList({ secrets: [GEMINI_ROW] }) }),
+    );
+    await screen.findByText("gemini_api_key");
+    fireEvent.click(screen.getByRole("button", { name: "Remove Gemini API Key" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+  });
+
+  it("offers no Remove on a key the server environment sets, and says where to remove it", async () => {
+    const { container } = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
+        [OPS_SECRETS_PATH]: secretsList({
+          secrets: [{ ...GEMINI_ROW, shadowed_by_env: true }],
+        }),
+      }),
+    );
+    await screen.findByText("gemini_api_key");
+    expect(screen.queryByRole("button", { name: /^Remove/ })).toBeNull();
+    expect(container.textContent).toContain("Set in the server environment; remove it there.");
+  });
+
+  it("says a removed key was removed, by whom and at which version, rather than never installed", async () => {
+    const { container } = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
+        [OPS_SECRETS_PATH]: secretsList({
+          secrets: [
+            { ...GEMINI_ROW, installed: false, version: 3, versions: 3, last_four: "" },
+          ],
+        }),
+      }),
+    );
+    await screen.findByText("gemini_api_key");
+    expect(container.textContent).toMatch(/Removed .* by Ops \(version 3 of 3\)/);
+    expect(container.textContent).not.toContain("never stored one here");
+    expect(screen.getAllByRole("button", { name: "Install" }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /^Remove/ })).toBeNull();
+  });
+});
+
+describe("resetting a setting from its row", () => {
+  beforeEach(() => openSection("billing"));
+  it("is offered only for a stored value, and sends the revert header against the row's tag", async () => {
+    const { calls } = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
+        [OPS_CONFIG_PATH]: configList({
+          fields: [configField({ value: "7.25", source: "db", updated_by: "Ops" })],
+        }),
+        [`DELETE ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]: {
+          key: "self_serve_inr_per_min",
+          previous: "7.25",
+          field: configField(),
+          config_version: 44,
+          recorded: true,
+          etag: '"0"',
+        },
+      }),
+    );
+    await screen.findByText("self_serve_inr_per_min");
+    fireEvent.click(screen.getByRole("button", { name: /^Reset to default:/ }));
+    const dialog = await screen.findByRole("dialog");
+    // High risk: the value going back is typed, as in the form.
+    const confirm = within(dialog).getByRole("button", { name: "Reset to default" });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(within(dialog).getByPlaceholderText("6.00"), { target: { value: "6.00" } });
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
+    const revert = calls.find((c) => c.method === "DELETE");
+    expect(revert?.headers["X-Confirm-Action"]).toBe("revert_config:self_serve_inr_per_min");
+    expect(revert?.headers["If-Match"]).toBe('"7"');
+  });
+
+  it("is not offered for a value that is already the default", async () => {
+    renderAdminPage(<OpsConfigPage />, configRoutes());
+    await screen.findByText("self_serve_inr_per_min");
+    expect(screen.queryByRole("button", { name: /^Reset to default:/ })).toBeNull();
+  });
+});

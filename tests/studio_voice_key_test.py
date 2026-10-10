@@ -140,6 +140,7 @@ async def test_saving_the_cartesia_key_enqueues_one_push_per_version(
             versions=version,
             applies="live",
             caveat=None,
+            installed=True,
         )
 
     async def _quiet() -> int:

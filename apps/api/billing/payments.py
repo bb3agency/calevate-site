@@ -1064,10 +1064,9 @@ def extract_captured_payment(envelope: Any, *, tenant_hint: UUID | None = None) 
     )
 
 
-def _order_entity_notes(envelope: Any) -> dict[str, Any] | None:
-    """`payload.order.entity.notes` on an `order.paid` delivery, or None."""
-    if not isinstance(envelope, dict):
-        return None
+def _order_entity_notes(envelope: dict[str, Any]) -> dict[str, Any] | None:
+    """`payload.order.entity.notes` on an `order.paid` delivery, or None. Only ever handed
+    an envelope `extract_captured_payment` has already read a payment entity out of."""
     payload = envelope.get("payload")
     order = payload.get("order") if isinstance(payload, dict) else None
     entity = order.get("entity") if isinstance(order, dict) else None
