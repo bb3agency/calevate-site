@@ -1,6 +1,7 @@
 "use client";
 
 import { useAdminAccess } from "@/app/admin/access";
+import { formatISTStamp } from "@/components/ui";
 import { useTenant, useTenantKbQueue } from "@/lib/api/admin";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
@@ -9,10 +10,12 @@ import { holdRule } from "@/lib/api/holds";
 import { AccountStateBanner } from "./AccountStateBanner";
 import { HoldsBanner } from "./HoldsBanner";
 import { NoOwnerBanner } from "./NoOwnerBanner";
+import { accountFacts, useAccountReads } from "./accountFacts";
 import { KnowledgeDeliveryPanel } from "./KnowledgeDeliveryPanel";
 import { KnowledgeQueue, unpublishedSources } from "./KnowledgeQueue";
 import { HealthSummary } from "./HealthSummary";
 import { MarginPanel } from "./MarginPanel";
+import { UsagePanel, useUsageFacts } from "./UsagePanel";
 
 /**
  * One client's overview: is it working, and what is waiting on us.
@@ -74,6 +77,8 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   const queue = useTenantKbQueue(slug);
   const publishQueue = useTenantKbQueue(slug, "approved");
   const kbWrite = useAdminAccess("admin:tenants", "decide on this client's knowledge");
+  const accountReads = useAccountReads(tenant);
+  const usage = useUsageFacts(tenantId);
 
   /*
    * ONE CLIENT, DECLARED TO THE SCREEN ASSISTANT.
@@ -103,19 +108,22 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
     route: "/admin/tenants/{id}",
     title: "Client",
     realm: "admin",
+    tenantId,
     fields: [],
     facts: tenant
       ? [
           { key: "tenant_id", label: "Tenant id", value: tenantId },
           { key: "client", label: "Client", value: tenant.name },
           { key: "slug", label: "Slug", value: tenant.slug },
-          { key: "status", label: "Account status", value: tenant.status },
+          { key: "status", label: "Account status (stored)", value: tenant.status },
+          ...accountFacts(tenant, accountReads),
+          ...usage,
           {
             // WHICH WAY THE MONEY MOVES, which decides what half this screen's other
             // figures mean: a `managed` client has no wallet to be empty, so "why have
             // their calls stopped" has different answers either side of it.
             key: "plan_tier",
-            label: "Billing motion (prepaid draws a wallet down; managed is invoiced)",
+            label: "Account type (every client pays from prepaid credit)",
             value: tenant.plan_tier,
           },
           {
@@ -126,7 +134,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
           { key: "live_agents", label: "Live agents", value: String(tenant.live_agents) },
           { key: "calls_7d", label: "Calls in the last 7 days", value: String(tenant.calls_7d) },
           { key: "leads", label: "Leads", value: String(tenant.leads) },
-          { key: "last_call_at", label: "Last call", value: tenant.last_call_at ?? "never" },
+          { key: "last_call_at", label: "Last call", value: formatISTStamp(tenant.last_call_at, "never") },
           {
             key: "capped",
             label: "At the spend ceiling (outbound refused pre-dispatch)",
@@ -187,6 +195,8 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
       {/* Status, what is wrong now, credit and runway, the last calls and the quick
           actions (founder, 10 Oct 2026), above the money and the knowledge queue. */}
       <HealthSummary tenant={tenant} />
+
+      <UsagePanel tenantId={tenantId} />
 
       <MarginPanel tenantId={tenantId} />
 

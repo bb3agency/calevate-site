@@ -31,7 +31,6 @@ import uuid
 from decimal import Decimal
 from pathlib import Path
 
-import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing.ai_quota import AI_QUOTA_INR
 from apps.api.billing.rates import PREPAID_TIERS
@@ -46,7 +45,6 @@ from apps.api.compliance.service import (
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.main import app
 from apps.api.tenancy.models import DEFAULT_PLAN_TIER, PLAN_TIERS
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.conftest import accept_agreements
 
@@ -245,100 +243,20 @@ async def test_an_invisible_row_reads_as_the_platform_default() -> None:
         assert await plan_tier_of(session, uuid.uuid4()) == DEFAULT_PLAN_TIER
 
 
-# --- the operator's way back ----------------------------------------------------------
+# --- D-707: no way back to the invoiced motion ---------------------------------------
 
 
-async def _operator() -> uuid.UUID:
-    admin_id = uuid.uuid4()
-    async with admin_session() as session:
-        await session.execute(
-            text(
-                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
-                "VALUES (:id, 'Ops', 'superadmin', now(), now())"
-            ),
-            {"id": admin_id},
-        )
-    return admin_id
+def test_the_plan_tier_route_is_gone_and_no_production_caller_writes_a_retired_tier() -> None:
+    """D-707: one pricing model. The route that put a client on the invoiced motion is
+    deleted, signup's tier type admits only its own two tiers, and the operator wizard
+    passes no tier at all — so nothing in production can write `managed`."""
+    from typing import get_args
 
+    from apps.api.tenancy.models import RETIRED_PLAN_TIERS
+    from apps.api.tenancy.signup import SelfServeTier
 
-async def _audit_actions(tenant_id: uuid.UUID) -> list[str]:
-    async with admin_session() as session:
-        rows = (
-            await session.execute(
-                text("SELECT action FROM audit_log WHERE tenant_id = :t ORDER BY created_at"),
-                {"t": tenant_id},
-            )
-        ).all()
-    return [str(row[0]) for row in rows]
-
-
-async def test_an_operator_can_put_a_client_back_on_the_invoiced_motion() -> None:
-    """D-521 keeps `managed` so a genuinely invoiced client can be set back to it. Until
-    this route existed that was an UPDATE typed into a production database by hand, which
-    is not a supported decision — it is an unaudited one.
-
-    Also asserts idempotence: setting the tier an account is already on is a 200 with
-    `changed: false` and NO audit row, so the log stays a record of transitions rather
-    than of clicks.
-    """
-    tenant_id = await _tenant()
-    admin_id = await _operator()
-    headers = {"Authorization": f"Bearer dev:admin:{admin_id}"}
-    body = {"plan_tier": "managed", "reason": "invoiced on a retainer from October"}
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
-        first = await http.post(
-            f"/v1/admin/tenants/{tenant_id}/plan-tier", json=body, headers=headers
-        )
-        second = await http.post(
-            f"/v1/admin/tenants/{tenant_id}/plan-tier", json=body, headers=headers
-        )
-
-    assert first.status_code == 200, first.text
-    assert first.json() == {
-        "tenant_id": str(tenant_id),
-        "plan_tier": "managed",
-        "previous_plan_tier": "prepaid",
-        "changed": True,
-    }
-    assert second.status_code == 200, second.text
-    assert second.json()["changed"] is False
-    assert second.json()["previous_plan_tier"] is None
-
-    async with tenant_session(tenant_id) as session:
-        assert await plan_tier_of(session, tenant_id) == "managed"
-        assert await credits_exhausted(session, tenant_id=tenant_id) is False
-
-    actions = await _audit_actions(tenant_id)
-    assert actions.count("tenant.plan_tier_set") == 1, (
-        f"expected exactly one transition row, got {actions}"
-    )
-
-
-@pytest.mark.parametrize("tier", ["self_serve", "trial", "enterprise"])
-async def test_an_operator_may_not_write_a_signup_tier(tier: str) -> None:
-    """`self_serve` and `trial` are not a billing choice — they record that a stranger
-    opened the account unattended, and writing one onto an operator-created client would
-    refuse that client's next dial with `kyc_missing` for a fact that is not true of them.
-    `enterprise` is the control: an unknown tier is refused by the same schema."""
-    tenant_id = await _tenant()
-    admin_id = await _operator()
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
-        response = await http.post(
-            f"/v1/admin/tenants/{tenant_id}/plan-tier",
-            json={"plan_tier": tier, "reason": "should not be possible"},
-            headers={"Authorization": f"Bearer dev:admin:{admin_id}"},
-        )
-    assert response.status_code == 422, response.text
-    async with tenant_session(tenant_id) as session:
-        assert await plan_tier_of(session, tenant_id) == "prepaid"
-
-
-async def test_the_plan_tier_route_answers_404_for_a_client_that_is_not_there() -> None:
-    admin_id = await _operator()
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
-        response = await http.post(
-            f"/v1/admin/tenants/{uuid.uuid4()}/plan-tier",
-            json={"plan_tier": "managed", "reason": "nobody is here"},
-            headers={"Authorization": f"Bearer dev:admin:{admin_id}"},
-        )
-    assert response.status_code == 404, response.text
+    paths = {getattr(route, "path", "") for route in app.routes}
+    assert "/v1/admin/tenants/{tenant_id}/plan-tier" not in paths
+    assert not set(get_args(SelfServeTier)) & set(RETIRED_PLAN_TIERS)
+    wizard = (REPO_ROOT / "apps" / "api" / "admin" / "routes.py").read_text(encoding="utf-8")
+    assert "plan_tier=" not in wizard.split("service.create_organization(", 1)[1].split(")", 1)[0]

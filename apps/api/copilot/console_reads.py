@@ -33,6 +33,7 @@ move. New tools APPEND.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any, Final
 from uuid import UUID
 
@@ -57,6 +58,8 @@ from apps.api.copilot.tools import (
     _clean,
     _listing,
     _nothing,
+    ist_date,
+    ist_stamp,
 )
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
@@ -104,7 +107,7 @@ def _principal(context: ToolContext) -> Principal:
 
 
 def _date(value: Any) -> str:
-    return value.date().isoformat() if value is not None and hasattr(value, "date") else "—"
+    return ist_date(value) if isinstance(value, datetime) else "—"
 
 
 # --- agent_detail ----------------------------------------------------------------------
@@ -144,7 +147,12 @@ async def _agent_detail(
         + ("ON" if agent.recording_notice_enabled else "off")
         + ". Whatever the toggles, the agent always answers truthfully if asked whether "
         "it is an AI or whether the call is recorded.",
-        f"It opens calls with: {agent.opening_line}",
+        # The notices and the opening line are separate things (D-708): the switches above
+        # decide only whether the notices come before the opening line.
+        "Its opening line (the greeting, from its script): "
+        + (agent.script_opening_line or "none written yet")
+        + ".",
+        f"Callers hear first: {agent.first_words or 'nothing yet'}",
         f"It captures: {fields}." if fields else "It captures no custom fields yet.",
     ]
     if staged:
@@ -281,8 +289,7 @@ async def _callbacks_list(
     )
     lines = [
         _clean(
-            f"- {row['status']} · due {_date(row['requested_at'])} "
-            f"{row['requested_at'].strftime('%H:%M') if row['requested_at'] else ''} UTC · "
+            f"- {row['status']} · due {ist_stamp(row['requested_at'])} · "
             f"{row['attempts']} attempt(s)"
             + (f" · last refused: {row['last_refusal_rule']}" if row["last_refusal_rule"] else "")
         )
@@ -644,7 +651,7 @@ async def _campaign_detail(
     counts = ", ".join(f"{k} {v}" for k, v in progress["contacts"].items()) or "no contacts yet"
     lines = [f"Status {progress['status']}; {progress['total']} contact(s) ({counts})."]
     if progress["scheduled_start_at"]:
-        lines.append(f"Scheduled to start {progress['scheduled_start_at']} (UTC).")
+        lines.append(f"Scheduled to start {ist_stamp(progress['scheduled_start_at'])}.")
     if progress["recurrence"]:
         lines.append(f"Repeats: {progress['recurrence']}.")
     if progress["calling_hours"]:

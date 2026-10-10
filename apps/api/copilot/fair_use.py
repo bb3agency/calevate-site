@@ -147,7 +147,7 @@ async def require_copilot_fair_use(session: AsyncSession, *, tenant_id: UUID) ->
                 "AI help is paused across Calevate while we check unusually high usage. "
                 "Your calls, campaigns and leads are unaffected."
             ),
-            remediation="Try again later, or ask your account manager for an update.",
+            remediation="Try again later, or ask us for an update.",
         )
     usage = await read_fair_use(session, tenant_id=tenant_id)
     if usage.reached:

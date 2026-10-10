@@ -77,11 +77,12 @@ Run: `uv run python -m scripts.check_model_lifecycle`   (also in `make guardrail
 from __future__ import annotations
 
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import get_args
 
 from apps.api.agents.voices import TtsModel, provider_of_tts_model
+from apps.api.billing.plans import IST
 from apps.api.ops.model_pricing import reference_tts_price
 from calevate_shared.engine import (
     AZURE_LOCATION,
@@ -108,6 +109,14 @@ from calevate_shared.model_lifecycle import (
 TTS_MODEL_NAMES: frozenset[str] = frozenset(get_args(TtsModel))
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def ist_today() -> date:
+    """Today in India (D-709). A `read_on` is the day somebody in India read the page, so
+    the host's own `date.today()` (UTC on a CI runner) would call a reading made between
+    00:00 and 05:30 IST a day in the future."""
+    return datetime.now(IST).date()
+
 
 #: The oldest a reading may be before it stops counting as current: two years.
 #:
@@ -173,7 +182,7 @@ def refusals(
             ("retirement", entry.retirement),
             ("availability", entry.availability),
         ):
-            if evidence.read_on > date.today():
+            if evidence.read_on > ist_today():
                 problems.append(
                     f"{name}: {label} evidence claims to have been read on "
                     f"{evidence.read_on.isoformat()}, which is in the future."
@@ -533,7 +542,7 @@ def tts_refusals(models: frozenset[str], table: dict[str, TtsModelLifecycle]) ->
             ("retirement", entry.retirement),
             ("availability", entry.availability),
         ):
-            if evidence.read_on > date.today():
+            if evidence.read_on > ist_today():
                 problems.append(
                     f"{name}: {label} evidence claims to have been read on "
                     f"{evidence.read_on.isoformat()}, which is in the future."
@@ -602,7 +611,7 @@ def tts_warnings(table: dict[str, TtsModelLifecycle], today: date) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     root = Path(argv[0]) if argv else REPO_ROOT
-    today = date.today()
+    today = ist_today()
     table = MODEL_LIFECYCLE
     refused = refusals(LLM_MODEL_NAMES, table) + tts_refusals(TTS_MODEL_NAMES, TTS_MODEL_LIFECYCLE)
     attested: Attestation | None = None

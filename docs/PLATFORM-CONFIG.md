@@ -164,7 +164,8 @@ carrier credentials (`VOBIZ_AUTH_ID`/`VOBIZ_AUTH_TOKEN`, `PLIVO_AUTH_ID`/`PLIVO_
 `THINNEST_API_BASE_URL` (D-678: the adapter captures the key at start-up, and the base URL
 decides which host the key is sent to) — read the dict, not this sentence, for
 the current list. The carrier SWITCHES are console-managed: `carrier`,
-`carrier_concurrency`, `carrier_cps`, `inbound_reserve_ratio`, `carrier_recording_enabled`
+`carrier_concurrency`, `carrier_cps`, `inbound_reserved_lines`, `inbound_reserve_ratio`,
+`carrier_recording_enabled`
 (needs republish), `carrier_transfer_enabled`, `vobiz_signature_required` and
 `vobiz_callback_ips`; DEPLOYMENT's carrier table gives each one's default and effect.
 ThinnestAI's own call ceiling, `thinnest_max_concurrent_calls` (default 5, applies live), is

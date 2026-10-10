@@ -126,7 +126,7 @@ export const BLOCKER_COPY: Record<string, BlockerNote> = {
         Your business isn&apos;t registered with{" "}
         <Term id="dlt" /> yet — that&apos;s
         the government register every business must be on before an automated call can go out in
-        its name. We do this registration for you; ask your account manager where it&apos;s up
+        its name. We do this registration for you; ask us where it&apos;s up
         to. Calls coming IN are unaffected and keep working.
       </>
     ),
@@ -138,8 +138,8 @@ export const BLOCKER_COPY: Record<string, BlockerNote> = {
         Your business&apos;s{" "}
         <Term id="dlt" /> registration
         isn&apos;t active — it&apos;s either still with the registrar or it has lapsed. Only an
-        active registration may place campaign calls. We chase this with the registrar; your
-        account manager can tell you where it stands. Calls coming IN are unaffected.
+        active registration may place campaign calls. We chase this with the registrar and
+        can tell you where it stands. Calls coming IN are unaffected.
       </>
     ),
     owner: "calevate",
@@ -149,8 +149,8 @@ export const BLOCKER_COPY: Record<string, BlockerNote> = {
       <>
         Your <Term id="dlt" /> registration
         hasn&apos;t authorised Calevate to call on your behalf yet. It&apos;s a one-time link
-        between your business and us on the register, and we set it up — your account manager
-        will confirm when it&apos;s live.
+        between your business and us on the register, and we set it up and
+        tell you when it&apos;s live.
       </>
     ),
     owner: "calevate",

@@ -75,9 +75,15 @@ FROM ${PIPECAT_BASE}
 # Both from the vendor's scaffold and both worth keeping: bytecode compiled at build time
 # rather than on the first call (this is a latency-critical process), and `copy` because
 # the uv cache below is a mounted volume that hard links cannot cross.
+#
+# TZ: IST is the platform's standard time (D-709), so loguru's local-time stamps read IST.
+# UNVERIFIED that the base carries /usr/share/zoneinfo (the registry is unreachable from
+# here); without it glibc reads this as UTC, silently. DEPLOYMENT §13 has the check:
+# `date` inside the built image must print IST.
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=never
+    UV_PYTHON_DOWNLOADS=never \
+    TZ=Asia/Kolkata
 
 # NO `WORKDIR`, DELIBERATELY, AND IT IS THE ONE LINE MOST LIKELY TO BE "FIXED" BY A LATER
 # READER. The base image sets one and the platform's entrypoint runs in it; the scaffold

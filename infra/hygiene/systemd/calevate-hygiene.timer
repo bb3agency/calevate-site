@@ -3,15 +3,17 @@ Description=Run Calevate host hygiene once a day
 Documentation=file:///var/www/calevate/infra/hygiene/README.md
 
 [Timer]
-# 19:00 UTC = 00:30 IST. Chosen against the platform's own calendar, not the clock:
+# 00:30 IST (19:00 UTC). Chosen against the platform's own calendar, not the clock:
 #   * outbound calling windows have closed (TRAI's latest permitted hour is 21:00 IST);
-#   * it is two hours BEFORE the nightly wal-g base backup at 21:00 UTC
+#   * it is two hours BEFORE the nightly wal-g base backup at 02:30 IST
 #     (`infra/backup/systemd/calevate-basebackup.timer`), so the two never contend for
 #     the same disk, and hygiene runs FIRST — a base backup on a host that has just been
 #     cleaned is the ordering that helps;
 #   * it is nowhere near the workers' 03:xx retention and erasure sweeps.
-OnCalendar=*-*-* 19:00:00 UTC
-# WHY Persistent: a host that was down at 19:00 gets its clean on the next boot instead of
+# The zone is named (D-709), so the instant never depends on the host's own timezone;
+# `systemd-analyze calendar` prints the UTC instant to check it against.
+OnCalendar=*-*-* 00:30:00 Asia/Kolkata
+# WHY Persistent: a host that was down at 00:30 gets its clean on the next boot instead of
 # skipping the day in silence. Safe because every step is idempotent — see the script's
 # header — so a catch-up run and a scheduled run do exactly the same work.
 Persistent=true

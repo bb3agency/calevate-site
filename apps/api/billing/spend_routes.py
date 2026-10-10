@@ -44,13 +44,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.admin import service as admin_service
 from apps.api.billing import rates, tts_speaking_rate
 from apps.api.billing import service as billing
-from apps.api.billing.ai_quota import AiUsage, read_ai_quota, read_ai_usage
+from apps.api.billing.ai_quota import AiUsage, read_ai_usage
 from apps.api.billing.attribution import (
     AgentAttribution,
     CallAttribution,
     PeriodAttribution,
     period_attribution,
 )
+from apps.api.billing.cost_breakdown import CostBreakdownOut, read_month_cost_breakdown
 from apps.api.billing.number_rental import rental_revenue_inr
 from apps.api.billing.plans import ist_month_window, month_pricing_instant
 from apps.api.billing.service import to_paise
@@ -297,12 +298,12 @@ class AbsorbedAiSpendOut(Strict):
     But an operator reading "which client is costing us money" has to be able to see it: a
     client with zero calls and a busy copilot costs us real rupees this money board would
     otherwise report as ₹0.00. So it is published here as its own line, sourced from
-    `billing/ai_quota.py::read_ai_quota` — the ONE reader of the AI ledger, not a second
-    spelling of its SQL — which is the same computation the client's AI assistance screen
-    and the per-tenant ceiling already use.
+    `billing/cost_breakdown.py`, whose AI half is `ai_quota.read_ai_usage_between` — the
+    ONE reader of the AI ledger, the same computation the client's AI assistance screen,
+    the per-tenant ceiling and the trial panel use.
     """
 
-    #: OUR absorbed cost, exact paise. `read_ai_quota.used_inr` summed from `usage_events`
+    #: OUR absorbed cost, exact paise. `AiUsage.used_inr` summed from `usage_events`
     #: at the price each assist actually ran at (`record_ai_assist_usage`), so a month during
     #: which `azure_openai_model` was flipped holds both models' rows at their own prices.
     used_inr: str
@@ -388,6 +389,12 @@ class TenantSpendOut(Strict):
     #: ran the copilot and it cost us ₹X" and "they never opened it" are different facts an
     #: operator acts on differently. See `AbsorbedAiSpendOut`.
     ai_assist: AbsorbedAiSpendOut | None
+    #: EVERYTHING this client cost us this month, calls and absorbed AI together, split by
+    #: what it bought (`billing/cost_breakdown.py`). The header's `cost_inr` is the call
+    #: margin's cost and leaves the AI out by design; this is the figure the trial panel's
+    #: "cost to Calevate" and the Overview report, from the same reader. Defaulted only so
+    #: older bundles' generated types stay valid; the route always sets it.
+    cost_all_in: CostBreakdownOut | None = None
     by_unit: list[UnitSpendOut]
     by_agent: list[AgentSpendOut]
     top_calls: list[CallSpendOut]
@@ -822,7 +829,8 @@ async def tenant_spend(
         # one reader of the AI ledger. It is `_NOT_AI_UNITS`-excluded from `period` by
         # design — see `AbsorbedAiSpendOut` — so this is where the copilot spend a client
         # generated becomes visible on the money board an operator opens.
-        ai = await read_ai_quota(scoped, tenant_id=tenant_id, month=period.month, include_free=True)
+        all_in = await read_month_cost_breakdown(scoped, tenant_id=tenant_id, month=period.month)
+        ai = all_in.ai
         rental = await rental_revenue_inr(scoped, tenant_id=tenant_id, month=period.month)
         # D-482 L-1: a direct-admin read of one client's money board joins the audit
         # trail, coalesced per (admin, tenant) per minute.
@@ -857,20 +865,21 @@ async def tenant_spend(
                 cost_inr=str(period.unattributed.cost_inr),
             )
         ),
-        # Published only when there is something to show: `requests_used` is the
+        # Published only when there is something to show: `requests` is the
         # `COUNT(DISTINCT ref)` over the AI unit types, so > 0 means this client actually
         # ran an assist this month. `used_inr` goes through `to_paise` like every other
         # rupee on this response.
         ai_assist=(
             AbsorbedAiSpendOut(
                 used_inr=str(to_paise(ai.used_inr)),
-                requests=ai.requests_used,
+                requests=ai.requests,
                 kb_used_inr=str(to_paise(ai.kb_used_inr)),
-                kb_requests=ai.kb_requests_used,
+                kb_requests=ai.kb_requests,
             )
-            if ai.requests_used > 0
+            if ai.requests > 0
             else None
         ),
+        cost_all_in=CostBreakdownOut.of(all_in),
         by_unit=[
             UnitSpendOut(unit_type=u.unit_type, qty=str(u.qty), cost_inr=str(u.cost_inr))
             for u in period.by_unit

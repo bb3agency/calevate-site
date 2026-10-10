@@ -236,6 +236,27 @@ async def active_workspaces(*, limit: int = 1000) -> list[WorkspaceRow]:
     ]
 
 
+async def workspaces_in_review(*, limit: int = 1000) -> list[WorkspaceRow]:
+    """Active client workspaces whose business-details application is being checked, by the
+    status last read from the voice platform, ordered by tenant."""
+    async with untenanted_session() as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT tenant_id, status, workspace_id FROM tenant_engine_workspaces "
+                    "WHERE status = 'active' AND business_status = 'submitted' "
+                    "ORDER BY tenant_id LIMIT :limit"
+                ),
+                {"limit": limit},
+            )
+        ).all()
+    return [
+        WorkspaceRow(tenant_id=UUID(str(r[0])), status=str(r[1]), workspace_id=r[2])
+        for r in rows
+        if is_own_workspace(r[2])
+    ]
+
+
 __all__ = [
     "NOT_PROVISIONED",
     "OFFBOARD_JOB",
@@ -257,4 +278,5 @@ __all__ = [
     "resolve_workspace",
     "workspace_directory",
     "workspace_for_tenant",
+    "workspaces_in_review",
 ]

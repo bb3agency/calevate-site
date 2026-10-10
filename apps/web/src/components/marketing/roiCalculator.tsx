@@ -1233,7 +1233,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                     Clear column) would explain the sum above with a rate the sum did not
                     use, since the arithmetic runs at whatever voice is selected. */}
                 {formatRateINR(rateFor(card, "studio", LIST_RATE).rate)}/min is
-                our published self-serve list rate on the{" "}
+                our published list rate on the{" "}
                 {tierLabel(card, "studio")} voice, read from our own rate card
                 when this page loaded
                 {/* The pack clause is CONDITIONAL for the same reason the voice captions'

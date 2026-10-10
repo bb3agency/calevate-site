@@ -1,5 +1,6 @@
 "use client";
 
+import { formatCountOf } from "@/components/ui";
 import { DNC_LIST_LIMIT, MAX_NUMBERS_PER_ADD, useDncList, type DncSource } from "@/lib/api/dnc";
 import type { Session } from "@/lib/api/client";
 import { useOutboundConsentPolicy } from "@/lib/api/outboundConsent";
@@ -47,7 +48,7 @@ export function useDncCopilot({
         value: paste,
         writable: false,
         personal: "text",
-        help: `A human-supplied list. ${parsed.length} number(s) parsed so far.`,
+        help: `A human-supplied list. ${formatCountOf(parsed.length, "number")} parsed so far.`,
       },
       {
         id: "dnc-source",

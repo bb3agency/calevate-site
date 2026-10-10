@@ -4,6 +4,7 @@ import type { UseQueryResult } from "@tanstack/react-query";
 
 import type { PeRegistration } from "@/lib/api/dltRegistration";
 import type { KycRecord } from "@/lib/api/kyc";
+import { formatISTStamp } from "@/components/ui";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
@@ -40,8 +41,8 @@ export function useVerificationCopilot(
             { key: "kyc_status", label: "Verification status", value: kyc.data.status ?? "nothing submitted" },
             { key: "kyc_entity_type", label: "Kind of business recorded", value: kyc.data.entity_type ?? "none recorded" },
             { key: "kyc_document_kind", label: "Kind of document on file", value: kyc.data.document_kind ?? "none" },
-            { key: "kyc_submitted_at", label: "Submitted (UTC)", value: kyc.data.submitted_at ?? "never" },
-            { key: "kyc_verified_at", label: "Verified (UTC)", value: kyc.data.verified_at ?? "not verified" },
+            { key: "kyc_submitted_at", label: "Submitted (IST)", value: formatISTStamp(kyc.data.submitted_at, "never") },
+            { key: "kyc_verified_at", label: "Verified (IST)", value: formatISTStamp(kyc.data.verified_at, "not verified") },
             {
               key: "kyc_rejection_reason",
               label: "Why it was rejected, if it was",
@@ -73,8 +74,8 @@ export function useVerificationCopilot(
               label: "Is Calevate linked as the telemarketer on it?",
               value: dlt.data.tm_link_status ?? "not stated",
             },
-            { key: "dlt_registered_at", label: "Registered (UTC)", value: dlt.data.registered_at ?? "never" },
-            { key: "dlt_verified_at", label: "Verified (UTC)", value: dlt.data.verified_at ?? "not verified" },
+            { key: "dlt_registered_at", label: "Registered (IST)", value: formatISTStamp(dlt.data.registered_at, "never") },
+            { key: "dlt_verified_at", label: "Verified (IST)", value: formatISTStamp(dlt.data.verified_at, "not verified") },
           ]
         : []),
     ],

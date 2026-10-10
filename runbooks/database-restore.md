@@ -104,7 +104,7 @@ recovery_target_time = '2026-08-12 09:02:00+00'          # good — the same ins
 recovery_target_time = '2026-08-12 14:32:00 IST'         # REJECTED at startup
 ```
 
-Our convention is UTC in the database, IST at the edge (CLAUDE.md). Incident timelines are
+Stored instants have no zone, and IST is the platform's standard time (D-709). Incident timelines are
 usually written in IST. Convert once, deliberately, and paste the same string everywhere
 below.
 

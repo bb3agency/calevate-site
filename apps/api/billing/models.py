@@ -1449,4 +1449,92 @@ class TenantTrial(PKMixin, TimestampMixin, Base):
     free_minutes: Mapped[int | None] = mapped_column(Integer)
 
 
+class PlatformFeeCharge(PKMixin, TimestampMixin, Base):
+    """One client's monthly platform fee for one IST billing month (D-707).
+
+    Issued by `apps/workers/billing.issue_platform_fees` while the ops switch is on, for
+    every live client that is not exempt (a free trial, or an operator's waiver). It is a
+    SEPARATE PAYMENT, never a wallet debit: nothing here touches `credit_ledger`, and the
+    payment that settles it is a row in `monthly_fee_payments`.
+
+    NOT append-only: the three notice stamps are claimed (`WHERE … IS NULL`) before each
+    email so none goes twice, and `provider_order_id` is filled once the client asks to
+    pay. The amount, the month and the instants are written once by the issuer and nothing
+    UPDATEs them; whether it is paid is the payments ledger's answer, never a column here.
+    """
+
+    __tablename__ = "monthly_fee_charges"
+    __table_args__ = (
+        CheckConstraint("period ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'", name="period_shape"),
+        CheckConstraint("amount > 0", name="amount_positive"),
+        CheckConstraint("grace_ends_at > issued_at", name="grace_after_issue"),
+        # One fee per client per month, held by the database: two ticks racing on the
+        # same tenant-month cannot both issue.
+        Index("ux_monthly_fee_charges_tenant_period", "tenant_id", "period", unique=True),
+        Index(
+            "ux_monthly_fee_charges_order",
+            "provider_order_id",
+            unique=True,
+            postgresql_where=text("provider_order_id IS NOT NULL"),
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: The IST billing month the fee is for, `YYYY-MM`.
+    period: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The fee as the switch priced it at issue, frozen: a later change to the setting
+    #: never re-prices a fee already raised.
+    amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: When outbound calling pauses if the fee is still unpaid: `issued_at` plus the
+    #: grace period (`billing/platform_fee.GRACE_PERIOD`).
+    grace_ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: The Razorpay order the client's Pay button opened, if any.
+    provider_order_id: Mapped[str | None] = mapped_column(String(64))
+    issued_notice_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paused_notice_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PlatformFeePayment(PKMixin, Base):
+    """A platform fee that was PAID (D-707). Append-only (hard rule 4).
+
+    Its own ledger rather than a `credit_ledger` entry, because the fee is not calling
+    credit: a payment here never moves a wallet balance and the wallet never pays a fee.
+    One payment settles one charge (`ux_monthly_fee_payments_charge`), and a provider
+    payment id can settle at most one charge, so a redelivered webhook writes nothing.
+
+    `recorded_by` carries no foreign key on purpose: an `ON DELETE SET NULL` would be an
+    UPDATE, which this table's trigger refuses. The `audit_log` row written beside a
+    manual payment is the durable record of the operator.
+    """
+
+    __tablename__ = "monthly_fee_payments"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="amount_positive"),
+        CheckConstraint("method IN ('razorpay', 'manual')", name="method_enum"),
+        CheckConstraint("length(btrim(payment_ref)) > 0", name="payment_ref_present"),
+        Index("ux_monthly_fee_payments_charge", "charge_id", unique=True),
+        Index("ux_monthly_fee_payments_ref", "method", "payment_ref", unique=True),
+        Index("ix_monthly_fee_payments_tenant", "tenant_id", "paid_at"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    charge_id: Mapped[UUID] = mapped_column(
+        ForeignKey("monthly_fee_charges.id", ondelete="RESTRICT"), nullable=False
+    )
+    amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    #: `razorpay` (the webhook) or `manual` (an operator recording a bank transfer).
+    method: Mapped[str] = mapped_column(String, nullable=False)
+    #: The provider payment id, or the bank reference an operator typed.
+    payment_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    recorded_by: Mapped[UUID | None] = mapped_column()
+    paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
 # Referenced (not yet modeled — M2): invoices, engine_capacity.

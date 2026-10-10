@@ -3,7 +3,7 @@
     "schemas": {
       "AbsorbedAiSpendOut": {
         "additionalProperties": false,
-        "description": "The dashboard-AI cost Calevate ABSORBED for this client this month (D-127 G-3).\n\nAdmin realm only, and deliberately SEPARATE from the four margin figures above it. Our\ndashboard-AI cost (the re-summarise, the script draft and the in-app copilot) is metered\nper tenant under `ai_assist_ktok_*` and is NOT billed to the client \u2014 so it is not\nrevenue, it is not a call cost, and it is not in `cost_inr`/`margin_inr`. Folding it\ninto the call margin would add cost with no matching revenue and break the\n`sum(by_unit.cost_inr) == cost_inr` partition the whole page rests on (the exact reason\n`attribution._CALL_ROWS_SQL` filters `_NOT_AI_UNITS`).\n\nBut an operator reading \"which client is costing us money\" has to be able to see it: a\nclient with zero calls and a busy copilot costs us real rupees this money board would\notherwise report as \u20b90.00. So it is published here as its own line, sourced from\n`billing/ai_quota.py::read_ai_quota` \u2014 the ONE reader of the AI ledger, not a second\nspelling of its SQL \u2014 which is the same computation the client's AI assistance screen\nand the per-tenant ceiling already use.",
+        "description": "The dashboard-AI cost Calevate ABSORBED for this client this month (D-127 G-3).\n\nAdmin realm only, and deliberately SEPARATE from the four margin figures above it. Our\ndashboard-AI cost (the re-summarise, the script draft and the in-app copilot) is metered\nper tenant under `ai_assist_ktok_*` and is NOT billed to the client \u2014 so it is not\nrevenue, it is not a call cost, and it is not in `cost_inr`/`margin_inr`. Folding it\ninto the call margin would add cost with no matching revenue and break the\n`sum(by_unit.cost_inr) == cost_inr` partition the whole page rests on (the exact reason\n`attribution._CALL_ROWS_SQL` filters `_NOT_AI_UNITS`).\n\nBut an operator reading \"which client is costing us money\" has to be able to see it: a\nclient with zero calls and a busy copilot costs us real rupees this money board would\notherwise report as \u20b90.00. So it is published here as its own line, sourced from\n`billing/cost_breakdown.py`, whose AI half is `ai_quota.read_ai_usage_between` \u2014 the\nONE reader of the AI ledger, the same computation the client's AI assistance screen,\nthe per-tenant ceiling and the trial panel use.",
         "properties": {
           "kb_requests": {
             "title": "Kb Requests",
@@ -1474,6 +1474,91 @@
         "title": "AdminMeOut",
         "type": "object"
       },
+      "AdminPlatformFeeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Inr"
+          },
+          "charges": {
+            "items": {
+              "$ref": "#/components/schemas/FeeChargeOut"
+            },
+            "title": "Charges",
+            "type": "array"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "exemption": {
+            "anyOf": [
+              {
+                "enum": [
+                  "trial",
+                  "waiver"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exemption"
+          },
+          "grace_days": {
+            "title": "Grace Days",
+            "type": "integer"
+          },
+          "moved_to_credits_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Moved To Credits At"
+          },
+          "outbound_paused": {
+            "title": "Outbound Paused",
+            "type": "boolean"
+          },
+          "waiver": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WaiverOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "enabled",
+          "amount_inr",
+          "exemption",
+          "outbound_paused",
+          "grace_days",
+          "charges",
+          "waiver",
+          "moved_to_credits_at"
+        ],
+        "title": "AdminPlatformFeeOut",
+        "type": "object"
+      },
       "AdminPurchaseIn": {
         "additionalProperties": false,
         "properties": {
@@ -2002,6 +2087,11 @@
             "title": "Extraction Fields",
             "type": "array"
           },
+          "first_words": {
+            "default": "",
+            "title": "First Words",
+            "type": "string"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -2080,6 +2170,11 @@
           },
           "recording_notice_line": {
             "title": "Recording Notice Line",
+            "type": "string"
+          },
+          "script_opening_line": {
+            "default": "",
+            "title": "Script Opening Line",
             "type": "string"
           },
           "status": {
@@ -5051,7 +5146,7 @@
       },
       "CallScript": {
         "additionalProperties": false,
-        "description": "A whole agent script, structured \u2014 or a raw escape hatch, never both at once.\n\nONE MODEL, TWO SHAPES. `raw_override` is the escape hatch AND the lossless\nrepresentation of a legacy freeform prompt: when it is set, the compiler returns it\nverbatim and the structured fields are ignored, so nothing an author wrote in raw mode\nis reinterpreted, and a pre-structured `prompt_versions.body` round-trips exactly (see\n`from_freeform`). When it is None, the structured fields compile. A model validator\nforbids the ambiguous middle \u2014 structured content AND a raw override \u2014 because a row\nthat is half one and half the other has no single answer to \"what does this compile\nto\".\n\nThe `opening_line` here is the CLIENT's opener and is distinct from the compliance\nopening: `compose_opening_line` composes the AI-disclosure / recording notices\nseparately from the agent's two toggles, and the adapter speaks THAT first; this line\nfollows it. Keeping them apart is D-163 \u2014 the notices are a regulated obligation with\nits own switches, not something a script author edits as free text.",
+        "description": "A whole agent script, structured \u2014 or a raw escape hatch, never both at once.\n\nONE MODEL, TWO SHAPES. `raw_override` is the escape hatch AND the lossless\nrepresentation of a legacy freeform prompt: when it is set, the compiler returns it\nverbatim and the structured fields are ignored, so nothing an author wrote in raw mode\nis reinterpreted, and a pre-structured `prompt_versions.body` round-trips exactly (see\n`from_freeform`). When it is None, the structured fields compile. A model validator\nforbids the ambiguous middle \u2014 structured content AND a raw override \u2014 because a row\nthat is half one and half the other has no single answer to \"what does this compile\nto\".\n\nThe `opening_line` here is the agent's GREETING, the client's own words, and it is a\nseparate thing from the two notices (D-163, D-708). The notices are composed by\n`compose_opening_line` from the agent's two switches; a notice that is switched on is\nsaid before this line, and with both off this line is the first thing a caller hears.\nNo switch adds, removes or replaces it. `engine.compose_first_utterance` joins the two\nfor an engine that speaks one greeting field.",
         "properties": {
           "end_call_extra_rules": {
             "items": {
@@ -9482,6 +9577,56 @@
         "title": "CopilotUndoOut",
         "type": "object"
       },
+      "CostBreakdownOut": {
+        "additionalProperties": false,
+        "description": "`CostBreakdown` on the wire, admin realm only: every figure is `unit_cost_paid`.\n\nRupees are exact strings through `to_paise`, like every other rupee the admin money\nscreens publish. `total_inr` is computed once here so no screen adds strings together.",
+        "properties": {
+          "assistant_inr": {
+            "title": "Assistant Inr",
+            "type": "string"
+          },
+          "assistant_requests": {
+            "title": "Assistant Requests",
+            "type": "integer"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "calls_inr": {
+            "title": "Calls Inr",
+            "type": "string"
+          },
+          "knowledge_inr": {
+            "title": "Knowledge Inr",
+            "type": "string"
+          },
+          "knowledge_requests": {
+            "title": "Knowledge Requests",
+            "type": "integer"
+          },
+          "other_inr": {
+            "title": "Other Inr",
+            "type": "string"
+          },
+          "total_inr": {
+            "title": "Total Inr",
+            "type": "string"
+          }
+        },
+        "required": [
+          "total_inr",
+          "calls_inr",
+          "calls",
+          "other_inr",
+          "assistant_inr",
+          "assistant_requests",
+          "knowledge_inr",
+          "knowledge_requests"
+        ],
+        "title": "CostBreakdownOut",
+        "type": "object"
+      },
       "CreateCampaignIn": {
         "additionalProperties": false,
         "properties": {
@@ -10249,6 +10394,18 @@
             },
             "title": "Packs",
             "type": "array"
+          },
+          "platform_fee_inr_per_month": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform Fee Inr Per Month"
           },
           "studio_tier_label": {
             "title": "Studio Tier Label",
@@ -13864,6 +14021,177 @@
           "items"
         ],
         "title": "FeatureFlagsOut",
+        "type": "object"
+      },
+      "FeeChargeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount Inr",
+            "type": "string"
+          },
+          "grace_ends_at": {
+            "format": "date-time",
+            "title": "Grace Ends At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "issued_at": {
+            "format": "date-time",
+            "title": "Issued At",
+            "type": "string"
+          },
+          "paid_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid At"
+          },
+          "payment_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Method"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "paid",
+              "due",
+              "overdue",
+              "waived"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "period",
+          "amount_inr",
+          "issued_at",
+          "grace_ends_at",
+          "status",
+          "paid_at",
+          "payment_method"
+        ],
+        "title": "FeeChargeOut",
+        "type": "object"
+      },
+      "FeeOrderOut": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount Inr",
+            "type": "string"
+          },
+          "amount_paise": {
+            "title": "Amount Paise",
+            "type": "integer"
+          },
+          "charge_id": {
+            "format": "uuid",
+            "title": "Charge Id",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "key_id": {
+            "title": "Key Id",
+            "type": "string"
+          },
+          "notes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "object"
+          },
+          "provider_order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Order Id"
+          },
+          "provider_order_pending": {
+            "title": "Provider Order Pending",
+            "type": "boolean"
+          },
+          "receipt": {
+            "title": "Receipt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "charge_id",
+          "amount_inr",
+          "amount_paise",
+          "currency",
+          "key_id",
+          "notes",
+          "provider_order_id",
+          "provider_order_pending",
+          "receipt"
+        ],
+        "title": "FeeOrderOut",
+        "type": "object"
+      },
+      "FeePaymentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "charge_id": {
+            "format": "uuid",
+            "title": "Charge Id",
+            "type": "string"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "paid",
+              "due",
+              "overdue",
+              "waived"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "charge_id",
+          "recorded",
+          "status"
+        ],
+        "title": "FeePaymentOut",
         "type": "object"
       },
       "FetchPreviewIn": {
@@ -20236,6 +20564,22 @@
         "title": "MandateIn",
         "type": "object"
       },
+      "ManualFeePaymentIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reference": {
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference"
+        ],
+        "title": "ManualFeePaymentIn",
+        "type": "object"
+      },
       "ManualSubmitIn": {
         "additionalProperties": false,
         "description": "The PAN the uploaded PAN card shows.\n\n`owner_id_type` still accepts `aadhaar` so a screen from before D-696 gets the sentence\ntelling the client to upload their PAN card, rather than a bare schema error.",
@@ -23277,66 +23621,65 @@
         "title": "PlanRowOut",
         "type": "object"
       },
-      "PlanTierIn": {
+      "PlatformFeeOut": {
         "additionalProperties": false,
         "properties": {
-          "plan_tier": {
-            "enum": [
-              "managed",
-              "prepaid"
-            ],
-            "title": "Plan Tier",
-            "type": "string"
-          },
-          "reason": {
-            "maxLength": 500,
-            "minLength": 3,
-            "title": "Reason",
-            "type": "string"
-          }
-        },
-        "required": [
-          "plan_tier",
-          "reason"
-        ],
-        "title": "PlanTierIn",
-        "type": "object"
-      },
-      "PlanTierOut": {
-        "additionalProperties": false,
-        "properties": {
-          "changed": {
-            "title": "Changed",
-            "type": "boolean"
-          },
-          "plan_tier": {
-            "title": "Plan Tier",
-            "type": "string"
-          },
-          "previous_plan_tier": {
+          "amount_inr": {
             "anyOf": [
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Previous Plan Tier"
+            "title": "Amount Inr"
           },
-          "tenant_id": {
-            "format": "uuid",
-            "title": "Tenant Id",
-            "type": "string"
+          "charges": {
+            "items": {
+              "$ref": "#/components/schemas/FeeChargeOut"
+            },
+            "title": "Charges",
+            "type": "array"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "exemption": {
+            "anyOf": [
+              {
+                "enum": [
+                  "trial",
+                  "waiver"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exemption"
+          },
+          "grace_days": {
+            "title": "Grace Days",
+            "type": "integer"
+          },
+          "outbound_paused": {
+            "title": "Outbound Paused",
+            "type": "boolean"
           }
         },
         "required": [
-          "tenant_id",
-          "plan_tier",
-          "previous_plan_tier",
-          "changed"
+          "enabled",
+          "amount_inr",
+          "exemption",
+          "outbound_paused",
+          "grace_days",
+          "charges"
         ],
-        "title": "PlanTierOut",
+        "title": "PlatformFeeOut",
         "type": "object"
       },
       "PlatformStateIn": {
@@ -26713,6 +27056,18 @@
       "SaveScriptIn": {
         "additionalProperties": false,
         "properties": {
+          "expected_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version"
+          },
           "notes": {
             "anyOf": [
               {
@@ -30904,6 +31259,16 @@
             "title": "Charge Basis",
             "type": "string"
           },
+          "cost_all_in": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostBreakdownOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "cost_currency": {
             "anyOf": [
               {
@@ -32713,6 +33078,16 @@
           "active": {
             "title": "Active",
             "type": "boolean"
+          },
+          "cost_breakdown": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostBreakdownOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "cost_to_us_inr": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -34544,6 +34919,55 @@
         "title": "VoiceTierRateOut",
         "type": "object"
       },
+      "WaiverIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 280,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "WaiverIn",
+        "type": "object"
+      },
+      "WaiverOut": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "waived_at": {
+            "format": "date-time",
+            "title": "Waived At",
+            "type": "string"
+          },
+          "waived_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waived By"
+          }
+        },
+        "required": [
+          "waived_at",
+          "reason",
+          "waived_by"
+        ],
+        "title": "WaiverOut",
+        "type": "object"
+      },
       "WalletEntryOut": {
         "additionalProperties": false,
         "description": "One line of the wallet, as its owner reads it.\n\nDeliberately NOT `credit_routes.LedgerEntryOut` \u2014 and named apart from it for a\nsecond, mechanical reason: two different schemas under one name make FastAPI emit\nfully-qualified component names for BOTH, which would rename the admin console's\ngenerated type out from under `lib/api/credits.ts`. That one carries `reversible_inr`,\nwhich exists so an OPERATOR can be offered a correction with a ceiling on it. It is\nmeaningless to a client, and publishing it here would invite a screen to render a\ncontrol this realm does not have.",
@@ -35008,7 +35432,8 @@
               "authorized",
               "refund_failed",
               "mandate",
-              "dispute"
+              "dispute",
+              "fee_paid"
             ],
             "title": "Status",
             "type": "string"
@@ -41956,10 +42381,88 @@
         "x-calevate-permission": "org:read"
       }
     },
-    "/v1/admin/tenants/{tenant_id}/plan-tier": {
-      "post": {
-        "description": "Sets `organizations.plan_tier`. `prepaid` is the default every account is created on (D-521): its calling is paid from a credit balance and `compliance.check_dispatch` refuses `no_credits` when that balance is empty. `managed` is for a client genuinely billed on a plan retainer \u2014 it has no wallet, the credits screen says so, and nothing stops their dialling for want of credit. **Setting `prepaid` on an account with no credit stops its OUTBOUND calling at the next dial**, and since D-551 it also stops its agents ANSWERING incoming calls. **Moving back to `managed` reverses both.** Neither direction waits for anything: a change of tier publishes the inbound-answering reconciliation (`workers/inbound_cutover.py`) in the same transaction as the column write (D-579), so the engine is told as soon as the outbox drains \u2014 seconds, not whenever an agent is next republished. Idempotent: setting the tier an account is already on returns 200, `changed: false`, writes no audit row and publishes nothing. 404 means no such client.",
-        "operationId": "set_tenant_plan_tier_v1_admin_tenants__tenant_id__plan_tier_post",
+    "/v1/admin/tenants/{tenant_id}/platform-fee": {
+      "get": {
+        "operationId": "admin_read_platform_fee_v1_admin_tenants__tenant_id__platform_fee_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPlatformFeeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One client's monthly platform fee: fees raised, payments, waiver and any pause",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "billing:read"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/platform-fee/waiver": {
+      "delete": {
+        "operationId": "withdraw_platform_fee_waiver_v1_admin_tenants__tenant_id__platform_fee_waiver_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPlatformFeeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Withdraw this client's platform fee waiver (audited)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      },
+      "put": {
+        "description": "A waived client is raised no fee and an unpaid one stops pausing their outbound calls at once. The reason is kept on the account and in the audit log.",
+        "operationId": "waive_platform_fee_v1_admin_tenants__tenant_id__platform_fee_waiver_put",
         "parameters": [
           {
             "in": "path",
@@ -41976,7 +42479,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PlanTierIn"
+                "$ref": "#/components/schemas/WaiverIn"
               }
             }
           },
@@ -41987,7 +42490,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PlanTierOut"
+                  "$ref": "#/components/schemas/AdminPlatformFeeOut"
                 }
               }
             },
@@ -42000,7 +42503,68 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Move a client between billing motions \u2014 prepaid credit or invoiced retainer",
+        "summary": "Excuse this client from the monthly platform fee, with a reason (audited)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/platform-fee/{charge_id}/payments": {
+      "post": {
+        "description": "For a fee the client paid outside Checkout. Records the fee's own amount against the reference given; recording the same fee twice writes nothing.",
+        "operationId": "record_manual_fee_payment_v1_admin_tenants__tenant_id__platform_fee__charge_id__payments_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "charge_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Charge Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualFeePaymentIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeePaymentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record a monthly platform fee paid by bank transfer (audited)",
         "tags": [
           "admin"
         ],
@@ -42669,7 +43233,7 @@
         "x-calevate-permission": "agents:read"
       },
       "post": {
-        "description": "The agent is created in `draft`: it takes no calls and places none until it is activated, and it cannot be activated until it has a script.\n\nSend `starter` (`answer_calls` or `call_leads`) to start from a ready-made agent for your business type: its script, opening line and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.\n\nBoth opening notices \u2014 the AI disclosure and the recording notice \u2014 are written for you from the chosen language and are switched on. They cannot be supplied here: every agent on this platform has an AI disclosure on file, the voice platform is verified against it on every publish, and no field on this form can change that.",
+        "description": "The agent is created in `draft`: it takes no calls and places none until it is activated, and it cannot be activated until it has a script.\n\nSend `starter` (`answer_calls` or `call_leads`) to start from a ready-made agent for your business type: its script, opening line and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.\n\nBoth opening notices \u2014 the AI disclosure and the recording notice \u2014 are written for you from the chosen language and start switched off, so a new agent opens with its own opening line (part of its script). They cannot be supplied here: every agent on this platform has an AI disclosure on file, and no field on this form can change that. Switching a notice on adds it before the opening line; it never replaces the opening line.",
         "operationId": "create_agent_route_v1_agents_post",
         "requestBody": {
           "content": {
@@ -43683,7 +44247,7 @@
     },
     "/v1/agents/{agent_id}/disclosure": {
       "patch": {
-        "description": "Each opening notice is separately controllable, per agent, on inbound and outbound agents alike. A notice switched off means the agent does not VOLUNTEER that fact at the start of the call.\n\nIt does not change what the agent says when a caller ASKS. Asked whether they are speaking to a human, the agent says it is an AI assistant. Asked whether the call is recorded, it answers according to whether the voice platform records audio: where it does, it says yes; where it does not (the platform's own voice runtime today), it says the audio is not recorded and that a written transcript is kept. That is composed server-side, appended to every agent's instructions after the script, and verified against the voice platform on every publish \u2014 no script can withdraw it. `truthful_answer_rule` in the response states the answer in force.\n\nThe recording notice is spoken only where audio is recorded; the switch is kept so it applies wherever it is. Switching it off does not stop a recording being made, and does not discharge the client's own notice obligation under the DPDP Act; it moves where that notice is given. Every flip is written to the audit log.\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a posture the platform is not running.",
+        "description": "Each opening notice is separately controllable, per agent, on inbound and outbound agents alike. A notice switched off means the agent does not VOLUNTEER that fact at the start of the call. Neither switch changes the agent's opening line, which is part of its script: a notice switched on is said before it, and with both off the opening line is the first thing callers hear.\n\nIt does not change what the agent says when a caller ASKS. Asked whether they are speaking to a human, the agent says it is an AI assistant. Asked whether the call is recorded, it answers according to whether the voice platform records audio: where it does, it says yes; where it does not (the platform's own voice runtime today), it says the audio is not recorded and that a written transcript is kept. That is composed server-side, appended to every agent's instructions after the script, and verified against the voice platform on every publish \u2014 no script can withdraw it. `truthful_answer_rule` in the response states the answer in force.\n\nThe recording notice is spoken only where audio is recorded; the switch is kept so it applies wherever it is. Switching it off does not stop a recording being made, and does not discharge the client's own notice obligation under the DPDP Act; it moves where that notice is given. Every flip is written to the audit log.\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a posture the platform is not running.",
         "operationId": "set_disclosure_v1_agents__agent_id__disclosure_patch",
         "parameters": [
           {
@@ -45926,6 +46490,75 @@
           "billing"
         ],
         "x-calevate-permission": "billing:read"
+      }
+    },
+    "/v1/billing/platform-fee": {
+      "get": {
+        "operationId": "read_platform_fee_v1_billing_platform_fee_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformFeeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This account's monthly platform fee: the switch, the fees raised, and any pause",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "billing:read"
+      }
+    },
+    "/v1/billing/platform-fee/{charge_id}/order": {
+      "post": {
+        "description": "Creates the Razorpay order for exactly this fee's amount, recorded so the webhook settles the fee and never credits calling credit. Idempotent: the same fee always returns the same order. A paid or waived fee is refused.",
+        "operationId": "open_fee_order_v1_billing_platform_fee__charge_id__order_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "charge_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Charge Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeeOrderOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Open the payment for one monthly platform fee (a separate payment, D-707)",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/billing/spend": {

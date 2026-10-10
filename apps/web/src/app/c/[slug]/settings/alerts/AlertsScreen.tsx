@@ -16,6 +16,7 @@ import {
   RestrictionNote,
   Skeleton,
   formatIST,
+  formatISTStamp,
 } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
@@ -114,7 +115,7 @@ export function AlertsScreen() {
             },
             { key: "opt_in_status", label: "Recorded consent status", value: current.status },
             { key: "channel", label: "Channel the consent was given on", value: current.channel ?? "none recorded" },
-            { key: "captured_at", label: "When it was recorded (UTC)", value: current.captured_at ?? "never" },
+            { key: "captured_at", label: "When it was recorded (IST)", value: formatISTStamp(current.captured_at, "never") },
             {
               key: "notice_version",
               label: "Notice version consented to, against the current one",

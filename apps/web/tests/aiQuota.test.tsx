@@ -244,7 +244,7 @@ describe("at the ceiling", () => {
       }),
     });
 
-    await screen.findByText(/arranged with your account manager/);
+    await screen.findByText(/cannot be bought for this account yet/);
     expect(
       screen.queryByRole("button", { name: /what more AI help costs/i }),
     ).toBeNull();

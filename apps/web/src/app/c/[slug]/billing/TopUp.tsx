@@ -188,7 +188,7 @@ export function TopUp({ session }: { session: Session }) {
       <div className="space-y-4">
         <p className="text-body text-ink-muted">
           We cannot take card or UPI payment on this account yet. To add credit, transfer
-          the amount to us by bank — talk to your account manager for the details — and
+          the amount to us by bank — talk to us for the details — and
           the credit appears here once the payment lands. The packs below are what each
           amount buys.
         </p>
@@ -298,7 +298,7 @@ export function TopUp({ session }: { session: Session }) {
               the same screen. Only rendered with the names, for `labels`' reason above. */}
           {labels && (
             <p className="text-body text-ink-muted">
-              {/* The client sets the voice themselves, never "tell your account manager":
+              {/* The client sets the voice themselves, never "tell us":
                   `PATCH /v1/agents/{agent_id}/voice` carries `agents:write` for `owner` and
                   `staff` (D-586), with the picker on their own agent screen
                   (`app/c/[slug]/agents/panels/delivery.tsx`). Word for word the same as
@@ -383,8 +383,8 @@ export function TopUp({ session }: { session: Session }) {
             <p className="mt-1">
               We cannot take card or UPI payment on this account yet. Transfer{" "}
               <strong className="font-semibold text-ink">{formatINR(order.amount_inr)}</strong>{" "}
-              to us by bank transfer quoting the reference below, or send this reference to
-              your account manager, and the credit is added once the payment lands. Your
+              to us by bank transfer quoting the reference below, or send this reference to us,
+              and the credit is added once the payment lands. Your
               balance above will not change until then.
             </p>
           ) : stage.at === "verified" ? (
@@ -764,7 +764,7 @@ function matchSentence(
     ? ` — about ${dear} minutes on ${labels.studio} and ${cheap} on ${labels.clear}`
     : "";
   if (match.short) {
-    return `About ${formatCount(wanted)} minutes a month is more than one pack. The largest is ${amount}${spread} — add credit more than once, or talk to us about a monthly invoiced plan.`;
+    return `About ${formatCount(wanted)} minutes a month is more than one pack. The largest is ${amount}${spread} — add credit more than once, or turn on auto-recharge so it tops itself up.`;
   }
   return `About ${formatCount(wanted)} minutes a month? ${amount} covers it whichever voice you choose${spread}.`;
 }

@@ -245,10 +245,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # the environment only, so a value stored here has no path into it at all.
     "db_pool_size": AppliesRule(
         ENV_ONLY,
-        "this is set from the deployment's environment when the app starts up, before "
-        "the console's settings can even be read — so a value saved here never takes "
-        "effect, restart or not. Set DB_POOL_SIZE in the deployment's environment "
-        "instead.",
+        "the database pool is sized from DB_POOL_SIZE in the environment before console "
+        "settings are read.",
     ),
     # ---- on_restart: consumed once, at process start -------------------------------
     # Tracing is initialised once at boot (`init_tracing` returns early when a provider
@@ -256,25 +254,19 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # once and held for the life of each process.
     "otel_exporter_otlp_endpoint": AppliesRule(
         ON_RESTART,
-        "the tracing exporter is configured once when the app starts and held for the "
-        "life of each server process, so a change here does not take effect until every "
-        "server process is restarted.",
+        "the tracing exporter is built at startup and held by each server process.",
     ),
     # The trace sampler is fixed when the tracer provider is built at boot, for the same
     # reason as the endpoint above.
     "otel_traces_sample_ratio": AppliesRule(
         ON_RESTART,
-        "the trace sampling rate is fixed when the app starts and held for the life of "
-        "each server process, so a change here does not take effect until every server "
-        "process is restarted.",
+        "the trace sampler is built at startup and held by each server process.",
     ),
     # Stamped into the OTel resource, handed to `sentry_sdk.init`, and written to the
     # `service_start` log line at boot; nothing reads it again afterwards.
     "release_version": AppliesRule(
         ON_RESTART,
-        "this is recorded once when the app starts (into traces, error reports and the "
-        "startup log line) and held for the life of each server process, so a change "
-        "here does not take effect until every server process is restarted.",
+        "stamped at startup into traces, error reports and the startup log line.",
     ),
     # The typed USD/INR rate and its override switch. Vendor cost is normally converted at
     # the PUBLISHED rate `apps/workers/fx_pull.py` pulls into `fx_rate_observations`; these
@@ -289,16 +281,13 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # adapter for the life of the process.
     "cartesia_from_number_id": AppliesRule(
         ON_RESTART,
-        "this is read once when the app starts and held for the life of each server "
-        "process, so a change here does not take effect until every server process is "
-        "restarted.",
+        "read once at startup and held by each server process.",
     ),
     # ---- needs_republish: live for new work, stale on what already exists ----------
     "webhook_base_url": AppliesRule(
         NEEDS_REPUBLISH,
-        "new agent publishes use it immediately, but every agent already published "
-        "carries the OLD URL in its engine-side config — they must be re-published or "
-        "their webhooks keep going to the previous address",
+        "each published agent carries this URL in its engine-side config; new publishes "
+        "use the new one.",
     ),
     # `get_engine()` switches the active adapter immediately, but every live agent was
     # created on the previous vendor: its `engine_agent_ref` means nothing to the new
@@ -307,9 +296,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # and FX rate it was built with.
     "engine": AppliesRule(
         NEEDS_REPUBLISH,
-        "the platform starts using the new engine at once, but every agent that is "
-        "already live was built on the previous engine and does not exist on the new "
-        "one — each agent must be re-published before the switch is real for it.",
+        "each live agent was built on the previous engine and exists only there until "
+        "its next publish.",
     ),
     # ---- live: read through get_settings() at the point of use ---------------------
     # The per-statement budget the app's sessions carry. `live`, and checked rather than
@@ -380,13 +368,23 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "whatsapp_cloud_graph_version": AppliesRule(LIVE),
     "google_sheets_provider": AppliesRule(LIVE),  # workers/sheets_sync, per delivery
     "meta_lead_retriever": AppliesRule(LIVE),  # ingest/meta, per retrieval
-    "inbound_reserve_ratio": AppliesRule(
+    "inbound_reserved_lines": AppliesRule(
         LIVE,
         "read by every dial's line check, and once per dispatch tick for its budget — a "
         "tick that has started keeps the budget it computed, and the next one (≤30s later) "
         "uses the new value",
     ),
+    "inbound_reserve_ratio": AppliesRule(
+        LIVE, "read with `inbound_reserved_lines`, and only while that is unset"
+    ),
     "self_serve_inr_per_min": AppliesRule(LIVE),  # billing/service, per quote
+    # Read by the daily fee job when it issues a month's fee, and by the dispatch gate and
+    # the client's billing screen per request (D-707). A fee already issued keeps its
+    # amount; the next month's is raised at the new one.
+    "platform_fee_enabled": AppliesRule(LIVE),
+    "platform_fee_inr": AppliesRule(
+        LIVE, "a fee already raised keeps its amount; the next month's is raised at the new one"
+    ),
     # Both read through `get_settings()` inside the blocker that uses them, once per
     # launch preview / dispatch tick — so counsel's answer takes effect within one poll
     # interval rather than on the next deploy, which is the whole reason they are config.
@@ -603,16 +601,13 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # life of the process.
     "cartesia_api_key": AppliesRule(
         ON_RESTART,
-        "the Cartesia engine adapter captures this key when the app starts and holds it "
-        "for the life of each server process, so rotating it here does not reach the "
-        "running adapter until every server process is restarted.",
+        "the Cartesia engine adapter captures this key at startup.",
     ),
     # `sentry_sdk.init` runs once at boot (from `init_observability`) with this DSN;
     # nothing reconfigures it afterwards.
     "sentry_dsn": AppliesRule(
         ON_RESTART,
-        "error reporting is configured once when the app starts, so a new DSN does not "
-        "redirect errors until every server process is restarted.",
+        "error reporting is configured with this DSN at startup.",
     ),
     # Read at the point of use, per call or per request.
     # The voice worker's own credential (D-621). Read per request inside the handler, from

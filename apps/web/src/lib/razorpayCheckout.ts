@@ -140,7 +140,7 @@ export function checkoutUnavailableProblem(): ApiProblem {
     remediation:
       "Check your connection and try again. A browser extension or an office network that " +
       "blocks payment scripts will also cause this — another browser usually works. You can " +
-      "always pay by bank transfer instead: ask your account manager for the details.",
+      "always pay by bank transfer instead: ask us for the details.",
     retryable: true,
   });
 }
@@ -254,6 +254,8 @@ export interface CheckoutRequest {
   onDismissed: () => void;
   /** The provider reported a failed attempt. */
   onFailed: () => void;
+  /** What the payment is for, on the provider window. "Calling credit" unless given. */
+  purpose?: string;
   /** Set for a mandate authorisation: the payment registers a recurring token. */
   recurringCustomerId?: string;
 }
@@ -281,7 +283,7 @@ export async function openRazorpayCheckout(request: CheckoutRequest): Promise<vo
     // The receipt is the reference the client already sees on screen and the one our
     // support and the provider's dashboard both key on, so it is worth having in front of
     // them while they pay.
-    description: `Calling credit · ${request.receipt}`,
+    description: `${request.purpose ?? "Calling credit"} · ${request.receipt}`,
     notes: request.notes,
     handler: request.onSuccess,
     modal: { ondismiss: request.onDismissed },

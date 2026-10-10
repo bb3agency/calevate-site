@@ -73,6 +73,18 @@ GOOGLE_KEY = PROVIDER_CREDENTIAL["google"]
 GOOGLE_MODEL = "gemini-2.5-flash-lite"
 
 
+@pytest.fixture(autouse=True)
+def _no_env_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    """`env_declares` reads the repo's `.env` FILE as well as `os.environ`, and
+    `conftest._no_ambient_credentials` can only strip the latter. A developer `.env` that
+    sets GEMINI_API_KEY makes the removal refuse with `secret_set_in_environment` here and
+    nowhere else, so this suite sees no file; the shadowing tests declare their key through
+    `os.environ`, which still counts."""
+    from apps.api.core import settings as settings_module
+
+    monkeypatch.setattr(settings_module, "_ENV_FILE", tmp_path / "absent.env")
+
+
 async def _purge_as_owner() -> None:
     """Remove this suite's rows from the two append-only tables it writes, as the OWNER,
     restoring each trigger's prior mode verbatim (`platform_secrets_test._purge` says why

@@ -62,7 +62,7 @@ const plan = field({
   control: control("select"),
 });
 const share = field({
-  key: "inbound_reserve_ratio",
+  key: "otel_traces_sample_ratio",
   kind: "number",
   value: 0.3,
   default: 0.3,

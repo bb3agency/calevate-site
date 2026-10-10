@@ -18,6 +18,15 @@ const ACTOR_LABEL = { client: "Your move", calevate: "Ours to do" } as const;
 const AGREEMENTS_RULE = "agreements_not_accepted";
 const isAutodialerRule = (rule: string) => rule.startsWith("autodialer_notice_");
 
+/** D-692's outbound conditions, each cleared on Verify your business. */
+const VERIFY_BUSINESS_RULES = new Set([
+  "kyc_missing",
+  "kyc_not_verified",
+  "kyc_digilocker_required",
+  "outbound_pledge_missing",
+  "outbound_pledge_outdated",
+]);
+
 /**
  * The whole screen, over an answer that has already arrived.
  *
@@ -45,8 +54,8 @@ export function Readiness({ readiness }: { readiness: LegalReadiness }) {
     ...others.map((row) =>
       blockerItem(
         row,
-        row.rule === "pe_registration_missing" || row.rule === "kyc_missing"
-          ? { link: { href: href(`/c/${session.orgSlug}/verification`), label: "Open Verification" } }
+        VERIFY_BUSINESS_RULES.has(row.rule)
+          ? { link: { href: href(`/c/${session.orgSlug}/verify-business`), label: "Verify your business" } }
           : {},
       ),
     ),

@@ -128,14 +128,14 @@ describe("a refused signup", () => {
         type: "https://calevate.tech/problems/signup_disabled",
         title: "Signup disabled",
         detail: "Self-serve signup is not enabled on this deployment.",
-        remediation: "Ask your account manager to set your workspace up.",
+        remediation: "Ask us to set your workspace up.",
       }),
     });
 
     expect(await screen.findByText("Signing up online is closed")).toBeTruthy();
     // The server's own remediation, not ours.
     expect(pageText()).toContain(
-      "Ask your account manager to set your workspace up.",
+      "Ask us to set your workspace up.",
     );
     // A form whose every submission is refused is a trap, so it is gone rather than
     // disabled — and there is certainly no success.

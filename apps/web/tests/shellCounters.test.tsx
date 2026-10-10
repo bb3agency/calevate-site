@@ -166,7 +166,7 @@ describe("the client shell's attention bell", () => {
   it("counts what the server sent when the server answered", async () => {
     await renderClientShell({ "/v1/attention": { total: 3, items: [] } });
 
-    const link = await screen.findByLabelText("Needs attention: 3 item(s)");
+    const link = await screen.findByLabelText("Needs attention: 3 items");
     expect(link.textContent).toContain("3");
   });
 

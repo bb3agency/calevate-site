@@ -86,7 +86,7 @@ function LaneBody({ lanes }: { lanes: ReturnType<typeof useLanes> }) {
         {/* No hint under the first two headings any more: "Waits to be applied" and
             "Applies straight away" were each followed by a line restating them, on the
             screen whose whole complaint was how much there is to read. The third keeps its
-            hint, because "Ask your account manager" does not say on its own what the
+            hint, because "Ask us" does not say on its own what the
             column is or why a setting is in it. */}
         <LaneList
           icon={<Hourglass className="h-3.5 w-3.5" />}
@@ -100,7 +100,7 @@ function LaneBody({ lanes }: { lanes: ReturnType<typeof useLanes> }) {
         />
         <LaneList
           icon={<CircleAlert className="h-3.5 w-3.5" />}
-          title="Ask your account manager"
+          title="Ask us"
           hint="We cannot tell you when these take effect from here."
           lanes={unclassified}
         />

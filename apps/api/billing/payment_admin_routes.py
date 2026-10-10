@@ -14,7 +14,7 @@ which mode the key id belongs to, never a value.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
@@ -155,7 +155,7 @@ class RecentPaymentOut(_Strict):
 async def recent_payments(
     _principal: Reader, limit: Annotated[int, Query(ge=1, le=100)] = 100
 ) -> list[RecentPaymentOut]:
-    now = int(datetime.now().timestamp())
+    now = int(datetime.now(UTC).timestamp())
     payments = await razorpay_api().list_payments(since=now - 3 * 86400, until=now)
     out: list[RecentPaymentOut] = []
     for p in payments[:limit]:

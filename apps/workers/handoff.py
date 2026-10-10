@@ -172,7 +172,7 @@ async def _book_callback_for(
     now = datetime.now(UTC)
     # `next_window_opening` works in IST wall clock carrying UTC's tzinfo (the repo
     # convention `ist_wall_clock` documents), so the result is shifted back to a real
-    # instant before it is stored — the DB holds UTC (hard rule: timestamptz, UTC in DB).
+    # instant before it is stored (`timestamptz` holds instants, not wall clocks).
     when = next_window_opening(ist_wall_clock(now)) - IST
     agent_row = (
         await session.execute(

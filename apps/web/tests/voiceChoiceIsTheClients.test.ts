@@ -10,7 +10,7 @@ import { copyUnder } from "./copyScan";
  * Three client-facing surfaces told a paying client that changing an agent's voice was
  * ours to do and that they should ask a person for it:
  *
- *   - `src/app/pricing/page.tsx` — "tell your account manager which voice each agent
+ *   - `src/app/pricing/page.tsx` — "tell us which voice each agent
  *     should speak with", on the PUBLIC pricing page;
  *   - `src/app/c/[slug]/billing/WhatCallsCost.tsx` — "Tell your account manager which
  *     voice you want an agent to speak with and we set it";
@@ -46,7 +46,7 @@ import { copyUnder } from "./copyScan";
  * ## What is banned, and what is emphatically not
  *
  * Only the conjunction of the two: a sentence about a VOICE that routes the reader to a
- * PERSON. "Ask your account manager" is correct and common elsewhere in this console —
+ * PERSON. "Ask us" is correct and common elsewhere in this console —
  * DLT registration, phone numbers, invoiced plans and knowledge review are all genuinely
  * ours — so the account-manager register itself is untouched. What may not return is
  * pointing a client at a person for the one control D-586 handed them.

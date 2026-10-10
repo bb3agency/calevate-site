@@ -13,8 +13,8 @@ judgement trustworthy rather than the arithmetic that produces it.
    with four calls last week both produce a small number, and neither is a collapse. The
    signal must be ABSENT, and the basis must say which of the two it is.
 2. **The signals are the GATES, not a copy of them.** `outbound_blocked` composes
-   `read_tenant_holds`, `pe_registration_blocker`, `spend_capped` and `credits_exhausted`
-   — the same predicates that refuse the dial — so the board cannot disagree with the
+   `campaigns.service.account_outbound_blockers` — the account half of the launch screen,
+   KYC and the pledge since D-692 — so the board cannot disagree with the
    refusal. Pinned by asserting the rule NAMES the launch preview uses.
 3. **Hard rule 1.** A cross-tenant read from the admin realm that widens nothing: the
    `app.admin` session still cannot see a call, a delivery or a knowledge source, and a
@@ -314,19 +314,31 @@ async def test_a_steady_account_carries_no_trend_signal() -> None:
 async def test_outbound_blocked_names_the_gates_own_rules() -> None:
     """The board composes the predicates that refuse the dial.
 
-    A fresh managed account with an outbound-capable agent has no DLT Principal Entity
-    registration, which is exactly what `campaigns.service.launch_blockers` refuses its
-    launch with. The board must use THAT name — an operator and a client on the phone
-    have to be naming one condition identically.
+    A fresh account with an outbound-capable agent has no verified KYC and no accepted
+    no-cold-calls pledge, which is what `campaigns.service.launch_blockers` refuses its
+    launch with since D-692. The board must use THOSE names, in that order — an operator
+    and a client on the phone have to be naming one condition identically — and must not
+    name the retired DLT entity chain, which the founder saw on this panel after D-692.
     """
+    from apps.api.campaigns.service import account_outbound_blockers
+
     account = await _account()
     await _make_outbound(account)
-    row = await _judge(account)
+    async with tenant_session(account.tenant_id) as session:
+        row = await tenant_health(session, account=account)
+        launch = [
+            rule
+            for rule, _ in await account_outbound_blockers(session, tenant_id=account.tenant_id)
+        ]
 
     signal = _signal(row, "outbound_blocked")
     assert signal is not None
     assert signal.severity == "stop"
-    assert "pe_registration_missing" in signal.causes
+    assert list(signal.causes) == launch
+    assert "kyc_missing" in signal.causes
+    assert "outbound_pledge_missing" in signal.causes
+    retired = {"pe_registration_missing", "pe_registration_not_active", "tm_link_not_active"}
+    assert retired.isdisjoint(signal.causes)
 
 
 async def test_a_self_serve_account_carries_the_holds_from_one_predicate() -> None:

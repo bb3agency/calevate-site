@@ -14,7 +14,7 @@ that section has existed; it is built now, and this file is the authority on wha
 
 ```
 infra/hygiene/systemd/calevate-hygiene.service   the unit
-infra/hygiene/systemd/calevate-hygiene.timer     daily, 19:00 UTC (00:30 IST), Persistent
+infra/hygiene/systemd/calevate-hygiene.timer     daily, 00:30 IST (19:00 UTC), Persistent
 infra/hygiene/journald-cap.conf                  journald drop-in — the cap that replaces a vacuum
 scripts/deploy/host-hygiene.sh                   the job itself; its header lists every
                                                  step it deliberately does NOT do

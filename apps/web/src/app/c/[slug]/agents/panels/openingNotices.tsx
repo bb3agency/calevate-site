@@ -10,12 +10,13 @@
  */
 
 import { CircleAlert, ShieldCheck } from "lucide-react";
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { ProblemNotice, RestrictionNote, ToggleSwitch } from "@/components/ui";
 import { useSetDisclosure, type Agent } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
-import { useClientSession } from "@/lib/api/session";
+import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { Term } from "@/lib/glossary";
 
 /**
@@ -47,9 +48,12 @@ import { Term } from "@/lib/glossary";
  * - **"Off" does not discharge the obligation.** It moves where the notice is given.
  *   Naming that plainly is the difference between a setting and a trap.
  *
- * `opening_line` is the SERVER's composition of what callers now hear, quoted back. This
- * screen never joins the two sentences itself: that would be a second implementation of a
- * compliance rule, and the second one is where the drift starts.
+ * `first_words` is the SERVER's composition of what callers now hear — the notices switched
+ * on (`opening_line`), then the agent's own opening line from its script
+ * (`script_opening_line`) — quoted back. This screen never joins them itself: that would be
+ * a second implementation of a compliance rule, and the second one is where the drift
+ * starts. The opening line is NOT a notice and no switch here reaches it (D-708): with both
+ * switches off the agent still greets callers with it.
  *
  * ## The wording of the two sentences is not client-editable, and the screen says so
  *
@@ -70,10 +74,13 @@ import { Term } from "@/lib/glossary";
  * an opening with three sentences in it can see where the third came from.
  */
 export function OpeningNotices({ agent }: { agent: Agent }) {
+  const { href } = useClientRealm();
   const session = useClientSession();
   const setDisclosure = useSetDisclosure(session, agent.id);
   const write = useWriteAccess(session, "org:manage", "switch these notices");
   const locked = setDisclosure.isPending || !write.allowed;
+  const opening = agent.script_opening_line;
+  const firstWords = agent.first_words;
 
   return (
     <section aria-labelledby="opening-notices-heading">
@@ -98,7 +105,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
       <div className="mt-3 divide-y divide-line border-y border-line">
         <NoticeToggle
           label="Say it is an AI assistant"
-          hint="Spoken first, before anything else, in your language."
+          hint="Said at the very start of the call, before the opening line."
           quote={agent.ai_disclosure_line}
           checked={agent.ai_disclosure_enabled}
           pending={locked}
@@ -107,7 +114,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
         />
         <NoticeToggle
           label="Say the call is being recorded"
-          hint="Spoken with the line above, at the start of the call."
+          hint="Said at the start of the call, after the AI notice if that is on, before the opening line."
           quote={agent.recording_notice_line}
           checked={agent.recording_notice_enabled}
           pending={locked}
@@ -130,7 +137,7 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
           <div className="p-4">
             <p className="text-sm font-medium text-ink">Say that it remembers callers</p>
             <p className="mt-0.5 text-xs text-ink-muted">
-              Spoken last, after the sentences above.
+              Said after the notices above, before the opening line.
             </p>
             <blockquote className="mt-2 border-l-2 border-line pl-3 text-sm italic text-ink-muted">
               “{agent.caller_memory_notice_line}”
@@ -148,23 +155,37 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
         )}
       </div>
 
-      {/* The server's composition, quoted — this is the actual first utterance. */}
+      {/* The server's composition, quoted: the notices switched on, then the opening line
+          from the script callers hear now. The switches never change the opening line
+          (D-708), so it is named separately rather than folded into a notice. */}
       <div className="mt-4">
         <p className="text-xs font-medium text-ink-muted">What callers hear first</p>
-        {agent.opening_line.trim() ? (
+        {firstWords.trim() ? (
           <blockquote className="mt-1 border-l-2 border-brand pl-3 text-sm italic text-ink">
-            “{agent.opening_line}”
+            “{firstWords}”
           </blockquote>
         ) : (
           <p className="mt-1 text-sm text-ink-muted">
-            Nothing. The agent opens straight into its script. It still answers honestly if
-            a caller asks whether it is an AI or whether the call is recorded.
+            Nothing yet. Both notices are off and the script has no opening line.
           </p>
         )}
         <p className="mt-2 text-xs text-ink-muted">
-          Changes take effect on the next call. The sentences themselves are written by your
-          account manager and cannot be edited here or switched off entirely — every agent
-          must have all of them on file. Tell them if anything in the wording is wrong.
+          {opening.trim()
+            ? "The opening line is the agent's own greeting, from its script. "
+            : "This agent's script has no opening line yet. "}
+          These switches never change it — they only decide whether the notices are said
+          before it.{" "}
+          <Link
+            href={href(`/c/${session.orgSlug}/agents/${agent.id}/script`)}
+            className="font-medium text-brand-strong underline-offset-2 hover:underline"
+          >
+            {opening.trim() ? "Edit the opening line" : "Write an opening line"}
+          </Link>
+        </p>
+        <p className="mt-2 text-xs text-ink-muted">
+          Changes take effect on the next call. The notice sentences are written by us
+          and cannot be edited here or switched off entirely — every agent
+          must have all of them on file. Tell us if anything in the wording is wrong.
         </p>
       </div>
     </section>

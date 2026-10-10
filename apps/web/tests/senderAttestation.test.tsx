@@ -105,11 +105,11 @@ function routes(series: string, attestation: unknown, extra: Routes = {}): Route
       type: "https://calevate.tech/problems/number_purchase_is_operator_led",
       title: "A phone number cannot be bought from this screen.",
       detail:
-        "A phone number cannot be bought from this screen. Numbers are arranged with your account manager as part of setting your agent up.",
+        "A phone number cannot be bought from this screen. Numbers are arranged with us as part of setting your agent up.",
       // A mirror of `self_serve_purchase_refused()`'s remediation: the number is Calevate's,
       // and no provider is named (white label, founder 6 Oct 2026).
       remediation:
-        "Talk to us and your account manager will arrange the number. Calevate provides it on our own telephony account, so there is no operator account for you to open.",
+        "Talk to us and we will arrange the number. Calevate provides it on our own telephony account, so there is no operator account for you to open.",
     }),
     ...extra,
   };

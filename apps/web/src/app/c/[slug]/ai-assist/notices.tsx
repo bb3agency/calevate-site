@@ -27,7 +27,7 @@ export function StateNotice({ quota, session }: { quota: AiQuota; session: Sessi
         <p className="mt-1">
           We have paused AI help across Calevate while we check unusually high usage.
           Your calls, campaigns and leads are unaffected, and nothing has been charged.
-          It comes back on its own — ask your account manager if you need it sooner.
+          It comes back on its own — ask us if you need it sooner.
         </p>
       </NoticeBox>
     );
@@ -38,7 +38,7 @@ export function StateNotice({ quota, session }: { quota: AiQuota; session: Sessi
       <NoticeBox tone="stop" title="This month's AI help is finished">
         <p className="mt-1">
           You have used the AI help included with your plan and the extra you added. It
-          starts again at the beginning of next month. Talk to your account manager if
+          starts again at the beginning of next month. Talk to us if
           you need more before then.
         </p>
       </NoticeBox>

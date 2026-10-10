@@ -493,8 +493,8 @@ class DisclosureResult:
     agent_id: UUID
     ai_disclosure_enabled: bool
     recording_notice_enabled: bool
-    #: What callers actually hear first, composed server-side. Empty string = the agent
-    #: volunteers nothing and opens on its script.
+    #: The notices callers hear before the agent's opening line, composed server-side.
+    #: Empty string = the agent volunteers neither and opens on its opening line (D-708).
     opening_line: str
     #: Did the change reach the voice platform? False for an agent that is not live —
     #: there is nothing to push to, and the next publish carries it.

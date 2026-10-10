@@ -404,3 +404,36 @@ async def test_publish_refuses_while_the_platform_minute_is_unpriced(
             await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
     assert caught.value.code == engine_limits.MINUTE_UNPRICED
     assert engine.writes == []
+
+
+async def test_an_unpriced_minute_tells_the_client_plainly_and_the_operator_by_alert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal is read by a client, who cannot open the ops console; the remedy and the
+    console path go to the operator on the alert."""
+    from apps.api.agents import engine_limits
+
+    async def _unpriced(session: Any, *, engine: str, rate_key: str, at: Any) -> bool:
+        return False
+
+    raised: list[tuple[str, str, str | None]] = []
+
+    def _alert(stage: str, code: str, *, detail: str | None = None, **ids: str) -> None:
+        raised.append((stage, code, detail))
+
+    monkeypatch.setattr(engine_limits, "engine_minute_is_billable", _unpriced)
+    monkeypatch.setattr(engine_limits, "alert", _alert)
+    engine = _CountingEngine(name="thinnest", capabilities=DICTATED_SPEECH_CAPABILITIES)
+    with pytest.raises(ProblemError) as caught:
+        async with tenant_session(uuid.uuid4()) as session:
+            await engine_limits.refuse_unpriced_engine(session, engine)
+
+    client_text = " ".join(
+        str(part) for part in (caught.value.title, caught.value.detail, caught.value.remediation)
+    )
+    assert "We've been told" in client_text
+    assert "ops console" not in client_text and "configuration" not in client_text
+    assert [(stage, code) for stage, code, _ in raised] == [
+        ("CORE_LOGIC", engine_limits.PUBLISH_REFUSED_UNPRICED_ALARM)
+    ]
+    assert "Voice engine, Per-minute rates" in (raised[0][2] or "")

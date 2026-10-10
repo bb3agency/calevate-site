@@ -82,7 +82,7 @@ export function liveState(agent: Agent): LiveState {
     label: humanise(agent.status),
     tone: "border-line bg-surface-muted text-ink-muted",
     detail:
-      "We cannot tell you from here whether this agent is taking calls. Your account manager can.",
+      "We cannot tell you from here whether this agent is taking calls. Our team can.",
   };
 }
 

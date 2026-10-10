@@ -41,6 +41,7 @@ import {
   useWalletLots,
 } from "./lots";
 import { InvoicedAccount } from "./InvoicedAccount";
+import { PlatformFeeCard } from "./PlatformFeeCard";
 import { LotsPanel } from "./LotsPanel";
 import { StatementsView } from "./StatementsView";
 import { TransactionsTab } from "./TransactionsTab";
@@ -387,6 +388,8 @@ export function BillingScreen({ slug }: { slug: string }) {
           }
         />
         <UnfinishedPayments session={session} />
+        {/* D-707: the monthly platform fee, a separate payment from calling credit. */}
+        {!billingRefused && <PlatformFeeCard session={session} />}
         {!billingRefused && (
           <AutoRechargePanel session={session} />
         )}

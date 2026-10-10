@@ -19,8 +19,8 @@ finds is created by crashes and by hand, both of which are rare, and none of the
 verdicts becomes more actionable for being eight hours fresher. An operator acting on an
 unclaimed object has to talk to a client first anyway.
 
-**04:40, and the minute is not free.** The hours around it are taken: 03:17 the expiry
-sweep, 03:40 retention, 04:05 the TLS probe, and :23 of every hour the KB drift sweep. A
+**09:40 IST, and the minute is not free.** The hours around it are taken: 08:17 the expiry
+sweep, 08:40 retention, 09:05 the TLS probe, and :23 of every hour the KB drift sweep. A
 listing that grows with every source every client has ever published does not belong in
 the same minute as any of them.
 
@@ -69,7 +69,7 @@ log = get_logger(__name__)
 
 #: The schedule, as `settings.py` reads it. Hour and minute both come from here so the
 #: cron registration and the reasoning above cannot drift apart.
-ORPHAN_SWEEP_HOUR = frozenset({4})
+ORPHAN_SWEEP_HOUR = frozenset({9})  # IST: `settings.CRON_TIMEZONE` (D-709)
 ORPHAN_SWEEP_MINUTE = frozenset({40})
 
 

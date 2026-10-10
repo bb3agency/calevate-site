@@ -72,11 +72,13 @@ from calevate_shared.engine import (
     EngineAgentRef,
     HeldVoice,
     VoiceEngine,
+    compose_first_utterance,
 )
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.engine import engine_lacks
+from apps.api.engine.hosted_platform import engine_greeting
 
 log = get_logger(__name__)
 
@@ -263,26 +265,33 @@ def _own_voice_key_verdict(cfg: AgentConfig, snapshot: AgentSnapshot) -> bool | 
     return snapshot.engine_own_voice_key == cfg.engine_own_voice_key
 
 
-def _greeting_verdict(cfg: AgentConfig, snapshot: AgentSnapshot) -> bool | None:
-    """Is the engine's greeting what this agent's notice toggles say it should be?
+def _greeting_verdict(
+    engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot
+) -> bool | None:
+    """Is the engine's greeting what this agent's switches and opening line say it should be?
 
-    TWO QUESTIONS, NOT ONE (D-163), and the second one only exists because a notice can
-    now be WITHDRAWN:
+    The expected greeting is `engine_greeting`: on an engine that speaks one field as the
+    whole first utterance, the notices switched on and then the opening line (D-708); on
+    the owned runtime, the notices alone.
 
-    * **An opening was configured** — the ordinary case. Containment, per
-      `carries_greeting_marker`: any rendering that kept the text satisfies it.
-    * **No opening was configured** — both toggles off. The check inverts: the engine must
-      be holding NO greeting. A vendor that kept the previous welcome message is still
-      opening every call with a notice our own row says was withdrawn, so a client reading
-      "recording notice: off" would be reading something untrue about their phone line.
-      That is a provable mismatch and it refuses the publish, exactly as a dropped
-      disclosure does — the direction of the error is different, the falsehood is not.
+    * **A greeting is expected** — the ordinary case. Containment, per
+      `carries_greeting_marker`: any rendering that kept the text satisfies it, so an
+      engine still speaking a notice that was switched off fails only when the expected
+      text is not in it.
+    * **No greeting is expected** — both notices off and, where the greeting carries it, no
+      opening line. The check inverts: the engine must be holding NO greeting. A vendor
+      that kept the previous welcome message is still opening every call with a notice our
+      own row says was withdrawn, and that refuses the publish exactly as a dropped
+      disclosure does.
 
     `None` stays `None` throughout: an unreadable greeting is not evidence either way, and
     that is the whole `AgentSnapshot.*_readable` doctrine.
     """
-    if cfg.opening_line.strip():
-        return snapshot.carries_greeting_marker(cfg.opening_line)
+    expected = engine_greeting(
+        engine, notices=cfg.opening_line, first_words=compose_first_utterance(cfg)
+    )
+    if expected:
+        return snapshot.carries_greeting_marker(expected)
     if not snapshot.greeting_readable:
         return None
     return not (snapshot.greeting or "").strip()
@@ -347,7 +356,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     the prompt copy is reported beside it, never instead of it.
     """
     prompt = snapshot.carries_prompt_marker(cfg.system_prompt)
-    disclosure = _greeting_verdict(cfg, snapshot)
+    disclosure = _greeting_verdict(engine, cfg, snapshot)
     prompt_disclosure = (
         snapshot.carries_prompt_marker(cfg.opening_line) if cfg.opening_line.strip() else None
     )

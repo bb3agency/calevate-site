@@ -427,7 +427,7 @@ class Settings(BaseSettings):
     #: (`thinnest-findings/mirror/pages/api-reference/place-call.md:333-336`) and a dial over
     #: it is refused with `429` (`place-call.md:288-291`). 5 is the pay-as-you-go ceiling,
     #: raised by ThinnestAI on request by email (FOUNDER-RELAYED, 7 Oct 2026); set this to
-    #: the raised figure when they confirm it. The dial gate keeps `inbound_reserve_ratio`
+    #: the raised figure when they confirm it. The dial gate keeps `inbound_reserved_lines`
     #: of it free for callers (`engine/carrier_pacing.outbound_line_pool`).
     thinnest_max_concurrent_calls: int = Field(default=5, ge=1, le=1000)
     #: Which ThinnestAI plan our developer account is on, as an operator attests it (D-693). It
@@ -618,7 +618,7 @@ class Settings(BaseSettings):
     #: Simultaneous calls the carrier account carries, inbound and outbound together. The
     #: founder's account shows 3 concurrent calls (Vobiz console, founder-relayed, 2 Oct
     #: 2026, VENDOR-PUBLISHED); Vobiz refuses a dial over it with `429`
-    #: (`call/make-call.md:134`). The dial gate keeps `inbound_reserve_ratio` of it free for
+    #: (`call/make-call.md:134`). The dial gate keeps `inbound_reserved_lines` of it free for
     #: inbound callers (`engine/carrier_pacing.outbound_line_pool`), OPERATIONS §2 gate V-5.
     carrier_concurrency: int = Field(default=3, ge=1, le=1000)
     #: Whether the Vobiz transfer contract counts as verified. Off by default: Vobiz itself
@@ -1599,9 +1599,14 @@ class Settings(BaseSettings):
     # every call. Config so an incident can raise it to 1.0 with a restart, not a deploy.
     otel_traces_sample_ratio: float = Field(default=0.1, ge=0.0, le=1.0)
 
-    # The share of `carrier_concurrency` kept free for inbound callers. The reserve is
-    # `max(1, ceil(carrier_concurrency * ratio))` lines, so at least one line always stays
-    # open for a caller (`engine/carrier_pacing.outbound_line_pool`).
+    # How many of the account's simultaneous lines outbound dials may not use, as a count an
+    # operator can read at a glance. Unset keeps `inbound_reserve_ratio` of the lines instead;
+    # either way at least one line always stays open for a caller
+    # (`engine/carrier_pacing.outbound_line_pool`).
+    inbound_reserved_lines: int | None = Field(default=None, ge=1, le=10_000)
+    # The share kept free only while `inbound_reserved_lines` is unset:
+    # `max(1, ceil(lines * ratio))`. Kept as a setting, not folded into a constant, because
+    # existing .env files set it and Settings refuses unknown keys.
     inbound_reserve_ratio: float = Field(default=0.3, ge=0.0, le=1.0)
 
     #: How far ahead of a planned maintenance window clients are told about it, in HOURS
@@ -1647,9 +1652,10 @@ class Settings(BaseSettings):
     #
     # It exists in config (rather than as a constant) so the runway framing ("about N
     # minutes left") and the top-up flow price from the SAME source and an operator can move
-    # it without a deploy. Managed clients never see it: their price lives in their `plans`
-    # row. ⚠ There are TWO client rates since D-547 (one per voice rung); this key carries
-    # the CHEAPER one.
+    # it without a deploy. Since D-707 it is THE list price for every client: there is one
+    # pricing model, and the key keeps its name only because renaming a money setting is a
+    # migration of `platform_settings` with nothing on the other side. ⚠ There are TWO
+    # client rates since D-547 (one per voice rung); this key carries the CHEAPER one.
     #
     # BOUNDED FOR THE SAME REASON `usd_inr_rate` IS, one surface closer to the client:
     # `0` is type-valid and would price every self-serve minute at nothing, so the
@@ -1657,6 +1663,16 @@ class Settings(BaseSettings):
     # The ceiling is absurd on purpose — nobody sells a minute for ₹10,000 — and its job
     # is to catch a decimal point in the wrong place before it reaches a wallet.
     self_serve_inr_per_min: Decimal = Field(default=Decimal("4.00"), gt=0, le=10_000)
+
+    # THE MONTHLY PLATFORM FEE (D-707). One platform-wide switch and one amount: on, every
+    # live client that is not on a free trial and has no operator waiver is raised a fee
+    # each IST month, collected as a separate payment and never taken from calling credit;
+    # off, nobody is. It is never per plan or per client. The amount is the founder's
+    # decision, so it has no default figure: switching the fee on without one issues
+    # nothing and alarms (`apps/workers/billing.issue_platform_fees`). Bounded like the list
+    # price above, to catch a misplaced decimal point before it reaches a client.
+    platform_fee_enabled: bool = False
+    platform_fee_inr: Decimal | None = Field(default=None, gt=0, le=1_000_000)
 
     # HOW OLD A LIST'S CONSENT MAY BE BEFORE A CAMPAIGN OVER IT IS REFUSED, in days.
     #

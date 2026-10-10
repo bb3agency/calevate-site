@@ -277,8 +277,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "voice-engine",
         "thinnest",
         "Voice band sold as Clear",
-        "Which ThinnestAI voices are offered as Clear: Premium (any plan) or Studio (Pro and "
-        "above). Attest that band's per-minute rate before offering it.",
+        "ThinnestAI voices sold as Clear: Premium (any plan) or Studio (Pro and above; its free "
+        "preview voice is never listed). Attest that band's rate first.",
         _THINNEST,
     ),
     "pipecat_stream_base_url": _m(
@@ -421,12 +421,18 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "treated as a client's own workspace.",
         _THINNEST,
     ),
+    "inbound_reserved_lines": _m(
+        "calling-limits",
+        "limits",
+        "Lines kept free for inbound calls",
+        "How many of the simultaneous lines outbound calls may not use. Left unset, the "
+        "automatic share below applies; at least one line always stays free.",
+    ),
     "inbound_reserve_ratio": _m(
         "calling-limits",
         "limits",
-        "Share of lines kept free for inbound calls",
-        "A fraction from 0 to 1 of the line limit that outbound calls may not use; at least "
-        "one line always stays free.",
+        "Automatic share kept free (when no line count is set)",
+        "Used only while 'Lines kept free for inbound calls' is unset.",
     ),
     # ---- language models -------------------------------------------------------------
     "llm_tier_standard_model": _m(
@@ -572,8 +578,23 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     "self_serve_inr_per_min": _m(
         "billing",
         "prices",
-        "Self-serve price per minute",
-        "The self-serve list price per calling minute. Recording a rate card rewrites it.",
+        "List price per minute",
+        "The list price per calling minute every client pays on the first pack. Recording "
+        "a rate card rewrites it.",
+    ),
+    "platform_fee_enabled": _m(
+        "billing",
+        "prices",
+        "Monthly platform fee",
+        "On: every client not on a free trial and without a waiver is asked to pay the "
+        "amount below each month, separately from calling credit. Off: nobody is.",
+    ),
+    "platform_fee_inr": _m(
+        "billing",
+        "prices",
+        "Monthly platform fee amount",
+        "What each client pays per month while the fee is on. A fee already raised keeps "
+        "its amount.",
     ),
     "usd_inr_rate": _m(
         "billing",
@@ -1012,7 +1033,11 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "thinnest_clear_voice_band": ControlHint(
         options=(
             OptionLabel("premium", "Premium voices", "Available on every ThinnestAI plan."),
-            OptionLabel("studio", "Studio voices", "Needs ThinnestAI Pro or above."),
+            OptionLabel(
+                "studio",
+                "Studio voices",
+                "Needs ThinnestAI Pro or above; its free Studio preview voice cannot be used.",
+            ),
         )
     ),
     # Hints filled from `engine/thinnest_customers.PLAN_CUSTOMER_CAPS` by `config_controls`.
@@ -1093,6 +1118,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     ),
     # ---- units ----------------------------------------------------------------------
     "self_serve_inr_per_min": ControlHint(unit="per minute"),
+    "platform_fee_inr": ControlHint(unit="per month"),
     "usd_inr_rate": ControlHint(unit="per US dollar"),
     "trial_call_max_seconds": ControlHint(kind="duration", unit="seconds"),
     "db_statement_timeout_ms": ControlHint(kind="duration", unit="milliseconds"),
@@ -1105,6 +1131,9 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "trial_daily_call_cap": ControlHint(unit="calls a day"),
     "thinnest_max_concurrent_calls": ControlHint(unit="calls at once"),
     "carrier_concurrency": ControlHint(unit="calls at once"),
+    "inbound_reserved_lines": ControlHint(
+        unit="lines", help="Leave unset to use the automatic share."
+    ),
     "carrier_cps": ControlHint(unit="calls a second"),
     "copilot_daily_message_cap": ControlHint(unit="questions a day"),
     "copilot_daily_ktok_cap": ControlHint(unit="thousand tokens a day"),
@@ -1138,7 +1167,9 @@ HIGH_RISK: Final[dict[str, str]] = {
     "carrier": "New calls are dialled on the carrier you choose.",
     "vobiz_signature_required": "Turning it on before signing is set up refuses every call.",
     "carrier_recording_enabled": "Changes whether callers are recorded and told they are.",
-    "self_serve_inr_per_min": "Every self-serve client is charged this price.",
+    "self_serve_inr_per_min": "Every client is charged this price.",
+    "platform_fee_enabled": "Decides whether every client is asked for a monthly fee.",
+    "platform_fee_inr": "Every client is asked for this amount each month while the fee is on.",
     "usd_inr_rate": "Used only if no rate was ever published, or with the override on.",
     "usd_inr_rate_override": "Every dollar cost converts at your manual rate while this is on.",
     "payment_provider": "Clients pay through the provider you choose.",

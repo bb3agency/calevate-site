@@ -18,6 +18,7 @@ import {
   RestrictionNote,
   Skeleton,
   formatCount,
+  formatCountOf,
   formatIST,
 } from "@/components/ui";
 import {
@@ -171,7 +172,8 @@ export function AlertsScreen() {
               title="Some alarms that should have emailed did not"
             >
               <p className="mt-1">
-                {formatCount(data.open_unmailed_pages)} alarm(s) of the emailed kind are still
+                {formatCountOf(data.open_unmailed_pages, "alarm")} of the emailed kind{" "}
+                {data.open_unmailed_pages === 1 ? "is" : "are"} still
                 happening and no email was sent for them — the message failed, or no alert
                 mailbox is configured. Check the rows marked &ldquo;not sent&rdquo; below, and
                 check that alerts have somewhere to go.

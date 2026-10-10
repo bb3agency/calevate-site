@@ -4,6 +4,7 @@ import {
   fireEvent,
   render as rtlRender,
   screen,
+  waitFor,
   within,
   type RenderResult,
 } from "@testing-library/react";
@@ -14,12 +15,19 @@ import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
 import TenantAgentsPage from "@/app/admin/tenants/[tenantId]/agents/page";
 import type { KbSource, Margin, TenantSummary } from "@/lib/api/admin";
+import { currentISTMonth } from "@/lib/api/invoice";
+import type { TenantSpend } from "@/lib/api/spend";
+import type { TrialStatus } from "@/lib/api/trials";
 import type { Routes } from "./harness";
 import { OWNER_JOINED } from "./businessProfileFixture";
 
 import { browserOffline, noReply, problem, stubApi } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
-import { KB_ALL_DELIVERED, WHATSAPP_NEVER_ASKED } from "./fixtures/sharedReads";
+import {
+  KB_ALL_DELIVERED,
+  WHATSAPP_NEVER_ASKED,
+  adminAccountFactReads,
+} from "./fixtures/sharedReads";
 
 /**
  * The client detail screen — the one an operator opens to decide what to DO for a client,
@@ -153,6 +161,7 @@ function source(over: Partial<KbSource> = {}): KbSource {
 /** Everything green, so each test can break exactly one thing. */
 function healthy(): Routes {
   return {
+    ...adminAccountFactReads(TENANT),
     [`${TENANT_PATH}/owner-status`]: OWNER_JOINED,
     [TENANT_PATH]: tenant(),
     [ME_PATH]: OPERATOR,
@@ -414,6 +423,83 @@ describe("the client detail screen", () => {
     );
   });
 
+  it("shows a trial client's usage and what it cost us, AI included, from the one reader", async () => {
+    // The founder's report (10 Oct 2026): a trial client whose only spend was the
+    // assistant read ₹0 on the Overview while the trial panel said ₹1.08.
+    const breakdown = {
+      total_inr: "1.08",
+      calls_inr: "0.00",
+      calls: 0,
+      other_inr: "0.00",
+      assistant_inr: "1.08",
+      assistant_requests: 4,
+      knowledge_inr: "0.00",
+      knowledge_requests: 0,
+    };
+    const spend: TenantSpend = {
+      month: currentISTMonth(),
+      plan_tier: "prepaid",
+      charge_basis: "wallet_debit",
+      calls: 0,
+      minutes_used: "0.00",
+      retainer_inr: null,
+      revenue_inr: "0.00",
+      rental_revenue_inr: "0.00",
+      cost_inr: "0.00",
+      margin_inr: "0.00",
+      margin_pct: null,
+      period_charge_inr: "0.00",
+      itemised_charge_inr: "0.00",
+      itemisation_residual_inr: "0.00",
+      residual_reason: null,
+      cost_currency: null,
+      cost_currency_stated: false,
+      unattributed: null,
+      ai_assist: { used_inr: "1.08", requests: 4, kb_used_inr: "0.00", kb_requests: 0 },
+      cost_all_in: breakdown,
+      by_unit: [],
+      by_agent: [],
+      top_calls: [],
+      top_calls_truncated: false,
+    };
+    const trial: TrialStatus = {
+      tenant_id: TENANT,
+      trial_id: "0192f0aa-6666-7000-8000-0000000000b1",
+      status: "active",
+      active: true,
+      days: 5,
+      started_at: "2026-10-09T14:26:00Z",
+      ends_at: "2026-10-14T14:26:00Z",
+      days_remaining: 1,
+      ended_at: null,
+      ended_reason: null,
+      erase_after: null,
+      erasure_filed_at: null,
+      started_by: null,
+      cost_to_us_inr: "1.08",
+      cost_breakdown: breakdown,
+      free_minutes: 1000,
+      minutes_used: 0,
+    };
+    await render({
+      [`${TENANT_PATH}/spend?month=${currentISTMonth()}`]: spend,
+      [`${TENANT_PATH}/trial`]: trial,
+    });
+
+    const card = (await screen.findByText(`Usage · ${currentISTMonth()}`)).closest("section");
+    expect(card).not.toBeNull();
+    const text = await waitFor(() => {
+      const value = card?.textContent ?? "";
+      expect(value).toContain("1,000 left");
+      return value;
+    });
+    expect(text).toContain("0 of 1,000 minutes used");
+    expect(text).toContain("4 actions");
+    expect(text).toContain("1 day left");
+    expect(text).not.toContain("(s)");
+    expect(text).toContain("₹1.08");
+  });
+
   // The view-as link moved to the tenant layout's header (D-661); its "(logged), never
   // read-only" assertion moved with it, to adminTenantLayout.test.tsx.
 
@@ -520,8 +606,13 @@ describe("the client's health summary", () => {
   });
 
   it("refuses in words when the judgement could not be read", async () => {
-    render({ [HEALTH_PATH]: problem(503, { title: "Service unavailable", detail: "Try again." }) });
-    expect(await screen.findByText(/Try again\./)).toBeTruthy();
+    render({
+      [HEALTH_PATH]: problem(503, {
+        title: "Service unavailable",
+        detail: "The health check is down. Try again.",
+      }),
+    });
+    expect(await screen.findByText(/The health check is down\. Try again\./)).toBeTruthy();
     expect(screen.queryByText("Nothing is wrong with this account right now.")).toBeNull();
   });
 

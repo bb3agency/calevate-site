@@ -46,6 +46,7 @@ from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from apps.api.admin.service import tenant_exists
+from apps.api.billing.cost_breakdown import CostBreakdownOut
 from apps.api.billing.service import to_paise
 from apps.api.billing.trials import (
     DEFAULT_ERASURE_GRACE_DAYS,
@@ -61,7 +62,7 @@ from apps.api.billing.trials import (
     minutes_of,
     read_trial,
     start_trial,
-    trial_cost_to_us_inr,
+    trial_cost_breakdown,
     trial_seconds_used,
 )
 from apps.api.compliance.audit import write_audit
@@ -220,6 +221,10 @@ class TrialStatusOut(TrialOut):
     #: the visibility that makes the choice survivable. NEVER published to a client — the
     #: client panel has never shown `unit_cost_paid` and does not start here.
     cost_to_us_inr: Decimal
+    #: `cost_to_us_inr` split into calls, other rows, the assistant and knowledge — the
+    #: same reader the Spend screen and the Overview use over the month, so the three
+    #: screens agree. Defaulted only so older bundles' generated types stay valid.
+    cost_breakdown: CostBreakdownOut | None = None
     #: Test-call minutes used so far (D-697), rounded up to whole minutes.
     minutes_used: int
 
@@ -394,10 +399,10 @@ async def read_trial_status(
     async with tenant_session(tenant_id) as scoped:
         await _assert_tenant_exists(tenant_id, scoped)
         state = await read_trial(scoped, tenant_id=tenant_id)
-        cost = (
-            await trial_cost_to_us_inr(scoped, tenant_id=tenant_id, trial=state)
+        breakdown = (
+            await trial_cost_breakdown(scoped, tenant_id=tenant_id, trial=state)
             if state is not None
-            else Decimal("0")
+            else None
         )
         seconds = (
             await trial_seconds_used(scoped, tenant_id=tenant_id, trial=state)
@@ -409,11 +414,14 @@ async def read_trial_status(
         await record_admin_tenant_read(
             scoped, request=request, principal=principal, tenant_id=tenant_id
         )
-    if state is None:
+    if state is None or breakdown is None:
         return None
     base = _out(state, at=at)
     return TrialStatusOut(
-        **base.model_dump(), cost_to_us_inr=to_paise(cost), minutes_used=minutes_of(seconds)
+        **base.model_dump(),
+        cost_to_us_inr=to_paise(breakdown.total_inr),
+        cost_breakdown=CostBreakdownOut.of(breakdown),
+        minutes_used=minutes_of(seconds),
     )
 
 

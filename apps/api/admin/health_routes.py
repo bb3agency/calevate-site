@@ -94,8 +94,8 @@ class HealthSignalOut(BaseModel):
     # distinction, so it is the server's answer and never the console's arithmetic.
     severity: Severity
     # For `outbound_blocked`: the GATES' own rule names, in the order the launch preview
-    # asks them (`kyc_missing`, `first_campaign_review_pending`, `pe_registration_*`,
-    # `tm_link_not_active`, `spend_cap`, `no_credits`) — the same vocabulary the client's
+    # asks them (`kyc_missing`, `outbound_pledge_missing`, `first_campaign_review_pending`,
+    # `spend_cap`, `no_credits`, …) — the same vocabulary the client's
     # screen uses, so an operator and a client on the phone name one condition the same
     # way. Deliberately NOT the blockers' `reason` prose: a rejection reason interpolates
     # an operator's free text (hard rule 6, `admin/holds.py`).

@@ -111,6 +111,21 @@ _CONNECT_ARGS: dict[str, int] = {
     "keepalives_count": 3,
 }
 
+#: The `TimeZone` every app and migration session runs in, set at connect time (D-709).
+#:
+#: UTC, while everything a person reads is IST (D-709): a timestamptz is an absolute
+#: instant, and this only picks the zone it is handed back in. psycopg returns a
+#: timestamptz as a datetime in the SESSION's zone (psycopg 3.3.4 against pg16, 10 Oct
+#: 2026: the same instant came back `19:00+00:00` under UTC and `00:30+05:30` under
+#: Asia/Kolkata), so pinning it here is what keeps every datetime in Python a UTC-aware
+#: instant whatever the server's default is. The production server's default is IST for
+#: psql and for its own log lines (DEPLOYMENT §13), and a connect-time option outranks
+#: both `ALTER SYSTEM` and `ALTER DATABASE ... SET`, so that default never reaches the app.
+#: Every IST calendar question in SQL names its zone (`AT TIME ZONE 'Asia/Kolkata'`) and
+#: is correct under either setting; `tests/ist_standard_time_test.py` drives both.
+APP_SESSION_TIMEZONE = "UTC"
+_SESSION_TIMEZONE_OPTION = f"-c timezone={APP_SESSION_TIMEZONE}"
+
 #: The most pooled connections ONE task may hold at the same time (D-182).
 #:
 #: Two, and every one of the two is a deliberate design: a request's session plus the
@@ -334,7 +349,8 @@ _MIGRATION_SOCKET_ARGS: dict[str, str] = {
 
 
 def migration_connect_args() -> dict[str, str]:
-    """libpq `options` carrying both GUCs, plus socket bounds, for `alembic/env.py`.
+    """libpq `options` carrying both timeouts and the session zone, plus socket bounds, for
+    `alembic/env.py`.
 
     A CONNECT-TIME option rather than two `SET` statements after connecting, because a
     `SET` is transactional: `transaction_per_migration=True` gives each revision its own
@@ -350,7 +366,8 @@ def migration_connect_args() -> dict[str, str]:
     return {
         "options": (
             f"-c lock_timeout={MIGRATION_LOCK_TIMEOUT_MS} "
-            f"-c statement_timeout={MIGRATION_STATEMENT_TIMEOUT_MS}"
+            f"-c statement_timeout={MIGRATION_STATEMENT_TIMEOUT_MS} "
+            f"{_SESSION_TIMEZONE_OPTION}"
         ),
         **_MIGRATION_SOCKET_ARGS,
     }
@@ -455,7 +472,8 @@ def get_engine(settings: Settings | None = None) -> AsyncEngine:
             pool_pre_ping=True,
             hide_parameters=True,
             # The only wait on this path with nothing above it — see `_CONNECT_ARGS`.
-            connect_args=dict(_CONNECT_ARGS),
+            # The session zone rides beside it: see `APP_SESSION_TIMEZONE`.
+            connect_args={**_CONNECT_ARGS, "options": _SESSION_TIMEZONE_OPTION},
         )
         _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine

@@ -1856,7 +1856,9 @@ AGENT_EDIT: Final = ActionTool(
     schema=action_schema(
         "agent_edit",
         "Change a DRAFT or PAUSED agent's language, voice, or opening notices (saying it is "
-        "an AI, saying the call is recorded). For a LIVE agent use `agent_edit_live`." + DOES_IT,
+        "an AI, saying the call is recorded). The notices never change the agent's opening "
+        "line, which is part of its script; a notice switched on is said before it. For a "
+        "LIVE agent use `agent_edit_live`." + DOES_IT,
         _AGENT_EDIT_PROPERTIES,
     ),
     plan=_plan_agent_edit,

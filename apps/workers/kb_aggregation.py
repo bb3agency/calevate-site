@@ -97,12 +97,13 @@ DIGEST_SUBJECT = "What your callers asked this week"
 #: same reason, and it is the difference between a job that fires on the right minute and
 #: a job that summarises the right seven days.
 #:
-#: 07:05 rather than the small hours: this is the one job in the tree whose output a human
-#: reads on the morning it arrives, and a digest timestamped 03:00 looks automated in a
-#: way that a Monday-morning one does not. It is also clear of the nightly retention and
-#: pruning sweeps (03:40, 04:10), which is where the database is busy.
+#: IST (`settings.CRON_TIMEZONE`, D-709). 12:22 IST is the instant this has always fired
+#: near: the hour was written as 07 when cron fields were read in the host's UTC (12:52
+#: IST), and D-709 moved every job 30 minutes earlier rather than re-slotting any one job.
+#: It is clear of the nightly retention and pruning sweeps (08:40, 09:10 IST), which is
+#: where the database is busy.
 DIGEST_WEEKDAY = 0
-DIGEST_HOUR = 7
+DIGEST_HOUR = 12
 #: :12 and not :05, which is `report_stalled_pipeline`'s minute. That alarm is O(tenants)
 #: and runs every half hour; this sweep is the heaviest walk in the tree — one
 #: `tenant_session` AND one SMTP send per live agent — and it runs under a wall-clock

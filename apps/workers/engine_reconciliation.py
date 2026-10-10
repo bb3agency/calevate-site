@@ -63,7 +63,7 @@ in the next batch.
 RETRIES, AND THERE IS NO DLQ (P6.5). `max_tries` is passed EXPLICITLY at the `cron()`
 call site because
 `cron()` defaults it to 1 and `WorkerSettings.max_tries` does not reach a function that
-carries its own — the argument `issue_one_time_charges` and `draw_qa_samples` both make,
+carries its own — the argument `draw_qa_samples` makes,
 and the reason a sweep that gave up on its first Redis blip would leave the platform
 unwatched with every screen still green. This job only ASKS for a retry when the sweep
 could not run at all; a vendor that refused one agent is recorded as `unreachable` for

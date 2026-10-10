@@ -639,7 +639,7 @@ async def test_an_unofferable_voice_is_refused_with_the_ground_and_not_a_generic
     # whose grounds this deployment fails (no Cartesia key installed). Patched at
     # `publishing`'s own reference, which is the reader the write goes through.
     def _refuse(_voice: object, **_kwargs: object) -> str:
-        return "the Studio voice is not available on your account yet — ask your account manager"
+        return "the Studio voice is not available on your account yet — ask us"
 
     monkeypatch.setattr(publishing, "unofferable_reason", _refuse)
     async with _client(_app()) as http:

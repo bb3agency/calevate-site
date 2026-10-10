@@ -91,6 +91,8 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
       { key: "direction", label: "Calls it handles", value: agent.direction },
       { key: "ai_disclosure_enabled", label: "Says it is an AI at the start", value: agent.ai_disclosure_enabled ? "yes" : "no" },
       { key: "recording_notice_enabled", label: "Says the call is recorded at the start", value: agent.recording_notice_enabled ? "yes" : "no" },
+      { key: "script_opening_line", label: "Opening line (its greeting, from the script)", value: agent.script_opening_line.trim() || "none written" },
+      { key: "first_words", label: "What callers hear first", value: agent.first_words.trim() || "nothing yet" },
       {
         key: "pending",
         label: "Changes waiting to go live",
@@ -185,6 +187,23 @@ function SetupChecklist({
     items.push(unknown("script", "Write its script"));
   }
 
+  // The greeting is the script's own line, never a notice (D-708): an agent whose script has
+  // none opens on nothing once its notices are off, and cannot make calls on some platforms.
+  if (script.data && scriptDone && !script.data.is_freeform) {
+    const greets = script.data.script.opening_line.trim() !== "";
+    items.push({
+      id: "opening",
+      label: "Give it an opening line",
+      state: greets ? "done" : "todo",
+      ...(greets
+        ? {}
+        : {
+            detail: "The greeting it opens every call with, after any notices you switched on.",
+            link: { href: href(`${base}/script`), label: "Write" },
+          }),
+    });
+  }
+
   if (pending.data?.voice) {
     const chosen = pending.data.voice.configured !== null;
     items.push({
@@ -198,20 +217,26 @@ function SetupChecklist({
   }
 
   if (agent.direction !== "outbound") {
-    // The count is the agent row's own (`inbound_number_count`). A number is arranged by
-    // the account manager — the client realm cannot buy one (`number_purchase_is_operator_led`)
-    // — so the row says whose step it is rather than offering an Add that cannot add.
+    // The count is the agent row's own (`inbound_number_count`). One pricing model for
+    // every client (D-707): the client buys its own number from Numbers once it has paid
+    // and its business is verified, so a test-calls-only trial is pointed at Billing first.
     const numbered = agent.inbound_number_count > 0;
+    const onTrial = wallet.data ? activeTrial(wallet.data)?.test_calls_only === true : false;
     items.push({
       id: "number",
       label: "Give it a phone number to answer",
-      state: numbered ? "done" : "waiting",
+      state: numbered ? "done" : onTrial ? "waiting" : "todo",
       ...(numbered
         ? {}
-        : {
-            detail: "Your account manager arranges the number.",
-            link: { href: href(`/c/${slug}/phone-number`), label: "Details" },
-          }),
+        : onTrial
+          ? {
+              detail: "Numbers open once you add calling credit and verify your business.",
+              link: { href: href(`/c/${slug}/billing`), label: "Add credit" },
+            }
+          : {
+              detail: "Buy a number on the Numbers page once your business is verified.",
+              link: { href: href(`/c/${slug}/phone-number`), label: "Get a number" },
+            }),
     });
   }
 

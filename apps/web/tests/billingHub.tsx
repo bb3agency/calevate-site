@@ -4,7 +4,7 @@ import BillingPage from "@/app/c/[slug]/billing/page";
 import { WALLET_LOTS_PATH } from "@/app/c/[slug]/billing/lots";
 import { spendSeriesPath, statementsPath } from "@/lib/api/billingHistory";
 
-import { walletLots } from "./fixtures/sharedReads";
+import { PLATFORM_FEE_OFF, walletLots } from "./fixtures/sharedReads";
 import { renderClientPage, stillLoading, type Routes } from "./harness";
 
 /**
@@ -54,6 +54,8 @@ export function hubUsageIdle(): Routes {
     // The auto-recharge card on the Overview (D-699); its own suite answers these.
     "/v1/billing/auto-recharge": stillLoading(),
     "/v1/billing/auto-recharge/charges?limit=20": stillLoading(),
+    // The monthly platform fee card (D-707), switched off: it renders nothing.
+    "/v1/billing/platform-fee": PLATFORM_FEE_OFF,
   };
 }
 

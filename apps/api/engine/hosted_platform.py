@@ -34,12 +34,12 @@ class HostedAgentLimits:
 
     #: The agent's whole system prompt, as `compose_engine_prompt` renders it.
     prompt_chars: int | None
-    #: The agent-level first utterance (the opening line, spoken on an inbound call).
+    #: The agent-level first utterance (spoken on an inbound call).
     greeting_chars: int | None
     #: The per-call first utterance on an outbound dial.
     call_opening_chars: int | None
-    #: Does an outbound dial REQUIRE a first utterance? Where it does, an agent whose
-    #: opening line is empty (both notices switched off, D-163) cannot place a call at all.
+    #: Does an outbound dial REQUIRE a first utterance? Where it does, an agent with no
+    #: first words at all (both notices off AND no opening line written) cannot place a call.
     call_opening_required: bool
     #: One knowledge document's text.
     kb_text_chars: int | None
@@ -48,6 +48,11 @@ class HostedAgentLimits:
     #: and costs on each one, so the facts move out and the prompt holds the rules and the script
     #: (founder's decision, 6 Oct 2026; `agents/engine_facts.py`).
     facts_in_knowledge: bool = False
+    #: Does the engine speak one greeting field verbatim as the whole first utterance? Then
+    #: that field holds the notices AND the agent's opening line (`compose_first_utterance`,
+    #: D-708). False where the notices are spoken and the model then greets from the prompt
+    #: (the owned runtime, D-654), so the greeting held there is the notices alone.
+    greeting_is_first_words: bool = False
 
 
 NO_HOSTED_LIMITS: Final = HostedAgentLimits(
@@ -71,6 +76,8 @@ THINNEST_LIMITS: Final = HostedAgentLimits(
     call_opening_required=True,
     kb_text_chars=KB_TEXT_MAX_CHARS,
     facts_in_knowledge=True,
+    # `ThinnestEngine._agent_body` sends `compose_first_utterance` as `greeting`.
+    greeting_is_first_words=True,
 )
 
 _LIMITS_BY_ENGINE: Final[dict[str, HostedAgentLimits]] = {"thinnest": THINNEST_LIMITS}
@@ -79,6 +86,20 @@ _LIMITS_BY_ENGINE: Final[dict[str, HostedAgentLimits]] = {"thinnest": THINNEST_L
 def hosted_agent_limits(engine: VoiceEngine) -> HostedAgentLimits:
     """The text ceilings of `engine`, or `NO_HOSTED_LIMITS`."""
     return _LIMITS_BY_ENGINE.get(engine.name, NO_HOSTED_LIMITS)
+
+
+def engine_greeting(engine: VoiceEngine, *, notices: str, first_words: str) -> str:
+    """What `engine` holds as an agent's greeting: the field the publish limits measure and
+    the read-back compares. `first_words` (the notices and the opening line,
+    `compose_first_utterance`) where the engine speaks one field as the whole first
+    utterance; `notices` alone where the model greets after them.
+
+    Takes the two strings rather than the agent's config so this module renders nothing:
+    every agent rendering in `engine/` goes through `compose_engine_prompt` (hard rule 5's
+    guard reads each module there for exactly that)."""
+    if hosted_agent_limits(engine).greeting_is_first_words:
+        return first_words
+    return notices.strip()
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +136,8 @@ THINNEST_NUMBER_CONSOLE: Final = EngineNumberConsole(
         "Attach the recorded number to this client's agent on this page. Calevate points "
         "the number at the agent on ThinnestAI and keeps it that way; a change made in "
         "their console is put back by the daily number check.",
-        "Ring the number. You should hear the agent's opening line, then the agent.",
+        "Ring the number. You should hear the agent's first words (any notices switched "
+        "on, then its opening line), then the agent.",
     ),
     notes=(
         "Promotional calls in India need a 140-series number registered with DLT. An "
@@ -156,6 +178,7 @@ __all__ = [
     "THINNEST_NUMBER_CONSOLE",
     "EngineNumberConsole",
     "HostedAgentLimits",
+    "engine_greeting",
     "engine_number_console",
     "engine_platform_label",
     "hosted_agent_limits",

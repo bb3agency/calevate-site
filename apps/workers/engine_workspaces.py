@@ -72,6 +72,7 @@ from apps.api.tenancy.engine_workspace import (
     queue_workspace_provisioning,
     read_workspace_state,
     workspace_directory,
+    workspaces_in_review,
 )
 from apps.workers.workspace_walk import WalkReport, walk_workspaces
 
@@ -370,6 +371,11 @@ async def _business_details_leg(tenant_id: UUID, tally: dict[str, int]) -> None:
     details = await refresh_business_details(tenant_id)
     if details.status != before:
         tally["changed"] += 1
+        # Ids and statuses only (hard rule 6): the review note is about the client's papers.
+        log.info(
+            "engine_business_details_changed",
+            extra={"tenant_id": str(tenant_id), "from": before, "to": details.status},
+        )
         if details.status in LAPSED_BUSINESS_STATUSES - {"expired"}:
             alarm_lapsed_business_details(details, tenant_id=tenant_id)
     if details.status == "expired":
@@ -464,6 +470,39 @@ async def sweep_engine_workspaces(ctx: dict[str, Any]) -> str:
         )
     summary = " ".join(f"{key}={value}" for key, value in tally.items())
     return f"visited={report.visited} deferred={report.deferred} {summary}"
+
+
+#: Applications re-read per tick of the in-review poll. One GET each; the estate is at most
+#: the plan's customer cap (PAYG 3, Pro 100, Scale 1,000).
+IN_REVIEW_POLL_BUDGET: Final = 100
+
+
+async def poll_business_details_in_review(ctx: dict[str, Any]) -> str:
+    """Every few minutes, re-read the business-details applications still being checked.
+
+    The voice platform documents no webhook for this (the events `api-reference/webhooks/
+    create-webhook.md` lists are calls, leads, conversations, campaigns and opt-outs) and
+    says "Checks usually finish in minutes" (`api-reference/phone-numbers/
+    get-business-details.md`, docs.thinnest.ai read 10 Oct 2026). Left to the daily sweep, a
+    client approved in five minutes waited up to a day to buy a number. Only `submitted`
+    rows are read, so a settled estate costs one directory query a tick.
+    """
+    del ctx
+    if not engine_has_workspaces() or engine_number_provider() is None:
+        return "not_applicable"
+    rows = await workspaces_in_review(limit=IN_REVIEW_POLL_BUDGET)
+    tally = dict.fromkeys(("changed", "resent", "unreadable"), 0)
+    for row in rows:
+        try:
+            await _business_details_leg(row.tenant_id, tally)
+        except ProblemError as exc:
+            tally["unreadable"] += 1
+            log.warning(
+                "engine_business_details_poll_failed",
+                extra={"tenant_id": str(row.tenant_id), "code": exc.code},
+            )
+    summary = " ".join(f"{key}={value}" for key, value in tally.items())
+    return f"in_review={len(rows)} {summary}"
 
 
 # --- offboarding ----------------------------------------------------------------------
@@ -635,6 +674,7 @@ __all__ = [
     "RETIRE_JOB",
     "SUBMIT_JOB",
     "offboard_engine_workspace",
+    "poll_business_details_in_review",
     "provision_engine_workspace",
     "retire_moved_engine_agent",
     "retry_engine_workspaces",

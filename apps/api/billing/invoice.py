@@ -382,12 +382,9 @@ async def build_invoice(
     zero or absent setup fee, and a plan that quotes no model surcharge simply do not
     appear.
 
-    **This function WRITES NOTHING.** It used to append the setup charge to
-    `one_time_charges` the first time the onboarding month's statement was built, which
-    put a side effect behind a GET and left a tenant whose invoice nobody opened
-    uncharged. `apps/workers/billing.py::issue_one_time_charges` issues those charges on
-    a schedule now and `billing/charges.issue_setup_fee` is the only writer; building a
-    statement is a read of the ledgers, start to finish.
+    **This function WRITES NOTHING.** Building a statement is a read of the ledgers, start
+    to finish. Since D-707 no new setup fee or retainer is raised; the lines above still
+    print for the months they were billed in, from the rows and plan terms of that month.
 
     GST, when Calevate is REGISTERED: ``GST_RATE_PCT`` (18%) on the subtotal, quantized to
     paise, then SPLIT across the heads the place of supply puts it under (`billing/gst.py`),

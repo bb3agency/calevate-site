@@ -1,4 +1,5 @@
 import { noReply } from "../harness";
+import { currentISTMonth } from "@/lib/api/invoice";
 import type { LegalReadiness } from "@/lib/api/agreements";
 import type { TenantSummary } from "@/lib/api/admin";
 import type { Agent, HandoffOut } from "@/lib/api/agents";
@@ -14,6 +15,7 @@ import type { OwnNumbersStatus } from "@/lib/api/ownNumbers";
 import type { Lanes } from "@/lib/api/publishing";
 import type { OfferedVoice, VoiceCatalogue } from "@/lib/api/voices";
 import type { WalletLots } from "@/app/c/[slug]/billing/lots";
+import type { PlatformFee } from "@/lib/api/platformFee";
 import type { Wallet } from "@/lib/api/wallet";
 import type { AlertOptIn } from "@/lib/api/whatsappAlerts";
 
@@ -148,7 +150,7 @@ export function handoffOff(agentId: string): HandoffOut {
 export function voiceCatalogue(realm: "client" | "admin"): VoiceCatalogue {
   const clearRefusal =
     realm === "client"
-      ? "the Clear voice is not available on your account yet — ask your account manager"
+      ? "the Clear voice is not available on your account yet — ask us"
       : "nobody has recorded what a Gnani minute costs on this account, and an unpriced minute is unmetered spend rather than a free one — attest the Gnani TTS price in the ops console";
   const voices: OfferedVoice[] = [
     {
@@ -198,7 +200,7 @@ export function voiceCatalogue(realm: "client" | "admin"): VoiceCatalogue {
         in_catalogue: 1,
         note:
           realm === "client"
-            ? "No Clear voice is available on your account at the moment, so there is nothing to choose in that quality here. Ask your account manager if you want one."
+            ? "No Clear voice is available on your account at the moment, so there is nothing to choose in that quality here. Ask us if you want one."
             : "1 Clear voice(s) are in the catalogue and none of them can be offered right now — the reason is on each row. Reading the catalogue again will not change that.",
       },
       { provider: "cartesia", label: "Studio", offerable: 1, in_catalogue: 1, note: null },
@@ -227,6 +229,8 @@ export function agentRow(over: Partial<Agent> = {}): Agent {
     caller_memory_enabled: false,
     opening_line:
       "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
+    script_opening_line: "",
+    first_words: "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
     truthful_answer_rule:
       "Whatever these settings say, the agent always answers honestly when a caller asks.",
     engine: "pipecat",
@@ -530,5 +534,34 @@ export function adminOverviewSummaryReads(tenantId: string) {
     "/v1/billing/wallet": noReply(),
     "/v1/healer/incidents?days=30&limit=20": noReply(),
     "/v1/calls?limit=5": [],
+    ...adminAccountFactReads(tenantId),
   };
 }
+
+/**
+ * The reads behind the overview's assistant facts (`accountFacts.ts`): KYC and pledge,
+ * readiness, workspace, trial and the business profile. Left unanswered — the facts then
+ * say "still loading", and no file that spreads this in is about them.
+ */
+export function adminAccountFactReads(tenantId: string) {
+  return {
+    [`/v1/admin/tenants/${tenantId}/kyc`]: noReply(),
+    [`/v1/admin/tenants/${tenantId}/readiness`]: noReply(),
+    [`/v1/admin/engine-workspaces/tenants/${tenantId}`]: noReply(),
+    [`/v1/admin/tenants/${tenantId}/trial`]: noReply(),
+    [`/v1/admin/tenants/${tenantId}/business-profile`]: noReply(),
+    // The Overview usage card and its assistant facts (`UsagePanel`): the month spend read.
+    [`/v1/admin/tenants/${tenantId}/spend?month=${currentISTMonth()}`]: noReply(),
+  };
+}
+
+/** The monthly platform fee switched off and never raised — `GET /v1/billing/platform-fee`
+ *  on a platform that charges none (D-707). The card renders nothing. */
+export const PLATFORM_FEE_OFF = {
+  enabled: false,
+  amount_inr: null,
+  exemption: null,
+  outbound_paused: false,
+  grace_days: 7,
+  charges: [],
+} satisfies PlatformFee;

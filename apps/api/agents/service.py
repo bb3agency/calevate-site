@@ -1090,9 +1090,11 @@ def _to_config(
         ),
         system_prompt=_script_for(engine, _assert_has_a_script(agent)),
         facts_in_knowledge=hosted_agent_limits(engine).facts_in_knowledge,
-        # WHAT THE AGENT VOLUNTEERS FIRST, composed from this agent's two toggles by the
-        # one composer (D-163). Empty is a legitimate answer — both notices switched off
-        # — and is NOT the old "missing disclosure" state: the AI sentence is still
+        # THE NOTICES THE AGENT VOLUNTEERS BEFORE ITS OPENING LINE, composed from this
+        # agent's two toggles by the one composer (D-163). The opening line itself (the
+        # greeting) stays in the script and is never replaced by these (D-708). Empty is a
+        # legitimate answer — both notices switched off, the agent opens on its opening
+        # line — and is NOT the old "missing disclosure" state: the AI sentence is still
         # NOT NULL on the row, the compliance gate still refuses an agent without one,
         # and the answer to a caller who ASKS is `truthful_answer_directive`, which no
         # column on this row can reach. The recording sentence is spoken only where the
@@ -1645,7 +1647,8 @@ CREDIT_STOP_MESSAGE: Final = "Sorry, we cannot take your call right now. Please 
 
 
 def credit_stop_greeting(posture: DisclosurePosture, *, call_is_recorded: bool) -> str:
-    """The agent's own opening line, then the neutral message.
+    """The notices the agent has switched on, then the neutral message. Not the script's
+    opening line (D-708): its greeting offers help this call cannot give.
 
     PREPENDED, NOT REPLACED — `workers/maintenance._maintenance_greeting` argues this and
     the argument is the same one, so it is followed rather than re-decided. `opening_line`
@@ -2004,7 +2007,9 @@ class ForwardsLine(Protocol):
 
 
 def healer_forward_greeting(posture: DisclosurePosture, *, call_is_recorded: bool) -> str:
-    """The agent's own opening line (both disclosures, D-163), then the hand-over line."""
+    """The notices the agent has switched on (D-163), then the hand-over line. Not the
+    script's opening line (D-708): this call is handed to a person at once, so the agent's
+    usual greeting would promise help it is not going to give."""
     opening = compose_opening_line(posture, call_is_recorded=call_is_recorded).strip()
     return f"{opening} {HEALER_FORWARD_LINE}".strip()
 
@@ -3104,7 +3109,8 @@ def _variant_config(
             "system_prompt": _script_for(engine, body),
             # THE ARM'S OWN AI SENTENCE, THROUGH THE AGENT'S OWN TOGGLES (D-163). A
             # variant carries its own `disclosure_line` (NOT NULL, non-empty) because an
-            # A/B test of a script legitimately tests its opening; the POSTURE — whether
+            # A/B test of a script legitimately tests its opening; the arm's opening line
+            # comes from its own script body above (D-708). The POSTURE — whether
             # either notice is volunteered at all — is a property of the agent and is not
             # forked per arm. Recomposing here rather than substituting the raw sentence
             # is what makes a toggle flip reach the arms: `republish_running_variants`

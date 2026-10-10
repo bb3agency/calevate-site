@@ -273,7 +273,7 @@ def provisioning_not_configured(reason: str | None) -> ProblemError:
                 "agents in the platform's own console, so a number cannot be bought from here."
             ),
             remediation=(
-                "Ask your account manager: the number is rented and attached in the voice "
+                "Ask us: the number is rented and attached in the voice "
                 "platform's console, and the client's Numbers page in the admin console "
                 "lists the steps."
             ),
@@ -287,7 +287,7 @@ def provisioning_not_configured(reason: str | None) -> ProblemError:
             "so a number cannot be bought from here."
         ),
         remediation=(
-            "Ask your account manager to record a number on Calevate's own carrier account "
+            "Ask us to record a number on Calevate's own carrier account "
             "instead: the client opens no operator account and issues us no credentials."
         ),
     )
@@ -312,10 +312,10 @@ def self_serve_purchase_refused() -> ProblemError:
         "number_purchase_is_operator_led",
         (
             "A phone number cannot be bought from this screen. Numbers are arranged with "
-            "your account manager as part of setting your agent up."
+            "us as part of setting your agent up."
         ),
         remediation=(
-            "Talk to us and your account manager will arrange the number. Calevate "
+            "Talk to us and we will arrange the number. Calevate "
             "provides it on our own telephony account, so there is no operator account "
             "for you to open."
         ),

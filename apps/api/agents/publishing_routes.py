@@ -285,17 +285,17 @@ class EngineStateOut(Strict):
     #: Tri-state per property: null means the adapter could not read it back, which is
     #: neither a match nor a mismatch (`AgentSnapshot`'s `*_readable` doctrine).
     prompt_applied: bool | None
-    #: The opening line IN THE GREETING — the engine's first-utterance field, which is
-    #: what hard rule 5 is about and what OPERATIONS §7 escalates. It was computed from
-    #: the PROMPT until P3.3, where our own adapter prepends the line, so it read true by
-    #: construction and could not fail for its own reason. Since D-163 it also answers in
-    #: the negative: for an agent that volunteers neither notice, `true` means the engine
-    #: is correctly holding NO greeting and `false` means it is still speaking a notice
-    #: this agent has withdrawn.
+    #: The expected first words IN THE GREETING (the notices switched on, plus the opening
+    #: line where the engine speaks one greeting field, D-708) — the first-utterance field,
+    #: which is what hard rule 5 is about and what OPERATIONS §7 escalates. It was computed
+    #: from the PROMPT until P3.3, where our own adapter prepends the notices, so it read
+    #: true by construction and could not fail for its own reason. It also answers in the
+    #: negative: when nothing is expected, `true` means the engine is correctly holding NO
+    #: greeting and `false` means it is still speaking a notice this agent has withdrawn.
     disclosure_applied: bool | None
-    #: The prompt's second copy of the same line. Reported beside the verdict, never
+    #: The prompt's second copy of the notices. Reported beside the verdict, never
     #: instead of it: a mismatch here is a fact about rendering, not a compliance failure.
-    #: Null for an agent with no opening line — there is no second copy of nothing.
+    #: Null for an agent with both notices off — there is no second copy of nothing.
     prompt_disclosure_applied: bool | None
     #: The rule no toggle reaches (D-163): is the engine holding the instruction that
     #: makes this agent answer "I am an AI", and say truthfully whether the call is

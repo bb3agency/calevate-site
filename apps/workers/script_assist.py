@@ -67,8 +67,10 @@ _SYSTEM_INSTRUCTION = (
     "businesses. The primary language is Telugu; write natural, warm, conversational Telugu "
     "(Tenglish code-switching is fine), in SHORT spoken sentences a phone agent can say out "
     "loud — no markdown, no lists inside a sentence, one idea per line. "
-    "From the business description, produce: an opening line the agent says after "
-    "introducing itself; an ordered list of steps for handling a typical call (greet, "
+    "From the business description, produce: an opening line, the greeting the agent opens "
+    "every call with, which names the business and offers help (do not put an AI or "
+    "recording notice in it; those are separate settings said before it when switched on); "
+    "an ordered list of steps for handling a typical call (greet, "
     "understand the need, answer or qualify, capture details, next step, wrap up); and a few "
     "FAQ question/answer pairs for things callers commonly ask. "
     "NEVER invent prices, addresses, phone numbers, hours or availability the description "
@@ -240,10 +242,13 @@ async def _draft_via_azure(description: str) -> _RawDraft | None:
                 response_format={"type": "json_object"},
                 max_tokens=_DRAFT_MAX_TOKENS,
             )
-        except httpx.HTTPStatusError as retry_refusal:
+        except httpx.HTTPError as retry_refusal:
+            # HTTPError, not only HTTPStatusError: this handler sits inside the first
+            # `except`, so a transport failure on the retry would skip the outer
+            # `except httpx.HTTPError` below and escape to the caller.
             log.warning(
                 "script_assist_azure_failed",
-                extra={"status": retry_refusal.response.status_code},
+                extra=provider_health.failure_fields(retry_refusal),
             )
             await provider_health.note_failure("script", AZURE_PROVIDER, retry_refusal)
             return None

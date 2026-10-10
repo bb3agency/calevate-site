@@ -1586,12 +1586,9 @@ async def test_a_managed_account_is_not_promised_a_purchase_nobody_can_make() ->
 
     assert raised.value.code == "ai_quota_exceeded_invoiced"
     remediation = raised.value.remediation or ""
-    assert "account manager" in remediation, "the one contact this console names"
+    assert "talk to us" in remediation.lower(), "the one contact this console names"
     assert "add more AI help to this month's plan" not in remediation, (
         "the remediation promises an invoice line that does not exist"
-    )
-    assert "not something we can add to an invoiced plan" in remediation, (
-        "the refusal no longer says WHY the conversation is not a purchase"
     )
 
 

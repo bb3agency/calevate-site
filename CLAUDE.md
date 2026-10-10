@@ -649,7 +649,12 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
   first-party session modules (`apps/web/src/lib/authn/`, D-177) — never share session
   logic. Authentication is OURS end to end: there is no identity vendor, the credential is
   an `HttpOnly` `__Host-` cookie, and `apps/api/authn/` is the only thing that mints one.
-- IDs: uuid_v7. Time: timestamptz, UTC in DB, IST at the edge. Phone: E.164 strings.
+- IDs: uuid_v7. Phone: E.164 strings. Time: `timestamptz` (an absolute instant; storage has no
+  zone). **IST (`Asia/Kolkata`) is the standard time (D-709)** for everything shown, logged,
+  scheduled, or bucketed into a day, week or month — name the zone every time
+  (`AT TIME ZONE 'Asia/Kolkata'` in SQL, `billing.plans.IST` in Python), never lean on a
+  session or host zone. App database sessions run UTC on purpose
+  (`db/session.APP_SESSION_TIMEZONE`), so Python holds UTC-aware instants and renders IST.
 - Errors: RFC-9457 problem+json from api; user-safe messages (no internals).
 - Tests: pytest; every module has unit tests; RLS tests mandatory for new tables; adapter
   work runs conformance; extraction changes run the golden-transcript fixtures.

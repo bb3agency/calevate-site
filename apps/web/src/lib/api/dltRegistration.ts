@@ -71,7 +71,7 @@ export interface StatusCopy {
 export const PE_STATUS_COPY: Record<PeStatus, StatusCopy> = {
   not_started: {
     label: "Not started",
-    next: "We have not filed your Principal Entity registration with the DLT registrar yet. Ask your account manager to start it.",
+    next: "We have not filed your Principal Entity registration with the DLT registrar yet. Ask us to start it.",
   },
   submitted: {
     label: "With the registrar",
@@ -80,11 +80,11 @@ export const PE_STATUS_COPY: Record<PeStatus, StatusCopy> = {
   active: { label: "Active", next: "The registrar has approved your business as a Principal Entity." },
   suspended: {
     label: "Suspended",
-    next: "The registrar has suspended this registration, so campaigns cannot launch. Ask your account manager what the registrar asked for.",
+    next: "The registrar has suspended this registration, so campaigns cannot launch. Ask us what the registrar asked for.",
   },
   rejected: {
     label: "Rejected",
-    next: "The registrar refused this registration. It has to be re-filed before campaigns can launch — ask your account manager.",
+    next: "The registrar refused this registration. It has to be re-filed before campaigns can launch — ask us.",
   },
 };
 

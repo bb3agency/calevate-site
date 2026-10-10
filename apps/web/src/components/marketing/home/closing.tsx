@@ -94,7 +94,7 @@ export function Closing({ devSlug }: { devSlug?: string }) {
               <code className="rounded bg-black/5 px-1 font-mono text-[13px] text-ink dark:bg-white/10">
                 /c/your-slug
               </code>{" "}
-              — the URL your account manager gave you.
+              — the URL we gave you.
             </p>
             <Link
               href={CLIENT_SIGN_IN_PATH}

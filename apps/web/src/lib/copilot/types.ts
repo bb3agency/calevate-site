@@ -104,6 +104,14 @@ export interface CopilotSurface {
   /** What the screen is called on screen. Sent so the model can say "this screen". */
   title: string;
   realm: "client" | "admin";
+  /**
+   * ADMIN REALM ONLY: the client account this page is about. Sent as the ask's
+   * `tenant_id`, which is what scopes the assistant's account tools and its live account
+   * state to that client (`AdminCopilotAskIn`). Without it an operator on a client's page
+   * gets an assistant that can read only what the page volunteered. Screens under
+   * `/admin/tenants/{id}` need not set it: `adminTenantOf` reads it from the address.
+   */
+  tenantId?: string;
   fields: CopilotField[];
   facts?: CopilotFact[];
   /**

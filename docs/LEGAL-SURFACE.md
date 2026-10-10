@@ -1202,7 +1202,7 @@ deleting them was the only way to keep it honest.
 `GRIEVANCE_OFFICER_DESIGNATION` · `GRIEVANCE_OFFICER_EMAIL` ·
 `DATA_PROTECTION_CONTACT_NAME` · `DATA_PROTECTION_CONTACT_EMAIL` · `SECURITY_CONTACT_EMAIL` ·
 `JURISDICTION_CITY` · `EFFECTIVE_DATE` · `PRIMARY_HOSTING_LOCATION` ·
-`REFUND_PROCESSING_DAYS` · `TERMINATION_NOTICE_DAYS` · `DATA_RETURN_WINDOW_DAYS`
+`REFUND_PROCESSING_DAYS` · `DATA_RETURN_WINDOW_DAYS` (`TERMINATION_NOTICE_DAYS` retired with managed engagements, D-707)
 
 *(eighteen tokens, no blanks. `unresolvedPlaceholders()` computes that list rather than
 maintaining it, and `assertLegalSetPublishable` refuses to render a published document

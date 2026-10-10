@@ -707,8 +707,9 @@ CAMPAIGN_LAUNCH: Final = ActionTool(
         "campaign_launch",
         "Propose launching an outbound campaign, so the platform starts calling the "
         "contacts on it. Works from any screen. Calevate checks every compliance "
-        "requirement first — the client's DLT registration, an approved template, consent "
-        "provenance for the list, a live agent — and refuses with the reasons if any is "
+        "requirement first — the client's verified identity and accepted no-cold-calls "
+        "pledge, the agreements, consent provenance for the list, a live agent — and "
+        "refuses with the reasons if any is "
         "missing. If it refuses, tell the person the reasons and do NOT call this again."
         + PROPOSES_ONLY,
         {

@@ -7,6 +7,7 @@ import { TenantSectionNav } from "@/app/admin/tenants/[tenantId]/TenantShell";
 import { carrierApplicationPath, type TenantSummary } from "@/lib/api/admin";
 import { KYC_PATH, type CarrierApplication, type KycRecord } from "@/lib/api/kyc";
 import type { AdminKyc } from "@/lib/api/kycReview";
+import type { TenantWorkspace } from "@/lib/api/engineWorkspaces";
 
 import { problem, type Routes } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
@@ -44,6 +45,7 @@ const TENANT = "0192f0aa-7777-7000-8000-0000000000c1";
 const TENANT_PATH = `/v1/admin/tenants/${TENANT}`;
 const CARRIER_PATH = carrierApplicationPath(TENANT);
 const SUBMIT = { name: /Record decision/ };
+const WORKSPACE_PATH = `/v1/admin/engine-workspaces/tenants/${TENANT}`;
 
 function tenant(): TenantSummary {
   return {
@@ -168,8 +170,34 @@ function render(routes: Partial<Routes> = {}) {
     [KYC_PATH]: kyc(),
     [CARRIER_PATH]: application(),
     [`/v1/admin/tenants/${TENANT}/kyc`]: adminKyc(),
+    // No per-client voice workspace: the carrier's own decision is the approval here.
+    [WORKSPACE_PATH]: { available: false },
     ...routes,
   });
+}
+
+function workspace(over: Partial<TenantWorkspace> = {}): TenantWorkspace {
+  return {
+    available: true,
+    status: "active",
+    workspace_id: "org_3fKq9TzQ1mN8vB2xR7cLpA",
+    last_error_code: null,
+    attempts: 1,
+    provisioned_at: "2026-10-08T09:00:00Z",
+    business_details: {
+      status: "submitted",
+      can_rent: false,
+      review_note: null,
+      submitted_at: "2026-10-08T09:41:12Z",
+      checked_at: "2026-10-08T09:45:00Z",
+    },
+    purchase_step: "business_details",
+    purchase_blockers: ["business_details_not_approved"],
+    client_inr_per_month: "499.00",
+    numbers: { own_workspace: 0, platform_held: 0 },
+    agents_in_platform_account: 0,
+    ...over,
+  };
 }
 
 const DECIDED = {
@@ -277,16 +305,6 @@ describe("the carrier compliance application panel", () => {
 
     await screen.findByText("Application on file");
     expect(container.textContent).toContain("numbers closed");
-  });
-
-  it("says the application gates nothing when the carrier needs none (D-666)", async () => {
-    const { container } = await render({
-      [CARRIER_PATH]: application({ carrier: "vobiz", recorded: false, status: null, required: false }),
-    });
-
-    await screen.findByText(/does not approve client businesses separately/);
-    expect(container.textContent).toContain("Carrier: not required");
-    expect(container.textContent).not.toContain("numbers closed");
   });
 
   it("reports an already-in-this-state answer as nothing moved", async () => {
@@ -411,5 +429,56 @@ describe("finding the carrier decision at all", () => {
     expect(container.textContent).toContain("Identity & carrier");
     const link = container.querySelector(`a[href="/admin/tenants/${TENANT}/kyc"]`);
     expect(link).not.toBeNull();
+  });
+});
+
+describe("the number approval on a per-client voice workspace (D-693)", () => {
+  it("shows the voice platform's answer read-only, and no typed carrier decision", async () => {
+    const { container } = await render({
+      [WORKSPACE_PATH]: workspace({
+        business_details: {
+          status: "rejected",
+          can_rent: false,
+          review_note: "The name on the certificate does not match the business name provided.",
+          submitted_at: "2026-10-08T09:41:12Z",
+          checked_at: "2026-10-08T10:00:00Z",
+        },
+      }),
+    });
+
+    expect(await screen.findByText("Approval for phone numbers")).toBeTruthy();
+    expect(container.textContent).toContain("Rejected — correct it and send again");
+    expect(container.textContent).toContain(
+      "The name on the certificate does not match the business name provided.",
+    );
+    expect(screen.queryByText("Carrier's decision")).toBeNull();
+    expect(screen.queryByLabelText(/application reference/)).toBeNull();
+    expect(screen.queryByRole("button", SUBMIT)).toBeNull();
+  });
+
+  it("reads the status again on request, from the voice platform", async () => {
+    const { calls } = await render({
+      [WORKSPACE_PATH]: workspace(),
+      [`POST ${WORKSPACE_PATH}/business-details/refresh`]: {
+        status: "accepted",
+        can_rent: true,
+        review_note: null,
+        submitted_at: "2026-10-08T09:41:12Z",
+        checked_at: "2026-10-08T09:50:00Z",
+      },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Check again now" }));
+    await waitFor(() =>
+      expect(
+        calls.some((c) => c.method === "POST" && c.path === `${WORKSPACE_PATH}/business-details/refresh`),
+      ).toBe(true),
+    );
+  });
+
+  it("hides the typed decision where the carrier in use approves nobody", async () => {
+    await render({ [CARRIER_PATH]: application({ required: false }) });
+    await screen.findByText(/Identity verification/);
+    await waitFor(() => expect(screen.queryByText("Carrier's decision")).toBeNull());
+    expect(screen.queryByText("Approval for phone numbers")).toBeNull();
   });
 });

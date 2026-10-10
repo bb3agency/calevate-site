@@ -45,8 +45,9 @@ log = get_logger(__name__)
 
 #: Minutes past the hour the recharge sweep runs, clear of :00/:30.
 AUTO_RECHARGE_MINUTES: Final = frozenset({2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57})
-#: The reconciliation's daily slot, UTC (07:55 IST, before the working day).
-RECONCILE_HOUR_UTC: Final = 2
+#: The reconciliation's daily slot, 07:25 IST (`settings.CRON_TIMEZONE`, D-709), before the
+#: working day.
+RECONCILE_HOUR_IST: Final = 7
 RECONCILE_MINUTE: Final = 25
 
 _RETRY_S: Final = (60.0, 300.0, 900.0)
@@ -196,7 +197,7 @@ async def send_payment_notice(ctx: dict[str, Any], payload: dict[str, Any]) -> s
 
 __all__ = [
     "AUTO_RECHARGE_MINUTES",
-    "RECONCILE_HOUR_UTC",
+    "RECONCILE_HOUR_IST",
     "RECONCILE_MINUTE",
     "compose",
     "reconcile_razorpay",

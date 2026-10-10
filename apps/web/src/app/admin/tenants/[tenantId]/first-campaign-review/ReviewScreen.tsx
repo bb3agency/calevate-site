@@ -2,7 +2,7 @@
 
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
-import { NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import { NoticeBox, ProblemNotice, Skeleton, formatIST, formatISTStamp } from "@/components/ui";
 import { PageHeader } from "@/components/console/pageHeader";
 import { useAdminAccess } from "@/app/admin/access";
 import {
@@ -62,7 +62,7 @@ export function ReviewScreen({ tenantId }: { tenantId: string }) {
             { key: "held", label: "Is outbound campaigning held", value: hold.data.held ? "yes" : "no" },
             { key: "rule", label: "Which gate is holding it", value: hold.data.rule ?? "none" },
             { key: "status", label: "Recorded decision", value: hold.data.status ?? "none yet" },
-            { key: "decided_at", label: "When it was decided", value: hold.data.decided_at ?? "not decided" },
+            { key: "decided_at", label: "When it was decided", value: formatISTStamp(hold.data.decided_at, "not decided") },
             {
               key: "note_recorded",
               label: "Is a decision note on file (the text itself is not sent)",

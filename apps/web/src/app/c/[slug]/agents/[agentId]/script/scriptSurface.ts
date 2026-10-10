@@ -32,8 +32,8 @@ import type { CallScript } from "@/lib/api/script";
  * in `docs/PROMPT-GUIDE.md` §2 and the sections `call_script.py::compile_call_script` emits
  * ([OPENING] / [TASK FLOW] / [FAQ] / [END CALL]) — never a new format. It deliberately tells
  * the model NOT to write the platform-owned layers, because `compose_engine_prompt` adds them
- * around this text on every call and a second copy is drift: the AI-and-recording opening
- * (`compose_opening_line`, D-163), the speaking-style / brevity guidance (`VOICE_STYLE_GUIDANCE`,
+ * around this text on every call and a second copy is drift: the AI and recording notices
+ * (`compose_opening_line`, D-163; separate from the opening line, D-708), the speaking-style / brevity guidance (`VOICE_STYLE_GUIDANCE`,
  * D-479), the always-truthful floor (`TRUTHFUL_ANSWER_DIRECTIVE`, hard rule 5) and the generic
  * guardrails block (`GUARDRAILS_BLOCK`). The client's half is identity + what to say + task
  * flow + client-specific rules, which is precisely what this asks for.
@@ -54,9 +54,10 @@ export const RAW_SCRIPT_COPILOT_HELP =
   "confirm, agree the next step, wrap up — plus the specific things to collect and any " +
   "business-specific rules or what to do when it does not know (offer a callback). Short " +
   "directive sentences in Telugu or Tenglish, one idea per line. Do NOT write the platform's " +
-  "own rules here — the AI-and-recording opening, the speaking-style and brevity guidance, the " +
+  "own rules here — the AI and recording notices, the speaking-style and brevity guidance, the " +
   "always-be-truthful rule and the general guardrails are added automatically around this " +
-  "text, so repeating them only duplicates them.";
+  "text, so repeating them only duplicates them. The agent's greeting goes on the line after " +
+  "one that reads [OPENING], at the top.";
 
 /**
  * The structured opener is a GREETING, not the place for identity/flow prose — those have
@@ -64,8 +65,10 @@ export const RAW_SCRIPT_COPILOT_HELP =
  * system prompt into the first box it sees.
  */
 export const OPENING_LINE_COPILOT_HELP =
-  "The first thing the caller hears, after the platform's AI-and-recording sentences. Keep it " +
-  "a short, warm spoken greeting that names the business and offers help — not a description " +
+  "The agent's greeting, the line it opens every call with. When the agent's AI or recording " +
+  "notice is switched on, that notice is said just before this line; when both are off, this is " +
+  "the first thing the caller hears. Do not repeat the AI or recording notice here. Keep it a " +
+  "short, warm spoken greeting that names the business and offers help — not a description " +
   "of the company. The agent's identity, the task flow, the questions to ask and the rules go " +
   "in the steps, FAQ and end-call sections below, not here.";
 

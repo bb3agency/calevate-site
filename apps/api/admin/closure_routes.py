@@ -76,6 +76,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.lifecycle import release_account_numbers, restore_account_numbers
+from apps.api.billing.plans import IST
 from apps.api.billing.service import get_balance, to_paise
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
@@ -297,10 +298,14 @@ async def close(
             scoped,
             tenant_id=tenant_id,
             event=NOTICE_CLOSED,
-            # ISO, and DATE-ONLY: the client is being told which day their records go, and
-            # a timestamp to the microsecond in an email reads as machine output rather
-            # than a deadline a person can act on.
-            erase_on=record.erase_after.date().isoformat() if record.erase_after else None,
+            # ISO, DATE-ONLY and the IST day (D-709): the client is being told which day their
+            # records go, and a timestamp to the microsecond in an email reads as machine
+            # output rather than a deadline a person can act on.
+            erase_on=(
+                record.erase_after.astimezone(IST).date().isoformat()
+                if record.erase_after
+                else None
+            ),
             reason=record.reason,
         )
         # After the CAS, so only a real transition reaches the carrier. See

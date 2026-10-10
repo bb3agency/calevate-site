@@ -35,7 +35,7 @@ from apps.workers import storage
 
 log = get_logger(__name__)
 
-PURGE_HOUR: Final = frozenset({4})
+PURGE_HOUR: Final = frozenset({9})  # IST: `settings.CRON_TIMEZONE` (D-709)
 PURGE_MINUTE: Final = frozenset({17})
 #: Files per tick. Uploads are rare and abandonment rarer; a backlog past this drains over
 #: following nights rather than holding one tick open.

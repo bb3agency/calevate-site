@@ -30,6 +30,11 @@ def _client() -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://api")
 
 
+#: slug -> tenant id. `organizations` is under FORCEd RLS, so an untenanted session cannot
+#: look a tenant up by slug; the id comes from the create call instead.
+_TENANT_IDS: dict[str, uuid.UUID] = {}
+
+
 async def _tenant() -> str:
     created = await admin_service.create_organization(
         name="Identity Traders",
@@ -39,7 +44,9 @@ async def _tenant() -> str:
         language="te-IN",
         created_by=None,
     )
-    await accept_agreements(uuid.UUID(str(created["id"])))
+    tenant_id = uuid.UUID(str(created["id"]))
+    await accept_agreements(tenant_id)
+    _TENANT_IDS[str(created["slug"])] = tenant_id
     return str(created["slug"])
 
 
@@ -55,9 +62,7 @@ async def _member(slug: str, *, name: str | None) -> tuple[str, str]:
             ),
             {"id": user_id, "email": email, "name": name},
         )
-        tenant_id = (
-            await session.execute(text("SELECT id FROM organizations WHERE slug = :s"), {"s": slug})
-        ).scalar_one()
+    tenant_id = _TENANT_IDS[slug]
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(

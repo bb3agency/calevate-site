@@ -211,6 +211,21 @@ async def test_the_kyc_queue_lists_a_waiting_client() -> None:
     assert "open that client's page" in result
 
 
+async def test_a_clients_kyc_can_be_asked_by_slug_from_any_screen() -> None:
+    """FAILS IF "is X verified?" again needs X's page open: the tool resolves the client by
+    slug and states the KYC status in words, under that client's own session."""
+    from tests.conftest import verify_kyc_and_pledge_for_tests
+
+    tenant_id, slug, _client_token = await _make_tenant()
+    await verify_kyc_and_pledge_for_tests(tenant_id)
+    result = await _admin_read("admin_client_standing", role="operator", client=slug)
+    assert f"({slug})" in result
+    assert "Business verification (KYC): verified" in result
+    assert "No-cold-calls pledge: accepted." in result
+    missing = await _admin_read("admin_client_standing", client=f"nobody-{uuid.uuid4().hex}")
+    assert missing.startswith("No client")
+
+
 @pytest.mark.parametrize("name", ["admin_held_accounts", "admin_alerts", "admin_voices"])
 async def test_each_admin_board_answers_in_a_sentence(name: str) -> None:
     result = await _admin_read(name)
@@ -230,4 +245,10 @@ def test_the_admin_reads_are_appended_after_the_first_four() -> None:
         "platform_ops_state",
         "search_runbooks",
     ]
-    assert names[4:] == ["admin_kyc_queue", "admin_held_accounts", "admin_alerts", "admin_voices"]
+    assert names[4:] == [
+        "admin_kyc_queue",
+        "admin_held_accounts",
+        "admin_alerts",
+        "admin_voices",
+        "admin_client_standing",
+    ]

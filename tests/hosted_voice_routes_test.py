@@ -1049,11 +1049,79 @@ async def test_on_studio_a_refresh_with_no_studio_voices_names_the_pro_plan(
         hosted_rows.track(f"engine:{voice.voice_id}")
     body = await _refresh_on(HostingEngine(hosted=voices, key_state=OFF_KEY), admin)
     assert body["note"].startswith("ThinnestAI listed 3 voice(s) but none in the Studio tier")
-    assert (
-        "Studio voices and clones are listed only on the Pro plan and above. Upgrade the plan, "
-        "then refresh." in body["note"]
-    )
+    assert hosted_voices.STUDIO_NEEDS_PRO in body["note"]
+    # The free preview voice and the Cartesia switch are the two things an operator reaches
+    # for; the sentence rules out both.
+    assert "listening sample" in body["note"]
+    assert "Switching on Studio voices (our Cartesia key) does not change this" in body["note"]
     assert "credential" not in body["note"]
+
+
+async def test_a_voice_in_a_tier_the_adapter_does_not_read_is_named_in_the_refresh(
+    admin: dict[str, str], hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(hosted_voices, "alert", lambda *a, **k: None)
+    voices = [_voice("premium")]
+    for voice in voices:
+        hosted_rows.track(f"engine:{voice.voice_id}")
+    engine = HostingEngine(hosted=voices, key_state=OFF_KEY)
+    engine.unread_bands = {"studio_preview": 1}
+    body = await _refresh_on(engine, admin)
+    assert (
+        "Also listed in a tier we do not read, so not cached or sellable: 1 in 'studio_preview'."
+        in body["note"]
+    )
+
+
+async def test_clear_cannot_move_to_a_band_the_last_refresh_did_not_list(
+    hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pay-as-you-go lists no Studio voice, so selling Clear on Studio would sell nothing.
+    Refused before the per-key lock, so nothing is written."""
+    from apps.api.ops import config_service
+
+    _no_stranded_studio_agents(monkeypatch)
+    monkeypatch.setattr(hosted_voices, "alert", lambda *a, **k: None)
+    voices = [_voice("standard"), _voice("premium")]
+    for voice in voices:
+        hosted_rows.track(f"engine:{voice.voice_id}")
+    async with admin_session() as session:
+        await sync_voice_catalogue(session, HostingEngine(hosted=voices, key_state=OFF_KEY))
+        await session.commit()
+    _, admin_id = await _admin()
+    async with untenanted_session() as session:
+        with pytest.raises(ProblemError) as raised:
+            await config_service.set_value(
+                session,
+                key="thinnest_clear_voice_band",
+                value="studio",
+                note="hosted_voice_routes_test",
+                actor_id=admin_id,
+                expected_revision=0,
+            )
+        stored = (
+            await session.execute(
+                text("SELECT count(*) FROM platform_settings WHERE key = :k"),
+                {"k": "thinnest_clear_voice_band"},
+            )
+        ).scalar_one()
+    assert raised.value.code == "voice_band_not_listed"
+    assert hosted_voices.STUDIO_NEEDS_PRO in (raised.value.detail or "")
+    assert stored == 0
+
+
+@pytest.mark.parametrize(
+    ("bands", "band"),
+    [({}, "studio"), ({"premium": 2, "studio": 1}, "studio"), ({"premium": 2}, "premium")],
+)
+async def test_a_band_is_allowed_when_listed_or_when_nothing_was_ever_read(
+    monkeypatch: pytest.MonkeyPatch, bands: dict[str, int], band: str
+) -> None:
+    async def _bands(_: Any) -> dict[str, int]:
+        return bands
+
+    monkeypatch.setattr(hosted_voices, "count_listed_bands", _bands)
+    await hosted_voices.assert_clear_band_listed(object(), band)  # type: ignore[arg-type]
 
 
 async def test_a_thinnest_refresh_with_the_sold_band_counts_each_band(

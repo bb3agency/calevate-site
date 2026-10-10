@@ -1665,7 +1665,7 @@ comment already names.
   call to lock, never did. `tests/outbox_probe_and_prune_test.py` forces a real race and its
   negative control **measures the old shape writing two rows through the same harness**.
 
-**Both tables are now pruned** by `retention.prune_reliability_tables` (nightly, 04:10, after
+**Both tables are now pruned** by `retention.prune_reliability_tables` (nightly, 09:10 IST, after
 `apply_retention`), at a 90-day floor equal to `RECORDING_FLOOR_DAYS`. `failed` and `pending`
 outbox rows are never touched — that is the DLQ an operator replays from — and neither are
 unprocessed inbox rows, which are what a client's ingest screen offers a re-drive from. The

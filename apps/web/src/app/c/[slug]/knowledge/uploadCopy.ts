@@ -124,7 +124,7 @@ export function uploadState(upload: KbUpload): UploadState {
   if (upload.review_state === "rejected") {
     return {
       label: "Not accepted",
-      meaning: `Your account manager did not accept this ${thing}.`,
+      meaning: `We did not accept this ${thing}.`,
       tone: STOP_TONE,
       working: false,
       awaitingConfirmation: false,
@@ -187,7 +187,7 @@ export function uploadState(upload: KbUpload): UploadState {
   }
   return {
     label: "Waiting for review",
-    meaning: `Your account manager reads this ${thing} before your agents start using it.`,
+    meaning: `We read this ${thing} before your agents start using it.`,
     tone: WAIT_TONE,
     working: false,
     awaitingConfirmation: false,

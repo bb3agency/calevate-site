@@ -17,6 +17,8 @@ import {
 import { useTenant, type TenantSummary } from "@/lib/api/admin";
 import { ApiProblem } from "@/lib/api/client";
 import { useClosure } from "@/lib/api/closure";
+import { useAdminBusinessProfile } from "@/lib/api/businessProfile";
+import { useOwnerStatus } from "@/lib/api/onboarding";
 import { viewAsHref } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
@@ -25,6 +27,7 @@ import {
   currentTenantSection,
   tenantSectionHref,
 } from "./tenantSections";
+import { onboardingRemaining } from "./accountFacts";
 
 /** `organizations.status` is a bare string on the wire; an unknown one keeps a neutral pill. */
 const STATUS_TONES: Record<string, NoticeTone> = {
@@ -129,6 +132,7 @@ function TenantHeader({ tenant }: { tenant: TenantSummary }) {
           /c/{tenant.slug} · {tenant.plan_tier.replace(/_/g, " ")}
           {tenant.vertical_template ? ` · ${tenant.vertical_template.replace(/_/g, " ")}` : ""}
         </p>
+        {tenant.status === "onboarding" && <OnboardingNote tenantId={tenant.id} />}
         {/* Credit left on every page of the client, minutes first (founder, 10 Oct 2026):
             "why did their calls stop" is asked from every section, not only from Credits. */}
         {tenant.credit_inr !== undefined && tenant.plan_tier !== "managed" && (
@@ -229,5 +233,25 @@ export function TenantSectionNav({ tenantId }: { tenantId: string }) {
         </ul>
       </ScrollRegion>
     </nav>
+  );
+}
+
+/**
+ * WHAT "ONBOARDING" IS WAITING FOR. The pill alone read as a verdict on the whole account
+ * while it measures one thing: whether an owner has joined and the business profile has what
+ * an agent needs to go live (`tenancy/onboarding.onboarding_finished`). KYC, the pledge and
+ * payment are separate axes with their own sections, so they are not listed here.
+ */
+function OnboardingNote({ tenantId }: { tenantId: string }) {
+  const owner = useOwnerStatus(tenantId);
+  const profile = useAdminBusinessProfile(tenantId);
+  const left = onboardingRemaining(owner, profile);
+  if (left === null) return null;
+  return (
+    <p className="mt-0.5 text-meta text-ink-muted">
+      {left.length === 0
+        ? "Setup is finished. The account moves to Active on its next business profile save, or set it on Account state."
+        : `Onboarding until: ${left.join("; ")}.`}
+    </p>
   );
 }

@@ -50,12 +50,14 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Final, Literal, get_args
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import roster
+from apps.api.billing.plans import IST
 from apps.api.campaigns import service as campaigns_service
 from apps.api.copilot.prompt import defuse, function_tool
 from apps.api.copilot.sanitize import strip_invisible
@@ -212,6 +214,30 @@ def _clean(text: str) -> str:
     the three.
     """
     return defuse(redact(text).text)
+
+
+def ist_date(value: datetime) -> str:
+    """The IST calendar day of an instant, `YYYY-MM-DD` (D-709). A database datetime is a
+    UTC instant (`db/session.APP_SESSION_TIMEZONE`), so its bare `.date()` is the UTC day,
+    a day early for anything between 00:00 and 05:30 IST."""
+    return value.astimezone(IST).date().isoformat()
+
+
+def ist_stamp(value: datetime | str | None) -> str:
+    """An instant as `YYYY-MM-DD HH:MM IST`; also takes the ISO string a JSON column holds.
+    "—" for none, and the raw text for a string that is not an instant."""
+    if value is None:
+        return "—"
+    if isinstance(value, str):
+        try:
+            instant = datetime.fromisoformat(value)
+        except ValueError:
+            return value
+    else:
+        instant = value
+    if instant.tzinfo is None:
+        return f"{instant:%Y-%m-%d %H:%M}"
+    return f"{instant.astimezone(IST):%Y-%m-%d %H:%M} IST"
 
 
 def _cap(limit: object, *, default: int = 10) -> int:
@@ -396,7 +422,7 @@ async def _no_calls_in_window(session: AsyncSession, *, days: int) -> str:
     # `list_calls` orders `started_at DESC NULLS LAST`, so this row is genuinely the most
     # recent one that has a start time — and a date is not a personal value (hard rule 6).
     last = recent[0].started_at
-    when = f"on {last.date().isoformat()}" if last is not None else "before this window"
+    when = f"on {ist_date(last)}" if last is not None else "before this window"
     return (
         f"No calls at all in the last {days} days, so nothing in that window can be "
         f"measured — the rates and the average call length do not exist rather than being "
@@ -498,7 +524,7 @@ def _lead_line(lead: LeadOut) -> str:
             lead.status,
             f"{lead.call_count} call(s)",
             lead.phone_e164,
-            f"updated {lead.updated_at.date().isoformat()}",
+            f"updated {ist_date(lead.updated_at)}",
             f"owner {lead.assigned_to_name}" if lead.assigned_to_name else None,
         )
         if part
@@ -601,7 +627,7 @@ async def _calls_recent(
         " · ".join(
             part
             for part in (
-                f"- {call.started_at.date().isoformat() if call.started_at else 'not started'}",
+                f"- {ist_date(call.started_at) if call.started_at else 'not started'}",
                 call.direction,
                 call.status,
                 f"{call.duration_s}s" if call.duration_s is not None else None,

@@ -4,7 +4,7 @@ The concurrency doctrine, in the order FLOWS §5 states it, because one client's
 campaign must never starve another's inbound receptionist:
 
 1. `Settings.carrier_concurrency`, the lines the carrier account carries
-2. minus the inbound reserve (`max(1, ceil(lines * inbound_reserve_ratio))`) → the
+2. minus the inbound reserve (`engine/carrier_pacing.inbound_line_reserve`) → the
    OUTBOUND pool (`engine/carrier_pacing.outbound_line_pool`)
 3. per-tenant `concurrency_ceiling` (plans row), CLAMPED to that outbound pool —
    a ceiling above the pool is not a ceiling (`_tenant_ceiling`)

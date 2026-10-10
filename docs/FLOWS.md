@@ -250,12 +250,15 @@ caller dials the client's number → the number's Vobiz Application fetches its 
    agent with `worker_account_closed` (D-671); a suspended account still answers. Caller
    memory, when the agent has it on, arrives from `POST /v1/worker/agents/{ref}/caller-memory`
    (D-641).
-3. **Opening.** The worker speaks the published `opening_line` verbatim before the model's
-   greeting (D-654). A new agent volunteers neither the AI disclosure nor the recording
-   notice (both toggles default OFF since D-669), so it opens with the greeting only; a
-   client switches either on per agent (D-163). Whatever the toggles say, the agent answers
-   truthfully when a caller asks whether it is an AI or whether the call is recorded
-   (hard rule 5, `compose_engine_prompt`).
+3. **Opening.** The worker speaks the notices switched on (the published `opening_line`)
+   verbatim, then the model greets with the script's opening line (D-654). The notices
+   and the opening line are separate things (D-708): the two switches decide only whether
+   the AI disclosure and the recording notice are said before the opening line, never
+   whether the opening line is said. A new agent volunteers neither notice (both toggles
+   default OFF since D-669), so it opens with its opening line only; a client switches
+   either on per agent (D-163). Whatever the toggles say, the agent answers truthfully
+   when a caller asks whether it is an AI or whether the call is recorded (hard rule 5,
+   `compose_engine_prompt`).
 4. **Conversation.** Tools the model may call: `search_knowledge_base` (the agent's
    knowledge pack, held in the worker's memory, PIPECAT-MIGRATION §8.1),
    `record_do_not_call`, `book_callback`, `cancel_callback`, `request_human_handoff` and
@@ -303,7 +306,10 @@ from the client's Numbers page in the client's business name and pointed at the 
 (`docs/THINNEST-INTEGRATION.md` §3a-§3b). Vobiz is never used on this engine.
 
 caller dials the client's number → ThinnestAI answers with the published agent →
-1. **Opening.** The agent's `greeting` is our opening line, verbatim (D-669); the
+1. **Opening.** The agent's `greeting` is its first words, verbatim: the notices switched
+   on, then the script's opening line (`compose_first_utterance`, D-669, D-708). With both
+   notices off it is the opening line alone; an outbound call's `purpose` is the same
+   words with the call's `{{variables}}` filled in. The
    instructions are `compose_engine_prompt`'s, with the business facts moved into one
    knowledge document (founder, 6 Oct 2026). The truthful-answer floor and
    `CONFIDENTIALITY_RULE` are in the prompt and were read back at publish; there is no
@@ -394,8 +400,8 @@ limit with `429` and turns an inbound caller away with SIP 503
 (D-663). `apps/workers/campaign_dispatch.py` budgets, in order: (1)
 `Settings.carrier_concurrency`, the account's lines (default 3, the founder's account as
 read in the Vobiz console on 2 Oct 2026; OPERATIONS §2 gate V-5); (2) minus the inbound
-reserve, `max(1, ceil(lines × inbound_reserve_ratio))`, never zero — at the defaults one
-line for callers and an outbound pool of two (`engine/carrier_pacing.outbound_line_pool`);
+reserve, `inbound_reserved_lines` lines (unset: `max(1, ceil(lines × inbound_reserve_ratio))`), never zero — at
+the defaults one line for callers and an outbound pool of two (`engine/carrier_pacing.outbound_line_pool`);
 (3) the tenant's plan `concurrency_ceiling`, clamped to that pool; (4) the campaign's
 slider, at most the tenant ceiling. That is the BUDGET. The ENFORCEMENT is inside every
 dial's intent transaction (`agents.service.dispatch_call`): dials are paced to

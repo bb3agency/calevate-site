@@ -289,9 +289,9 @@ def test_the_seam_signatures_are_read_and_not_remembered() -> None:
 # `check_job_wiring` cannot see this: it proves a name is DEFINED, REGISTERED and
 # REACHED, which is a question about the registry's three sides and not about the
 # arguments one registration was given. Eight `cron()` call sites argue `max_tries` at
-# length in prose, and four individual tests (`kb_drift_reconciliation_test`,
-# `qa_sampling_test`, `setup_fee_test`, `reconciliation_sweep_isolation_test`) pin it for
-# the four crons somebody remembered. The NEXT cron gets none of that: it is registered,
+# length in prose, and three individual tests (`kb_drift_reconciliation_test`,
+# `qa_sampling_test`, `reconciliation_sweep_isolation_test`) pin it for
+# the three crons somebody remembered. The NEXT cron gets none of that: it is registered,
 # it looks green, and it has one attempt.
 #
 # So the rule is INVERTED here: every cron carries a real ladder unless it is named

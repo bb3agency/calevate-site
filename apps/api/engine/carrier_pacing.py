@@ -112,15 +112,19 @@ def slot_interval_ms(cps: int) -> int:
     return max(1, -(-10 * SPACING_MARGIN_PERCENT // max(1, cps)))
 
 
-def inbound_line_reserve(concurrency: int, ratio: float) -> int:
-    """Lines kept free for inbound callers: `max(1, ceil(concurrency * ratio))`.
+def inbound_line_reserve(concurrency: int, reserved_lines: int | None, ratio: float) -> int:
+    """Lines kept free for inbound callers: the operator's count, or else `ratio` of them.
 
     Never zero: the receptionist is the product a client is paying for every minute of the
     day, and a campaign that takes the last line turns a caller away with a carrier error.
-    The product is taken in `Decimal` from the ratio's decimal string, because `10 * 0.3` is
-    `3.0000000000000004` in binary floating point and its ceiling would reserve four lines.
+    Never more than the account has, so a count typed above the line limit reserves every
+    line rather than a negative pool. The share is taken in `Decimal` from the ratio's
+    decimal string, because `10 * 0.3` is `3.0000000000000004` in binary floating point and
+    its ceiling would reserve four lines.
     """
-    return max(1, math.ceil(Decimal(concurrency) * Decimal(str(ratio))))
+    if reserved_lines is None:
+        return max(1, math.ceil(Decimal(concurrency) * Decimal(str(ratio))))
+    return max(1, min(reserved_lines, concurrency))
 
 
 def engine_concurrency_cap(settings: Settings | None = None) -> int | None:
@@ -139,16 +143,17 @@ def engine_concurrency_cap(settings: Settings | None = None) -> int | None:
 def outbound_line_pool(settings: Settings | None = None) -> int:
     """Lines outbound dials may hold at once: the account's lines minus the inbound reserve.
 
-    At the default three lines and a 0.3 ratio that is two outbound lines and one kept for
-    callers. Zero when the account is too small to spare one, which the dispatch tick reports
-    as `outbound_pool_empty`. On an engine with its own ceiling (`engine_concurrency_cap`)
-    that ceiling is the account's lines: at ThinnestAI's 5 that is three outbound and two
-    kept for callers, who share the same ceiling and whom we cannot see while they talk.
+    At the default three lines and the automatic reserve that is two outbound lines and one
+    kept for callers. Zero when the account is too small to spare one, which the dispatch
+    tick reports as `outbound_pool_empty`. On an engine with its own ceiling
+    (`engine_concurrency_cap`) that ceiling is the account's lines: at ThinnestAI's 5 that
+    is three outbound and two kept for callers, who share the same ceiling and whom we
+    cannot see while they talk.
     """
     cfg = settings or get_settings()
     cap = engine_concurrency_cap(cfg)
     lines = cfg.carrier_concurrency if cap is None else cap
-    reserve = inbound_line_reserve(lines, cfg.inbound_reserve_ratio)
+    reserve = inbound_line_reserve(lines, cfg.inbound_reserved_lines, cfg.inbound_reserve_ratio)
     return max(0, lines - reserve)
 
 

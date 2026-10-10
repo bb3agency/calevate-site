@@ -11,6 +11,7 @@ import {
 } from "@/lib/api/commercials";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
+import { noReply } from "./harness";
 
 /**
  * The agreement history prints BOTH rungs of the price, not one of them.
@@ -126,6 +127,7 @@ async function render(inEffect: PlanRow) {
       [TENANT_PATH]: tenant(),
       [ADMIN_ME_PATH]: ME,
       [TERMS_PATH]: terms(inEffect, [inEffect]),
+      [`${TENANT_PATH}/platform-fee`]: noReply(),
     },
   );
 }

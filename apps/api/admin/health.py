@@ -22,10 +22,10 @@ the platform can observe it HONESTLY. Six cleared it.
    IVR. Every other signal here explains a symptom; this one IS the churn. Its honesty
    caveat is the whole reason `CallVolume.basis` exists — see below.
 2. **`outbound_blocked`** — the platform is refusing this client's outbound calls right
-   now. Composed from the gates THEMSELVES (`spend_capped`, `credits_exhausted`,
-   `kyc_blocker`, `first_campaign_hold_blocker`, `pe_registration_blocker`), never from a
-   second copy of their conditions, so the board cannot tell an operator an account is
-   fine while the client is staring at a refusal. Reported only for accounts that
+   now. Composed from the gates THEMSELVES (`campaigns.service.account_outbound_blockers`,
+   the account half of the launch screen), never from a second copy of their conditions,
+   so the board cannot tell an operator an account is fine while the client is staring at
+   a refusal. Reported only for accounts that
    actually dial out (see `_dials_out`): telling the operator of a purely inbound clinic
    that their outbound is blocked is noise about a capability they never bought.
 3. **`spend_cap_near`** — the ceiling in force will stop this account before the billing
@@ -77,7 +77,8 @@ CANDIDATES REJECTED, WITH THE REASON (so nobody re-proposes them)
   starts.
 * **The R-11 holds as their own row.** They are on `/admin/holds`, which is a screen with
   its own triage order (oldest signup first). They appear here only as CAUSES of
-  `outbound_blocked`, from the same `read_tenant_holds` predicate — because the question
+  `outbound_blocked`, from the same `kyc_blocker` and `first_campaign_hold_blocker`
+  predicates `read_tenant_holds` composes — because the question
   "can this client dial today" has one true answer and a board that answered it partially
   would be worse than not answering it. The console links the cause names back to that
   queue rather than re-implementing its remedies.
@@ -119,8 +120,8 @@ already-indexed tenant tables) — not one query per signal, which is the shape 
 a six-signal board into a six-fold cost.
 
 What is NOT folded into that statement is the compliance and billing half, and that is a
-deliberate trade rather than an oversight: `spend_capped`, `credits_exhausted`,
-`read_tenant_holds` and `pe_registration_blocker` are the predicates the DIAL GATE asks,
+deliberate trade rather than an oversight: `account_outbound_blockers` composes the
+predicates the DIAL GATE asks,
 and re-expressing them in this module's SQL would buy a few round trips and pay for it
 with a board that drifts away from the refusal the client is actually seeing. So a
 candidate tenant costs one aggregate plus those predicates' own small indexed reads, and
@@ -161,10 +162,8 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.admin.holds import read_tenant_holds
 from apps.api.billing.caps import read_caps, read_spend_counters
-from apps.api.compliance.registration import pe_registration_blocker
-from apps.api.compliance.service import credits_exhausted, spend_capped
+from apps.api.campaigns.service import account_outbound_blockers
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
 from apps.workers.pipeline import PIPELINE_STALL_AFTER
@@ -222,7 +221,7 @@ class HealthSignal:
     """One thing wrong with one account.
 
     `causes` carries the GATES' own rule names (`spend_cap`, `kyc_missing`,
-    `pe_registration_missing`, …) and never their `reason` prose. That is the same hard
+    `outbound_pledge_missing`, …) and never their `reason` prose. That is the same hard
     rule 6 line `admin/holds.py` draws and for the same reason: the first-campaign
     rejection reason interpolates an operator's free text, and free text can carry
     anything into the widest-read list in the console. The console owns the wording, the
@@ -411,36 +410,21 @@ def _dials_out(*, outbound_agents: int, campaigns: int) -> bool:
 async def _outbound_blocked(session: AsyncSession, *, tenant_id: UUID) -> HealthSignal | None:
     """Can this account place an outbound call today, and if not, on whose desk is it?
 
-    Every condition is asked through the predicate that REFUSES the dial, in the order
-    `campaigns.service.launch_blockers` asks them, so the board and the client's own
-    launch preview name one condition with one word. Nothing here is re-derived.
+    The causes are `campaigns.service.account_outbound_blockers`, the account half of the
+    client's own launch screen, so the board and that screen name the same conditions with
+    the same words in the same order. Since D-692 those are verified KYC and the
+    no-cold-calls pledge; the DLT entity chain is no longer asked anywhere.
 
-    Three of the launch gate's rules are deliberately absent, and each for its own reason:
+    Left out, each for its own reason:
 
     * `dnc` and `calling_hours` are properties of a CONTACT and a CLOCK, not of an account.
       A board that went amber on every row every evening at 21:00 IST would train an
       operator to ignore it.
-    * `tm_registration_missing` — Calevate's OWN telemarketer registration — is one global
-      row in `platform_state`, false for everybody at once. Repeating it on every line of
-      this board would be one fact rendered N times while saying nothing about which client
-      to look at; it belongs where it already is, on `/admin/ops`, beside the switch that
-      sets it.
-    * The per-CAMPAIGN rules (`consent_provenance_missing`, `dlt_template_*`,
-      `number_not_registered`) need a campaign to be about. They are the launch screen's
-      subject and the client can see them there.
+    * The per-CAMPAIGN and per-AGENT rules (consent provenance, the agent's state, its
+      autodialer notice) need a campaign to be about. They are the launch screen's subject
+      and the client can see them there.
     """
-    causes: list[str] = []
-    # KYC first, and the holds together, because `read_tenant_holds` is the one predicate
-    # the hold queue and the tenant directory already share — a third caller must not be
-    # a third definition.
-    causes.extend((await read_tenant_holds(session, tenant_id=tenant_id)).rules)
-    blocked_on_pe = await pe_registration_blocker(session, tenant_id=tenant_id)
-    if blocked_on_pe is not None:
-        causes.append(blocked_on_pe[0])
-    if await spend_capped(session, tenant_id=tenant_id):
-        causes.append("spend_cap")
-    if await credits_exhausted(session, tenant_id=tenant_id):
-        causes.append("no_credits")
+    causes = [rule for rule, _ in await account_outbound_blockers(session, tenant_id=tenant_id)]
     if not causes:
         return None
     return HealthSignal(rule="outbound_blocked", severity="stop", causes=tuple(causes))

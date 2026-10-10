@@ -6,9 +6,14 @@ change, promoted staging→live, rollbackable.
 
 ## 1. Non-negotiable prompt invariants (every agent, auto-inserted, non-removable)
 
-1. **Disclosure first**: the very first utterance identifies the assistant as an AI
-   assistant of <business>, in the caller's language, and states that the call is recorded
-   (where recording is on). Wizard injects this; regression scenario #5 asserts it.
+1. **Truthful when asked; notices when switched on (D-163, D-669, D-708)**: asked whether
+   it is an AI, or whether the call is recorded, the agent always answers truthfully
+   (`TRUTHFUL_ANSWER_DIRECTIVE`, appended by `compose_engine_prompt`, non-removable). The
+   AI disclosure and the recording notice are separate per-agent switches, default OFF:
+   when one is on it is said at the very start of the call, before the opening line. The
+   opening line (`[OPENING]`, the agent's greeting) is the client's and is separate from
+   both notices; no switch adds, removes or replaces it, so do not write an AI or
+   recording notice into it, and do not write a greeting word into a notice.
 2. **Truth boundary**: never invent prices, availability, medical/legal/financial facts.
    If the knowledge base doesn't answer it → say so, offer a callback, proceed to wrap-up
    (T4 behavior). Phrase pattern: "నాకు ఆ వివరం ఖచ్చితంగా తెలియదు — మా టీమ్ మీకు తిరిగి కాల్ చేస్తుంది."
@@ -48,6 +53,8 @@ NOT re-author `[STYLE]`; the template shows it only so the order is legible.
   values back to confirm, no lists, no markdown, one question at a time.
 [T0 FACTS] compiled context block (auto-generated from intake/KB — do not hand-edit;
   regenerate): hours, address, services+prices, top FAQs, staff, booking rules.
+[OPENING] the agent's greeting, one or two short spoken sentences. Said after any
+  notice switched on; with both off, the first thing callers hear (D-708).
 [TASK FLOW] the conversation goal as a loose state outline (greet → understand need →
   answer/qualify → capture <extraction hints> → book/next-step → wrap). Hints, not a
   rigid script — rigid scripts sound robotic and break on interruptions.

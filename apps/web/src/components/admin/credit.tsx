@@ -18,14 +18,15 @@ export function minutesLine(credit: Credit): string | null {
  * CREDIT LEFT, MINUTES FIRST AND RUPEES SECOND (founder, 10 Oct 2026): minutes are what an
  * operator quotes to a client on the phone, the balance is the ledger fact behind them.
  *
- * - An invoiced client has no wallet: "Invoiced", never "₹0".
+ * - An account still on the retired invoiced motion (D-707) has no wallet yet: "Moving to
+ *   credits", never "₹0".
  * - A prepaid client on a trial has a balance and no minutes figure (D-536): "On trial".
  * - A row the server sent no credit for (an older API, or a surface that does not read the
  *   wallet) says nothing rather than a zero.
  */
 export function CreditLeft({ credit, compact = false }: { credit: Credit; compact?: boolean }) {
   if (credit.credit_inr === undefined || (credit.credit_inr === null && credit.minutes_left == null)) {
-    if (credit.plan_tier === "managed") return <span className="text-ink-muted">Invoiced</span>;
+    if (credit.plan_tier === "managed") return <span className="text-ink-muted">Moving to credits</span>;
     return <span className="text-ink-muted">—</span>;
   }
   const tiers = credit.minutes_left && credit.minutes_left.length > 0 ? credit.minutes_left : null;

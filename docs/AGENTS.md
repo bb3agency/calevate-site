@@ -262,7 +262,10 @@ make web-check                # frontend: typecheck + lint + vitest + browser ax
    transcripts serialize as redacted by default; raw text requires role check +
    audit_log write.
 5. No PII (phones, transcript text, extraction data) in logs or traces; ids only.
-6. Money = NUMERIC INR. Time = timestamptz UTC. Phone = E.164. IDs = uuid_v7.
+6. Money = NUMERIC INR. Time = timestamptz (an absolute instant); IST (`Asia/Kolkata`) is the
+   standard time for everything shown, logged, scheduled or bucketed by day/week/month
+   (D-709) — always name the zone; app DB sessions run UTC so Python holds UTC-aware instants.
+   Phone = E.164. IDs = uuid_v7.
 7. Migrations reversible; column removal is two-step across releases.
 8. Don't add: a SEPARATE vector service (managed or self-hosted), brokers, a second backend
    language, new deployables — those need a decision-log entry in `docs/ROADMAP.md §6` first.

@@ -107,8 +107,8 @@ export function AnsweringMock() {
         <Panel elevation="raised" className="mk-rise mk-s2 flex flex-col gap-3 p-4">
           <CardTitle>Opening notices</CardTitle>
           {[
-            ["Say it is an AI assistant", "Spoken first, before anything else, in your language."],
-            ["Say the call is being recorded", "Spoken with the line above, at the start of the call."],
+            ["Say it is an AI assistant", "Said at the very start of the call, before the opening line."],
+            ["Say the call is being recorded", "Said at the start of the call, before the opening line."],
           ].map(([label, help]) => (
             <span key={label} className="flex items-start gap-3 rounded-lg border border-line px-3 py-2.5">
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">

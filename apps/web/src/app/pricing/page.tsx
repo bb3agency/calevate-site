@@ -6,6 +6,7 @@ import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
 import {
   cardFromRate,
   fetchPublicRateCard,
+  formatAmountINR,
   formatRateINR,
   ladderFalls,
   packRate,
@@ -43,22 +44,18 @@ import {
 } from "@/components/marketing/pageShell";
 
 /**
- * `/pricing` — what a minute costs, and the one figure that is still a conversation.
+ * `/pricing` — one pricing model for every client (D-707), and every figure from the API.
  *
- * Two price stories, and only one of them has a number:
- *
- * - **Self-serve** is published: a static six-rung credit-pack card
+ * - **Prepaid credit** at a published card: a static six-rung credit-pack card
  *   (`apps/api/billing/credit_packs.py::PACK_CATALOGUE`), whose every rate is checked in CI
  *   against its own voice's cost floor, served at `GET /v1/public/rate-card` and fetched
  *   here at request time. **Nothing on this page is typed** — every ₹ figure below is a
  *   string that arrived in that response, and `apps/web/tests/marketingPages.test.tsx`
  *   fails the build if one is not.
- * - **Managed** plans are negotiated per client (D-11) and have no publishable figure:
- *   every money column on `plans` is nullable with no default and the number is a founder
- *   decision (`apps/api/billing/models.py:217-258`). A managed rate typed into this copy
- *   would be a quote nobody can honour — worse here than anywhere, because a price is the
- *   one claim a buyer relies on before they have met anybody. That caveat is one paragraph,
- *   below the card, where the reader who needs it will look.
+ * - **An optional monthly platform fee**, the same for every client, switched on or off in
+ *   the ops console. The page quotes it only from `platform_fee_inr_per_month` on the same
+ *   response, and says there is none while that is null. There is no setup fee and no
+ *   negotiated plan.
  *
  * A pack buys a ₹/min for each of the two voices an agent can speak with (D-547), and which
  * one prices a call is a property of the AGENT that took it. The packs are COLUMNS and a
@@ -82,8 +79,8 @@ export const metadata: Metadata = publicPageMetadata({
   path: "/pricing",
   title: "Pricing — Calevate",
   description:
-    "How Calevate is billed: what is metered, how a plan is shaped, prepaid credit, " +
-    "spend caps and the monthly invoice. Commercial terms are agreed per client.",
+    "How Calevate is billed: prepaid credit at a published rate card, what is metered, " +
+    "spend caps, and the optional monthly platform fee. One pricing model for every client.",
 });
 
 /** What you are billed FOR. Each is a real meter, not a package name. */
@@ -106,45 +103,9 @@ const METERED: readonly { title: string; body: string }[] = [
   {
     title: "The language model you chose",
     body:
-      "If you pick a dearer model than the one your plan's rate is struck against, the " +
+      "If you pick a dearer model than the standard one, the " +
       "difference is a per-minute surcharge on the minutes that actually used it. Stay on " +
       "the standard model and there is no surcharge.",
-  },
-];
-
-/** How a plan is shaped. Every element is a real column; none has a published value. */
-const PLAN_SHAPE: readonly { term: string; detail: string }[] = [
-  {
-    term: "A setup fee, if there is one",
-    detail:
-      "One-off, for building the agent with you. Some arrangements have none.",
-  },
-  {
-    term: "A monthly fee",
-    detail:
-      "The standing part of the arrangement, agreed before anything is signed.",
-  },
-  {
-    term: "Talk time included in it",
-    detail:
-      "A bundle of minutes that comes with the monthly fee.",
-  },
-  {
-    term: "A rate for anything past the bundle",
-    // Never promise a PER-VOICE overage rate here: a managed plan carries one. `plans` has
-    // two overage columns (`overage_rate`, `overage_rate_second`,
-    // `apps/api/billing/models.py`) and the second is D-36's TTS ladder, not one of the two
-    // VOICE QUALITIES the self-serve card prices; every call is counted on the base rung
-    // anyway (`apps/workers/pipeline.py:2743-2745`). A column per voice is a quote nobody
-    // could honour.
-    detail:
-      "Per minute, applied to the minutes over the included allowance.",
-  },
-  {
-    term: "A start date the plan is priced from",
-    detail:
-      "A plan carries the period it is in effect for, so a price change agreed today " +
-      "does not silently re-price last month.",
   },
 ];
 
@@ -218,6 +179,12 @@ export default async function PricingPage() {
   const lead = rateCard === null ? null : headlineVoice(rateCard);
   const other: VoiceTier | null = lead === null ? null : lead === "studio" ? "clear" : "studio";
   const offeredVoice = rateCard === null || lead === null ? null : tierLabel(rateCard, lead);
+  // D-707: the monthly platform fee, quoted only from the live card and only while it is on.
+  const fee = rateCard?.platform_fee_inr_per_month ?? null;
+  const feeLine =
+    fee === null
+      ? "No monthly fee, no setup fee, no per-seat charge"
+      : `Plus a monthly platform fee of ${formatAmountINR(fee)}, paid separately from your credit. No setup fee, no per-seat charge`;
   return (
     <MarketingPage>
       {/* THE PRICE IS THE HEADLINE: a buyer's whole reason for arriving is the number, so
@@ -239,7 +206,7 @@ export default async function PricingPage() {
         lede={
           rateCard === null
             ? "Not per seat, not per agent, not per number — you pay for the minutes your agents actually talk, in 30-second steps. Our live rate card could not be loaded just now, so there is no figure on this page we can stand behind; reload in a moment."
-            : `The ${tierLabel(rateCard, other ?? "clear")} voice is ${bandSentence(rateCard, other ?? "clear")} on the same card. ${voiceNotOfferedNotice(rateCard) ?? ""} No monthly fee, no per-seat charge — you are billed for the minutes your agents actually talk, in 30-second steps, and credit does not expire.`
+            : `The ${tierLabel(rateCard, other ?? "clear")} voice is ${bandSentence(rateCard, other ?? "clear")} on the same card. ${voiceNotOfferedNotice(rateCard) ?? ""} ${feeLine} — you are billed for the minutes your agents actually talk, in 30-second steps, and credit does not expire.`
         }
       >
         <div className="mt-8 flex flex-wrap gap-3">
@@ -257,7 +224,7 @@ export default async function PricingPage() {
       {/* --- Self-serve rate card (D-545) --------------------------------------- */}
       <section id="self-serve" className="scroll-mt-20">
         <div className={`${SHELL} ${SECTION}`}>
-          <Eyebrow index="00">Self-serve</Eyebrow>
+          <Eyebrow index="00">Rate card</Eyebrow>
           <h2 className={H2}>
             {/* NO FIGURE HERE, DELIBERATELY: the band is overhead in the h1 and every rung
                 is in the table below, so a heading re-quoting one end of the ladder is a
@@ -268,7 +235,7 @@ export default async function PricingPage() {
                 and not `some`: this heading sits above the switch and speaks for both
                 voices, so a claim true of only one of them is not a claim it may make. */}
             {rateCard === null
-              ? "Our self-serve rate"
+              ? "Our rate card"
               : VOICE_TIERS.every((voice) => ladderFalls(rateCard, voice))
                 ? "Prepaid credit, and the rate comes down as the pack gets bigger"
                 : "Prepaid credit, at a published rate with no minimum"}
@@ -283,11 +250,11 @@ export default async function PricingPage() {
             <>
               <div className="mt-4 grid max-w-5xl grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-10">
                 <p className="text-base text-pretty text-ink-muted">
-                  {/* THIS CARD IS PUBLISHED; A MANAGED PLAN IS QUOTED — the page has to say
-                      which is which, because it says both. It says nothing about how an
-                      ACCOUNT is opened: `self_serve_signup_enabled` is a live switch and the
-                      door that reads it is the homepage's. */}
-                  This is a published price, not a quote, and there is no minimum. The rates
+                  {/* ONE CARD FOR EVERY CLIENT (D-707). It says nothing about how an ACCOUNT
+                      is opened: `self_serve_signup_enabled` is a live switch and the door
+                      that reads it is the homepage's. */}
+                  This is a published price, the same for every client, and there is no
+                  minimum. The rates
                   you bought at stay with that credit until it is spent.
                 </p>
                 <p className="text-base text-pretty text-ink-muted">
@@ -314,21 +281,17 @@ export default async function PricingPage() {
             </>
           )}
 
-          {/* The managed-plan caveat, placed after the reader has seen what things cost.
-              Those figures genuinely are not publishable — every money column on `plans`
-              is nullable with no default — but that is a footnote to a price list, not a
-              substitute for one. */}
+          {/* One model for every client (D-707): a bigger pack is the volume price. */}
           <div className="mt-6 flex items-start gap-3 rounded-2xl border border-dashed border-line px-5 py-4 sm:px-6">
             <Info aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-brand-strong dark:text-brand-bright" />
             <p className="max-w-3xl text-base text-pretty text-ink-muted">
               <span className="font-medium text-ink">Calling a lot?</span>{" "}
-              Above a certain volume a monthly plan with minutes included usually costs less
-              than paying by the minute. Those are agreed with you rather than published —
-              put your own numbers into the{" "}
+              The bigger packs are the volume price, and they are the same for everyone —
+              there is no separate plan to negotiate. Put your own numbers into the{" "}
               <Link href="/roi" className={INLINE_LINK}>
                 cost comparison
               </Link>{" "}
-              first.
+              to see where you land.
             </p>
           </div>
         </div>
@@ -450,34 +413,26 @@ export default async function PricingPage() {
         </div>
       </section>
 
-      {/* --- 03 The shape of a plan ---------------------------------------------- */}
-      <section id="plan" className="scroll-mt-20 border-t border-line bg-surface/40">
-        <div className={`${SHELL} ${SECTION} lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] lg:gap-16`}>
+      {/* --- 03 The monthly platform fee (D-707) ---------------------------------- */}
+      <section id="platform-fee" className="scroll-mt-20 border-t border-line bg-surface/40">
+        <div className={`${SHELL} ${SECTION}`}>
           <Reveal>
-            <Eyebrow index="03">The shape of a plan</Eyebrow>
+            <Eyebrow index="03">The monthly platform fee</Eyebrow>
             <h2 className={H2}>
-              Five parts, and you will know the number against each one before you sign
+              {fee === null
+                ? "There is no monthly fee today"
+                : `${formatAmountINR(fee)} a month, the same for every client`}
             </h2>
-          </Reveal>
-          {/* Drawn as the order form it is: five lines, and against each a blank that is
-              filled in with you. The blanks are deliberate — no money column on `plans` has
-              a published value (D-11). */}
-          <Reveal className="mt-10 lg:mt-0">
-            <dl className="divide-y divide-line rounded-2xl border border-line bg-surface shadow-card">
-              {PLAN_SHAPE.map(({ term, detail }) => (
-                <div
-                  key={term}
-                  className="grid gap-1 p-5 sm:grid-cols-[minmax(0,1fr)_8rem] sm:gap-x-6 sm:px-7"
-                >
-                  <dt className="text-[17px] font-semibold text-ink">{term}</dt>
-                  <dd className="text-sm text-pretty text-ink-muted sm:col-start-1">{detail}</dd>
-                  <span
-                    aria-hidden
-                    className="hidden self-center border-b border-dashed border-ink/25 pt-5 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:block"
-                  />
-                </div>
-              ))}
-            </dl>
+            <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+              {/* From `platform_fee_inr_per_month` on the live card, never typed; null means
+                  the platform-wide switch is off. */}
+              {fee === null
+                ? "You pay for calling credit and nothing else. If we ever charge a monthly platform fee, it will be the same for every client, it will be shown here, and it will always be a separate payment that never comes out of your calling credit."
+                : "It is a separate payment, never taken from your calling credit, and you pay it from your Billing page each month. Free-trial accounts do not pay it. If it stays unpaid seven days after it is due, outgoing calls pause until it is paid — incoming calls keep being answered."}
+            </p>
+            <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+              There is no setup fee, for anyone.
+            </p>
           </Reveal>
         </div>
       </section>
@@ -498,12 +453,12 @@ export default async function PricingPage() {
               </Link>{" "}
               is available to every account, the calling-hours and do-not-call rules are
               enforced on every dial for everybody, and the honest answer about being an AI is
-              not something a cheaper plan turns off. What changes with the arrangement is the
-              price of a minute, not what a minute does.
+              not something a smaller pack turns off. What changes with the pack is the price
+              of a minute, not what a minute does.
             </p>
             <p className="text-base text-pretty text-ink-muted">
-              A managed plan is the part that is a conversation — the monthly fee, the talk
-              time in it and the rate past it are agreed with you.{" "}
+              Every client is on the same card and the same terms — nothing is negotiated
+              behind it.{" "}
               <Link href="/roi" className={INLINE_LINK}>
                 Bring your own numbers
               </Link>{" "}

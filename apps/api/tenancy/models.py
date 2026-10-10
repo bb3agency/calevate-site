@@ -52,7 +52,17 @@ ORG_STATUSES = ("prospect", "onboarding", "active", "suspended", "churned")
 #
 # The two questions had identical answers until D-521, which is why one constant used to
 # serve both. `tests/plan_tier_split_test.py` pins the containment that survives it.
+#
+# D-707 (10 Oct 2026) puts every client on ONE pricing model, prepaid credits, so the
+# invoiced `managed` motion is retired: migration `e5a1d706c3f2` moved every `managed`
+# account to `prepaid` and nothing writes it any more. It stays in this tuple, and so in
+# the CHECK, for ONE release (hard rule 8's two-step): a process not yet redeployed can
+# still read it, and the next release narrows the CHECK and deletes the readers.
 PLAN_TIERS = ("managed", "prepaid", "self_serve", "trial")
+
+#: The tiers no writer may produce any more (D-707). `admin.service.create_organization`
+#: refuses them and `tests/platform_fee_test.py` pins that nothing else writes one.
+RETIRED_PLAN_TIERS = ("managed",)
 
 #: What a NEW organisation is born on when no caller names a tier (D-521). Lives here,
 #: beside the enum it must be a member of, rather than in `admin/service.py` where it
@@ -83,6 +93,14 @@ class Organization(PKMixin, TimestampMixin, Base):
         ),
         CheckConstraint(
             "(first_paid_at IS NULL) = (first_paid_via IS NULL)", name="first_paid_together"
+        ),
+        # A waiver is a decision with a reason (D-707): the instant and the reason are
+        # set and cleared together, and the reason is never blank.
+        CheckConstraint(
+            "(platform_fee_waived_at IS NULL) = (platform_fee_waiver_reason IS NULL) "
+            "AND (platform_fee_waiver_reason IS NULL "
+            "OR length(btrim(platform_fee_waiver_reason)) > 0)",
+            name="platform_fee_waiver_together",
         ),
         # The account's language-model choice, admitted only from the catalogue.
         # DERIVED from `LLM_MODEL_NAMES`, never retyped (D-104): the frozenset is the
@@ -224,6 +242,21 @@ class Organization(PKMixin, TimestampMixin, Base):
     #: before the rule and keeps what it had.
     first_paid_at: Mapped[datetime | None]
     first_paid_via: Mapped[str | None] = mapped_column(Text)
+    #: THE MONTHLY PLATFORM FEE WAIVER (D-707, migration e5a1d706c3f2). An operator may
+    #: excuse one client from the platform-wide fee, with a reason; the three columns are
+    #: set and cleared together (a CHECK holds it) and every change writes an audit row
+    #: (`billing/platform_fee.set_waiver`). NULL `platform_fee_waived_at` means the client
+    #: pays the fee whenever the switch is on.
+    platform_fee_waived_at: Mapped[datetime | None]
+    platform_fee_waiver_reason: Mapped[str | None] = mapped_column(Text)
+    platform_fee_waived_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="SET NULL")
+    )
+    #: When D-707's migration moved this account off the invoiced (`managed`) motion onto
+    #: prepaid credits. NULL for every account that was never invoiced. Invoices for the
+    #: months before it are still rendered from the retainer terms in effect then; the
+    #: migration's downgrade reads it to put exactly these accounts back.
+    moved_to_credits_at: Mapped[datetime | None]
 
 
 class ReservedSlug(Base):

@@ -89,6 +89,9 @@ export interface ScriptOut {
 interface SaveScriptIn {
   script: CallScript;
   notes?: string | null;
+  /** The draft version the edit started from (null: no script yet). Sent, the server
+   *  refuses the save with `script_changed_elsewhere` if the draft has moved since. */
+  expected_version?: number | null;
 }
 
 interface SaveScriptOut {

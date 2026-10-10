@@ -275,16 +275,15 @@ export function CorrectionForm({
                 cancels stays where it is, because it is the evidence, and correcting the
                 correction is another line again.
               </p>
-              {/* Every tier but managed, and both directions: `prepaid` is the default tier
+              {/* Every client (D-707: one pricing model), and both directions; `prepaid` is the default tier
                   and is in `PREPAID_TIERS`, and inbound answering stops too (D-551).
                   Guarded by `tests/credit_stop_copy_test.py`. */}
               <p className="mt-1 text-ink-muted">
                 A correction may take the balance <span className="font-semibold">below
                 zero</span> — a wrong credit that has already been spent cannot be fully
-                taken back any other way. For every client but a managed one that stops
+                taken back any other way. That stops the client&apos;s
                 their outgoing calls immediately and stops their agents answering incoming
-                ones, exactly as an empty wallet does, until you add credit back; a
-                managed client is invoiced against their retainer and keeps calling. The
+                ones, exactly as an empty wallet does, until you add credit back. The
                 answer comes back with the result rather than being guessed here.
               </p>
               <p className="mt-1 text-meta text-ink-muted">

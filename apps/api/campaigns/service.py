@@ -61,6 +61,11 @@ from apps.api.agents.service import (
     outbound_number_provider,
 )
 from apps.api.billing.dispute_hold import DISPUTE_HOLD_REASON, dispute_hold_active
+from apps.api.billing.platform_fee import (
+    PLATFORM_FEE_PAUSE_REASON,
+    PLATFORM_FEE_RULE,
+    platform_fee_paused,
+)
 from apps.api.campaigns.models import (
     CONSENT_SOURCES,
     REFUSED_CONSENT_SOURCES,
@@ -999,6 +1004,67 @@ def launch_refusal_for_agent_status(status: str) -> LaunchBlocker | None:
     return None
 
 
+async def account_outbound_blockers(
+    session: AsyncSession, *, tenant_id: UUID
+) -> list[tuple[str, str]]:
+    """Every ACCOUNT-level reason a campaign cannot launch, as `(rule, reason)`, in order.
+
+    The tenant half of `launch_blockers`, separate so the admin health board
+    (`admin/health._outbound_blocked`) lists exactly what the client's launch screen does.
+    Since D-692 that means verified KYC and the no-cold-calls pledge, never the DLT entity
+    chain, whose tables are kept but which no gate asks any more.
+    """
+    found: list[tuple[str, str]] = []
+    # Asked with the same functions the dial-time gate uses.
+    # The ACCOUNT's own lifecycle state first, because it outranks every other tenant
+    # refusal: telling a suspended client to top up or to file a document is advice they
+    # cannot act on. `check_dispatch` orders it first for the same reason.
+    stopped = await account_stopped_blocker(session, tenant_id=tenant_id)
+    if stopped is not None:
+        found.append(stopped)
+    # A FREE-TRIAL ACCOUNT RUNS NO CAMPAIGNS (D-697): it places test calls until it pays.
+    on_trial = await trial_blocker(session, tenant_id=tenant_id, locked="campaigns")
+    if on_trial is not None:
+        found.append(on_trial)
+    # KYC next, for the reason `check_dispatch` orders it before the money: telling an unverified
+    # account to top up when topping up will not let them dial is a worse answer than
+    # no answer. Not in `dispatch_blockers`: `check_dispatch` already asks it per dial,
+    # and asking twice is how two gates start disagreeing. The pledge beside it for the
+    # same reasons (D-692).
+    blocked_on_kyc = await kyc_blocker(session, tenant_id=tenant_id)
+    if blocked_on_kyc is not None:
+        found.append(blocked_on_kyc)
+    unpledged = await outbound_pledge_blocker(session, tenant_id=tenant_id)
+    if unpledged is not None:
+        found.append(unpledged)
+    # THE PAPERWORK THE CLIENT SIGNS, beside the paperwork the registrar holds. A client
+    # who has not accepted the Terms, the Privacy Policy, the DPA and the Acceptable Use
+    # Policy is a client dialling their customers under no instrument at all — the DPA is
+    # what makes us their processor for those callers' personal data, and the AUP is the
+    # document the rest of this gate enforces against them. Asked here AND in
+    # `dispatch_blockers` AND in `check_dispatch`, under one rule name from one
+    # implementation (`legal.service.agreements_blocker`), for the reason the entity
+    # blockers give: a re-acceptance can fall due while a campaign RUNS.
+    unaccepted = await agreements_blocker(session, tenant_id=tenant_id)
+    if unaccepted is not None:
+        found.append(unaccepted)
+    # R-11's last mitigation: a self-serve account's first campaign waits for a human
+    # (BRD §245, FLOWS §2, D-34). Asked here AND in `dispatch_blockers` — see the note
+    # in that function for why it is in both and not in `check_dispatch`.
+    held = await first_campaign_hold_blocker(session, tenant_id=tenant_id)
+    if held is not None:
+        found.append(held)
+    if await spend_capped(session, tenant_id=tenant_id):
+        found.append(("spend_cap", SPEND_CAP_REASON))
+    if await dispute_hold_active(session, tenant_id=tenant_id):
+        found.append(("payment_dispute", DISPUTE_HOLD_REASON))
+    if await platform_fee_paused(session, tenant_id=tenant_id):
+        found.append((PLATFORM_FEE_RULE, PLATFORM_FEE_PAUSE_REASON))
+    if await credits_exhausted(session, tenant_id=tenant_id):
+        found.append(("no_credits", NO_CREDITS_REASON))
+    return found
+
+
 async def launch_blockers(
     session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID
 ) -> list[LaunchBlocker]:
@@ -1097,51 +1163,12 @@ async def launch_blockers(
     # below (D-692).
     blockers.extend(_consent_blockers(facts))
 
-    # Tenant-level refusals, asked with the same functions the dial-time gate uses.
-    # The ACCOUNT's own lifecycle state first, because it outranks every other tenant
-    # refusal: telling a suspended client to top up or to file a document is advice they
-    # cannot act on. `check_dispatch` orders it first for the same reason.
-    stopped = await account_stopped_blocker(session, tenant_id=tenant_id)
-    if stopped is not None:
-        blockers.append(LaunchBlocker(*stopped))
-    # A FREE-TRIAL ACCOUNT RUNS NO CAMPAIGNS (D-697): it places test calls until it pays.
-    on_trial = await trial_blocker(session, tenant_id=tenant_id, locked="campaigns")
-    if on_trial is not None:
-        blockers.append(LaunchBlocker(*on_trial))
-    # KYC next, for the reason `check_dispatch` orders it before the money: telling an unverified
-    # account to top up when topping up will not let them dial is a worse answer than
-    # no answer. Not in `dispatch_blockers`: `check_dispatch` already asks it per dial,
-    # and asking twice is how two gates start disagreeing. The pledge beside it for the
-    # same reasons (D-692).
-    blocked_on_kyc = await kyc_blocker(session, tenant_id=tenant_id)
-    if blocked_on_kyc is not None:
-        blockers.append(LaunchBlocker(*blocked_on_kyc))
-    unpledged = await outbound_pledge_blocker(session, tenant_id=tenant_id)
-    if unpledged is not None:
-        blockers.append(LaunchBlocker(*unpledged))
-    # THE PAPERWORK THE CLIENT SIGNS, beside the paperwork the registrar holds. A client
-    # who has not accepted the Terms, the Privacy Policy, the DPA and the Acceptable Use
-    # Policy is a client dialling their customers under no instrument at all — the DPA is
-    # what makes us their processor for those callers' personal data, and the AUP is the
-    # document the rest of this gate enforces against them. Asked here AND in
-    # `dispatch_blockers` AND in `check_dispatch`, under one rule name from one
-    # implementation (`legal.service.agreements_blocker`), for the reason the entity
-    # blockers give: a re-acceptance can fall due while a campaign RUNS.
-    unaccepted = await agreements_blocker(session, tenant_id=tenant_id)
-    if unaccepted is not None:
-        blockers.append(LaunchBlocker(*unaccepted))
-    # R-11's last mitigation: a self-serve account's first campaign waits for a human
-    # (BRD §245, FLOWS §2, D-34). Asked here AND in `dispatch_blockers` — see the note
-    # in that function for why it is in both and not in `check_dispatch`.
-    held = await first_campaign_hold_blocker(session, tenant_id=tenant_id)
-    if held is not None:
-        blockers.append(LaunchBlocker(*held))
-    if await spend_capped(session, tenant_id=tenant_id):
-        blockers.append(LaunchBlocker("spend_cap", SPEND_CAP_REASON))
-    if await dispute_hold_active(session, tenant_id=tenant_id):
-        blockers.append(LaunchBlocker("payment_dispute", DISPUTE_HOLD_REASON))
-    if await credits_exhausted(session, tenant_id=tenant_id):
-        blockers.append(LaunchBlocker("no_credits", NO_CREDITS_REASON))
+    # Tenant-level refusals, in one function the admin health board asks too, so an
+    # operator and the client name the same conditions in the same order.
+    blockers.extend(
+        LaunchBlocker(*blocker)
+        for blocker in await account_outbound_blockers(session, tenant_id=tenant_id)
+    )
 
     # WHAT it may say and from WHERE (SEC-COMP §3, bullet two).
     blockers.extend(_channel_blockers(facts))
@@ -1752,6 +1779,7 @@ __all__ = [
     "SERIES_FOR_CLASSIFICATION",
     "TRANSACTIONAL_CAMPAIGN_REASON",
     "LaunchBlocker",
+    "account_outbound_blockers",
     "add_contacts",
     "assert_agent_still_assignable",
     "campaign_dialable_now",

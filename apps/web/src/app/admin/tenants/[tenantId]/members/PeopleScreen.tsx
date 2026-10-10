@@ -19,6 +19,7 @@ import {
   ProblemNotice,
   RestrictionNote,
   Skeleton,
+  formatISTStamp,
 } from "@/components/ui";
 import { useAdminAccess } from "@/app/admin/access";
 import { useInvite, useTenant, useTenantInvitations } from "@/lib/api/admin";
@@ -109,10 +110,12 @@ export function PeopleScreen({ tenantId }: { tenantId: string }) {
         label: "When a link was last sent to anybody at this account",
         value:
           invitations.data && invitations.data.length > 0
-            ? invitations.data
-                .map((invite) => invite.last_sent_at)
-                .sort()
-                .slice(-1)[0]!
+            ? formatISTStamp(
+                invitations.data
+                  .map((invite) => invite.last_sent_at)
+                  .sort()
+                  .slice(-1)[0],
+              )
             : "never, or none outstanding",
       },
       {

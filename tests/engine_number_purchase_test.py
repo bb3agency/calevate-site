@@ -566,6 +566,37 @@ async def test_the_sweep_resends_an_expired_application_and_alarms_a_rejection_o
     assert note == "Name mismatch."
 
 
+async def test_an_application_being_checked_is_read_again_within_minutes(
+    account: FakeAccount, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The voice platform sends no event when it approves business details and says checks
+    finish in minutes; only the daily sweep read them, so an approved client waited up to a
+    day to buy a number. The in-review poll reads every `submitted` application and only
+    those, and the stored status the screens show moves with it."""
+    waiting, ws_waiting = await _client(account, approved=False)
+    settled, _ = await _client(account, approved=True)
+    account.ws(ws_waiting).business = {"status": "accepted", "canRent": True}
+
+    from apps.api.tenancy import engine_workspace as resolver
+
+    real = resolver.workspaces_in_review
+
+    async def _only_ours(**kw: Any) -> list[Any]:
+        return [row for row in await real(**kw) if row.tenant_id in (waiting, settled)]
+
+    monkeypatch.setattr(jobs, "workspaces_in_review", _only_ours)
+    summary = await jobs.poll_business_details_in_review({})
+    assert summary.startswith("in_review=1 ")
+    assert "changed=1" in summary
+
+    async with tenant_session(waiting) as session:
+        state = await resolver.read_workspace_state(session, waiting)
+    assert (state.business_status, state.business_can_rent) == ("accepted", True)
+
+    # Settled now, so the next tick reads nothing.
+    assert (await jobs.poll_business_details_in_review({})).startswith("in_review=0 ")
+
+
 # --- one charge parser (audit fix 4) --------------------------------------------------------
 
 

@@ -167,7 +167,7 @@ function Totals({ data }: { data: FleetSpend }) {
       <Metric
         label="AI we absorb"
         value={formatINR(data.ai_absorbed_inr)}
-        hint="Assistant and AI tools. Not billed, not in the margin."
+        hint="Assistant, AI tools, the standby model and post-call extraction. Not billed, not in the margin."
       />
     </MetricRow>
   );

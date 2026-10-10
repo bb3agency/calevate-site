@@ -3,7 +3,9 @@
 Version 1.0 · Conventions: snake_case; every table has id UUID PK (uuid_v7), created_at,
 updated_at; every tenant-scoped table has tenant_id UUID NOT NULL REFERENCES organizations(id)
 and an RLS policy; soft-delete via deleted_at where noted; money as NUMERIC(12,4) INR;
-phone as E.164 TEXT; all timestamps timestamptz.
+phone as E.164 TEXT; all timestamps timestamptz — absolute instants, so the zone is chosen
+only where one is read: IST (`Asia/Kolkata`) for every day, week and month bucket, named in
+the SQL as `AT TIME ZONE 'Asia/Kolkata'` and never left to the session (D-709).
 
 ## 1. RLS pattern (applied to every tenant table)
 
@@ -22,6 +24,12 @@ CREATE POLICY tenant_isolation ON t
 ```
 organizations(id, name, slug UNIQUE CHECK (slug ~ '^[a-z0-9-]{3,40}$') IMMUTABLE-by-trigger,
   status ENUM[prospect,onboarding,active,suspended,churned], vertical_template TEXT,
+    -- born `onboarding`; moves to `active` by itself once an owner has joined and the
+    -- business profile has no go-live blockers (`tenancy/onboarding`, D-695), on the
+    -- profile save or invite acceptance that completes it, audited
+    -- `tenant.onboarding_completed`. Operators move `active`<->`suspended`; closing is
+    -- `closure`. KYC, the pledge and payment are separate axes: `onboarding` and `active`
+    -- dial alike (`compliance/service._STOPPED_STATUSES`).
   plan_tier ENUM[managed,prepaid,self_serve,trial] NOT NULL DEFAULT 'prepaid',
                                                           -- D-34/D-39, D-521 (default)
     -- which MOTION this org belongs to, not a feature flag: it decides whether credits

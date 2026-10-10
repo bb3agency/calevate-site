@@ -2370,7 +2370,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/tenants/{tenant_id}/plan-tier": {
+    "/v1/admin/tenants/{tenant_id}/platform-fee": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One client's monthly platform fee: fees raised, payments, waiver and any pause */
+        get: operations["admin_read_platform_fee_v1_admin_tenants__tenant_id__platform_fee_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/platform-fee/waiver": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Excuse this client from the monthly platform fee, with a reason (audited)
+         * @description A waived client is raised no fee and an unpaid one stops pausing their outbound calls at once. The reason is kept on the account and in the audit log.
+         */
+        put: operations["waive_platform_fee_v1_admin_tenants__tenant_id__platform_fee_waiver_put"];
+        post?: never;
+        /** Withdraw this client's platform fee waiver (audited) */
+        delete: operations["withdraw_platform_fee_waiver_v1_admin_tenants__tenant_id__platform_fee_waiver_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/platform-fee/{charge_id}/payments": {
         parameters: {
             query?: never;
             header?: never;
@@ -2380,10 +2418,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Move a client between billing motions — prepaid credit or invoiced retainer
-         * @description Sets `organizations.plan_tier`. `prepaid` is the default every account is created on (D-521): its calling is paid from a credit balance and `compliance.check_dispatch` refuses `no_credits` when that balance is empty. `managed` is for a client genuinely billed on a plan retainer — it has no wallet, the credits screen says so, and nothing stops their dialling for want of credit. **Setting `prepaid` on an account with no credit stops its OUTBOUND calling at the next dial**, and since D-551 it also stops its agents ANSWERING incoming calls. **Moving back to `managed` reverses both.** Neither direction waits for anything: a change of tier publishes the inbound-answering reconciliation (`workers/inbound_cutover.py`) in the same transaction as the column write (D-579), so the engine is told as soon as the outbox drains — seconds, not whenever an agent is next republished. Idempotent: setting the tier an account is already on returns 200, `changed: false`, writes no audit row and publishes nothing. 404 means no such client.
+         * Record a monthly platform fee paid by bank transfer (audited)
+         * @description For a fee the client paid outside Checkout. Records the fee's own amount against the reference given; recording the same fee twice writes nothing.
          */
-        post: operations["set_tenant_plan_tier_v1_admin_tenants__tenant_id__plan_tier_post"];
+        post: operations["record_manual_fee_payment_v1_admin_tenants__tenant_id__platform_fee__charge_id__payments_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2612,7 +2650,7 @@ export interface paths {
          *
          *     Send `starter` (`answer_calls` or `call_leads`) to start from a ready-made agent for your business type: its script, opening line and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.
          *
-         *     Both opening notices — the AI disclosure and the recording notice — are written for you from the chosen language and are switched on. They cannot be supplied here: every agent on this platform has an AI disclosure on file, the voice platform is verified against it on every publish, and no field on this form can change that.
+         *     Both opening notices — the AI disclosure and the recording notice — are written for you from the chosen language and start switched off, so a new agent opens with its own opening line (part of its script). They cannot be supplied here: every agent on this platform has an AI disclosure on file, and no field on this form can change that. Switching a notice on adds it before the opening line; it never replaces the opening line.
          */
         post: operations["create_agent_route_v1_agents_post"];
         delete?: never;
@@ -3055,7 +3093,7 @@ export interface paths {
         head?: never;
         /**
          * Switch the AI disclosure and the recording notice on or off (D-163)
-         * @description Each opening notice is separately controllable, per agent, on inbound and outbound agents alike. A notice switched off means the agent does not VOLUNTEER that fact at the start of the call.
+         * @description Each opening notice is separately controllable, per agent, on inbound and outbound agents alike. A notice switched off means the agent does not VOLUNTEER that fact at the start of the call. Neither switch changes the agent's opening line, which is part of its script: a notice switched on is said before it, and with both off the opening line is the first thing callers hear.
          *
          *     It does not change what the agent says when a caller ASKS. Asked whether they are speaking to a human, the agent says it is an AI assistant. Asked whether the call is recorded, it answers according to whether the voice platform records audio: where it does, it says yes; where it does not (the platform's own voice runtime today), it says the audio is not recorded and that a written transcript is kept. That is composed server-side, appended to every agent's instructions after the script, and verified against the voice platform on every publish — no script can withdraw it. `truthful_answer_rule` in the response states the answer in force.
          *
@@ -4245,6 +4283,43 @@ export interface paths {
         get: operations["my_invoice_v1_billing_invoice_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/platform-fee": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This account's monthly platform fee: the switch, the fees raised, and any pause */
+        get: operations["read_platform_fee_v1_billing_platform_fee_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/platform-fee/{charge_id}/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open the payment for one monthly platform fee (a separate payment, D-707)
+         * @description Creates the Razorpay order for exactly this fee's amount, recorded so the webhook settles the fee and never credits calling credit. Idempotent: the same fee always returns the same order. A paid or waived fee is refused.
+         */
+        post: operations["open_fee_order_v1_billing_platform_fee__charge_id__order_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8988,9 +9063,9 @@ export interface components {
          *     But an operator reading "which client is costing us money" has to be able to see it: a
          *     client with zero calls and a busy copilot costs us real rupees this money board would
          *     otherwise report as ₹0.00. So it is published here as its own line, sourced from
-         *     `billing/ai_quota.py::read_ai_quota` — the ONE reader of the AI ledger, not a second
-         *     spelling of its SQL — which is the same computation the client's AI assistance screen
-         *     and the per-tenant ceiling already use.
+         *     `billing/cost_breakdown.py`, whose AI half is `ai_quota.read_ai_usage_between` — the
+         *     ONE reader of the AI ledger, the same computation the client's AI assistance screen,
+         *     the per-tenant ceiling and the trial panel use.
          */
         AbsorbedAiSpendOut: {
             /** Kb Requests */
@@ -9503,6 +9578,24 @@ export interface components {
              */
             user_id: string;
         };
+        /** AdminPlatformFeeOut */
+        AdminPlatformFeeOut: {
+            /** Amount Inr */
+            amount_inr: string | null;
+            /** Charges */
+            charges: components["schemas"]["FeeChargeOut"][];
+            /** Enabled */
+            enabled: boolean;
+            /** Exemption */
+            exemption: ("trial" | "waiver") | null;
+            /** Grace Days */
+            grace_days: number;
+            /** Moved To Credits At */
+            moved_to_credits_at: string | null;
+            /** Outbound Paused */
+            outbound_paused: boolean;
+            waiver: components["schemas"]["WaiverOut"] | null;
+        };
         /** AdminPurchaseIn */
         AdminPurchaseIn: {
             /** Agent Id */
@@ -9720,6 +9813,11 @@ export interface components {
              */
             extraction_fields: components["schemas"]["ExtractionField"][];
             /**
+             * First Words
+             * @default
+             */
+            first_words: string;
+            /**
              * Id
              * Format: uuid
              */
@@ -9757,6 +9855,11 @@ export interface components {
             recording_notice_enabled: boolean;
             /** Recording Notice Line */
             recording_notice_line: string;
+            /**
+             * Script Opening Line
+             * @default
+             */
+            script_opening_line: string;
             /**
              * Status
              * @enum {string}
@@ -10848,11 +10951,12 @@ export interface components {
          *     that is half one and half the other has no single answer to "what does this compile
          *     to".
          *
-         *     The `opening_line` here is the CLIENT's opener and is distinct from the compliance
-         *     opening: `compose_opening_line` composes the AI-disclosure / recording notices
-         *     separately from the agent's two toggles, and the adapter speaks THAT first; this line
-         *     follows it. Keeping them apart is D-163 — the notices are a regulated obligation with
-         *     its own switches, not something a script author edits as free text.
+         *     The `opening_line` here is the agent's GREETING, the client's own words, and it is a
+         *     separate thing from the two notices (D-163, D-708). The notices are composed by
+         *     `compose_opening_line` from the agent's two switches; a notice that is switched on is
+         *     said before this line, and with both off this line is the first thing a caller hears.
+         *     No switch adds, removes or replaces it. `engine.compose_first_utterance` joins the two
+         *     for an engine that speaks one greeting field.
          */
         CallScript: {
             /** End Call Extra Rules */
@@ -12605,6 +12709,31 @@ export interface components {
             /** Tool */
             tool: string;
         };
+        /**
+         * CostBreakdownOut
+         * @description `CostBreakdown` on the wire, admin realm only: every figure is `unit_cost_paid`.
+         *
+         *     Rupees are exact strings through `to_paise`, like every other rupee the admin money
+         *     screens publish. `total_inr` is computed once here so no screen adds strings together.
+         */
+        CostBreakdownOut: {
+            /** Assistant Inr */
+            assistant_inr: string;
+            /** Assistant Requests */
+            assistant_requests: number;
+            /** Calls */
+            calls: number;
+            /** Calls Inr */
+            calls_inr: string;
+            /** Knowledge Inr */
+            knowledge_inr: string;
+            /** Knowledge Requests */
+            knowledge_requests: number;
+            /** Other Inr */
+            other_inr: string;
+            /** Total Inr */
+            total_inr: string;
+        };
         /** CreateCampaignIn */
         CreateCampaignIn: {
             /**
@@ -12928,6 +13057,8 @@ export interface components {
             next_change?: components["schemas"]["RateCardChangeOut"] | null;
             /** Packs */
             packs: components["schemas"]["CreditPackOut"][];
+            /** Platform Fee Inr Per Month */
+            platform_fee_inr_per_month?: string | null;
             /** Studio Tier Label */
             studio_tier_label: string;
             /** Voice Not Offered */
@@ -14484,6 +14615,78 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /** FeeChargeOut */
+        FeeChargeOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /**
+             * Grace Ends At
+             * Format: date-time
+             */
+            grace_ends_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Issued At
+             * Format: date-time
+             */
+            issued_at: string;
+            /** Paid At */
+            paid_at: string | null;
+            /** Payment Method */
+            payment_method: string | null;
+            /** Period */
+            period: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "paid" | "due" | "overdue" | "waived";
+        };
+        /** FeeOrderOut */
+        FeeOrderOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Amount Paise */
+            amount_paise: number;
+            /**
+             * Charge Id
+             * Format: uuid
+             */
+            charge_id: string;
+            /** Currency */
+            currency: string;
+            /** Key Id */
+            key_id: string;
+            /** Notes */
+            notes: {
+                [key: string]: string;
+            };
+            /** Provider Order Id */
+            provider_order_id: string | null;
+            /** Provider Order Pending */
+            provider_order_pending: boolean;
+            /** Receipt */
+            receipt: string;
+        };
+        /** FeePaymentOut */
+        FeePaymentOut: {
+            /**
+             * Charge Id
+             * Format: uuid
+             */
+            charge_id: string;
+            /** Recorded */
+            recorded: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "paid" | "due" | "overdue" | "waived";
         };
         /** FetchPreviewIn */
         FetchPreviewIn: {
@@ -17113,6 +17316,11 @@ export interface components {
              */
             method: "upi" | "card";
         };
+        /** ManualFeePaymentIn */
+        ManualFeePaymentIn: {
+            /** Reference */
+            reference: string;
+        };
         /**
          * ManualSubmitIn
          * @description The PAN the uploaded PAN card shows.
@@ -18371,29 +18579,20 @@ export interface components {
             /** States Pricing */
             states_pricing: boolean;
         };
-        /** PlanTierIn */
-        PlanTierIn: {
-            /**
-             * Plan Tier
-             * @enum {string}
-             */
-            plan_tier: "managed" | "prepaid";
-            /** Reason */
-            reason: string;
-        };
-        /** PlanTierOut */
-        PlanTierOut: {
-            /** Changed */
-            changed: boolean;
-            /** Plan Tier */
-            plan_tier: string;
-            /** Previous Plan Tier */
-            previous_plan_tier: string | null;
-            /**
-             * Tenant Id
-             * Format: uuid
-             */
-            tenant_id: string;
+        /** PlatformFeeOut */
+        PlatformFeeOut: {
+            /** Amount Inr */
+            amount_inr: string | null;
+            /** Charges */
+            charges: components["schemas"]["FeeChargeOut"][];
+            /** Enabled */
+            enabled: boolean;
+            /** Exemption */
+            exemption: ("trial" | "waiver") | null;
+            /** Grace Days */
+            grace_days: number;
+            /** Outbound Paused */
+            outbound_paused: boolean;
         };
         /** PlatformStateIn */
         PlatformStateIn: {
@@ -19688,6 +19887,8 @@ export interface components {
         };
         /** SaveScriptIn */
         SaveScriptIn: {
+            /** Expected Version */
+            expected_version?: number | null;
             /** Notes */
             notes?: string | null;
             script: components["schemas"]["CallScript"];
@@ -21556,6 +21757,7 @@ export interface components {
              * @enum {string}
              */
             charge_basis: "wallet_debit" | "allocated";
+            cost_all_in?: components["schemas"]["CostBreakdownOut"] | null;
             /** Cost Currency */
             cost_currency: string | null;
             /** Cost Currency Stated */
@@ -22229,6 +22431,7 @@ export interface components {
         TrialStatusOut: {
             /** Active */
             active: boolean;
+            cost_breakdown?: components["schemas"]["CostBreakdownOut"] | null;
             /** Cost To Us Inr */
             cost_to_us_inr: string;
             /** Days */
@@ -23055,6 +23258,23 @@ export interface components {
             /** Voice Tier */
             voice_tier: string;
         };
+        /** WaiverIn */
+        WaiverIn: {
+            /** Reason */
+            reason: string;
+        };
+        /** WaiverOut */
+        WaiverOut: {
+            /** Reason */
+            reason: string;
+            /**
+             * Waived At
+             * Format: date-time
+             */
+            waived_at: string;
+            /** Waived By */
+            waived_by: string | null;
+        };
         /**
          * WalletEntryOut
          * @description One line of the wallet, as its owner reads it.
@@ -23257,7 +23477,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "credited" | "refunded" | "duplicate" | "failed" | "ignored" | "authorized" | "refund_failed" | "mandate" | "dispute";
+            status: "credited" | "refunded" | "duplicate" | "failed" | "ignored" | "authorized" | "refund_failed" | "mandate" | "dispute" | "fee_paid";
         };
         /** WorkspaceFailureOut */
         WorkspaceFailureOut: {
@@ -27517,7 +27737,38 @@ export interface operations {
             };
         };
     };
-    set_tenant_plan_tier_v1_admin_tenants__tenant_id__plan_tier_post: {
+    admin_read_platform_fee_v1_admin_tenants__tenant_id__platform_fee_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminPlatformFeeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    waive_platform_fee_v1_admin_tenants__tenant_id__platform_fee_waiver_put: {
         parameters: {
             query?: never;
             header?: never;
@@ -27528,7 +27779,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PlanTierIn"];
+                "application/json": components["schemas"]["WaiverIn"];
             };
         };
         responses: {
@@ -27538,7 +27789,74 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PlanTierOut"];
+                    "application/json": components["schemas"]["AdminPlatformFeeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    withdraw_platform_fee_waiver_v1_admin_tenants__tenant_id__platform_fee_waiver_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminPlatformFeeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_manual_fee_payment_v1_admin_tenants__tenant_id__platform_fee__charge_id__payments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                charge_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualFeePaymentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeePaymentOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -30613,6 +30931,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InvoiceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_platform_fee_v1_billing_platform_fee_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformFeeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    open_fee_order_v1_billing_platform_fee__charge_id__order_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                charge_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeeOrderOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

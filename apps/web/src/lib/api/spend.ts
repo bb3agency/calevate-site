@@ -58,6 +58,8 @@ export type CallCharge = Schemas["CallChargeOut"];
 
 /** One client's month, BOTH directions. Admin realm only. */
 export type TenantSpend = Schemas["TenantSpendOut"];
+/** Everything a client cost us over a window, split by what it bought (admin realm only). */
+export type CostBreakdown = Schemas["CostBreakdownOut"];
 export type AgentSpend = Schemas["AgentSpendOut"];
 export type CallSpend = Schemas["CallSpendOut"];
 export type UnitSpend = Schemas["UnitSpendOut"];

@@ -18,6 +18,7 @@ import {
   adminOverviewSummaryReads,
 } from "./fixtures/sharedReads";
 import { OWNER_JOINED } from "./businessProfileFixture";
+import { noReply } from "./harness";
 
 /**
  * THE CONSOLE STILL RENDERS AGAINST AN API THAT HAS NOT BEEN REDEPLOYED (D-558).
@@ -233,6 +234,7 @@ describe("the console reads the deprecated rung names when the API has not moved
         [TENANT_PATH]: tenant(),
         [ADMIN_ME_PATH]: ME,
         [TERMS_PATH]: legacyTerms(),
+        [`${TENANT_PATH}/platform-fee`]: noReply(),
       },
     );
 

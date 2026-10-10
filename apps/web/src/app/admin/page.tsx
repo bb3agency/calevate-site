@@ -136,7 +136,16 @@ function createAccess(
  * added to the API and not to this list is a filter an operator cannot reach.
  */
 const STATUS_FILTERS = ["prospect", "onboarding", "active", "suspended", "churned"] as const;
-const PLAN_FILTERS = ["managed", "prepaid", "self_serve", "trial"] as const;
+// One pricing model since D-707: every account buys prepaid credits. The tiers that remain
+// say how the account was opened (by us, by an online signup, or as a free trial).
+const PLAN_FILTERS = ["prepaid", "self_serve", "trial"] as const;
+const PLAN_LABELS: Record<string, string> = {
+  prepaid: "Credits",
+  self_serve: "Credits (signed up online)",
+  trial: "Free trial",
+  managed: "Moving to credits",
+};
+const planLabel = (tier: string): string => lookup(PLAN_LABELS, tier) ?? sentenceCase(tier);
 
 const SORT_LABELS: Record<DirectorySort, string> = {
   recent: "Newest first",
@@ -340,11 +349,11 @@ export default function AdminClientsPage() {
               />
             ))}
             <span aria-hidden className="mx-1.5 h-5 w-px bg-line" />
-            <FilterChip label="Any billing" active={!planTier} onClick={() => narrow(() => setPlanTier(""))} />
+            <FilterChip label="Any account type" active={!planTier} onClick={() => narrow(() => setPlanTier(""))} />
             {PLAN_FILTERS.map((value) => (
               <FilterChip
                 key={value}
-                label={sentenceCase(value)}
+                label={planLabel(value)}
                 active={planTier === value}
                 onClick={() => narrow(() => setPlanTier(planTier === value ? "" : value))}
               />
@@ -482,7 +491,7 @@ function ClientRow({ tenant }: { tenant: TenantSummary }) {
       </div>
       <div className="col-start-2 row-start-1 text-body text-ink">
         <span className="sr-only">Plan: </span>
-        {sentenceCase(tenant.plan_tier)}
+        {planLabel(tenant.plan_tier)}
       </div>
       <div className="col-start-3 row-start-1 flex flex-wrap items-center gap-1">
         <StatusPill tone={lookup(TENANT_STATUS_TONES, tenant.status) ?? "neutral"}>

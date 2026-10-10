@@ -3,6 +3,7 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 
 import { firstCampaignState, type FirstCampaignHold } from "@/lib/api/firstCampaign";
+import { formatISTStamp } from "@/components/ui";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
@@ -51,8 +52,8 @@ export function useCampaignReviewCopilot(hold: UseQueryResult<FirstCampaignHold>
             { key: "status", label: "Review status", value: hold.data.status ?? "nobody has reviewed it" },
             {
               key: "decided_at",
-              label: "When it was decided (UTC)",
-              value: hold.data.decided_at ?? "not decided",
+              label: "When it was decided (IST)",
+              value: formatISTStamp(hold.data.decided_at, "not decided"),
             },
             {
               key: "reviewed_campaign_id",

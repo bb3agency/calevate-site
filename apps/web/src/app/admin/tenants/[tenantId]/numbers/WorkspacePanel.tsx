@@ -31,6 +31,7 @@ import {
   formatPhone,
 } from "@/components/ui";
 import {
+  BUSINESS_DETAILS_STATUS_COPY,
   useOffboardWorkspace,
   useProvisionWorkspace,
   useRefreshWorkspaceBusinessDetails,
@@ -61,16 +62,6 @@ const WORKSPACE_STATUS: Record<string, string> = {
   deleted: "Deleted",
 };
 
-const DETAILS_STATUS: Record<string, string> = {
-  none: "Nothing sent yet",
-  draft: "Started, never sent",
-  submitted: "Being checked",
-  accepted: "Approved",
-  rejected: "Rejected — correct it and send again",
-  suspended: "Approval withdrawn — ThinnestAI documents no resend for this; raise it with them",
-  expired: "Lapsed — send again",
-  unknown: "A status we do not recognise",
-};
 
 const STEP_COPY: Record<string, string> = {
   workspace: "Waiting on the workspace",
@@ -228,7 +219,8 @@ function WorkspaceBody({
               label="Status"
               value={
                 <span className="font-medium">
-                  {lookup(DETAILS_STATUS, details.status ?? "none") ?? DETAILS_STATUS.unknown}
+                  {lookup(BUSINESS_DETAILS_STATUS_COPY, details.status ?? "none") ??
+                    BUSINESS_DETAILS_STATUS_COPY.unknown}
                 </span>
               }
             />

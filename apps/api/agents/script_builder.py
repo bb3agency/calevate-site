@@ -13,7 +13,9 @@ truth for what the engine runs — `agents/service._load_agent` joins it into th
 `AgentConfig`, `compose_engine_prompt` wraps it. `structured_script` is the authored form
 the builder reloads so an author sees the steps/FAQ they last wrote rather than the
 compiled prose. They are written together at INSERT (`insert_prompt_version`), never apart,
-so they cannot drift: the body is always the compile of the structure beside it.
+so they cannot drift: the body is always the compile of the structure beside it, plus the
+platform's [T0 FACTS] block, which a knowledge recompile (`agents/t0.py`) splices in and
+carries the structure forward.
 
 WHY LOADING A LEGACY AGENT STILL WORKS. A prompt version written before the structured
 model existed carries a `body` and a NULL `structured_script`. `CallScript.from_freeform`
@@ -39,6 +41,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.prompts import write_prompt_version
+from apps.api.agents.t0_block import block_of, splice_t0_block
 from apps.api.core.errors import ProblemError
 from apps.api.engine import engine_capabilities
 
@@ -176,15 +179,57 @@ async def save_agent_script(
     script: CallScript,
     notes: str | None,
     created_by: UUID | None,
+    check_version: bool = False,
+    expected_version: int | None = None,
 ) -> SavedScript:
     """Compile `script` and write it as the next immutable version (staged on a live agent).
 
     The compile happens HERE, once, so the stored `body` is always the compile of the
-    stored structure — there is no path that writes one without the other. Staging vs apply
-    is `write_prompt_version`'s decision (it reads the agent's live status), so a structured
-    edit and a freeform edit reach a live client's callers by the exact same gate.
+    stored structure plus the platform's [T0 FACTS] block — there is no path that writes
+    one without the other. Staging vs apply is `write_prompt_version`'s decision (it reads
+    the agent's live status), so a structured edit and a freeform edit reach a live
+    client's callers by the exact same gate.
+
+    `check_version` makes the save conditional on the draft still being `expected_version`
+    (None = the agent had no script). The builder edits a copy it loaded earlier; without
+    this, a copy loaded before another writer moved the draft (a knowledge recompile, a
+    rollback, a second tab) was saved over that newer version and the agent page and the
+    builder then showed two different opening lines. The agent row is locked first so the
+    check and the write see one draft.
+
+    The [T0 FACTS] block is the platform's, compiled from the business profile and the
+    published knowledge (`agents/t0.py`), and the builder never shows it. It is carried
+    from the current draft into the new body, because a save that dropped it would take
+    the business's facts out of the agent until the next recompile.
     """
+    current = (
+        await session.execute(
+            text(
+                "SELECT a.name, pv.version, pv.body FROM agents a "
+                "LEFT JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
+                "WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
+            ),
+            {"aid": agent_id},
+        )
+    ).first()
+    if current is None:
+        raise ProblemError.not_found("Agent")
+    on_file = int(current.version) if current.version is not None else None
+    if check_version and on_file != expected_version:
+        raise ProblemError.conflict(
+            "script_changed_elsewhere",
+            "This script was changed somewhere else after you opened it.",
+            remediation=(
+                f"Version {on_file} is now saved. Load it to see what changed, then make "
+                "your edit again."
+                if on_file is not None
+                else "Load the script again, then make your edit again."
+            ),
+        )
     body = compile_call_script(script)
+    facts = block_of(current.body)
+    if facts is not None:
+        body = splice_t0_block(body, facts, identity=f"{current.name}.")
     # `mode="json"` so the stored blob is JSON-native (str/int/list/dict), which is what the
     # `CAST(... AS jsonb)` in `insert_prompt_version` expects and what `model_validate`
     # reads back — no datetimes or enums to smuggle a Python type into the column.

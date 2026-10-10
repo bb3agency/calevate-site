@@ -3,7 +3,17 @@
 import { CheckCircle2, CircleHelp, TriangleAlert } from "lucide-react";
 
 import { InfoTip } from "@/components/console/infoTip";
-import { NoticeBox, Skeleton, formatCount, formatIST } from "@/components/ui";
+import { TEXT_ACTION } from "@/components/console/section";
+import {
+  MonoValue,
+  NoticeBox,
+  ProblemNotice,
+  Skeleton,
+  formatCount,
+  formatIST,
+} from "@/components/ui";
+import { lookup } from "@/lib/lookup";
+import { useKbOrphanCheck, type KbOrphanReport } from "@/lib/api/opsKbOrphans";
 
 import type { KbDriftState } from "./opsSurfaceState";
 
@@ -200,7 +210,144 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
             </tbody>
           </table>
         )}
+
+        <AccountKnowledgeCheck />
       </div>
     </section>
+  );
+}
+
+/** What each finding means, in the words `engine_kb_orphans_detected`'s runbook row uses. */
+const ORPHAN_VERDICTS: Record<string, string> = {
+  unrecorded: "Named like ours, but no record of ours claims it (a publish that rolled back)",
+  unclaimed: "Nothing attributes it (a hand-made upload, or older than our naming)",
+  stranded: "We believe it is live and the platform does not hold it (needs a republish)",
+};
+
+/**
+ * The account-level cross-check (`GET /v1/ops/kb-orphans`), run only when asked: it walks
+ * the voice platform's whole account, so it never runs on mount or on a poll. Read-only,
+ * like the sweep above: nothing here deletes anything, and the runbook row for
+ * `engine_kb_orphans_detected` says how to decide each finding.
+ */
+function AccountKnowledgeCheck() {
+  const check = useKbOrphanCheck();
+  const report = check.data;
+
+  return (
+    <div className="space-y-2 border-t border-line pt-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-meta text-ink-muted">
+          Knowledge the platform account holds that no client of ours claims.
+        </p>
+        <button
+          type="button"
+          className={TEXT_ACTION}
+          disabled={check.isPending}
+          onClick={() => check.mutate()}
+        >
+          {check.isPending ? "Checking…" : report ? "Check again" : "Check the account"}
+        </button>
+      </div>
+      {check.error && <ProblemNotice error={check.error} onRetry={() => check.mutate()} />}
+      {check.isPending && <Skeleton rows={2} />}
+      {report && !check.isPending && <OrphanReport report={report} />}
+    </div>
+  );
+}
+
+function OrphanReport({ report }: { report: KbOrphanReport }) {
+  if (!report.supported) {
+    return (
+      <p className="text-meta text-ink-muted">
+        This engine keeps no account-level knowledge store, so there is nothing to walk.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {!report.listing_complete && (
+        <NoticeBox
+          tone="warn"
+          icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
+          title="The platform's listing could not be read to the end"
+        >
+          <p className="mt-1">
+            The unclaimed and stranded counts below cannot be trusted.
+            {report.listing_incomplete_reason ? ` Reason: ${report.listing_incomplete_reason}.` : ""}
+          </p>
+        </NoticeBox>
+      )}
+      <table className="w-full text-left text-meta">
+        <caption className="sr-only">Platform account knowledge check</caption>
+        <tbody>
+          {(
+            [
+              ["Accounted for", report.accounted],
+              ["Unrecorded", report.unrecorded],
+              ["Unclaimed", report.unclaimed],
+              ["Stranded", report.stranded],
+            ] as const
+          ).map(([label, value]) => (
+            <tr key={label}>
+              <td className="py-0.5 text-ink-muted">{label}</td>
+              <td className="py-0.5 text-right tabular-nums">{formatCount(value)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {report.rows.length === 0 ? (
+        <p className="text-meta text-ink-muted">No findings.</p>
+      ) : (
+        <ul className="divide-y divide-line border-y border-line">
+          {report.rows.map((row, index) => (
+            <li key={`${row.verdict}:${row.handle ?? row.source_id ?? index}`} className="py-2.5">
+              <p className="text-meta font-medium capitalize text-ink">{row.verdict}</p>
+              <p className="text-meta text-ink-muted">
+                {lookup(ORPHAN_VERDICTS, row.verdict) ?? row.verdict}
+              </p>
+              <dl className="mt-1 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 text-meta">
+                {row.handle && (
+                  <>
+                    <dt className="text-ink-muted">Handle</dt>
+                    <dd className="min-w-0 break-all">
+                      <MonoValue>{row.handle}</MonoValue>
+                    </dd>
+                  </>
+                )}
+                {row.tenant_id && (
+                  <>
+                    <dt className="text-ink-muted">Client</dt>
+                    <dd className="min-w-0 break-all">
+                      <MonoValue>{row.tenant_id}</MonoValue>
+                    </dd>
+                  </>
+                )}
+                {row.source_id && (
+                  <>
+                    <dt className="text-ink-muted">Source</dt>
+                    <dd className="min-w-0 break-all">
+                      <MonoValue>{row.source_id}</MonoValue>
+                    </dd>
+                  </>
+                )}
+                {row.created_at && (
+                  <>
+                    <dt className="text-ink-muted">Created</dt>
+                    <dd>{formatIST(row.created_at)}</dd>
+                  </>
+                )}
+              </dl>
+            </li>
+          ))}
+        </ul>
+      )}
+      {report.truncated && (
+        <p className="text-meta text-ink-muted">
+          Showing the first {formatCount(report.rows.length)} of {formatCount(report.findings)}{" "}
+          findings. The counts above are exact.
+        </p>
+      )}
+    </div>
   );
 }

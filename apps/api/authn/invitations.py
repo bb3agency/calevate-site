@@ -162,7 +162,7 @@ def _invalid() -> ProblemError:
         code="invitation_invalid",
         title="Invitation is not usable",
         detail="This invitation has already been used or has expired.",
-        remediation="Ask your account manager for a fresh invite.",
+        remediation="Ask us for a fresh invite.",
     )
 
 

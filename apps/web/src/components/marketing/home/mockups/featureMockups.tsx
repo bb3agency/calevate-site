@@ -362,7 +362,7 @@ export function CampaignBoardMock() {
 /**
  * The check a campaign passes before it can dial — `campaigns/LaunchGate.tsx` ("Before
  * you launch", "Everything checks out.", "Review this launch") with the gate's own items
- * satisfied (published agent, AI disclosure line, DLT voice template, calling number,
+ * satisfied (published agent, AI disclosure line, verified business identity, calling number,
  * contact list, where the list came from), and two lines of the confirm panel's own copy
  * from `LaunchConfirm.tsx` about calling hours and the do-not-call list.
  */
@@ -370,7 +370,7 @@ export function LaunchCheckMock() {
   const checks = [
     "Agent published",
     "AI disclosure line on file",
-    "DLT voice template attached",
+    "Business identity verified",
     "Calling number chosen",
     "Contact list uploaded",
     "List source: People who contacted us",

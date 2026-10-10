@@ -56,7 +56,11 @@ DEFAULT_LIMIT = 50
 BLOCK_REMEDIES: dict[str, str] = {
     "dnc": "This person asked not to be called. Nothing to do — we will not dial them.",
     "calling_hours": "Outside 9am to 9pm. We will try again in the next window.",
-    "spend_cap": "Your monthly cap is reached. Raise it with your account manager to resume.",
+    "spend_cap": "Your monthly cap is reached. Raise your own cap, or ask us, to resume.",
+    "platform_fee_overdue": (
+        "This month's platform fee is unpaid. Pay it on the Billing page and calling resumes "
+        "at once. Incoming calls are not affected."
+    ),
     # ⚠ **THE INBOUND SENTENCE IS REVERSED AS OF 8 SEP 2026, AND THIS ENTRY USED TO SAY
     # THE OPPOSITE.** It read "People calling you still get through — a low balance never
     # blocks an incoming call, though answering one does use credit like any other", which
@@ -431,7 +435,7 @@ async def knowledge_waiting(
                 kind="kb_rejected",
                 id=str(row[0]),
                 title=f"“{row[1]}” was not added to your agent",
-                detail=str(row[3] or "Your account manager left no note."),
+                detail=str(row[3] or "No note was left."),
                 rule=None,
                 occurred_at=row[2],
                 href="/knowledge",

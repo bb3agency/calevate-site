@@ -161,6 +161,30 @@ GUARDRAILS_BLOCK: Final = (
 )
 
 
+#: The header the compiler puts above the opening line. A section runs from its header line
+#: to the next line starting with `[` (PROMPT-GUIDE §2, `apps/api/agents/t0_block.py`).
+OPENING_HEADER: Final = "[OPENING]"
+
+
+def opening_line_of(body: str | None) -> str:
+    """The opening line inside a compiled script body, or "" when it has none.
+
+    The inverse of the compiler's first section, read from the body rather than from the
+    stored `CallScript` because the body is what every publish path holds — the agent's
+    applied version, an experiment arm's version, the builder's unsaved preview — so one
+    reader serves all of them. A raw-mode script has an opening only if its author wrote
+    the same section; otherwise the agent has no opening line of its own.
+    """
+    if not body:
+        return ""
+    lines = body.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.strip() == OPENING_HEADER), None)
+    if start is None:
+        return ""
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("[")), len(lines))
+    return "\n".join(lines[start + 1 : end]).strip()
+
+
 #: Ceilings on the authored lists inside one `CallScript`. A script is a hand-curated config
 #: document, not a data feed — but every list field here is still CALLER-CONTROLLED, and a
 #: response that echoes the stored script (the builder's load/preview/assist reads) is
@@ -243,11 +267,12 @@ class CallScript(BaseModel):
     that is half one and half the other has no single answer to "what does this compile
     to".
 
-    The `opening_line` here is the CLIENT's opener and is distinct from the compliance
-    opening: `compose_opening_line` composes the AI-disclosure / recording notices
-    separately from the agent's two toggles, and the adapter speaks THAT first; this line
-    follows it. Keeping them apart is D-163 — the notices are a regulated obligation with
-    its own switches, not something a script author edits as free text.
+    The `opening_line` here is the agent's GREETING, the client's own words, and it is a
+    separate thing from the two notices (D-163, D-708). The notices are composed by
+    `compose_opening_line` from the agent's two switches; a notice that is switched on is
+    said before this line, and with both off this line is the first thing a caller hears.
+    No switch adds, removes or replaces it. `engine.compose_first_utterance` joins the two
+    for an engine that speaks one greeting field.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -338,7 +363,7 @@ def compile_call_script(script: CallScript) -> str:
 
     opening = script.opening_line.strip()
     if opening:
-        sections.append(f"[OPENING]\n{opening}")
+        sections.append(f"{OPENING_HEADER}\n{opening}")
 
     steps = [step.instruction.strip() for step in script.steps if step.instruction.strip()]
     if steps:
@@ -376,6 +401,7 @@ __all__ = [
     "BUILTIN_END_CALL_RULE",
     "DEFAULT_FAQ_FALLBACK",
     "GUARDRAILS_BLOCK",
+    "OPENING_HEADER",
     "STANDARD_VARIABLES",
     "CallScript",
     "FaqEntry",
@@ -383,5 +409,6 @@ __all__ = [
     "ScriptVariable",
     "compile_call_script",
     "extract_variable_names",
+    "opening_line_of",
     "substitute_variables",
 ]

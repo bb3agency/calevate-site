@@ -319,6 +319,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # The same failure on an engine priced by attested minute (D-678): minutes metered
     # with no cost.
     "engine_minute_rate_unattested": "page",
+    # A client could not go live because the engine minute is unpriced: one operator action.
+    "engine_publish_refused_unpriced": "page",
     # A call on an engine voice band that is not on sale (D-681): billed at the Clear rung.
     "engine_rate_key_not_sold": "attention",
     "call_billable_without_cost": "page",
@@ -586,8 +588,13 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "rate_card_notice_fanout_budget_reached": "attention",
     "rate_card_notice_no_billing_email": "attention",
     "wallet_alert_no_billing_email": "attention",
-    # Money NOT collected, from a known list of tenants, re-runnable.
-    "setup_fees_unissued": "attention",
+    # D-707 monthly platform fee. Money not raised or not placed; each re-runs next hour or
+    # is reconciled by hand. A paid fee we cannot match is real money, so it pages.
+    "platform_fees_unissued": "attention",
+    "platform_fee_unpriced": "attention",
+    "platform_fee_sweep_truncated": "attention",
+    "platform_fee_notice_no_billing_email": "attention",
+    "platform_fee_payment_unmatched": "page",
     # The cap doing exactly its job. One client's outbound stopped, by their own configured
     # ceiling — a thing to see on a screen, not to be woken for.
     "tenant_spend_capped": "attention",

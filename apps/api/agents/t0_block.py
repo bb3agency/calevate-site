@@ -1,9 +1,11 @@
-"""Finding the [T0 FACTS] block inside a prompt body, and taking it out.
+"""Finding the [T0 FACTS] block inside a prompt body, putting it in, and taking it out.
 
-A leaf module because two callers need it from opposite sides of an import cycle:
-`agents/t0.py` (which imports `agents/service.py` to republish) and `agents/service.py`
+A leaf module because its callers sit on opposite sides of an import cycle:
+`agents/t0.py` (which imports `agents/service.py` to republish), `agents/service.py`
 itself, which on an engine that holds business facts in its knowledge base publishes the
-script WITHOUT the block (`engine/hosted_platform.HostedAgentLimits.facts_in_knowledge`).
+script WITHOUT the block (`engine/hosted_platform.HostedAgentLimits.facts_in_knowledge`),
+and `agents/script_builder.py`, which carries the current block into every builder save
+(`agents/starters.py` imports it from under `agents/lifecycle.py`).
 
 A section runs from its header line to the next line starting with `[` at column 0, the
 rule PROMPT-GUIDE §2's template and both splicers already follow.
@@ -81,11 +83,49 @@ def without_block(body: str) -> str:
     return "\n".join([*lines[: bounds[0]], *lines[bounds[1] :]]).strip()
 
 
+# Where a freshly compiled block is inserted when the prompt has no block yet — the
+# position PROMPT-GUIDE §2's template order puts it in.
+_INSERT_BEFORE = ("[TASK FLOW]", "[TOOLS]", "[GUARDRAILS]", "[WRAP]")
+
+
+def splice_t0_block(body: str | None, block: str, *, identity: str) -> str:
+    """Put `block` where the prompt's [T0 FACTS] section is, or where it should be.
+
+    Replacing rather than appending is the rule PROMPT-GUIDE §2 states: the block is
+    auto-generated and regenerated, so a second copy of stale hours above the fresh
+    ones is not a merge, it is an agent that quotes two opening times. Everything
+    outside the block — the guardrails an operator wrote by hand, the task flow, the
+    wrap — is not this compiler's to touch.
+    """
+    if not body or not body.strip():
+        return f"[IDENTITY] {identity}\n{block}\n"
+
+    lines = body.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.startswith(T0_HEADER)), None)
+    if start is None:
+        anchor = next(
+            (
+                i
+                for i, line in enumerate(lines)
+                if any(line.startswith(marker) for marker in _INSERT_BEFORE)
+            ),
+            len(lines),
+        )
+        return "\n".join([*lines[:anchor], block, *lines[anchor:]]).rstrip() + "\n"
+
+    end = next(
+        (i for i in range(start + 1, len(lines)) if lines[i].startswith("[")),
+        len(lines),
+    )
+    return "\n".join([*lines[:start], block, *lines[end:]]).rstrip() + "\n"
+
+
 __all__ = [
     "T0_HEADER",
     "T0_KNOWLEDGE_MARKER",
     "block_of",
     "facts_without_knowledge",
     "intake_lines",
+    "splice_t0_block",
     "without_block",
 ]

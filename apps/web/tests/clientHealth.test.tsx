@@ -141,9 +141,9 @@ describe("the client health board", () => {
 
   it("sends each cause of a blocked account to the desk that clears it", async () => {
     // The two R-11 gates are the hold queue's subject and `HOLD_RULES` owns both their
-    // wording and their screens; the DLT registration is the account's. A board that sent
-    // every cause to one place would bury the work, and one that re-worded the gates would
-    // be a second vocabulary for a condition the client is already being refused on.
+    // wording and their screens; the D-692 pledge is cleared on verification, the money on
+    // the account. A board that sent every cause to one place would bury the work, and one
+    // that re-worded the gates would be a second vocabulary for one refusal.
     const { container } = renderAdminPage(<ClientHealthPage />, {
       [CLIENT_HEALTH_PATH]: [
         row({
@@ -152,7 +152,7 @@ describe("the client health board", () => {
               rule: "outbound_blocked",
               severity: "stop",
               count: null,
-              causes: ["kyc_missing", "pe_registration_missing"],
+              causes: ["kyc_missing", "outbound_pledge_missing", "no_credits"],
             }),
           ],
         }),
@@ -161,15 +161,12 @@ describe("the client health board", () => {
 
     await screen.findByText("Sri Traders");
     expect(container.textContent).toContain("Identity not filed");
-    expect(container.textContent).toContain(
-      "No DLT Principal Entity registration",
-    );
-    // The hold's remedy is the hold queue's OWN destination and wording (`HOLD_RULES`),
-    // not a second copy invented here; the DLT registration lives on the account.
+    expect(container.textContent).toContain("No-cold-calls pledge not accepted");
+    expect(container.textContent).toContain("Prepaid wallet empty");
+    // D-692 retired the DLT entity chain; the board must not ask for it.
+    expect(container.textContent).not.toContain("DLT");
     expect(screen.getByRole("link", { name: "Identity (KYC)" })).toBeDefined();
-    expect(
-      screen.getByRole("link", { name: "Open the account" }),
-    ).toBeDefined();
+    expect(screen.getByRole("link", { name: "Open the account" })).toBeDefined();
   });
 
   it("refuses to call a failed read a healthy estate", async () => {

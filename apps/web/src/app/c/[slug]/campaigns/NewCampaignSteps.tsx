@@ -65,9 +65,9 @@ function ChoiceCards<T extends string>({
 
 /**
  * STEP 1, THE BASICS: what the campaign is called, who makes the calls, what kind of call,
- * and what it dials from. The number and the DLT template sit here, beside the call type,
- * because both must MATCH it (a promotional call needs a 140-series number and a
- * promotional template) and a mismatch is easiest to avoid where the three are side by side.
+ * and what it dials from. The number sits here, beside the call type. A DLT template is
+ * optional since D-692 (outbound needs verified KYC and the no-cold-calls pledge); it is
+ * still offered for a client who registered one.
  */
 export function BasicsStep({
   form,
@@ -102,7 +102,7 @@ export function BasicsStep({
 
       {hasNoAgents && (
         <p className="text-sm text-ink-muted">
-          No agent is set up yet — your account manager builds one before campaigns can run.
+          No agent is set up yet — create one in Agents before campaigns can run.
         </p>
       )}
       {/* Only from a list the server sent: an empty picker over a read in flight or failed
@@ -148,15 +148,15 @@ export function BasicsStep({
           </select>
           {/* "None" only from a list the server sent; a failed read is refused at the top. */}
           {numbers.data?.length === 0 && (
-            <span className={FIELD_HINT}>No numbers yet — your account manager sets these up.</span>
+            <span className={FIELD_HINT}>No numbers yet — buy one on the Numbers page.</span>
           )}
         </label>
         <label className="block min-w-0">
           <span className={FIELD_LABEL}>
-            <Term id="dlt" /> template
+            <Term id="dlt" /> template (optional)
           </span>
           <select value={form.templateId} onChange={(e) => form.setTemplateId(e.target.value)} className={FIELD}>
-            <option value="">Choose a template…</option>
+            <option value="">No template</option>
             {(templates.data ?? []).map((option) => (
               <option key={option.id} value={option.id}>
                 {option.classification} — {option.status}
@@ -164,7 +164,7 @@ export function BasicsStep({
             ))}
           </select>
           {templates.data?.length === 0 && (
-            <span className={FIELD_HINT}>None registered yet. Calls can&apos;t go out without one.</span>
+            <span className={FIELD_HINT}>None registered. You do not need one to make calls.</span>
           )}
         </label>
       </div>

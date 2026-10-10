@@ -120,7 +120,7 @@ import {
 import { renderAdminRoute } from "./adminRoute";
 import { hubUsageIdle } from "./billingHub";
 import { workspaceRoutes } from "./copilotWorkspaceFixture";
-import { problem, renderClientPage, type Routes } from "./harness";
+import { noReply, problem, renderClientPage, type Routes } from "./harness";
 import { adminBusinessProfileFixture, businessProfileFixture } from "./businessProfileFixture";
 import { RATE_CARD_ROUTES } from "./fixtures/rateCard";
 import {
@@ -673,6 +673,10 @@ const AGENT = {
   recording_notice_enabled: true,
   opening_line:
     "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
+  // D-708: the script's opening line, and what callers hear first (notices, then it).
+  script_opening_line: "How can I help you today?",
+  first_words:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded. How can I help you today?",
   truthful_answer_rule:
     "Whatever these settings say, the agent always answers honestly when a caller asks.",
   // D-440 widened `AgentOut`: when it was retired (NULL until it is) and how many lines it
@@ -4121,6 +4125,7 @@ const ADMIN_SCREENS: Screen[] = [
     element: () => <CommercialsPage params={tenant} />,
     routes: {
       ...TENANT_ROUTES,
+      "/v1/admin/tenants/t1/platform-fee": noReply(),
       "/v1/admin/tenants/t1/commercial-terms": {
         tenant_id: "t1",
         state: "set",

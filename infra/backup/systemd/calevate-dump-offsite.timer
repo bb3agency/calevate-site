@@ -3,9 +3,11 @@ Description=Nightly Calevate offsite logical dump
 Documentation=file:///var/www/calevate/infra/backup/README.md
 
 [Timer]
-# 22:00 UTC = 03:30 IST — an hour after the base backup, so the two never contend for the
+# 03:30 IST (22:00 UTC) — an hour after the base backup, so the two never contend for the
 # same disk, and so a failure of one is unambiguous in the journal.
-OnCalendar=*-*-* 22:00:00 UTC
+# The zone is named (D-709), so the instant never depends on the host's own timezone;
+# `systemd-analyze calendar` prints the UTC instant to check it against.
+OnCalendar=*-*-* 03:30:00 Asia/Kolkata
 Persistent=true
 RandomizedDelaySec=300
 

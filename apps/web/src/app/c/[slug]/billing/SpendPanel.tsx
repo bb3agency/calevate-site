@@ -134,7 +134,7 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
           than repeated as a column header nobody reads. */}
       <p className="text-body text-ink-muted">
         <strong className="font-semibold text-ink">{basis.label}.</strong>{" "}
-        {basis.hint || "Ask your account manager how this month is priced."}
+        {basis.hint || "Ask us how this month is priced."}
       </p>
 
       <Residual data={data} />
@@ -228,7 +228,7 @@ function Residual({ data }: { data: Spend }) {
   if (data.residual_reason === null) return null;
   const sentence =
     lookup(RESIDUAL_REASON_COPY, data.residual_reason) ??
-    `Your account manager can explain this month's breakdown (${data.residual_reason}).`;
+    `We can explain this month's breakdown (${data.residual_reason}).`;
   return (
     <div className={`rounded-md border px-4 py-3 text-body ${NOTICE_TONES.neutral}`}>
       <p className="font-semibold">

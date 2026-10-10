@@ -56,7 +56,7 @@ export function PendingBanner({ state }: { state: PendingState }) {
 /**
  * One staged change, with BOTH pointers named as labelled data. Showing the staged script
  * as the one callers hear is the one catastrophic misreading of the two-speed model, and a
- * sentence can be read the wrong way round where a "Callers hear now" / "Waiting to be
+ * sentence can be read the wrong way round where a "Live version" / "Waiting to be
  * applied" pair cannot.
  */
 function PendingRow({ change }: { change: PendingChange }) {
@@ -65,14 +65,14 @@ function PendingRow({ change }: { change: PendingChange }) {
       <p className="font-medium">{change.headline}</p>
       <dl className="mt-2 flex flex-wrap gap-x-8 gap-y-2">
         <div>
-          <dt className="text-xs text-ink-muted">Callers hear now</dt>
+          <dt className="text-xs text-ink-muted">Live version</dt>
           <dd className="text-sm font-semibold tabular-nums">
-            {change.live_version === null ? "Nothing live yet" : `v${change.live_version}`}
+            {change.live_version === null ? "None yet" : `Version ${change.live_version}`}
           </dd>
         </div>
         <div>
           <dt className="text-xs text-ink-muted">Waiting to be applied</dt>
-          <dd className="text-sm font-semibold tabular-nums">v{change.staged_version}</dd>
+          <dd className="text-sm font-semibold tabular-nums">Version {change.staged_version}</dd>
         </div>
       </dl>
       <p className="mt-2 text-xs">{change.why}</p>

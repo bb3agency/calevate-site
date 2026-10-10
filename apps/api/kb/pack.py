@@ -71,7 +71,7 @@ retention: an expiry is measured from an object's CREATION, so any ceiling low e
 reclaim space would eventually delete the live pack of the best-behaved client on the
 platform — the one whose price list has not needed correcting.
 
-The second is the one that actually reclaims: `apps/workers/pack_gc.py` (D-611, 05:07
+The second is the one that actually reclaims: `apps/workers/pack_gc.py` (D-611, 10:07 IST
 daily) deletes a pack that no `agents.knowledge_pack_sha256` names and that has sat out a
 seven-day grace. **THE GRACE EXISTS BECAUSE OF THE WRITE ORDER IN THIS FILE** — the object
 is stored before the pointer commits (`refresh_published_pack`), so for the width of one

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiProblem, type Session } from "@/lib/api/client";
 
+import { adminTenantOf } from "./adminTenant";
 import { clearConversation, conversationKey, useConversation } from "./conversation";
 import { clearFilled, markFilled } from "./highlight";
 import { redactForWire } from "./redaction";
@@ -562,6 +563,8 @@ export function useCopilotConversation(
         // nobody asked.
         history: recentTurns(turns).map((turn) => ({ role: turn.role, content: turn.wire })),
       };
+      const tenantId = adminTenantOf(surface, window.location.pathname);
+      if (tenantId !== undefined) body.tenant_id = tenantId;
 
       // Both halves of the answer, built in step: `answer` is what is shown, `answerWire`
       // is what may be replayed as history.

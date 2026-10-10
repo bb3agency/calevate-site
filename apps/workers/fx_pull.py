@@ -194,7 +194,7 @@ IDEMPOTENT, KEYED, RETRIED (BACKEND-PATTERNS §4/§5)
   are one critical section; and the unique key catches anything that still races.
 * RETRIED, then ALERTED. There is no arq DLQ (`workers/settings.py`), so the last
   attempt's `alert()` IS the dead-letter mechanism. The defers are SHORT (30s, 60s)
-  rather than the minutes `billing.issue_one_time_charges` uses, because the next tick is
+  rather than the minutes the billing sweeps use, because the next tick is
   only five minutes away and a deferral that outlives its own schedule is just a second
   copy of the next tick.
 """
@@ -209,6 +209,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Final, Literal
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 import httpx
 from arq import Retry
@@ -231,6 +232,15 @@ from apps.api.ops.fx_rates import (
 )
 
 log = get_logger(__name__)
+
+#: FBIL publishes for an Indian business day, so "today" for the request window and the
+#: future-date check is the IST date; the UTC date is still yesterday until 05:30 IST.
+_IST: Final = ZoneInfo("Asia/Kolkata")
+
+
+def ist_today() -> date:
+    return datetime.now(_IST).date()
+
 
 #: FBIL's own reference-rate endpoint, without the per-tick query string. THE TOP RUNG
 #: (D-609). Spelled once, here, so the URL an operator re-runs by hand to reproduce a
@@ -442,7 +452,7 @@ def _publication_date(raw: str) -> date:
                 f"the publication date ({raw}) was not an ISO date or datetime",
                 code="date_not_iso",
             ) from None
-    if as_of > datetime.now(UTC).date() + timedelta(days=1):
+    if as_of > ist_today() + timedelta(days=1):
         raise FxPullError(f"the publication date ({raw}) is in the future", code="date_in_future")
     return as_of
 
@@ -788,7 +798,7 @@ async def fetch_published_rate(
     of the date, so a test that pins the date pins the URL.
     """
     http = client or httpx.AsyncClient(timeout=_TIMEOUT_S, follow_redirects=False)
-    url = rung.url_for(today or datetime.now(UTC).date())
+    url = rung.url_for(today or ist_today())
     try:
         response = await http.get(url)
     except httpx.HTTPError as exc:
@@ -803,7 +813,7 @@ async def fetch_published_rate(
         # from it is not interpreted at all, only reported with its status. Neither is
         # guessed around, and neither is a reason to stop asking: the ladder moves down.
         raise FxFeedUnreachableError(f"the endpoint answered HTTP {response.status_code}")
-    return rung.parse(response.text, today or datetime.now(UTC).date())
+    return rung.parse(response.text, today or ist_today())
 
 
 async def _warn_if_silent() -> None:
@@ -901,7 +911,7 @@ async def _walk_ladder(now: datetime) -> LadderResult:
     last_error: FxPullError | None = None
     for rung in LADDER:
         try:
-            rate, as_of = await fetch_published_rate(rung, today=now.date())
+            rate, as_of = await fetch_published_rate(rung, today=now.astimezone(_IST).date())
         except FxPullError as exc:
             # The subclass is the sorting distinction: unreachable is availability, bare is
             # a changed contract. `exc.code` is the acting distinction — which of the two
@@ -929,7 +939,7 @@ async def _walk_ladder(now: datetime) -> LadderResult:
                     rate=rate,
                     as_of=as_of,
                     source=rung.source,
-                    source_url=rung.url_for(now.date()),
+                    source_url=rung.url_for(now.astimezone(_IST).date()),
                 )
         except ImplausibleRateError as exc:
             # NOT retried, and NOT descended past. The feed answered and we refused its

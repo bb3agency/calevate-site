@@ -100,14 +100,14 @@ const VERDICTS: Record<FirstCampaignState, Verdict> = {
     tone: "stop",
     icon: XCircle,
     next:
-      "This is not final: put right what is below and tell your account manager, and a " +
+      "This is not final: put right what is below and tell us, and a " +
       "reviewer will look again.",
   },
   held_unknown: {
     headline: "Your campaigns are held for review.",
     tone: "warn",
     icon: ShieldAlert,
-    next: "Ask your account manager where this stands.",
+    next: "Ask us where this stands.",
   },
   released: {
     headline: "Your account is cleared for campaign calling.",
@@ -331,7 +331,7 @@ function WhileYouWait() {
           working. This holds outgoing campaigns and nothing else.
         </li>
         <li>
-          If it has been longer than you expected, ask your account manager — they can see
+          If it has been longer than you expected, ask us — they can see
           where it sits.
         </li>
       </ul>
@@ -346,8 +346,8 @@ function AfterARefusal() {
       <h3 className="mb-2 text-body font-semibold text-ink">What happens next</h3>
       <ul className={LIST}>
         <li>
-          <span className={LEAD_IN}>Put right what the reviewer named,</span> then tell your
-          account manager it is done. Changing the campaign on its own does not start a new
+          <span className={LEAD_IN}>Put right what the reviewer named,</span> then tell us
+          it is done. Changing the campaign on its own does not start a new
           review — a person has to look again, and they need to know there is something to
           look at.
         </li>
@@ -358,7 +358,7 @@ function AfterARefusal() {
         </li>
         <li>
           <span className={LEAD_IN}>If the reason does not make sense, ask.</span> Quote it
-          back to your account manager — the wording above is exactly what the reviewer
+          back to us — the wording above is exactly what the reviewer
           recorded, so it is the fastest thing to answer.
         </li>
       </ul>

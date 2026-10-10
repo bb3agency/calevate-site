@@ -7,7 +7,7 @@ import { MonoValue } from "@/app/admin/ops/opsLanguage";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
-import { Disclosure, NoticeBox, formatCount } from "@/components/ui";
+import { Disclosure, NoticeBox, formatCount, formatCountOf } from "@/components/ui";
 import {
   BASIS_COPY,
   BUDGET_GAP_BODY,
@@ -54,7 +54,7 @@ export function LatencyReport({
         <span>{report.groups.length === 1 ? "row" : "rows"} over target</span>
         {rowsUnknown > 0 && (
           <span className="text-ink-muted">
-            · {formatCount(rowsUnknown)} more row(s) could not be judged — not the same as fine
+            · {formatCountOf(rowsUnknown, "more row")} could not be judged — not the same as fine
           </span>
         )}
         <span className="text-ink-muted">

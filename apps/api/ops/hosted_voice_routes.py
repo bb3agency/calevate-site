@@ -873,7 +873,9 @@ STUDIO_SWITCH_EXPLAINED: Final = (
     "Studio voices are our Cartesia key, switched on in the voice platform workspace for the "
     "voice only. Switching it on would move every agent that is not set to stay on the "
     "platform's own voices onto Cartesia at the Studio rate, so every published Clear agent "
-    "is set to stay off it first, and nothing is switched on unless all of them are."
+    "is set to stay off it first, and nothing is switched on unless all of them are. This is "
+    "not ThinnestAI's own Studio voice tier: which of those voices are listed is decided by "
+    "the ThinnestAI plan, and this switch changes nothing there."
 )
 
 

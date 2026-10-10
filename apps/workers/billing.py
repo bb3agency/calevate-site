@@ -1,189 +1,281 @@
-"""The billing charges the platform owes itself — today the onboarding setup fee.
+"""The monthly platform fee's job: raise each month's fee, and tell the client (D-707).
 
-WHY THIS JOB EXISTS
--------------------
-`billing/charges.py` shipped the setup fee (D-63) with the write on the RENDER of the
-invoice carrying it, and named the hole in its own docstring: `GET /v1/admin/tenants/
-{id}/invoice` was the only caller, so **a tenant whose first invoice nobody opened was
-never charged**. Revenue that depends on a human remembering to open a screen is the
-condition that module was written to end, one step removed — the fee stopped being
-collected out of band and started being billed out of band.
+D-707 replaced the setup fee this job used to issue (setup fees no longer exist) with an
+optional platform-wide monthly fee. Every hour, while the ops switch is on, it walks the
+live clients and for each one that is not exempt (a free trial, or an operator's waiver):
 
-This is the scheduled half. It asks one question of the database every night — *which
-tenants are owed a setup fee that has not been recorded?* — and issues the ones it
-finds through `issue_setup_fee`, the SAME function and the same unconditional
-`INSERT … ON CONFLICT DO NOTHING` the rest of the system uses. Nothing here decides
-what a client is charged; that decision has one home, and this is what makes it happen
-without being asked.
+1. raises this IST month's fee if it has not been raised — `issue_charge` is guarded by a
+   unique index on (tenant, month), so a retried or doubled tick raises it once;
+2. sends at most three emails per unpaid fee, each claimed on its own stamp BEFORE the
+   send so none goes twice: the fee is due, a reminder `REMINDER_BEFORE` the grace period
+   ends, and outbound calling is paused once it has ended. The pause itself is not this
+   job's: the dispatch gate reads the payments ledger (`billing/platform_fee.py`), so
+   paying lifts it on the next dial whether or not this job ever runs again.
 
-DAILY, NOT MONTHLY — and it is not the schedule that picks the month
---------------------------------------------------------------------
-The obvious reading of "a monthly invoicing job" was rejected after being written out:
-the fee is owed the moment an operator puts a plan quoting one on a tenant, not at a
-month boundary, so a monthly run would leave a tenant onboarded on the 2nd showing no
-setup line on their own in-progress statement for 29 days and then growing one. Daily
-bounds that at a day.
+Hourly rather than on the 1st alone, because the fee for a client who becomes liable
+mid-month (a trial converting, a waiver withdrawn) is raised within the hour, and the
+reminder and pause notices are timed by each fee's own grace period, not by the calendar.
 
-**Which month the charge lands on is not this schedule's business at all**, which is
-what makes the choice safe: `issue_setup_fee` derives the billing month from the
-TENANT's `organizations.created_at` through `ist_billing_month`, so the answer is the
-same whether this job runs tonight, tomorrow or (after an outage) next week. The IST
-shift is the load-bearing part — a client created at 23:00 UTC on 31 July was onboarded
-on 1 August in the only timezone this business bills in — and it is asserted on the job
-itself in `tests/setup_fee_test.py`, not only on the helper.
-
-The corollary is that this job never needs to know what "the current month" is, and
-deliberately does not ask: a cron's firing instant is the worker's LOCAL clock (arq
-evaluates `cron()` fields against the process timezone unless `WorkerSettings.timezone`
-is set, which this repo does not set), so any logic keyed on the tick's own date would
-be a billing decision made by a container's TZ environment variable.
-
-IDEMPOTENT, KEYED, RETRIED (TRD §8, BACKEND-PATTERNS §5)
---------------------------------------------------------
-* IDEMPOTENT at the row: the once-ness is `ux_one_time_charges_tenant_kind_ref` and an
-  unconditional insert. Running this twice in a second, or concurrently with an invoice
-  render, or after a partial failure, cannot double-charge — the second writer blocks
-  on the index entry and writes nothing. There is no read-then-write guard anywhere on
-  the path, and the probe below is NOT one: it is a cost filter that may be stale by
-  the time the write runs, which is exactly why the write does not trust it.
-* KEYED: it is a cron, so arq's job id is `issue_one_time_charges:<intended run>` and
-  two WORKERS cannot both run the same tick (`arq/worker.py::run_cron`). Two
-  consecutive ticks overlapping is not a concern here the way it is for the dispatch
-  tick — a day apart, and harmless if it ever happened, per the paragraph above.
-* RETRIED 3 TIMES, THEN ALERTED — not "then DLQ", which is what this line used to say
-  and what `WorkerSettings` used to promise for every job (P6.5). **There is no arq
-  dead-letter queue.** An exhausted job is `zrem`'d off the queue and written to a result
-  key nothing in `apps/` or `scripts/` reads; the only DLQ in this repository is the
-  OUTBOX's `status='failed'`, which covers the enqueue leg and not the execution leg. So
-  the last attempt's `alert()` IS the dead-letter mechanism, and a job without one fails
-  in silence.
-  `cron()` defaults `max_tries=1`, which would silently cost this job the ladder every
-  other job in this repo has, so it is passed explicitly in `settings.py`. A failing
-  tenant raises `Retry` (arq only retries `Retry`/`RetryJob` — see
-  `WorkerSettings.retry_jobs`), and the last attempt alerts instead: a fee that could not
-  be issued must be a page an operator can act on, not a silent zero in a log. **This job
-  is the shape the three drift sweeps were corrected to match**, rather than the other way
-  round.
+A tenant that fails does not stop the others; failures are counted and alarmed. The email
+goes to `organizations.billing_email`, the address `wallet_alerts` and `trial_notices`
+mail; logs carry ids, never the address (hard rule 6).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
-from datetime import datetime
-from typing import Any
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Any, Final, Literal
 from uuid import UUID
 
-from arq import Retry
 from sqlalchemy import text
 
-from apps.api.billing.charges import SETUP_FEE_KIND, SETUP_FEE_REF, issue_setup_fee
+from apps.api.billing.platform_fee import (
+    REMINDER_BEFORE,
+    FeeCharge,
+    exemption_of,
+    fee_switch,
+    issue_charge,
+    list_charges,
+)
+from apps.api.billing.service import to_paise
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.transport import get_transport
 from apps.api.db.session import admin_session, tenant_session
+from apps.workers.auth_email import CONSOLE_BASE
+from apps.workers.email_render import from_text
+from apps.workers.fleet_walk import WalkBudget
+from apps.workers.trial_notices import ist_moment
 
 log = get_logger(__name__)
 
-# Backoff between attempts, in seconds by attempt number. Far longer than the webhook
-# ladder's seconds, because nothing is waiting on this tick: a fee issued ten minutes
-# late is invisible to everyone, and whatever made a tenant's write fail (a lock, a
-# saturated pool, a failover) is likelier to have passed in ten minutes than in ten
-# seconds. The last attempt alerts rather than deferring again.
-_RETRY_AFTER_S = (60, 600)
+#: The hourly sweep's minute. No other fleet-wide walk fires at :53
+#: (`tests/job_registration_test.py::test_no_two_fleet_wide_walks_share_a_firing_minute`).
+FEE_SWEEP_MINUTE: Final = 53
+
+#: The live clients a fee can be raised for. A prospect, an onboarding account, a
+#: suspended one and a closed one are not using the platform this month.
+_DIRECTORY = (
+    "SELECT id FROM organizations WHERE deleted_at IS NULL AND status = 'active' ORDER BY id"
+)
+
+Notice = Literal["issued", "reminder", "paused"]
+
+#: The stamp each notice claims. A closed mapping, never interpolated from input.
+_STAMP: Final[dict[Notice, str]] = {
+    "issued": "issued_notice_sent_at",
+    "reminder": "reminder_sent_at",
+    "paused": "paused_notice_sent_at",
+}
+
+_SUBJECT: Final[dict[Notice, str]] = {
+    "issued": "Your monthly platform fee is due",
+    "reminder": "Reminder: your monthly platform fee is unpaid",
+    "paused": "Outgoing calls are paused: your platform fee is unpaid",
+}
 
 
-def _retry_after(attempt: int) -> int:
-    return _RETRY_AFTER_S[min(attempt, len(_RETRY_AFTER_S)) - 1]
+def compose(notice: Notice, *, charge: FeeCharge, slug: str) -> str:
+    """The email body, in a business owner's words. Incoming calls are always named as
+    unaffected, because that is the first thing an owner worries about."""
+    amount = f"₹{to_paise(charge.amount_inr):,}"
+    pause = ist_moment(charge.grace_ends_at)
+    if notice == "issued":
+        opening = (
+            f"Your platform fee for {charge.period} is {amount}. It is paid separately "
+            "from your calling credit, which it never touches."
+        )
+        after = f"Please pay it by {pause}. After that, outgoing calls pause until it is paid."
+    elif notice == "reminder":
+        opening = f"Your platform fee for {charge.period} ({amount}) is still unpaid."
+        after = f"Outgoing calls pause at {pause} unless it is paid before then."
+    else:
+        opening = (
+            f"Your platform fee for {charge.period} ({amount}) is unpaid, so outgoing "
+            "calls are paused."
+        )
+        after = "They resume as soon as the fee is paid."
+    lines = [
+        opening,
+        "",
+        after,
+        "Incoming calls keep being answered either way.",
+        "",
+        "Pay it here:",
+        "",
+        f"{CONSOLE_BASE}/c/{slug}/billing",
+    ]
+    return "\n".join(lines)
 
 
-async def owed_setup_fees() -> list[tuple[UUID, datetime]]:
-    """The tenants that may owe an unrecorded setup fee, with their onboarding instant.
+def notice_due(charge: FeeCharge, *, now: datetime) -> Notice | None:
+    """Which notice, if any, this unpaid fee is owed at `now`. The most advanced one
+    wins, so a fee first seen after its grace period is told about the pause, not
+    reminded about a deadline that has passed."""
+    if charge.paid:
+        return None
+    if now >= charge.grace_ends_at:
+        return "paused" if charge.paused_notice_sent_at is None else None
+    if now >= charge.grace_ends_at - REMINDER_BEFORE:
+        return "reminder" if charge.reminder_sent_at is None else None
+    return "issued" if charge.issued_notice_sent_at is None else None
 
-    ONE query, RLS fully applied, and the session count of the tick is therefore
-    proportional to the WORK rather than to the client list — the shape D-57 imposed on
-    the dispatch tick after measuring that two thirds of it was session machinery.
-    `unbilled_setup_fees()` (migration e3f9c2a71d84) is SECURITY INVOKER and re-scopes
-    `app.tenant_id` per tenant inside the loop, so every row it reads is a row that
-    tenant's own policy admits; the migration carries the whole argument, including why
-    the enumeration cannot ride on `engine_agent_routes` the way the dispatch tick's
-    does (for a setup fee that bridge is a SUBSET, and c7e4b19d3f52's rule is "a
-    superset here and a subset never").
 
-    `admin_session` is what lets the function see the client directory, and it is the
-    narrow thing it sounds like: `app.admin` widens `USING` on `organizations` and
-    NOTHING else (b57e2f9c4a13), so the money — `plans`, `one_time_charges` — is read
-    under `app.tenant_id` here exactly as it is in a request, and written below inside
-    an ordinary `tenant_session`. This is not the admin DB ROLE that hard rule 1
-    forbids; it is the same directory read `scripts/reconcile_credit_ledger` calls "the
-    one sanctioned enumeration surface", for the same platform-money reason.
-
-    Stated plainly because two other workers refuse this session and their tests say so:
-    `campaign_dispatch` and `retention` do not need it, because a global bridge already
-    covers the population they act on. A tenant owing an onboarding fee may never have
-    published an agent, so nothing covers this one — and the alternative, a third entry
-    in `RLS_EXEMPT_TENANT_COLUMNS` making every client's commercial terms globally
-    readable, is a much larger hole than a directory read that returns ids and a
-    timestamp.
-
-    The result is a SUPERSET on purpose (see the migration): `issue_setup_fee` makes the
-    real decision per tenant and may decline.
-    """
-    async with admin_session() as session:
-        rows = (
+async def _claim(tenant_id: UUID, *, charge_id: UUID, notice: Notice, at: datetime) -> bool:
+    column = _STAMP[notice]
+    async with tenant_session(tenant_id) as session:
+        claimed = (
             await session.execute(
-                text("SELECT owed_tenant_id, onboarded_at FROM unbilled_setup_fees(:kind, :ref)"),
-                {"kind": SETUP_FEE_KIND, "ref": SETUP_FEE_REF},
+                text(
+                    f"UPDATE monthly_fee_charges SET {column} = :at, updated_at = :at "
+                    f"WHERE id = :id AND {column} IS NULL RETURNING id"
+                ),
+                {"at": at, "id": charge_id},
             )
-        ).all()
-    return [(UUID(str(row[0])), row[1]) for row in rows]
+        ).first()
+    return claimed is not None
 
 
-async def issue_one_time_charges(ctx: dict[str, Any]) -> str:
-    """Daily. Issue every setup fee that is owed and has not been recorded.
+async def _release(tenant_id: UUID, *, charge_id: UUID, notice: Notice) -> None:
+    column = _STAMP[notice]
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(f"UPDATE monthly_fee_charges SET {column} = NULL WHERE id = :id"),
+            {"id": charge_id},
+        )
 
-    Returns a small JSON summary (arq stores it), which is what makes "the tick ran and
-    charged nobody" answerable without reading a month of logs.
 
-    A tenant that fails does NOT stop the others: the fees are independent obligations
-    and one tenant's broken plan row must not hold up everyone else's billing. The
-    failures are counted, and the tick ends by asking for the retry ladder — on which
-    every tenant is attempted again, which is free, because issuing is idempotent.
-    """
-    attempt = int(ctx.get("job_try", 1))
-    candidates = await owed_setup_fees()
-    issued = 0
-    failed = 0
-    for tenant_id, onboarded_at in candidates:
-        try:
-            async with tenant_session(tenant_id) as session:
-                if await issue_setup_fee(session, tenant_id=tenant_id, onboarded_at=onboarded_at):
-                    issued += 1
-        except Exception as exc:
-            # Never swallowed: counted here, alerted below if the ladder runs out, and
-            # the type is enough for an operator to act on without a client's terms
-            # appearing in log aggregation (hard rule 6's discipline, applied to money).
-            failed += 1
-            log.warning(
-                "setup_fee_issue_failed",
-                extra={"tenant_id": str(tenant_id), "error": type(exc).__name__},
+async def _send(*, address: str, notice: Notice, body: str) -> bool:
+    subject = _SUBJECT[notice]
+    message = from_text(
+        subject=subject,
+        preheader="Paid separately from your calling credit.",
+        heading=subject,
+        text=body,
+        cta="Pay the fee",
+    )
+    transport = get_transport()
+    # Off the event loop: the SMTP transport is synchronous (`wallet_alerts`' reason).
+    return await asyncio.to_thread(
+        lambda: transport.send(to=address, subject=subject, body=message.text, html=message.html)
+    )
+
+
+TenantOutcome = Literal["exempt", "issued", "noticed", "nothing", "no_billing_email", "send_failed"]
+
+
+async def settle_tenant(tenant_id: UUID, *, amount_inr: Decimal, now: datetime) -> TenantOutcome:
+    """One client's month: raise the fee if owed, then send the one notice it is due."""
+    async with tenant_session(tenant_id) as session:
+        if await exemption_of(session, tenant_id=tenant_id, at=now) is not None:
+            return "exempt"
+        issued = await issue_charge(session, tenant_id=tenant_id, amount_inr=amount_inr, at=now)
+        row = (
+            await session.execute(
+                text("SELECT billing_email, slug FROM organizations WHERE id = :tid"),
+                {"tid": tenant_id},
             )
+        ).first()
+        charges = await list_charges(session, tenant_id=tenant_id)
+    if row is None:
+        return "nothing"
+    address = str(row[0]) if row[0] else None
+    slug = str(row[1])
+    due = [(charge, notice) for charge in charges if (notice := notice_due(charge, now=now))]
+    if not due:
+        return "issued" if issued else "nothing"
+    if address is None:
+        alert("WORKER_DELIVERY", "platform_fee_notice_no_billing_email")
+        log.warning("platform_fee_notice_no_address", extra={"tenant_id": str(tenant_id)})
+        return "no_billing_email"
+    # The oldest unpaid fee first: it is the one pausing calls.
+    charge, notice = due[-1]
+    if not await _claim(tenant_id, charge_id=charge.id, notice=notice, at=now):
+        return "issued" if issued else "nothing"
+    if not await _send(
+        address=address, notice=notice, body=compose(notice, charge=charge, slug=slug)
+    ):
+        await _release(tenant_id, charge_id=charge.id, notice=notice)
+        log.warning(
+            "platform_fee_notice_send_failed",
+            extra={"tenant_id": str(tenant_id), "charge_id": str(charge.id), "notice": notice},
+        )
+        return "send_failed"
+    log.info(
+        "platform_fee_notice_sent",
+        extra={"tenant_id": str(tenant_id), "charge_id": str(charge.id), "notice": notice},
+    )
+    return "noticed"
 
-    totals = {"candidates": len(candidates), "issued": issued, "failed": failed}
-    log.info("setup_fees_issued", extra=totals)
-    if failed:
-        if attempt < WORKER_MAX_TRIES:
-            raise Retry(defer=_retry_after(attempt))
-        # Out of attempts: alert, and then FAIL. Returning here would file the tick as a
-        # success with a number in it that nobody reads, and a fee that was never issued
-        # is not a green run — `optout.py` makes the same pair of gestures for the same
-        # reason. The failure is what puts the job in the DLQ.
+
+async def issue_platform_fees(ctx: dict[str, Any]) -> str:
+    """Hourly. Raise and notify every live client's monthly platform fee while it is on."""
+    del ctx
+    switch = fee_switch()
+    if not switch.enabled:
+        return json.dumps({"enabled": False})
+    if switch.amount_inr is None:
+        # On without an amount: raising a fee of nothing is not a fee, and guessing one is
+        # not ours to do. Nothing is raised until an operator sets the amount.
         alert(
             "WORKER_TERMINAL",
-            "setup_fees_unissued",
-            detail=f"{failed} tenant(s) after {attempt} attempt(s)",
+            "platform_fee_unpriced",
+            detail="the monthly platform fee is switched on with no amount set",
         )
-        raise RuntimeError(f"{failed} setup fee(s) could not be issued")
-    return json.dumps(totals)
+        return json.dumps({"enabled": True, "priced": False})
+
+    now = datetime.now(UTC)
+    async with admin_session() as directory:
+        rows = (await directory.execute(text(_DIRECTORY))).all()
+    tenant_ids = [UUID(str(row[0])) for row in rows]
+
+    budget = WalkBudget()
+    counts: dict[str, int] = {"probed": 0, "issued": 0, "noticed": 0, "exempt": 0, "failed": 0}
+    for tenant_id in tenant_ids:
+        if budget.spent():
+            break
+        counts["probed"] += 1
+        try:
+            outcome = await settle_tenant(tenant_id, amount_inr=switch.amount_inr, now=now)
+        except Exception as exc:
+            counts["failed"] += 1
+            log.warning(
+                "platform_fee_tenant_failed",
+                extra={"tenant_id": str(tenant_id), "error": type(exc).__name__},
+            )
+            continue
+        if outcome in ("issued", "noticed", "exempt"):
+            counts[outcome] += 1
+        elif outcome == "send_failed":
+            counts["failed"] += 1
+
+    unreached = len(tenant_ids) - counts["probed"]
+    log.info("platform_fee_sweep", extra={**counts, "unreached": unreached})
+    if unreached:
+        alert(
+            "WORKER_DELIVERY",
+            "platform_fee_sweep_truncated",
+            detail=(
+                f"the platform fee sweep reached {counts['probed']} of {len(tenant_ids)} "
+                "client(s) inside its time budget; the rest are asked again next hour"
+            ),
+        )
+    if counts["failed"]:
+        alert(
+            "WORKER_TERMINAL",
+            "platform_fees_unissued",
+            detail=f"{counts['failed']} client(s); retried on the next hourly tick",
+        )
+    return json.dumps(counts)
 
 
-__all__ = ["issue_one_time_charges", "owed_setup_fees"]
+__all__ = [
+    "FEE_SWEEP_MINUTE",
+    "compose",
+    "issue_platform_fees",
+    "notice_due",
+    "settle_tenant",
+]

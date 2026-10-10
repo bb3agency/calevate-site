@@ -429,20 +429,22 @@ function LiveConfirmation({
                 <PropertyVerdict label="Script" verdict={engineState.data.prompt_applied} />
                 {/*
                  * TWO DISCLOSURE VERDICTS, and the labels have to say which is which.
-                 * "Disclosure (spoken first)" is the engine's GREETING field — the
+                 * "Opening (spoken first)" is the engine's GREETING field — the notices
+                 * switched on and, where the engine speaks one greeting field, the
+                 * agent's opening line after them (D-708); the
                  * deterministic first utterance, the one hard rule 5 and SEC-COMP §1 are
-                 * about, and the only one a publish is refused over. "Disclosure (in
+                 * about, and the only one a publish is refused over. "Notices (in
                  * script)" is the second copy both adapters also send; a mismatch there
                  * is a rendering difference worth seeing, not a compliance failure. One
                  * label reading "Disclosure line" for whichever we happened to check is
                  * how P3.3 stayed invisible on this very screen.
                  */}
                 <PropertyVerdict
-                  label="Disclosure (spoken first)"
+                  label="Opening (spoken first)"
                   verdict={engineState.data.disclosure_applied}
                 />
                 <PropertyVerdict
-                  label="Disclosure (in script)"
+                  label="Notices (in script)"
                   verdict={engineState.data.prompt_disclosure_applied}
                 />
                 {/* D-163. The one verdict on this panel that no client setting can

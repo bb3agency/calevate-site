@@ -184,9 +184,10 @@ describe("the client's DLT registration on /verification", () => {
     expect(screen.getByRole("button", { name: /try again/i })).toBeTruthy();
   });
 
-  it("distinguishes nothing-on-file from a failed read", async () => {
-    // `recorded: false` is a 200 and the normal state of a new account — the route refuses
-    // to answer it with a 404 precisely so this stays a state.
+  it("shows nothing for an unfiled registration, which no gate asks for (D-692)", async () => {
+    // `recorded: false` is a 200 and the normal state of a new account. Since D-692 calling
+    // out needs no DLT registration, so an empty record is not shown as a missing step —
+    // and it is still not a failed read.
     const { container } = await render(
       registration({
         recorded: false,
@@ -200,13 +201,9 @@ describe("the client's DLT registration on /verification", () => {
       }),
     );
 
-    await screen.findByText(
-      "We have not filed a DLT registration for your business.",
-    );
+    await screen.findByText("Verify your business");
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(container.textContent).toContain(
-      "Ask your account manager to start it.",
-    );
+    expect(container.textContent).not.toContain("DLT registration");
   });
 
   it("keeps the DLT half readable when the KYC half fails", async () => {
@@ -252,7 +249,7 @@ describe("the client's DLT registration on /verification", () => {
     await screen.findByText("Your DLT registration is not active yet.");
     expect(container.textContent).toContain("under_appeal");
     expect(container.textContent).toContain(
-      "Ask your account manager what this state means for your campaigns.",
+      "Ask us what this state means for your campaigns.",
     );
   });
 });

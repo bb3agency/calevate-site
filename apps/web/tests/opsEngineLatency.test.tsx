@@ -216,7 +216,7 @@ describe("the engine latency report", () => {
     // unjudgeable row is named separately so "could not tell" never reads as "fine".
     expect(container.textContent).toContain("1 of 2");
     expect(container.textContent).toContain(
-      "1 more row(s) could not be judged",
+      "1 more row could not be judged",
     );
   });
 

@@ -8,6 +8,7 @@ import {
   NoticeBox,
   PRIMARY_BUTTON,
   RestrictionNote,
+  formatCountOf,
   formatIST,
 } from "@/components/ui";
 import { WriteFailure } from "@/app/admin/writeFailure";
@@ -240,7 +241,7 @@ export function StartTrialForm({
           <p className="font-semibold text-ink">
             {days === null
               ? `This puts ${clientName} on a trial — their calling is on us for the days you enter`
-              : `This carries ${clientName} for ${days} day(s), starting the moment you press it`}
+              : `This carries ${clientName} for ${formatCountOf(days, "day")}, starting the moment you press it`}
           </p>
           <p className="mt-1 text-ink-muted">
             A client that has not paid builds agents and places outbound test calls from the
@@ -274,7 +275,7 @@ export function StartTrialForm({
         <NoticeBox
           tone="ok"
           icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
-          title={`On us for ${start.data.days} day(s) — until ${formatIST(start.data.ends_at)}`}
+          title={`On us for ${formatCountOf(start.data.days, "day")} — until ${formatIST(start.data.ends_at)}`}
         >
           <p className="mt-1">
             Nothing was credited to their wallet and no ledger entry was written: a trial is
@@ -288,7 +289,7 @@ export function StartTrialForm({
           ? "Starting…"
           : days === null
             ? "Start a trial"
-            : `Carry ${clientName} for ${days} day(s)`}
+            : `Carry ${clientName} for ${formatCountOf(days, "day")}`}
       </button>
 
       <RestrictionNote reason={write.reason} />

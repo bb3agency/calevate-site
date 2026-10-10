@@ -54,6 +54,7 @@ from calevate_shared.engine import (
     WebhookAuthMethod,
     WebhookVerdict,
     compose_engine_prompt,
+    compose_first_utterance,
 )
 from calevate_shared.engine_scope import scoped_handle
 from calevate_shared.events import (
@@ -475,6 +476,19 @@ FAKE_ENGINE_VOICES: Final[tuple[EngineVoice, ...]] = (
 )
 
 
+def _held_greeting(engine: FakeEngine, cfg: AgentConfig) -> str:
+    """The greeting a real adapter of this engine's name would hold for `cfg`.
+
+    Imported here rather than at the top: `hosted_platform` imports the ThinnestAI adapter,
+    and this module is imported while `apps.api.engine` itself is still loading.
+    """
+    from apps.api.engine.hosted_platform import engine_greeting
+
+    return engine_greeting(
+        engine, notices=cfg.opening_line, first_words=compose_first_utterance(cfg)
+    )
+
+
 class FakeEngine:
     """Implements `VoiceEngine` entirely in memory."""
 
@@ -703,8 +717,10 @@ class FakeEngine:
             # check that passes here and proves nothing against a vendor, which is the
             # substitution finding P3.3 records. It follows the CURRENT config, so an
             # agent republished with both notices off reads back with no greeting — which
-            # is what makes D-163's "the vendor actually cleared it" check testable.
-            greeting=cfg.opening_line,
+            # is what makes D-163's "the vendor actually cleared it" check testable. Under an
+            # engine name whose greeting is the whole first utterance it holds the notices and
+            # the opening line, as that adapter sends them (D-708).
+            greeting=_held_greeting(self, cfg),
             greeting_readable=True,
             # The fake engine's agent really does reference its attached sources, so this
             # is readable — and it is the ONLY place D-41's dangling-handle logic gets

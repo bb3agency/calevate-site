@@ -36,7 +36,8 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from calevate_shared.engine import DisclosurePosture, compose_opening_line
+from calevate_shared.call_script import opening_line_of
+from calevate_shared.engine import DisclosurePosture, compose_opening_line, join_first_words
 from calevate_shared.extraction import ExtractionField
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,9 +83,13 @@ AGENT_ROSTER_SQL = (
     # meant — a shifted index in a positional row read is a silent field swap.
     "a.caller_memory_notice_line, a.caller_memory_enabled, "
     # The engine-catalogue choices (D-678), appended for the reason above.
-    "a.engine_voice_id, a.engine_model_id "
+    "a.engine_voice_id, a.engine_model_id, "
+    # The APPLIED script, the version callers hear, for its opening line (D-708). The same
+    # pointer `agents/service._load_agent` publishes from.
+    "pv.body "
     "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
     "LEFT JOIN organizations o ON o.id = a.tenant_id "
+    "LEFT JOIN prompt_versions pv ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
     "WHERE a.deleted_at IS NULL"
 )
 
@@ -111,6 +116,20 @@ def agent_out(r: Any) -> AgentOut:
     # ONE READ of the engine's recording fact for both sentences that depend on it, so the
     # opening a client is shown and the answer they are promised cannot disagree.
     recorded = engine_capabilities().records_audio
+    # Through the ONE composer, so the roster, the publish path and the engine cannot
+    # disagree about which notices this agent says first (D-163).
+    notices = compose_opening_line(
+        DisclosurePosture(
+            ai_disclosure_line=str(r[9]),
+            ai_disclosure_enabled=bool(r[10]),
+            recording_notice_line=str(r[11]),
+            recording_notice_enabled=bool(r[12]),
+            caller_memory_notice_line=str(r[17]),
+            caller_memory_enabled=bool(r[18]),
+        ),
+        call_is_recorded=recorded,
+    )
+    opening = opening_line_of(r[21])
     return AgentOut(
         id=r[0],
         name=r[1],
@@ -136,19 +155,9 @@ def agent_out(r: Any) -> AgentOut:
         llm_surcharged=llm_surcharge_applies(model=resolved.model, source=resolved.source),
         engine_voice_id=r[19],
         engine_model_id=engine_model_token(r[20]) if r[20] is not None else None,
-        # Through the ONE composer, so the roster, the publish path and the engine
-        # cannot disagree about what this agent opens with (D-163).
-        opening_line=compose_opening_line(
-            DisclosurePosture(
-                ai_disclosure_line=str(r[9]),
-                ai_disclosure_enabled=bool(r[10]),
-                recording_notice_line=str(r[11]),
-                recording_notice_enabled=bool(r[12]),
-                caller_memory_notice_line=str(r[17]),
-                caller_memory_enabled=bool(r[18]),
-            ),
-            call_is_recorded=recorded,
-        ),
+        opening_line=notices,
+        script_opening_line=opening,
+        first_words=join_first_words(notices, opening),
         truthful_answer_rule=truthful_answer_promise(call_is_recorded=recorded),
     )
 

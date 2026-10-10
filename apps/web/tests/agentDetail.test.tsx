@@ -115,6 +115,8 @@ function agent(over: Partial<Agent> = {}): Agent {
     recording_notice_enabled: true,
     opening_line:
       "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
+    script_opening_line: "",
+    first_words: "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
     truthful_answer_rule:
       "Whatever these settings say, the agent always answers honestly when a caller asks.",
     engine: "pipecat",
@@ -352,8 +354,8 @@ describe("which script callers are actually hearing", () => {
 
     // The whole feature in two assertions. v9 is staged and v4 is live; a screen that reads
     // the pointers the wrong way round passes every other test in this file.
-    expect(factValue("Callers hear now")).toBe("v4");
-    expect(factValue("Waiting to be applied")).toBe("v9");
+    expect(factValue("Live version")).toBe("Version 4");
+    expect(factValue("Waiting to be applied")).toBe("Version 9");
 
     // …and the sentence under the list must not re-attach "what callers hear" to the
     // version listed above it, which is the staged one. This exact phrasing shipped.
@@ -387,8 +389,8 @@ describe("which script callers are actually hearing", () => {
     );
 
     await screen.findByText("Changes waiting to go live");
-    expect(factValue("Callers hear now")).toBe("Nothing live yet");
-    expect(factValue("Waiting to be applied")).toBe("v1");
+    expect(factValue("Live version")).toBe("None yet");
+    expect(factValue("Waiting to be applied")).toBe("Version 1");
     expect(container.textContent).not.toContain("v0");
   });
 
@@ -882,11 +884,12 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
           ai_disclosure_enabled: false,
           recording_notice_enabled: false,
           opening_line: "",
+          first_words: "",
         }),
       }),
     );
 
-    await screen.findByText(/opens straight into its script/);
+    await screen.findByText(/Both notices are off and the script has no opening line/);
     // Never an empty quotation: a pair of empty quotes reads as "the agent says nothing",
     // which is true of the OPENING and false of the call.
     expect(container.textContent).not.toContain("“”");
@@ -905,6 +908,43 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     // And, in both off-states, the agent still answers honestly when asked.
     expect(container.textContent).toContain("the agent still says it is an AI");
     expect(container.textContent).toContain("the agent still says yes");
+  });
+
+  it("keeps the opening line when both notices are off: the switches never reach it (D-708)", async () => {
+    const GREETING = "Namaskaram! Sri Clinic, how can I help you today?";
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({
+          ai_disclosure_enabled: false,
+          recording_notice_enabled: false,
+          opening_line: "",
+          script_opening_line: GREETING,
+          first_words: GREETING,
+        }),
+      }),
+    );
+
+    // What callers hear first is the agent's own greeting, not "nothing".
+    await screen.findByText(`“${GREETING}”`);
+    expect(container.textContent).not.toContain("Both notices are off and the script has no opening line");
+    expect(container.textContent).toContain("These switches never change it");
+    expect(screen.getByRole("link", { name: "Edit the opening line" })).toBeTruthy();
+  });
+
+  it("quotes the notices and then the opening line when the notices are on", async () => {
+    const GREETING = "How can I help you today?";
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({
+          script_opening_line: GREETING,
+          first_words: `${OPENING} ${GREETING}`,
+        }),
+      }),
+    );
+
+    await screen.findByText(`“${OPENING} ${GREETING}”`);
   });
 
   it("sends only the switch that moved", async () => {
@@ -1580,7 +1620,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
           type: "urn:calevate:agents/agent_has_no_script",
           title: "This agent has no script yet",
           detail: "Nothing has been written for it to say.",
-          remediation: "Ask your account manager to write its script.",
+          remediation: "Ask us to write its script.",
         }),
       }),
     );
@@ -1600,7 +1640,7 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
       "Nothing has been written for it to say.",
     );
     expect(alert.textContent).toContain(
-      "Ask your account manager to write its script.",
+      "Ask us to write its script.",
     );
   });
 });
@@ -1974,7 +2014,7 @@ describe("the setup checklist reflects the real state", () => {
     expect(document.body.textContent).toContain("No voice has been set on this agent.");
   });
 
-  it("says whose step a missing phone number is, instead of offering an Add that cannot add", async () => {
+  it("sends a client without a number to buy one, never to an account manager (D-707)", async () => {
     await renderClientPage(
       page,
       routes({ "/v1/agents/agent-1": agent({ inbound_number_count: 0 }) }),
@@ -1982,9 +2022,9 @@ describe("the setup checklist reflects the real state", () => {
 
     await screen.findByText("Give it a phone number to answer");
     const number = row("Give it a phone number to answer");
-    expect(number.textContent).toContain("Your account manager arranges the number.");
-    expect(number.textContent).not.toContain("To do");
-    expect(within(number).getByRole("link", { name: /Details/ })).toBeTruthy();
+    expect(number.textContent).not.toContain("account manager");
+    expect(number.textContent).toMatch(/Numbers page|Numbers open once/);
+    expect(within(number).getByRole("link", { name: /Get a number|Add credit/ })).toBeTruthy();
   });
 });
 

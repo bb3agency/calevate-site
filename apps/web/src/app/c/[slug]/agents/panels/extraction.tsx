@@ -16,6 +16,7 @@ import {
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON,
+  formatISTStamp,
 } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
 import { InfoTip } from "@/components/console/infoTip";
@@ -375,7 +376,7 @@ function ArchivedExtractionList({
       { key: "agent_id", label: "Agent id", value: agent.id },
       { key: "agent_name", label: "Agent name", value: agent.name },
       { key: "agent_status", label: "Status", value: agent.status },
-      { key: "agent_archived_at", label: "Retired (UTC)", value: agent.archived_at ?? "not recorded" },
+      { key: "agent_archived_at", label: "Retired (IST)", value: formatISTStamp(agent.archived_at, "not recorded") },
       { key: "agent_direction", label: "What it used to do", value: agent.direction },
       { key: "agent_language", label: "What it spoke", value: agent.language_primary },
       {

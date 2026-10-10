@@ -80,6 +80,8 @@ function agent(over: Partial<Agent> = {}): Agent {
     recording_notice_enabled: true,
     opening_line:
       "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
+    script_opening_line: "",
+    first_words: "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
     truthful_answer_rule:
       "Whatever these settings say, the agent always answers honestly when a caller asks.",
     engine: "pipecat",
@@ -713,7 +715,7 @@ describe("how changes take effect", () => {
       .parentElement;
     expect(immediate?.textContent).toContain("Its voice");
     expect(immediate?.textContent).not.toContain("webhook");
-    expect(container.textContent).toContain("Ask your account manager");
+    expect(container.textContent).toContain("Ask us");
     // The unnamed field still appears — a lane the client cannot see is worse than an ugly
     // label (FIELD_LABELS falls through to the field's own name).
     expect(container.textContent).toContain("webhook");

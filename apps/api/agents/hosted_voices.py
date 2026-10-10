@@ -176,11 +176,50 @@ def no_sold_band_sentence(listed: int) -> str:
         f"tier sold as Clear ('{CLEAR_BAND_SETTING_LABEL}' in the ops console)."
     )
     if band == "studio":
-        return (
-            f"{sentence} Studio voices and clones are listed only on the Pro plan and above. "
-            "Upgrade the plan, then refresh."
-        )
+        return f"{sentence} {STUDIO_NEEDS_PRO}"
     return f"{sentence} Check the account on ThinnestAI, then refresh."
+
+
+#: Why no ThinnestAI Studio-tier voice reaches us below Pro, including the one its console
+#: lets every plan hear. `GET /voices` lists Studio only on Pro and above, and every id it
+#: lists is one an agent can be set to (snapshots/2026-10-08/pages/api-reference/voices/
+#: list-voices.md:7, docs.thinnest.ai read 10 Oct 2026); the free Studio voice "previews"
+#: (guides/how-your-agent-sounds.md:132-134), it is not settable. The last sentence is there
+#: because our own Studio rung (Cartesia on our key) shares the word and not the mechanism.
+STUDIO_NEEDS_PRO: Final = (
+    "ThinnestAI lists Studio-tier voices and clones only on its Pro plan and above. The one "
+    "Studio voice its console lets every plan play is a listening sample: it is not in the "
+    "voice list below Pro, so no agent can be set to it. Upgrade the ThinnestAI plan and "
+    "press Refresh, or sell Clear on Premium. Switching on Studio voices (our Cartesia key) "
+    "does not change this."
+)
+
+
+async def assert_clear_band_listed(session: AsyncSession, band: object) -> None:
+    """Refuse selling Clear on a band the last sync proved this account is not listed.
+
+    Decided on what the platform answered rather than on the plan setting, so it holds
+    whichever way the vendor behaves: refused only while the cache holds the engine's voices
+    and none in `band`. A deployment never synced, or one whose engine hosts no voices,
+    proves nothing and the write is allowed."""
+    bands = await count_listed_bands(session)
+    listed = sum(bands.values())
+    if not listed or bands.get(cast(HostedVoiceBand, band)):
+        return
+    label = BAND_LABELS.get(cast(HostedVoiceBand, band), str(band))
+    detail = (
+        f"The last voice refresh read {listed} ThinnestAI voice(s) ({_band_summary(bands)}) "
+        f"and none in the {label} tier, so Clear would have no voice to sell."
+    )
+    raise ProblemError(
+        kind="business_rule",
+        code="voice_band_not_listed",
+        title=f"ThinnestAI lists no {label}-tier voice on this account",
+        detail=f"{detail} {STUDIO_NEEDS_PRO}" if band == "studio" else detail,
+        remediation=(
+            "Upgrade the ThinnestAI plan, press Refresh on the Voices page, then set this again."
+        ),
+    )
 
 
 def band_not_sold(row: HostedVoiceRow) -> ProblemError:
@@ -291,6 +330,8 @@ class HostedSyncResult:
     #: How many voices the engine's own listing held, and how many of them per band.
     engine_listed: int = 0
     bands: Mapping[HostedVoiceBand, int] = field(default_factory=dict)
+    #: Voices the engine listed in a tier we do not read, by the engine's word.
+    unread_bands: Mapping[str, int] = field(default_factory=dict)
 
     @property
     def sold_band_missing(self) -> bool:
@@ -419,6 +460,9 @@ def hosted_refresh_note(result: HostedSyncResult, *, offered: int) -> str:
             f"{result.pruned} withdrawn by the platform; {offered} offered to clients. A newly "
             "seen voice must be added and enabled before a client can choose it."
         )
+    if result.unread_bands:
+        unread = ", ".join(f"{n} in '{tier}'" for tier, n in sorted(result.unread_bands.items()))
+        note = f"{note} Also listed in a tier we do not read, so not cached or sellable: {unread}."
     if result.studio_skipped_reason is not None:
         return f"{note} Studio voices: {result.studio_skipped_reason}."
     return note
@@ -535,6 +579,7 @@ async def sync_hosted_voices(
             "written": written,
             "pruned": pruned,
             "bands": dict(bands),
+            "unread_bands": dict(own.unread_bands),
         },
     )
     return HostedSyncResult(
@@ -544,6 +589,7 @@ async def sync_hosted_voices(
         studio_skipped_reason=skipped,
         engine_listed=len(own.voices),
         bands=bands,
+        unread_bands=dict(own.unread_bands),
     )
 
 
@@ -895,6 +941,7 @@ __all__ = [
     "HOSTED_SOURCES",
     "NO_SOLD_BAND_CODE",
     "STUDIO_KEY_OFF_REASON",
+    "STUDIO_NEEDS_PRO",
     "STUDIO_VOICE_PROVIDER",
     "HostedSyncResult",
     "HostedVoiceRef",
@@ -902,6 +949,7 @@ __all__ = [
     "VoiceScope",
     "add_hosted_voice",
     "agent_voice_withdrawn",
+    "assert_clear_band_listed",
     "band_is_sold",
     "band_not_sold",
     "count_hosted_voices",

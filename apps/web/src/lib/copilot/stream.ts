@@ -40,6 +40,8 @@ export interface CopilotAskBody {
   fields: WireField[];
   facts: WireFact[];
   history: { role: "user" | "assistant"; content: string }[];
+  /** Admin realm only: the client account the page is about (`adminTenantOf`). */
+  tenant_id?: string;
 }
 
 export interface CopilotStreamHandlers {

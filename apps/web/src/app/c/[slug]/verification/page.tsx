@@ -108,14 +108,22 @@ export default function VerificationPage() {
             onRetry={() => void kyc.refetch()}
           />
         )}
-        {(dlt.error || !pe) && (
+        {dlt.error && (
           <ProblemNotice
-            error={dlt.error ?? new Error("Your DLT registration did not load, so we cannot say where it stands.")}
+            error={dlt.error}
             onRetry={() => void dlt.refetch()}
           />
         )}
         {items.length > 0 && <Checklist label="Before outgoing calls can start" headingLevel={2} items={items} />}
-        {pe && <Checklist label="DLT registration, on record" headingLevel={2} items={[dltItem(pe)]} />}
+        {/* Only a registration somebody filed: since D-692 none is needed to call, so an
+            empty record would read as a missing step. */}
+        {pe?.recorded && (
+          <Checklist
+            label="DLT registration, on record (not needed to make calls)"
+            headingLevel={2}
+            items={[dltItem(pe)]}
+          />
+        )}
         {blocked && (
           <p className="text-sm font-semibold text-ink">
             Calls coming IN are unaffected — your agent keeps answering the phone.
@@ -124,7 +132,7 @@ export default function VerificationPage() {
       </div>
 
       {kycRecord && <KycSections record={kycRecord} />}
-      {pe && <DltDetails registration={pe} />}
+      {pe?.recorded && <DltDetails registration={pe} />}
 
       <div className="space-y-3">
         {kycRecord && (

@@ -30,7 +30,7 @@ from decimal import Decimal
 
 import pytest
 from apps.api.billing.ai_quota import AI_QUOTA_INR
-from apps.api.tenancy.models import DEFAULT_PLAN_TIER, PLAN_TIERS
+from apps.api.tenancy.models import DEFAULT_PLAN_TIER, PLAN_TIERS, RETIRED_PLAN_TIERS
 
 
 def test_every_plan_tier_has_a_dashboard_ai_allowance_and_no_tier_is_invented() -> None:
@@ -69,3 +69,11 @@ def test_the_default_tier_is_not_the_cheapest_allowance() -> None:
     assert AI_QUOTA_INR[DEFAULT_PLAN_TIER] > AI_QUOTA_INR["trial"]
     assert AI_QUOTA_INR["trial"] == min(AI_QUOTA_INR.values())
     assert all(isinstance(value, Decimal) for value in AI_QUOTA_INR.values())
+
+
+def test_a_retired_tier_is_still_admitted_and_never_the_default() -> None:
+    """D-707 retired `managed` in two steps (hard rule 8): the CHECK still admits it for
+    one release, so the allowance above must still answer for it, and the tier a new
+    account is born on can never be one nothing may write."""
+    assert set(RETIRED_PLAN_TIERS) < set(PLAN_TIERS)
+    assert DEFAULT_PLAN_TIER not in RETIRED_PLAN_TIERS

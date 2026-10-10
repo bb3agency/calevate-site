@@ -85,6 +85,12 @@ log = get_logger(__name__)
 #
 # `client_cap_*` is in neither and is deliberately absent from `TERM_COLUMNS` entirely:
 # see the module docstring.
+#
+# D-707 (10 Oct 2026): every client buys prepaid credits, so the route refuses a figure in
+# any retainer column (setup fee, monthly fee, included minutes, both overage rates) and
+# only `llm_model_surcharge` is still written here. The columns stay in this list because
+# rows written before D-707 still price the months they covered, and `states_pricing`
+# must keep reading them; step 2 of the two-step drops them.
 PRICING_COLUMNS: tuple[str, ...] = (
     "setup_fee",
     "monthly_fee",

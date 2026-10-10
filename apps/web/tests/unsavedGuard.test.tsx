@@ -99,6 +99,8 @@ const AGENT: Agent = {
   caller_memory_enabled: false,
   recording_notice_enabled: true,
   opening_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  script_opening_line: "",
+  first_words: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   truthful_answer_rule:
     "Whatever these settings say, the agent always answers honestly when a caller asks.",
   engine: "pipecat",

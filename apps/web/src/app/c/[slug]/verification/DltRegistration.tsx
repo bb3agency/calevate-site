@@ -74,8 +74,8 @@ function DltStatuses({ registration }: { registration: PeRegistration }) {
         <dd className="text-ink-muted">
           {entity?.next ??
             (registration.recorded
-              ? "Ask your account manager what this state means for your campaigns."
-              : "Nothing has been filed with the registrar for your business yet. Ask your account manager to start it.")}
+              ? "Ask us what this state means for your campaigns."
+              : "Nothing has been filed with the registrar for your business yet. Ask us to start it.")}
         </dd>
       </div>
       <div>
@@ -86,7 +86,7 @@ function DltStatuses({ registration }: { registration: PeRegistration }) {
         <dd className="text-ink-muted">
           {link?.next ??
             (registration.recorded
-              ? "Ask your account manager where this authorisation stands."
+              ? "Ask us where this authorisation stands."
               : "This authorisation follows the registration above; there is nothing to authorise until that exists.")}
         </dd>
         <CalevateTelemarketerId registration={registration} />

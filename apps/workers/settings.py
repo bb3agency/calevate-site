@@ -19,7 +19,7 @@ written to a result key for `keep_result` seconds, and gone: nothing in `apps/` 
 `scripts/` reads an arq result key, a job status or a failed-job set.
 
 **So the alert is not a property of the queue; it is a property of each job**, and the
-shape every job that matters uses is the one `billing.issue_one_time_charges` spells out —
+shape every job that matters uses is the one `qa_sampling.draw_qa_samples` spells out —
 `if attempt < WORKER_MAX_TRIES: raise Retry(...)`, else `alert(...)` and then RAISE, because
 returning would file the tick as a success with a number in it that nobody reads. A job
 that does not make that pair of gestures fails in silence, whatever this file says.
@@ -61,6 +61,7 @@ from collections.abc import Mapping
 from contextlib import suppress
 from datetime import timedelta
 from typing import Any, Final
+from zoneinfo import ZoneInfo
 
 # Must run before arq creates its loop. Same policy as tests/conftest.py.
 if sys.platform == "win32":
@@ -97,7 +98,7 @@ from apps.workers.account_closure import notify_account_closed, sweep_due_erasur
 from apps.workers.action_audit import record_action_invocation
 from apps.workers.alerts import sweep_alert_clears
 from apps.workers.auth_email import deliver_auth_email
-from apps.workers.billing import issue_one_time_charges
+from apps.workers.billing import FEE_SWEEP_MINUTE, issue_platform_fees
 from apps.workers.call_finalise import finalise_unsettled_call
 from apps.workers.caller_embeddings import CALLER_EMBED_MINUTES, embed_caller_chunks
 from apps.workers.caller_memory_distil import (
@@ -144,6 +145,7 @@ from apps.workers.engine_signals import ingest_engine_notice, ingest_engine_opt_
 from apps.workers.engine_webhooks import WEBHOOK_SWEEP_MINUTES, reconcile_engine_webhooks
 from apps.workers.engine_workspaces import (
     offboard_engine_workspace,
+    poll_business_details_in_review,
     provision_engine_workspace,
     retire_moved_engine_agent,
     retry_engine_workspaces,
@@ -196,7 +198,7 @@ from apps.workers.rate_card_notice import (
 )
 from apps.workers.razorpay_jobs import (
     AUTO_RECHARGE_MINUTES,
-    RECONCILE_HOUR_UTC,
+    RECONCILE_HOUR_IST,
     RECONCILE_MINUTE,
     reconcile_razorpay,
     send_payment_notice,
@@ -459,6 +461,21 @@ FUNCTIONS = [
 #: is declared rather than derived, including the three derivable signals that were
 #: measured against this tree and found insufficient.
 WALK_SHAPES: dict[str, WalkShape] = {}
+
+
+#: The zone every cron field below is written in: IST (D-709), handed to arq as
+#: `WorkerSettings.timezone`. arq otherwise evaluates cron fields in the HOST's zone
+#: (`Worker.__init__`: `datetime.now().astimezone().tzinfo`, arq 0.28.0), so the same
+#: `hour={8}` would fire at different instants on a UTC container and an IST one, and the
+#: `TZ` the image sets would quietly move every job.
+#:
+#: The move from the host's UTC was made by adding five to every `hour` and leaving every
+#: minute alone, so every job fires 30 minutes EARLIER than before in absolute time and
+#: keeps its order and spacing against every other job (the fleet-walk collision guard in
+#: `tests/job_registration_test.py` compares the same fields it always did). Minute-only
+#: crons keep their numbers, which now count from the IST hour. The before/after table is
+#: D-709 in docs/ROADMAP.md.
+CRON_TIMEZONE: Final = ZoneInfo("Asia/Kolkata")
 
 
 def _cron(coroutine: Any, *, walk: WalkShape, **kwargs: Any) -> CronJob:
@@ -776,7 +793,7 @@ CRON_JOBS = [
     _cron(
         traced_job(sweep_expired),
         walk=bounded("one untenanted DELETE over an expiry index"),
-        hour={3},
+        hour={8},
         minute={17},
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -799,8 +816,8 @@ CRON_JOBS = [
             "one tenant_session per organization, then one usage event per bought number"
         ),
         day={1},
-        hour={2},
-        # :28, not :20: `draw_qa_samples` walks every organization on Monday 02:20, and a
+        hour={7},
+        # :28, not :20: `draw_qa_samples` walks every organization on Monday 07:20, and a
         # 1st that falls on a Monday put two fleet walks in one minute twelve times a year
         # — the shape of collision a hand-checked list never catches.
         minute={28},
@@ -817,7 +834,7 @@ CRON_JOBS = [
             "one vendor listing per workspace (developer and each active client workspace) "
             "against one read per tenant"
         ),
-        hour={2},
+        hour={7},
         minute={35},
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -827,15 +844,24 @@ CRON_JOBS = [
     _cron(
         traced_job(healer_sweep(retry_engine_workspaces)),
         walk=bounded("one directory read, then at most 50 tenant sessions that queue a job"),
-        hour={2},
+        hour={7},
         minute={52},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # A business-details application being checked is read every five minutes until it
+    # settles: the voice platform sends no event for it and approves within minutes.
+    _cron(
+        traced_job(poll_business_details_in_review),
+        walk=bounded("one directory read, then one vendor GET per application in review"),
+        minute=set(range(4, 60, 5)),
+        second={45},
         max_tries=WORKER_MAX_TRIES,
     ),
     # And each client workspace read back: business details, our voice key, clone copies.
     _cron(
         traced_job(healer_sweep(sweep_engine_workspaces)),
         walk=bounded("at most DEFAULT_WORKSPACE_BUDGET workspaces, resumed from a cursor"),
-        hour={3},
+        hour={8},
         minute={8},
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -846,7 +872,7 @@ CRON_JOBS = [
     _cron(
         traced_job(renew_number_rentals),
         walk=fleet_wide("one tenant_session per organization, then one per client-priced number"),
-        hour={2},
+        hour={7},
         minute={46},
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -856,13 +882,11 @@ CRON_JOBS = [
     # **The schedule does not decide which week is sampled** — `qa_sampling.closed_weeks`
     # does, from the firing instant converted to IST, and it only ever asks for weeks
     # that have CLOSED. That matters because arq evaluates cron fields in the WORKER
-    # HOST's timezone (`Worker.timezone` defaults to the system zone), which this repo
-    # pins nowhere; a schedule whose correctness depended on the host clock would sample
-    # a partial week the day somebody deployed to a differently-configured box. Monday
-    # 02:20 is after the IST week boundary on both a UTC host (07:50 IST) and an IST one,
-    # so the tick is early either way and the draw is right regardless.
+    # timezone (`WorkerSettings.timezone`, IST since D-709); a schedule whose correctness
+    # depended on that setting would sample a partial week the day it moved. Monday 07:20
+    # IST is well after the week boundary, and the draw is right whatever the zone.
     #
-    # `max_tries` EXPLICIT for the reason `issue_one_time_charges` states below:
+    # `max_tries` EXPLICIT for for its neighbours' reason:
     # `cron()` defaults it to 1 and `WorkerSettings.max_tries` does not reach a function
     # carrying its own. A sampling tick that gave up on its first failure would leave a
     # week undrawn with every screen still green. Verified against a real
@@ -871,7 +895,7 @@ CRON_JOBS = [
         traced_job(draw_qa_samples),
         walk=fleet_wide("one tenant_session per organization, under a time budget"),
         weekday={0},
-        hour={2},
+        hour={7},
         minute={20},
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -900,7 +924,7 @@ CRON_JOBS = [
     # OPERATIONS §4's cert-expiry alarm. DAILY and not hourly: the quantity it measures
     # moves once a day, and certbot's own renewal timer runs twice a day — a check that
     # ran more often would only re-discover the same number and spend the alert path's
-    # dedupe window on it. 04:05, after the nightly retention jobs have finished with the
+    # dedupe window on it. 09:05, after the nightly retention jobs have finished with the
     # database and well before anybody would act on the result.
     #
     # `max_tries` EXPLICIT for the reason its neighbours give: `cron()` defaults it to 1.
@@ -909,7 +933,7 @@ CRON_JOBS = [
     _cron(
         traced_job(check_tls_expiry),
         walk=bounded("one TLS handshake per configured hostname"),
-        hour={4},
+        hour={9},
         minute={5},
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -932,15 +956,15 @@ CRON_JOBS = [
         walk=fleet_wide(
             "one tenant_session per tenant that can hold call data, under a time budget"
         ),
-        hour={3},
+        hour={8},
         minute={40},
         max_tries=WORKER_MAX_TRIES,
     ),
-    # TRIALS THAT HAVE RUN OUT, AND THE ERASURES THEY MAKE DUE (D-536). 02:33 — :25 is
+    # TRIALS THAT HAVE RUN OUT, AND THE ERASURES THEY MAKE DUE (D-536). 07:33 — :25 is
     # `copilot_memory.DISTILL_MINUTE`, an hourly walk of every tenant with a worklist row,
     # and this one walks every organization under a `WalkBudget` it must finish inside.
     # Ahead of
-    # the retention sweep at 03:40 rather than after it, so an erasure this tick files can
+    # the retention sweep at 08:40 rather than after it, so an erasure this tick files can
     # be picked up by tonight's retention pass instead of tomorrow's — the two are days
     # apart in effect, but the ordering is free and the shorter path is the one a data
     # principal is owed.
@@ -957,7 +981,7 @@ CRON_JOBS = [
     _cron(
         traced_job(sweep_trials),
         walk=fleet_wide("one tenant_session per organization, under a time budget"),
-        hour={2},
+        hour={7},
         minute={33},
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -981,7 +1005,7 @@ CRON_JOBS = [
     # The grace window is a PROMISE WITH A DATE ON IT and it has to hold in both
     # directions: an account must not be erased before the date the client was given, and
     # a client who asked us to erase now (`bring_erasure_forward`) must not wait until
-    # 03:40 for a deadline they set for this afternoon. An hour is the coarsest tick that
+    # 08:40 for a deadline they set for this afternoon. An hour is the coarsest tick that
     # keeps "erased on the date we told you" true either way.
     #
     # `max_tries` EXPLICIT for its neighbours' reason: `cron()` defaults it to 1 and
@@ -1004,7 +1028,7 @@ CRON_JOBS = [
     # of lead names, numbers and call summaries sitting outside every retention policy a
     # tenant can set. AFTER `apply_retention` and not before: an outbox row is the
     # promise of a side effect, and pruning promises before the sweep that may still be
-    # making them is an ordering nobody would be able to reason about at 03:00.
+    # making them is an ordering nobody would be able to reason about at 08:00.
     # `max_tries` EXPLICIT for the reason its neighbour above spells out at length.
     # THE ALARM EPISODE CLOSER (D-591). Ten-minutely, because a clear notice an hour late
     # is a clear notice nobody connects to the incident it ends — and because the episode
@@ -1045,7 +1069,7 @@ CRON_JOBS = [
     _cron(
         traced_job(prune_reliability_tables),
         walk=bounded("one untenanted session, batched deletes"),
-        hour={4},
+        hour={9},
         minute={10},
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -1060,7 +1084,7 @@ CRON_JOBS = [
     # is what lets it skip the Redis lease the campaign tick needs — and two places
     # writing "30 minutes" is how that assertion stops being true.
     #
-    # `max_tries` EXPLICIT, the reason `issue_one_time_charges` states below: `cron()`
+    # `max_tries` EXPLICIT, for its neighbours' reason: `cron()`
     # defaults it to 1, so a sweep that gave up on its first failure would leave every
     # client's live agent unwatched with the console still green.
     _cron(
@@ -1088,7 +1112,7 @@ CRON_JOBS = [
     # `minute` therefore comes FROM the module, because two places writing "hourly" is how
     # that assertion stops being true.
     #
-    # `max_tries` EXPLICIT, the reason `issue_one_time_charges` states below: `cron()`
+    # `max_tries` EXPLICIT, for its neighbours' reason: `cron()`
     # defaults it to 1, so a sweep that gave up on its first failure would leave every
     # client's published knowledge unwatched with the console still green.
     _cron(
@@ -1109,7 +1133,7 @@ CRON_JOBS = [
     # avoid making per agent. The residue it finds is made by crashes and by hand; none of
     # its verdicts becomes more actionable for being eight hours fresher.
     #
-    # 04:40 because the hours around it are taken (03:17 expiry, 03:40 retention, 04:05
+    # 09:40 because the hours around it are taken (08:17 expiry, 08:40 retention, 09:05
     # the TLS probe, :23 of every hour the KB drift sweep), and `hour`/`minute` come FROM
     # the module for its neighbours' reason.
     #
@@ -1131,7 +1155,7 @@ CRON_JOBS = [
     # has to be "does `agents.knowledge_pack_sha256` name it", which is a database
     # question, which is why it is a cron and not a bucket rule.
     #
-    # DAILY, and 05:07 comes FROM the module for its neighbours' reason. Daily is not a
+    # DAILY, and 10:07 comes FROM the module for its neighbours' reason. Daily is not a
     # compromise here: the thing it reclaims is space, superseded packs are created one per
     # publish per agent, and every eligible object has already sat out a seven-day grace —
     # a tick eight hours sooner reclaims nothing that a tick eight hours later does not.
@@ -1280,26 +1304,14 @@ CRON_JOBS = [
         minute=set(CALLER_EMBED_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
-    # THE SETUP FEE STOPS WAITING FOR A HUMAN. Before this cron the onboarding charge
-    # was written by whoever rendered the tenant's invoice, so a client nobody looked
-    # at was never billed (`apps/workers/billing.py` and `billing/charges.py` carry the
-    # argument, including why daily and not monthly, and why the schedule cannot decide
-    # which month the fee lands on).
-    #
-    # `max_tries` is passed EXPLICITLY because `cron()` defaults it to 1 — the
-    # `WorkerSettings.max_tries` below is only a default for functions that do not set
-    # their own, and a billing job that quietly gave up its first time out would be the
-    # kind of half-wired feature that still looks green. It costs nothing when the tick
-    # succeeds: the job only asks for a retry when a tenant actually failed.
-    #
-    # 02:05 local, ahead of the 03:xx retention/sweep block so a slow sweep cannot
-    # delay billing behind it. Which tenant-month a charge belongs to does not depend on
-    # this hour, which is what lets it be chosen for scheduling reasons alone.
+    # THE MONTHLY PLATFORM FEE (D-707). Hourly, so a client who becomes liable mid-month is
+    # raised the fee within the hour and each notice lands on its own fee's grace clock
+    # (`apps/workers/billing.py`). A no-op while the ops switch is off. A failing client is
+    # simply asked again next hour: raising is idempotent and the notices are claimed.
     _cron(
-        traced_job(issue_one_time_charges),
-        walk=bounded("one untenanted read of the unbilled queue, then one session per candidate"),
-        hour={2},
-        minute={5},
+        traced_job(issue_platform_fees),
+        walk=fleet_wide("one tenant_session per live organization, under a time budget"),
+        minute={FEE_SWEEP_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE PAYMENT WEBHOOK THAT NEVER ARRIVES. Every other alarm on the top-up path fires
@@ -1332,7 +1344,7 @@ CRON_JOBS = [
     _cron(
         traced_job(reconcile_razorpay),
         walk=bounded("three Razorpay listings, then one session per unmatched payment"),
-        hour={RECONCILE_HOUR_UTC},
+        hour={RECONCILE_HOUR_IST},
         minute={RECONCILE_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -1610,6 +1622,8 @@ async def shutdown(ctx: dict[str, Any]) -> None:
 class WorkerSettings:
     functions = FUNCTIONS
     cron_jobs = CRON_JOBS
+    # Every cron field above is IST; see `CRON_TIMEZONE`.
+    timezone = CRON_TIMEZONE
     redis_settings = redis_settings()
     on_startup = startup
     on_shutdown = shutdown
@@ -1666,7 +1680,7 @@ class WorkerSettings:
     # re-queue; what this window is actually FOR is the crons, which do not — a cancelled
     # `apply_retention` requeues, fails its pickup with `job_try > max_tries`, and is gone
     # until tomorrow, which is a legal obligation skipped in silence because a deploy
-    # happened at 03:40 UTC.
+    # happened at 08:40 IST.
     #
     # NO COUNT HERE, DELIBERATELY. This said "the nine `FUNCTIONS` jobs" and "the six
     # `max_tries=1` crons"; there are ten of the first and two of the second, and

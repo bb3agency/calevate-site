@@ -293,7 +293,10 @@ async def rollback_prompt(
     status, engine_ref = await _agent_state(session, agent_id)
     target = (
         await session.execute(
-            text("SELECT body FROM prompt_versions WHERE agent_id = :aid AND version = :v"),
+            text(
+                "SELECT body, structured_script FROM prompt_versions "
+                "WHERE agent_id = :aid AND version = :v"
+            ),
             {"aid": agent_id, "v": version},
         )
     ).first()
@@ -306,6 +309,9 @@ async def rollback_prompt(
         body=str(target[0]),
         notes=f"rollback to v{version}",
         created_by=created_by,
+        # The structure travels with the body it was compiled into, or the builder would
+        # reopen a rolled-back structured script as raw text.
+        structured_script=target[1],
         apply_live=True,
     )
     if _is_live(status, engine_ref):

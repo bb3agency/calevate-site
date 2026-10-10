@@ -142,7 +142,9 @@ function PledgeCard({
       {pledge.is_current ? (
         <p className="mt-3 text-sm text-ink">
           Accepted
-          {pledge.accepted_at ? ` on ${new Date(pledge.accepted_at).toLocaleDateString("en-IN")}` : ""}.
+          {pledge.accepted_at
+            ? ` on ${new Date(pledge.accepted_at).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}`
+            : ""}.
         </p>
       ) : (
         <div className="mt-3 space-y-3">

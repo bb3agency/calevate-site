@@ -547,7 +547,7 @@ async def sweep_due_erasures(ctx: dict[str, Any]) -> str:
 
     Hourly rather than nightly because the window is a PROMISE with a date on it, and the
     same promise is what bounds the other direction: a client who asked us to erase now
-    (`bring_erasure_forward`) should not wait until 03:40 for a deadline they set for this
+    (`bring_erasure_forward`) should not wait until 08:40 IST for a deadline they set for this
     afternoon. An hour is the coarsest tick that keeps "erased on the date we told you"
     true in both directions.
 

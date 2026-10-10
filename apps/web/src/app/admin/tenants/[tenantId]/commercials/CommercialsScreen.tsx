@@ -27,7 +27,7 @@ import {
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
-import { BillingMotionPanel } from "./BillingMotionPanel";
+import { PlatformFeePanel } from "./PlatformFeePanel";
 import { TermsForm } from "./TermsForm";
 import { money, rate, secondOverageRate } from "./termsFormat";
 
@@ -62,7 +62,7 @@ export function CommercialsScreen({ tenantId }: { tenantId: string }) {
     <div className="max-w-4xl space-y-10">
       <PageHeader
         title="Commercials"
-        description="What this account is charged, and from when. Every change is a new dated agreement."
+        description="Every client buys prepaid credits at the list price. Here: the monthly platform fee for this client, and the ceilings and model surcharge it is held to. Every change is a new dated agreement."
         actions={
           terms.data ? (
             <button type="button" className={PRIMARY_BUTTON} onClick={() => setOpen(true)}>
@@ -72,7 +72,7 @@ export function CommercialsScreen({ tenantId }: { tenantId: string }) {
         }
       />
 
-      <BillingMotionPanel tenantId={tenantId} currentTier={tenant.plan_tier} />
+      <PlatformFeePanel tenantId={tenantId} />
 
       {terms.error && <ProblemNotice error={terms.error} onRetry={() => terms.refetch()} />}
 
@@ -137,10 +137,10 @@ function TermsFacts({ inEffect }: { inEffect: PlanRow | null }) {
         value:
           inEffect === null
             ? "none recorded"
-            : `overage ${rate(inEffect.overage_rate_inr) ?? "none"}/min, ` +
-              (inEffect.included_minutes === null
-                ? "included minutes not stated"
-                : `${inEffect.included_minutes} minutes included`),
+            : `AI model surcharge ${rate(inEffect.llm_model_surcharge_inr) ?? "none"}/min, ` +
+              (inEffect.hard_cap_minutes === null
+                ? "no minute ceiling"
+                : `minute ceiling ${inEffect.hard_cap_minutes}`),
       },
     ],
     apply: noFill,
@@ -162,8 +162,9 @@ function InEffect({ row }: { row: PlanRow | null }) {
   // Unset terms are ABSENT, never zero: a rate of ₹0 is free minutes, an unset rate is a
   // plan that quotes none.
   const rows: { label: string; value: string | null }[] = [
-    { label: "Setup fee (one-time)", value: money(row.setup_fee_inr) },
-    { label: "Monthly retainer", value: money(row.monthly_fee_inr) },
+    // Retainer terms ended with D-707; a row written before then still shows them.
+    { label: "Setup fee (retired)", value: money(row.setup_fee_inr) },
+    { label: "Monthly retainer (retired)", value: money(row.monthly_fee_inr) },
     { label: "Included minutes", value: row.included_minutes === null ? null : String(row.included_minutes) },
     // Named for the COLUMN, not a tier: `overage_rate_second` is a founder pricing lever,
     // "independent of the single voice quality" (`billing/service.py::OverageRung`).
@@ -221,7 +222,7 @@ function History({ rows, inEffectId }: { rows: PlanRow[]; inEffectId: string | n
       ),
     },
     { id: "until", header: "Until", cell: (row) => (row.effective_to ? formatIST(row.effective_to) : "—") },
-    { id: "retainer", header: "Retainer", align: "right", cell: (row) => money(row.monthly_fee_inr) ?? "—" },
+    { id: "retainer", header: "Retainer (retired)", align: "right", cell: (row) => money(row.monthly_fee_inr) ?? "—" },
     {
       id: "included",
       header: "Included",

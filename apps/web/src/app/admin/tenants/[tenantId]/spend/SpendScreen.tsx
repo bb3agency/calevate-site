@@ -7,6 +7,7 @@ import {
   ProblemNotice,
   Skeleton,
   formatCount,
+  formatCountOf,
   formatINR,
 } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
@@ -23,6 +24,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
 
+import { CostBreakdownList, costBreakdownFacts } from "../CostBreakdownList";
 import { SpendCapPanel } from "../SpendCapPanel";
 
 import { Breakdown } from "./SpendBreakdown";
@@ -102,9 +104,10 @@ export function SpendScreen({ tenantId }: { tenantId: string }) {
             key: "ai_assist",
             label: "AI we absorb for this client this month (₹), and the knowledge part of it",
             value: data.ai_assist
-              ? `${data.ai_assist.used_inr} across ${data.ai_assist.requests} action(s), of which ${data.ai_assist.kb_used_inr} was preparing what they added (${data.ai_assist.kb_requests} job(s))`
+              ? `${data.ai_assist.used_inr} across ${formatCountOf(data.ai_assist.requests, "action")}, of which ${data.ai_assist.kb_used_inr} was preparing what they added (${formatCountOf(data.ai_assist.kb_requests, "job")})`
               : "none — this client ran no AI this month",
           },
+          ...(data.cost_all_in ? costBreakdownFacts("all_in", "this month", data.cost_all_in) : []),
           {
             key: "itemisation_residual_inr",
             label: "Charge not attributable to any one call or agent (₹)",
@@ -173,7 +176,7 @@ function SpendBoard({ data }: { data: TenantSpend }) {
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-x-6 gap-y-5 lg:grid-cols-4">
         <Metric label={`Revenue · ${data.month}`} value={formatINR(data.revenue_inr)} />
-        <Metric label="Our cost" value={formatINR(data.cost_inr)} />
+        <Metric label="Our cost of calls" value={formatINR(data.cost_inr)} />
         <Metric
           label="Margin"
           tone={negative ? "danger" : "default"}
@@ -274,6 +277,20 @@ function SpendBoard({ data }: { data: TenantSpend }) {
               </span>
             </dd>
           </dl>
+        </section>
+      )}
+
+      {/* ALL IN: the calls above plus the AI we absorb, split by what it bought — the same
+          reader as the trial panel's "cost to Calevate" and the Overview's usage card. */}
+      {data.cost_all_in && (
+        <section aria-labelledby="spend-all-in" className="space-y-2">
+          <h3 id="spend-all-in" className="text-meta font-semibold text-ink">
+            Cost to us this month, all in
+          </h3>
+          {data.ai_assist === null && (
+            <p className="text-meta text-ink-muted">This client used no AI this month.</p>
+          )}
+          <CostBreakdownList breakdown={data.cost_all_in} />
         </section>
       )}
 

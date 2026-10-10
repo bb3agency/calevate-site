@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Eraser, Info, Undo2, X } from "lucide-react";
+import { Info, Undo2, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 
 import { AcceptChargeDialog, extraUnavailableSentence } from "@/components/aiExtraDialog";
@@ -12,7 +12,6 @@ import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/com
 import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
 import type { Session } from "@/lib/api/client";
 import type { SurfaceHolder } from "@/lib/copilot/registry";
-import { ADMIN_REALM_IDENTITY_CLASS } from "@/components/realmChrome";
 import { unsavedWork } from "@/lib/copilot/unsaved";
 import { suggestedQuestions } from "@/lib/copilot/suggestions";
 import { useCopilotConversation } from "@/lib/copilot/useCopilotConversation";
@@ -239,45 +238,22 @@ export function CopilotPanel({
       transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
       className={panelFrame(placement)}
     >
-      {/* WHICH CONSOLE'S ASSISTANT THIS IS — in the chrome, not only in the words.
-          Both realms rendered an identical panel, so an operator with both tabs open had
-          nothing peripheral to tell them apart, on the one surface that can change a
-          client's data. This is NOT a second treatment invented here: it is the SAME
-          slate the admin shell already wears (`components/realmChrome.tsx` — the sidebar's
-          identity block), reused from the same constant so the two can never drift into two
-          different "admin" colours.
-          The client realm is deliberately untouched: the marker belongs on the surface
-          that is unusual, and an operator learns one exception rather than two
-          conventions. */}
-      <div
-        className={`flex items-start justify-between gap-2 border-b border-line px-4 py-3 ${
-          realm === "admin" ? ADMIN_REALM_IDENTITY_CLASS : ""
-        }`}
-      >
+      {/* ONE HEADER FOR BOTH REALMS: ink title, muted subtitle, no tinted band. The admin
+          header used to wear the admin shell's identity class with white text on top; when
+          that class became a pale brand tint the white title fell to near-invisible
+          contrast. The realm is told apart by the WORDS of the title, which a screen reader
+          also gets, rather than by a colour this panel would have to keep in step with
+          another component. */}
+      <div className="flex items-start justify-between gap-2 border-b border-line px-4 py-3">
         <div className="min-w-0">
-          <h2
-            id={labelledBy}
-            className={`text-body font-semibold ${realm === "admin" ? "text-white" : "text-ink"}`}
-          >
-            {/* The words too, because the colour is for the eye that is not looking and
-                a screen reader gets none of it. */}
+          <h2 id={labelledBy} className="text-body font-semibold text-ink">
             {realm === "admin" ? "Ask about this admin screen" : "Assistant"}
           </h2>
-          <p
-            className={`truncate text-meta ${
-              realm === "admin" ? "text-white/70" : "text-ink-muted"
-            }`}
-          >
-            {surface.title}
-          </p>
+          <p className="truncate text-meta text-ink-muted">{surface.title}</p>
           {/* WHAT IT WILL ACT ON. Shown only when the screen has rows ticked, so "summarise
               these" has a visible "these". */}
           {selected !== null && (
-            <p
-              className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                realm === "admin" ? "bg-white/10 text-white" : "bg-brand-soft text-brand-strong"
-              }`}
-            >
+            <p className="mt-1 inline-flex rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-brand-strong">
               Using: {selected}
             </p>
           )}
@@ -300,13 +276,9 @@ export function CopilotPanel({
               disabled={conversation.asking}
               aria-label="Forget this conversation and start again"
               title="Start again"
-              className={
-                realm === "admin"
-                  ? "-mr-1 rounded-md p-1 text-white/70 hover:bg-white/10 hover:text-white disabled:opacity-40"
-                  : "rounded-md px-2 py-1 text-meta font-medium text-ink-muted hover:bg-ink/[0.05] hover:text-ink disabled:opacity-40 touch:min-h-11"
-              }
+              className="rounded-md px-2 py-1 text-meta font-medium text-ink-muted hover:bg-ink/[0.05] hover:text-ink disabled:opacity-40 touch:min-h-11"
             >
-              {realm === "admin" ? <Eraser aria-hidden className="h-4 w-4" /> : "Start again"}
+              Start again
             </button>
           )}
           {onClose !== undefined && (
@@ -314,11 +286,7 @@ export function CopilotPanel({
               type="button"
               onClick={onClose}
               aria-label="Close the assistant"
-              className={
-                realm === "admin"
-                  ? "-mr-1 rounded-md p-1 text-white/70 hover:bg-white/10 hover:text-white touch:p-2.5"
-                  : "-mr-1 rounded-md p-1 text-ink-muted hover:bg-black/5 hover:text-ink touch:p-2.5 dark:hover:bg-white/10"
-              }
+              className="-mr-1 rounded-md p-1 text-ink-muted hover:bg-ink/[0.05] hover:text-ink touch:p-2.5"
             >
               <X aria-hidden className="h-4 w-4" />
             </button>

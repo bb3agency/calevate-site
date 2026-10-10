@@ -77,6 +77,10 @@ from apps.api.agents.reconciliation import (
 )
 from apps.api.agents.service import agent_registered_numbers
 from apps.api.billing.dispute_hold import DISPUTE_HOLD_REASON, dispute_hold_active
+from apps.api.billing.platform_fee import (
+    PLATFORM_FEE_PAUSE_REASON,
+    platform_fee_paused,
+)
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
 from apps.api.billing.trials import trial_billing_active
@@ -1039,8 +1043,17 @@ async def check_dispatch(
             reason=DISPUTE_HOLD_REASON,
         )
 
-    # Credits gate every PREPAID account (D-34, and D-521 which made that the
-    # default), i.e. everyone except a client an operator put on `managed`. It is
+    # An unpaid monthly platform fee past its grace period pauses OUTBOUND only (D-707),
+    # asked after `agent_inbound_only` above for the dispute hold's reason. Paying the fee
+    # lifts it on the next dial: this reads the payments ledger, not a flag.
+    if await platform_fee_paused(session, tenant_id=tenant_id):
+        return DispatchDecision(
+            allowed=False,
+            rule="platform_fee_overdue",
+            reason=PLATFORM_FEE_PAUSE_REASON,
+        )
+
+    # Credits gate every account (D-707: one pricing model, prepaid credits). It is
     # asked AFTER `agent_inbound_only` above, which is what keeps an inbound line
     # answering at a zero balance.
     if await credits_exhausted(session, tenant_id=tenant_id):

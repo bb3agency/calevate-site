@@ -25,7 +25,7 @@ The job is idempotent at the row level, so a retry costs a query and inserts not
 It is registered with `max_tries` passed EXPLICITLY: `arq.cron()` defaults `max_tries`
 to 1, and `WorkerSettings.max_tries` is only the default for functions that do NOT carry
 their own — a sampling tick that quietly gave up on its first failure would leave a week
-undrawn while every screen looked fine. This bit `issue_one_time_charges` first; the
+undrawn while every screen looked fine. This bit the since-retired setup-fee job first; the
 comment there is the precedent, and `tests/qa_sampling_test.py` verifies the schedule
 against a real `arq.worker.Worker` rather than trusting either comment.
 

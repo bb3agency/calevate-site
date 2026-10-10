@@ -23,11 +23,11 @@ describe("credit left", () => {
     expect(text.indexOf("240 min")).toBeLessThan(text.indexOf("₹"));
   });
 
-  it("says Invoiced for a client with no wallet, never ₹0", () => {
+  it("says Moving to credits for an account still on the retired invoiced motion, never ₹0", () => {
     const { container } = render(
       <CreditLeft credit={{ plan_tier: "managed", credit_inr: null, minutes_left: null }} />,
     );
-    expect(container.textContent).toBe("Invoiced");
+    expect(container.textContent).toBe("Moving to credits");
   });
 
   it("says On trial when the balance is known but no minutes may be quoted", () => {

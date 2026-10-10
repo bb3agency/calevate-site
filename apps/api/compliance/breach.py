@@ -227,15 +227,15 @@ def _timeline(facts: BreachFacts) -> str:
 
 
 def _stamp(moment: datetime) -> str:
-    """UTC on the wire, IST beside it — the edge convention, and the one an Indian
-    regulator and an Indian client both read without converting.
+    """IST first, the platform's standard time (D-709) and the one an Indian regulator and
+    an Indian client both read without converting; UTC beside it for anyone who will.
 
     `IST` is imported rather than redeclared: this package already owns exactly one
     definition of that offset (`compliance/service.py`), and a second copy in the module
     that prints statutory deadlines is the last place to keep a duplicate.
     """
     ist = moment.astimezone(UTC) + IST
-    return f"{moment.astimezone(UTC):%Y-%m-%d %H:%M} UTC ({ist:%Y-%m-%d %H:%M} IST)"
+    return f"{ist:%Y-%m-%d %H:%M} IST ({moment.astimezone(UTC):%Y-%m-%d %H:%M} UTC)"
 
 
 def client_notification(facts: BreachFacts) -> str:

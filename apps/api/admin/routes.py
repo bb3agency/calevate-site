@@ -2763,6 +2763,29 @@ class CommercialTermsIn(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _no_retainer_terms(self) -> CommercialTermsIn:
+        """D-707: every client is on prepaid credits, so no new terms may quote a setup
+        fee, a monthly fee, included minutes or an overage rate. The fields are still
+        ACCEPTED as null for one release (hard rule 8's two-step), so a console one
+        release behind can still record ceilings; a figure in any of them is refused."""
+        retired = {
+            "setup fee": self.setup_fee_inr,
+            "monthly fee": self.monthly_fee_inr,
+            "included minutes": self.included_minutes,
+            "overage rate": self.overage_rate_inr,
+            "second overage rate": self.overage_rate_second_inr,
+            "second overage rate (old name)": self.overage_rate_value_inr,
+        }
+        named = sorted(name for name, value in retired.items() if value is not None)
+        if named:
+            raise ValueError(
+                f"No {', '.join(named)}: retainer terms have ended — every client buys "
+                "prepaid credits, and any monthly fee is the platform-wide switch in the "
+                "ops console"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _window_is_a_window(self) -> CommercialTermsIn:
         """A window that ends before it starts is in effect never; a window that starts
         in a CLOSED billing month re-prices a statement the client already has.
@@ -3152,52 +3175,9 @@ async def record_commercial_terms(
                 )
             step_up.require(x_confirm_action, spend_ceiling_confirmation(tenant_id))
 
-        # THE MARGIN GUARD (D-469). A committed-volume bundle sells minutes exactly as a
-        # prepaid pack does, so it answers to the same floor — but the pack catalogue is
-        # code a reviewer sees and CI scores, while these terms are typed into a console at
-        # onboarding. That is the whole reason the check has to be here: the pack guard's
-        # protection is code review, and this path has none.
-        #
-        # REFUSE below cost, WARN below target. The split is not a hedge — the two say
-        # genuinely different things. A rate under the Clear cost floor loses
-        # money on every minute the client uses, so the harder they use it the worse it
-        # gets; nobody intends that, and it is the one shape an operator cannot talk
-        # themselves into at 6pm on an onboarding call. A rate above cost but under the 20%
-        # target is a thin deal, which a founder may genuinely choose (a lighthouse client,
-        # a competitive displacement) — refusing it would put this route in the way of a
-        # decision that is legitimately theirs. So that one is allowed and SAID: logged for
-        # an operator, and returned in `margin.below_target_margin` for the console to show.
-        margin = billing_rates.committed_plan_margin(
-            monthly_fee=terms.monthly_fee,
-            included_min=terms.included_min,
-            overage_rate=terms.overage_rate,
-            cost=_bundle_cost_floor(),
-        )
-        if below_cost := margin.below_cost():
-            # Named rates and the floor itself: an operator who is refused has to know
-            # WHICH number to move and what it has to clear.
-            raise ProblemError.business_rule(
-                "plan_below_cost",
-                "These terms price a minute below what it costs us to deliver: "
-                f"{', '.join(below_cost)}. Our cost floor is "
-                f"₹{_bundle_cost_floor()}/min.",
-                remediation=(
-                    "Raise the overage rate, or raise the monthly fee / lower the included "
-                    "minutes so the committed rate clears the floor."
-                ),
-            )
-        if below_target := margin.below_target():
-            # Allowed, never silent. Ids and rate NAMES only — an amount here would put a
-            # client's commercial terms in the log (hard rule 6's neighbouring concern).
-            log.warning(
-                "plan_margin_below_target",
-                extra={
-                    "tenant_id": str(tenant_id),
-                    "rates": list(below_target),
-                    "min_gross_margin": str(billing_rates.MIN_GROSS_MARGIN),
-                },
-            )
-
+        # No margin guard here since D-707: terms can no longer quote a retainer price, so
+        # there is no committed or overage rate to judge. Minutes are sold only through the
+        # prepaid card, which carries its own guard (`credit_packs`).
         result = await billing_terms.record_terms(scoped, tenant_id=tenant_id, terms=terms)
         view = await billing_terms.read_terms(scoped, tenant_id=tenant_id)
         if result.changed:
@@ -3408,114 +3388,6 @@ async def set_tenant_status(
                 summary={"status": payload.status, "reason": payload.reason},
             )
     return LifecycleOut(tenant_id=tenant_id, status=payload.status, changed=changed)
-
-
-class PlanTierIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    # The two BILLING motions, and deliberately not the four members of the column's enum
-    # — `service.OPERATOR_SETTABLE_PLAN_TIERS` states why `self_serve` and `trial` are not
-    # an operator's to write. A `Literal` rather than a runtime check so the refusal is a
-    # 422 naming the allowed values and the console's generated client cannot offer a
-    # third.
-    plan_tier: Literal["managed", "prepaid"]
-    # Goes into the audit row verbatim, and REQUIRED in both directions. Moving a client
-    # off credit gating means Calevate carries their calling on an invoice, and moving one
-    # on to it can stop their outbound dialling within a tick — neither is a fact anyone
-    # should have to reconstruct from a timestamp.
-    reason: str = Field(min_length=3, max_length=500)
-
-
-class PlanTierOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    tenant_id: UUID
-    plan_tier: str
-    # The tier that was replaced, or None when the account was already on this one —
-    # which is `changed: false` and a success, the shape `LifecycleOut` uses.
-    previous_plan_tier: str | None
-    changed: bool
-
-
-@router.post(
-    "/tenants/{tenant_id}/plan-tier",
-    response_model=PlanTierOut,
-    openapi_extra=permission_meta("admin:tenants"),
-    summary="Move a client between billing motions — prepaid credit or invoiced retainer",
-    description=(
-        "Sets `organizations.plan_tier`. `prepaid` is the default every account is "
-        "created on (D-521): its calling is paid from a credit balance and "
-        "`compliance.check_dispatch` refuses `no_credits` when that balance is empty. "
-        "`managed` is for a client genuinely billed on a plan retainer — it has no "
-        "wallet, the credits screen says so, and nothing stops their dialling for want "
-        "of credit. **Setting `prepaid` on an account with no credit stops its OUTBOUND "
-        "calling at the next dial**, and since D-551 it also stops its agents ANSWERING "
-        "incoming calls. **Moving back to `managed` reverses both.** Neither direction "
-        "waits for anything: a change of tier publishes the inbound-answering "
-        "reconciliation (`workers/inbound_cutover.py`) in the same transaction as the "
-        "column write (D-579), so the engine is told as soon as the outbox drains — "
-        "seconds, not whenever an agent is next republished. "
-        "Idempotent: setting the tier an account is already on returns 200, "
-        "`changed: false`, writes no audit row and publishes nothing. 404 means no such "
-        "client."
-    ),
-)
-async def set_tenant_plan_tier(
-    tenant_id: UUID,
-    payload: PlanTierIn,
-    session: AdminSession,
-    request: Request,
-    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
-) -> PlanTierOut:
-    """The seam D-521 needs, and the reason it exists rather than being left to psql.
-
-    D-521 keeps `managed` precisely so a client who really is invoiced can be put back on
-    it, and a decision that can only be carried out by an UPDATE typed into a production
-    database is not a decision the product supports — it is one an operator performs
-    unaudited, at speed, on the wrong row. This route is `admin:tenants`, audited, names
-    the tier it replaced, and demands a reason in both directions.
-
-    **NO STEP-UP, and the line is `set_tenant_status`'s own**: a second factor confirms the
-    move that cannot be undone. Both moves here are reversible by this same route in one
-    call, neither destroys data, and the dangerous direction (`prepaid` onto an empty
-    wallet) stops OUTBOUND dialling — which the big red switch, a spend cap and a suspend
-    all do too, none of which is step-upped either. What is irreversible on this router is
-    closing an account, and that one is.
-
-    **The tier is written under a TENANT-SCOPED session, and the audit row under the admin
-    one** — the same split every write on this router uses: `organizations` is FORCE-RLS,
-    so the UPDATE must carry the tenant's own GUC to match its row at all.
-    """
-    async with tenant_session(tenant_id) as scoped:
-        if not await service.tenant_exists(scoped, tenant_id):
-            raise ProblemError.not_found("Client")
-        previous = await service.set_plan_tier(
-            scoped, tenant_id=tenant_id, plan_tier=payload.plan_tier
-        )
-        if previous is not None:
-            await write_audit(
-                scoped,
-                action="tenant.plan_tier_set",
-                actor=principal,
-                tenant_id=tenant_id,
-                object_type="organization",
-                object_id=str(tenant_id),
-                ip=client_request_ip(request),
-                # Both tiers and the operator's words: this row is the only record of WHY a
-                # business is invoiced rather than credit-gated, and `plan_tier` itself keeps
-                # no history.
-                summary={
-                    "plan_tier": payload.plan_tier,
-                    "previous_plan_tier": previous,
-                    "reason": payload.reason,
-                },
-            )
-    return PlanTierOut(
-        tenant_id=tenant_id,
-        plan_tier=payload.plan_tier,
-        previous_plan_tier=previous,
-        changed=previous is not None,
-    )
 
 
 __all__ = ["router"]

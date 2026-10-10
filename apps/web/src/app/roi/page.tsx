@@ -244,8 +244,8 @@ export default async function RoiPage() {
               .
             </p>
             <p className="text-base text-pretty text-ink-muted">
-              The figure this tool uses for Calevate is our published self-serve rate. What a
-              managed account pays is agreed with you — see{" "}
+              The figure this tool uses for Calevate is our published list rate, the same for
+              every client — see{" "}
               <Link href="/pricing" className={INLINE_LINK}>
                 the pricing page
               </Link>

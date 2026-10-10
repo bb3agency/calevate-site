@@ -28,6 +28,22 @@ export type AdminPurchaseIn = Schemas["AdminPurchaseIn"];
 export type AdminPurchased = Schemas["AdminPurchasedOut"];
 export type AdminReleased = Schemas["AdminReleasedOut"];
 
+/**
+ * The voice platform's business-details application, for an operator. The statuses are the
+ * vendor's (`api-reference/phone-numbers/get-business-details.md`, `BusinessDetails.status`,
+ * docs.thinnest.ai read 10 Oct 2026); a status this build does not know reads as `unknown`.
+ */
+export const BUSINESS_DETAILS_STATUS_COPY: Record<string, string> = {
+  none: "Nothing sent yet",
+  draft: "Started, never sent",
+  submitted: "Being checked",
+  accepted: "Approved",
+  rejected: "Rejected — correct it and send again",
+  suspended: "Approval withdrawn — ThinnestAI documents no resend for this; raise it with them",
+  expired: "Lapsed — send again",
+  unknown: "A status we do not recognise",
+};
+
 const BASE = "/v1/admin/engine-workspaces";
 
 export const WORKSPACE_PATHS = {

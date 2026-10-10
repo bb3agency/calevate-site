@@ -203,7 +203,7 @@ def test_engine_scoped_settings_follow_the_engine_in_force() -> None:
     by_key = {field.key: field for field in _fields()}
     thinnest_only = by_key["thinnest_max_concurrent_calls"]
     runtime_only = by_key["carrier_cps"]
-    unscoped = by_key["inbound_reserve_ratio"]
+    unscoped = by_key["inbound_reserved_lines"]
 
     on_pipecat = ("pipecat", PIPECAT_CAPABILITIES)
     assert _out(thinnest_only, on_pipecat).used_by_current_engine is False

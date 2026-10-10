@@ -145,7 +145,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 from uuid import UUID
 
 from sqlalchemy import text
@@ -156,6 +156,9 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.reliability.service import enqueue_outbox
+
+if TYPE_CHECKING:
+    from apps.api.billing.cost_breakdown import CostBreakdown
 
 log = get_logger(__name__)
 
@@ -400,26 +403,27 @@ async def trial_cost_to_us_inr(
     than by a billing month, because the question is about the arrangement and not about
     January.
     """
-    # Imported here rather than at module scope: `billing/service.py` imports this module,
-    # so a top-level import back is a cycle. `_ROW_COST_SQL` is THE definition of what one
-    # row costs us (a zero-`qty` row is its whole leg, D-370); a second spelling here read
-    # such a row as ₹0 while the margin panel counted it.
-    from apps.api.billing.service import _ROW_COST_SQL
+    return (await trial_cost_breakdown(session, tenant_id=tenant_id, trial=trial)).total_inr
 
-    end = trial.ended_at or trial.ends_at
-    total = (
-        await session.execute(
-            # `tenant_id` in the predicate as well as in RLS, for `charge_for_call`'s
-            # reason: RLS fails the query closed either way, and naming it makes the answer
-            # depend on the argument rather than on which session it was handed.
-            text(
-                f"SELECT COALESCE(SUM({_ROW_COST_SQL}), 0) FROM usage_events "
-                "WHERE tenant_id = :tid AND occurred_at >= :from AND occurred_at < :to"
-            ),
-            {"tid": tenant_id, "from": trial.started_at, "to": end},
-        )
-    ).scalar()
-    return Decimal(str(total or 0))
+
+async def trial_cost_breakdown(
+    session: AsyncSession, *, tenant_id: UUID, trial: TrialState
+) -> CostBreakdown:
+    """`trial_cost_to_us_inr`, split into calls, other rows, the assistant and knowledge.
+
+    The same reader the Spend screen and the Overview use over the month
+    (`billing/cost_breakdown.py`), so the three screens cannot disagree about one row.
+    """
+    # Imported here rather than at module scope: `billing/service.py` imports this module,
+    # and `cost_breakdown` imports `billing/service.py`, so a top-level import is a cycle.
+    from apps.api.billing.cost_breakdown import read_cost_breakdown
+
+    return await read_cost_breakdown(
+        session,
+        tenant_id=tenant_id,
+        start=trial.started_at,
+        end=trial.ended_at or trial.ends_at,
+    )
 
 
 async def _lock_tenant_trial(session: AsyncSession, tenant_id: UUID) -> None:
@@ -774,6 +778,7 @@ __all__ = [
     "start_trial",
     "trial_billing_active",
     "trial_calls_since",
+    "trial_cost_breakdown",
     "trial_cost_to_us_inr",
     "trial_covers",
     "trial_seconds_used",

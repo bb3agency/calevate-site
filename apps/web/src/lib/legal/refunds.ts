@@ -40,28 +40,29 @@ export const REFUND_POLICY: LegalDocument = {
           text:
             "Calevate is a subscription software service with metered telephone usage. " +
             "There is nothing physical to ship or return, so this policy is about money " +
-            "rather than goods. It covers both ways of buying:",
+            "rather than goods. It covers how every account pays:",
         },
         {
           kind: "definitions",
           items: [
             {
-              term: "Managed engagements",
+              term: "Prepaid calling credit",
               detail:
-                "A one-off setup fee, a monthly fee with a stated number of included " +
-                "minutes, and a per-minute rate for minutes beyond that. Invoiced in " +
-                "arrears against a signed order form.",
-            },
-            {
-              term: "Self-serve accounts",
-              detail:
-                "You top up a credit balance in advance, and calls draw it down as they " +
-                "are metered. Each top-up carries its own per-minute rates — one for " +
+                "Every account buys calling credit in advance, and calls draw it down as " +
+                "they are metered. Each top-up carries its own per-minute rates — one for " +
                 "each voice quality an agent can speak in — fixed at the moment you buy " +
                 "it and unchanged by any later change to our rate card; your credit does " +
                 "not expire, and it is spent oldest purchase first. Clause 6.1 of the " +
                 "Terms of Service states this, and it is what an unused balance in this " +
                 "policy means.",
+            },
+            {
+              term: "The monthly platform fee",
+              detail:
+                "When we charge one, it is the same for every account and is paid " +
+                "separately each month; it is never taken from your calling credit. There " +
+                "is no setup fee. Invoices issued under an earlier arrangement before 10 " +
+                "October 2026 remain payable as issued.",
             },
           ],
         },
@@ -72,22 +73,8 @@ export const REFUND_POLICY: LegalDocument = {
       heading: "2. Cancelling",
       subsections: [
         {
-          id: "cancel-managed",
-          heading: "2.1 A managed engagement",
-          blocks: [
-            {
-              kind: "para",
-              text:
-                "Give us {{TERMINATION_NOTICE_DAYS}} days' written notice to " +
-                "{{SUPPORT_EMAIL}}, expiring at the end of a billing month. The service " +
-                "runs to the end of the notice period and you are invoiced for it, " +
-                "including any usage in it. Nothing renews after that.",
-            },
-          ],
-        },
-        {
           id: "cancel-self-serve",
-          heading: "2.2 A self-serve account",
+          heading: "2.1 Closing your account",
           blocks: [
             {
               kind: "para",
@@ -104,7 +91,7 @@ export const REFUND_POLICY: LegalDocument = {
         },
         {
           id: "cancel-us",
-          heading: "2.3 If we end it",
+          heading: "2.2 If we end it",
           blocks: [
             {
               kind: "para",
@@ -157,9 +144,8 @@ export const REFUND_POLICY: LegalDocument = {
               "were paid for it, and the cost is not recoverable by us.",
             "Unused credit when you close your account, or when we close it because you " +
               "breached the Acceptable Use Policy. It is forfeited, not refunded.",
-            "The setup fee once the work it pays for has started — configuring your agent, " +
-              "building your knowledge base, and running your Principal Entity " +
-              "registration. If you cancel before that work starts, it is refunded in full.",
+            "A setup fee invoiced under an arrangement made before 10 October 2026, once " +
+              "the work it paid for had started. No setup fee is charged since then.",
             "Third-party charges we incurred on your instruction: number rentals, " +
               "registration fees paid to an access provider, template approval charges. " +
               "These are paid onward and are not recoverable, and we will show you the " +

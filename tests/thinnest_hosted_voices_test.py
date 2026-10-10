@@ -111,6 +111,8 @@ async def test_every_band_is_listed_with_its_band_and_a_clone_is_marked() -> Non
     ]
     assert {v.source for v in listing.voices} == {"engine"}
     assert listing.voices[2].description == "Customer support"
+    # A tier we do not read is counted, not dropped silently; a row without an id is neither.
+    assert listing.unread_bands == {"platinum": 1}
 
 
 async def test_own_key_voices_are_read_with_their_provider() -> None:

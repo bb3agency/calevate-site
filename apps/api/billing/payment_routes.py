@@ -130,6 +130,7 @@ from apps.api.billing.payments import (
     verify_checkout_signature,
     verify_signature,
 )
+from apps.api.billing.platform_fee import fee_switch
 from apps.api.billing.rates import (
     MONEY_Q,
     PREMIUM_VOICE_TIER,
@@ -436,6 +437,10 @@ class CreditPacksOut(Strict):
     #: client planning a top-up needs to know what changes next, and a ladder of future
     #: cards is an operator's view, not theirs.
     next_change: RateCardChangeOut | None = None
+    #: The monthly platform fee every client pays on top of calling credit, as a separate
+    #: payment (D-707), or `null` while the platform-wide switch is off or unpriced. Read
+    #: live from the ops console, so a page never quotes a fee nobody is charged.
+    platform_fee_inr_per_month: Decimal | None = None
 
 
 class WebhookAck(Strict):
@@ -618,6 +623,12 @@ async def _studio_on_sale(session: AsyncSession, *, engine: str, at: datetime) -
     return await studio_voices_ready(session)
 
 
+def _published_platform_fee() -> Decimal | None:
+    """The fee a public page may quote: only while the switch is on and priced."""
+    switch = fee_switch()
+    return to_paise(switch.amount_inr) if switch.charging and switch.amount_inr else None
+
+
 async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
     """THE ONE PLACE THE RATE CARD IS PRICED FOR A READER. Both the authenticated `/packs`
     read and the public `/v1/public/rate-card` read call this, so the two surfaces cannot
@@ -663,6 +674,7 @@ async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
         voice_not_offered=not_offered[0] if not_offered else None,
         voice_not_offered_notice=not_offered[1] if not_offered else None,
         packs=packs,
+        platform_fee_inr_per_month=_published_platform_fee(),
         # ONLY THE SOONEST. An operator may have several cards on the books; a client
         # planning a top-up needs to know what changes NEXT, and a ladder of future prices
         # on a buy screen is an operator's view rather than theirs.

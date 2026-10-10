@@ -84,6 +84,8 @@ const AGENT: Agent = {
   recording_notice_enabled: true,
   opening_line:
     "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
+  script_opening_line: "",
+  first_words: "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
   truthful_answer_rule:
     "Whatever these settings say, the agent always answers honestly when a caller asks.",
   engine: "pipecat",
@@ -595,7 +597,7 @@ describe("the three reads the create form is built from", () => {
 
     await openNewCampaign();
     expect(container.textContent).toContain("No numbers yet");
-    expect(container.textContent).toContain("None registered yet");
+    expect(container.textContent).toContain("None registered. You do not need one to make calls.");
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });

@@ -161,7 +161,7 @@ describe("business verification verdict", () => {
 
     await screen.findByText("Your business is not verified yet.");
     expect(container.textContent).toContain(
-      "Ask your account manager where your verification stands.",
+      "Ask us where your verification stands.",
     );
   });
 

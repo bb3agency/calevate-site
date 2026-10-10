@@ -24,9 +24,9 @@ What is asserted here, in the order it matters:
    digits that were stored; a JSON float is refused at the boundary (hard rule 7).
 6. **RLS**: an operator's write lands in the named tenant and is invisible to every
    other one; a neighbour's tenant id reads zero rows.
-7. **`overage_rate_value` is settable and unset.** The retail value-tier rate is an open
-   founder decision; the SURFACE is not blocked on the NUMBER, and no default is
-   invented anywhere.
+7. **Retainer terms are refused (D-707).** A setup fee, monthly fee, included minutes or
+   overage rate is a 422 naming the field; rows written before D-707 still read, so an
+   invoice already issued renders as it did.
 
 CONCURRENCY: every case mints its own tenant and asserts only on rows it created, so
 this file runs beside the other suites on the shared Postgres.
@@ -40,14 +40,10 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import service as billing
 from apps.api.billing.plans import IST, parse_billing_month
-from apps.api.billing.rates import (
-    MIN_GROSS_MARGIN,
-    SELF_SERVE_COST_FLOOR_INR_PER_MIN,
-    gross_margin_ratio,
-)
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
@@ -125,7 +121,7 @@ async def _plan_rows(tenant_id: UUID) -> list[Any]:
             (
                 await session.execute(
                     text(
-                        "SELECT id, monthly_fee, overage_rate, effective_from FROM plans "
+                        "SELECT id, llm_model_surcharge, hard_cap_min, effective_from FROM plans "
                         "WHERE tenant_id = :t ORDER BY created_at"
                     ),
                     {"t": tenant_id},
@@ -228,13 +224,15 @@ async def test_a_cap_only_row_is_reported_as_unpriced_rather_than_as_terms() -> 
 # ============================================================================
 
 
-async def test_recording_terms_prices_the_client_and_the_panel_agrees() -> None:
-    """End to end: an operator agrees terms, and the client's own usage summary — the
-    computation the invoice is derived from — prices against them from that moment."""
+async def test_retainer_terms_are_refused_and_a_model_surcharge_is_recorded() -> None:
+    """D-707: every client buys prepaid credits, so no new terms may quote a setup fee, a
+    monthly fee, included minutes or an overage rate — each is refused by name and nothing
+    is written. What an operator still agrees here is the ceilings and the model surcharge,
+    and the client's own usage summary prices that surcharge from the moment it lands."""
     tenant_id = await _tenant()
     token = await _make_admin("operator")
 
-    response = await _post(
+    retainer = await _post(
         token,
         tenant_id,
         {
@@ -242,115 +240,99 @@ async def test_recording_terms_prices_the_client_and_the_panel_agrees() -> None:
             "monthly_fee_inr": "9999.00",
             "included_minutes": 100,
             "overage_rate_inr": "8.0000",
-            "hard_cap_minutes": 500,
         },
     )
+    assert retainer.status_code == 422, retainer.text
+    assert "retainer terms have ended" in retainer.text.lower()
+    for field in ("setup fee", "monthly fee", "included minutes", "overage rate"):
+        assert field in retainer.text.lower()
+    assert await _plan_rows(tenant_id) == [], "a refused write must write nothing"
 
+    response = await _post(
+        token, tenant_id, {"llm_model_surcharge_inr": "1.5000", "hard_cap_minutes": 500}
+    )
     assert response.status_code == 201, response.text
     assert response.json()["changed"] is True
     assert response.json()["state"] == "set"
 
-    await _usage(tenant_id, minutes=120, occurred_at=datetime.now(UTC))
     async with tenant_session(tenant_id) as session:
         summary = await billing.usage_summary(session, tenant_id=tenant_id)
-
-    assert summary["monthly_fee_inr"] == Decimal("9999.00")
-    assert summary["included_minutes"] == 100
-    # 120 used - 100 included = 20 overage minutes at ₹8. Exact NUMERIC, no float.
-    assert summary["overage_cost_inr"] == Decimal("160.00")
+    assert summary["llm_surcharge_rate_inr"] == Decimal("1.5000")
+    assert summary["monthly_fee_inr"] is None, "no retainer is raised after D-707"
 
 
 async def test_a_plan_change_is_a_new_row_and_the_old_month_keeps_its_price() -> None:
-    """THE property this whole surface exists to protect.
-
-    An invoice in this product is a DERIVED statement — re-rendering July reads `plans`
-    again — so a price change that EDITED the row which priced July would silently
-    rewrite a bill the client has already paid. The route inserts; the predecessor is
-    left exactly as it was; and the closed month still resolves the terms that priced it.
-    """
+    """THE property this whole surface exists to protect, and the one D-707 leans on to
+    honour invoices already issued: an invoice is a DERIVED statement — re-rendering last
+    month reads `plans` again — so a change that EDITED the row which priced it would
+    silently rewrite a bill the client has already paid. The route inserts; the
+    predecessor is left exactly as it was; and the closed month still resolves its terms,
+    retainer fee included."""
     tenant_id = await _tenant()
     token = await _make_admin("operator")
     this_month = billing.current_billing_month()
     last_month = _previous_month(this_month)
 
-    # July's terms, dated to have ended when this month began — the row that priced it.
+    # Last month's terms, written before D-707 and dated to have ended when this month
+    # began — the row that priced it.
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO plans (id, tenant_id, monthly_fee, included_min, overage_rate, "
-                "effective_to, created_at, updated_at) VALUES (:i, :t, 1000.00, 0, 5.0000, "
-                ":to, clock_timestamp(), clock_timestamp())"
+                "llm_model_surcharge, effective_to, created_at, updated_at) VALUES (:i, :t, "
+                "1000.00, 0, 5.0000, 1.0000, :to, clock_timestamp(), clock_timestamp())"
             ),
             {"i": uuid.uuid4(), "t": tenant_id, "to": _month_start_ist(this_month)},
         )
-    await _usage(
-        tenant_id, minutes=10, occurred_at=_month_start_ist(this_month) - timedelta(days=2)
-    )
     before = await _plan_rows(tenant_id)
 
-    # August's terms, agreed through the surface.
     response = await _post(
         token,
         tenant_id,
         {
-            "monthly_fee_inr": "2000.00",
-            "included_minutes": 0,
-            "overage_rate_inr": "9.0000",
+            "llm_model_surcharge_inr": "2.0000",
             "effective_from": _month_start_ist(this_month).isoformat(),
         },
     )
     assert response.status_code == 201, response.text
-    await _usage(tenant_id, minutes=10, occurred_at=datetime.now(UTC))
 
     after = await _plan_rows(tenant_id)
     assert len(after) == len(before) + 1, "a plan change must ADD a row"
     assert after[0] == before[0], (
         "the row that priced the closed month was modified — this is the money bug: "
-        "the client's July statement now says something else than when they paid it"
+        "the client's statement now says something else than when they paid it"
     )
 
     async with tenant_session(tenant_id) as session:
-        july = await billing.usage_summary(session, tenant_id=tenant_id, month=last_month)
-        august = await billing.usage_summary(session, tenant_id=tenant_id, month=this_month)
+        closed = await billing.usage_summary(session, tenant_id=tenant_id, month=last_month)
+        current = await billing.usage_summary(session, tenant_id=tenant_id, month=this_month)
 
-    assert july["monthly_fee_inr"] == Decimal("1000.00"), "the closed month keeps its price"
-    assert july["overage_cost_inr"] == Decimal("50.00"), "and its rate"
-    assert august["monthly_fee_inr"] == Decimal("2000.00")
-    assert august["overage_cost_inr"] == Decimal("90.00")
+    assert closed["monthly_fee_inr"] == Decimal("1000.00"), "an issued invoice keeps its fee"
+    assert closed["llm_surcharge_rate_inr"] == Decimal("1.0000")
+    assert current["monthly_fee_inr"] is None
+    assert current["llm_surcharge_rate_inr"] == Decimal("2.0000")
 
 
 async def test_terms_dated_for_next_month_do_not_price_today() -> None:
     """Preparing a change in advance is what the columns are FOR, and it must not move
-    today's bill the moment the row lands (`plan_effective_dating_test` pins the same
-    property against a hand-written row; this pins it through the route)."""
+    today's bill the moment the row lands."""
     tenant_id = await _tenant()
     token = await _make_admin("operator")
     next_start = _month_start_ist(_next_month(billing.current_billing_month()))
 
-    await _post(
-        token,
-        tenant_id,
-        {"monthly_fee_inr": "9999.00", "included_minutes": 100, "overage_rate_inr": "8.0000"},
-    )
+    await _post(token, tenant_id, {"llm_model_surcharge_inr": "1.0000"})
     assert (
         await _post(
             token,
             tenant_id,
-            {
-                "monthly_fee_inr": "19999.00",
-                "included_minutes": 50,
-                "overage_rate_inr": "20.0000",
-                "effective_from": next_start.isoformat(),
-            },
+            {"llm_model_surcharge_inr": "3.0000", "effective_from": next_start.isoformat()},
         )
     ).status_code == 201
 
-    await _usage(tenant_id, minutes=120, occurred_at=datetime.now(UTC))
     async with tenant_session(tenant_id) as session:
         summary = await billing.usage_summary(session, tenant_id=tenant_id)
 
-    assert summary["monthly_fee_inr"] == Decimal("9999.00")
-    assert summary["overage_cost_inr"] == Decimal("160.00"), "this month's ₹8, not next's ₹20"
+    assert summary["llm_surcharge_rate_inr"] == Decimal("1.0000"), "this month's, not next's"
 
 
 async def test_a_row_dated_into_a_closed_month_is_refused() -> None:
@@ -364,7 +346,7 @@ async def test_a_row_dated_into_a_closed_month_is_refused() -> None:
     response = await _post(
         token,
         tenant_id,
-        {"monthly_fee_inr": "1.00", "effective_from": last_month_start.isoformat()},
+        {"llm_model_surcharge_inr": "1.0000", "effective_from": last_month_start.isoformat()},
     )
 
     assert response.status_code == 422, response.text
@@ -384,7 +366,7 @@ async def test_a_window_that_ends_before_it_starts_is_refused() -> None:
         token,
         tenant_id,
         {
-            "monthly_fee_inr": "100.00",
+            "llm_model_surcharge_inr": "1.0000",
             "effective_from": start.isoformat(),
             "effective_to": (start - timedelta(days=1)).isoformat(),
         },
@@ -419,7 +401,7 @@ async def test_resubmitting_the_same_terms_writes_neither_a_row_nor_an_audit_ent
     answer, not easier (the convention `approve_kb` established)."""
     tenant_id = await _tenant()
     token = await _make_admin("operator")
-    body = {"monthly_fee_inr": "7000.00", "included_minutes": 200, "overage_rate_inr": "6.0000"}
+    body = {"llm_model_surcharge_inr": "1.2500", "hard_cap_minutes": 200}
 
     first = await _post(token, tenant_id, body)
     second = await _post(token, tenant_id, body)
@@ -436,8 +418,8 @@ async def test_a_real_change_is_audited() -> None:
     tenant_id = await _tenant()
     token = await _make_admin("operator")
 
-    await _post(token, tenant_id, {"monthly_fee_inr": "1000.00"})
-    await _post(token, tenant_id, {"monthly_fee_inr": "2000.00"})
+    await _post(token, tenant_id, {"llm_model_surcharge_inr": "1.0000"})
+    await _post(token, tenant_id, {"llm_model_surcharge_inr": "2.0000"})
 
     assert await _audit_rows(tenant_id, "plan.terms_recorded") == 2
 
@@ -462,8 +444,12 @@ async def test_an_operator_may_set_and_tighten_a_ceiling() -> None:
     tenant_id = await _tenant()
     token = await _make_admin("operator")
 
-    first = await _post(token, tenant_id, {"monthly_fee_inr": "100.00", "hard_cap_minutes": 500})
-    tighter = await _post(token, tenant_id, {"monthly_fee_inr": "100.00", "hard_cap_minutes": 100})
+    first = await _post(
+        token, tenant_id, {"llm_model_surcharge_inr": "1.0000", "hard_cap_minutes": 500}
+    )
+    tighter = await _post(
+        token, tenant_id, {"llm_model_surcharge_inr": "1.0000", "hard_cap_minutes": 100}
+    )
 
     assert first.status_code == 201, first.text
     assert tighter.status_code == 201, tighter.text
@@ -474,12 +460,14 @@ async def test_an_operator_may_not_raise_a_ceiling() -> None:
     `plans.hard_cap_*` is the ceiling the dispatch gate enforces."""
     tenant_id = await _tenant()
     token = await _make_admin("operator")
-    await _post(token, tenant_id, {"monthly_fee_inr": "100.00", "hard_cap_spend_inr": "1000.00"})
+    await _post(
+        token, tenant_id, {"llm_model_surcharge_inr": "1.0000", "hard_cap_spend_inr": "1000.00"}
+    )
 
     raised = await _post(
         token,
         tenant_id,
-        {"monthly_fee_inr": "100.00", "hard_cap_spend_inr": "9000.00"},
+        {"llm_model_surcharge_inr": "1.0000", "hard_cap_spend_inr": "9000.00"},
         confirm=_confirmation(tenant_id),
     )
 
@@ -492,10 +480,10 @@ async def test_removing_a_ceiling_counts_as_loosening_it() -> None:
     the same authority as raising the number, not less."""
     tenant_id = await _tenant()
     operator = await _make_admin("operator")
-    await _post(operator, tenant_id, {"monthly_fee_inr": "100.00", "hard_cap_minutes": 100})
+    await _post(operator, tenant_id, {"llm_model_surcharge_inr": "1.0000", "hard_cap_minutes": 100})
 
     removed = await _post(
-        operator, tenant_id, {"monthly_fee_inr": "100.00"}, confirm=_confirmation(tenant_id)
+        operator, tenant_id, {"llm_model_surcharge_inr": "1.0000"}, confirm=_confirmation(tenant_id)
     )
 
     assert removed.status_code == 403, removed.text
@@ -508,8 +496,8 @@ async def test_a_superadmin_raising_a_ceiling_still_needs_the_confirmation() -> 
     tenant_id = await _tenant()
     other_id = await _tenant()
     token = await _make_admin("superadmin")
-    await _post(token, tenant_id, {"monthly_fee_inr": "100.00", "hard_cap_minutes": 100})
-    raise_body = {"monthly_fee_inr": "100.00", "hard_cap_minutes": 900}
+    await _post(token, tenant_id, {"llm_model_surcharge_inr": "1.0000", "hard_cap_minutes": 100})
+    raise_body = {"llm_model_surcharge_inr": "1.0000", "hard_cap_minutes": 900}
 
     unconfirmed = await _post(token, tenant_id, raise_body)
     wrong_tenant = await _post(token, tenant_id, raise_body, confirm=_confirmation(other_id))
@@ -527,132 +515,64 @@ async def test_a_superadmin_raising_a_ceiling_still_needs_the_confirmation() -> 
 
 
 async def test_money_crosses_the_wire_as_a_string_and_a_float_is_refused() -> None:
-    """`2500.10` as a JSON number has already been through a binary float by the time
-    Pydantic sees it. The rate keeps FOUR decimal places on the way out, unrounded,
-    because the invoice's `qty x unit = amount` only holds if it does."""
+    """`2.5` as a JSON number has already been through a binary float by the time Pydantic
+    sees it. The rate keeps FOUR decimal places on the way out, unrounded, because the
+    invoice's `qty x unit = amount` only holds if it does."""
     tenant_id = await _tenant()
     token = await _make_admin("operator")
 
-    floated = await _post(token, tenant_id, {"monthly_fee_inr": 2500.10})
-    exact = await _post(
-        token, tenant_id, {"monthly_fee_inr": "2500.10", "overage_rate_inr": "7.1250"}
-    )
+    floated = await _post(token, tenant_id, {"llm_model_surcharge_inr": 2.5})
+    exact = await _post(token, tenant_id, {"llm_model_surcharge_inr": "7.1250"})
 
     assert floated.status_code == 422, floated.text
     assert exact.status_code == 201, exact.text
     body = (await _get(token, tenant_id)).json()["in_effect"]
-    assert body["monthly_fee_inr"] == "2500.1000"
-    assert body["overage_rate_inr"] == "7.1250", "a rate is published unrounded"
+    assert body["llm_model_surcharge_inr"] == "7.1250", "a rate is published unrounded"
 
 
-async def test_the_value_tier_rate_is_settable_and_stays_unset_by_default() -> None:
-    """The retail value-tier rate is an OPEN FOUNDER DECISION. The surface is not
-    blocked on it and no default is invented: a plan written without it stores NULL,
-    which billing reads as "this plan quotes no separate value rate"."""
+async def test_the_retired_fields_are_still_accepted_as_null_from_an_older_console() -> None:
+    """Hard rule 8's two-step: a console one release behind still sends every retainer
+    field, as null. That must still record its ceilings, and the read still publishes the
+    retired columns (null) so an older console renders."""
     tenant_id = await _tenant()
     token = await _make_admin("operator")
 
-    await _post(token, tenant_id, {"monthly_fee_inr": "100.00", "overage_rate_inr": "8.0000"})
-    unset = (await _get(token, tenant_id)).json()["in_effect"]
-    await _post(
+    response = await _post(
         token,
         tenant_id,
         {
-            "monthly_fee_inr": "100.00",
-            "overage_rate_inr": "8.0000",
-            "overage_rate_value_inr": "5.5000",
+            "setup_fee_inr": None,
+            "monthly_fee_inr": None,
+            "included_minutes": None,
+            "overage_rate_inr": None,
+            "overage_rate_second_inr": None,
+            "overage_rate_value_inr": None,
+            "hard_cap_minutes": 300,
         },
     )
-    set_now = (await _get(token, tenant_id)).json()["in_effect"]
-
-    assert unset["overage_rate_value_inr"] is None, "no default may be invented"
-    assert set_now["overage_rate_value_inr"] == "5.5000"
-
-
-# ────────── the second overage rate mid-rename (hard rule 8 step 1, D-558) ──────────
-
-
-async def test_the_second_overage_rate_is_written_and_read_under_its_new_name() -> None:
-    """`overage_rate_second_inr` is the name; the response carries BOTH for one release.
-
-    A console a deploy behind still reads `overage_rate_value_inr`, so the two must be one
-    figure — never two, and never one present and one null.
-    """
-    tenant_id = await _tenant()
-    token = await _make_admin("operator")
-
-    await _post(
-        token,
-        tenant_id,
-        {
-            "monthly_fee_inr": "100.00",
-            "overage_rate_inr": "8.0000",
-            "overage_rate_second_inr": "5.5000",
-        },
-    )
+    assert response.status_code == 201, response.text
     row = (await _get(token, tenant_id)).json()["in_effect"]
-
-    assert row["overage_rate_second_inr"] == "5.5000"
-    assert row["overage_rate_value_inr"] == "5.5000", (
-        "the deprecated name must carry the identical figure until step 2 removes it"
-    )
+    assert row["hard_cap_minutes"] == 300
+    assert row["monthly_fee_inr"] is None and row["overage_rate_second_inr"] is None
 
 
-async def test_the_deprecated_name_is_still_accepted_from_an_older_console() -> None:
-    """The other direction of the same release skew: a bundle that has not been
-    redeployed sends the OLD field name, and an operator's agreement must still record."""
+@pytest.mark.parametrize(
+    "field,value,label",
+    [
+        ("overage_rate_second_inr", "5.5000", "second overage rate"),
+        ("overage_rate_value_inr", "4.2500", "second overage rate (old name)"),
+        ("included_minutes", 100, "included minutes"),
+    ],
+)
+async def test_each_retainer_field_is_refused_on_its_own(
+    field: str, value: object, label: str
+) -> None:
     tenant_id = await _tenant()
     token = await _make_admin("operator")
-
-    await _post(
-        token,
-        tenant_id,
-        {
-            "monthly_fee_inr": "100.00",
-            "overage_rate_inr": "8.0000",
-            "overage_rate_value_inr": "4.2500",
-        },
-    )
-    row = (await _get(token, tenant_id)).json()["in_effect"]
-
-    assert row["overage_rate_second_inr"] == "4.2500", (
-        "a rate sent under the deprecated name did not reach the column that prices it — "
-        "an operator would have agreed a second rate and been billed at the base one"
-    )
-
-
-async def test_two_different_second_rates_in_one_request_are_refused() -> None:
-    """REFUSED, not resolved. There is no safe reading of two disagreeing rates on a money
-    field: preferring either one silently discards a number an operator typed. Equal
-    values pass, because a client populating both from one input is doing the right thing
-    during the deprecation."""
-    tenant_id = await _tenant()
-    token = await _make_admin("operator")
-
-    conflict = await _post(
-        token,
-        tenant_id,
-        {
-            "monthly_fee_inr": "100.00",
-            "overage_rate_inr": "8.0000",
-            "overage_rate_second_inr": "5.5000",
-            "overage_rate_value_inr": "2.0000",
-        },
-    )
-    assert conflict.status_code == 422, conflict.text
-
-    agreeing = await _post(
-        token,
-        tenant_id,
-        {
-            "monthly_fee_inr": "100.00",
-            "overage_rate_inr": "8.0000",
-            "overage_rate_second_inr": "5.5000",
-            "overage_rate_value_inr": "5.5000",
-        },
-    )
-    assert agreeing.status_code == 201, agreeing.text
-    assert (await _get(token, tenant_id)).json()["in_effect"]["overage_rate_second_inr"] == "5.5000"
+    response = await _post(token, tenant_id, {field: value})
+    assert response.status_code == 422, response.text
+    assert label in response.text.lower()
+    assert await _plan_rows(tenant_id) == []
 
 
 # ============================================================================
@@ -668,7 +588,7 @@ async def test_terms_written_for_one_tenant_are_invisible_to_another() -> None:
     neighbour_id = await _tenant()
     token = await _make_admin("operator")
 
-    await _post(token, tenant_id, {"monthly_fee_inr": "4242.00"})
+    await _post(token, tenant_id, {"llm_model_surcharge_inr": "4.2420"})
 
     async with tenant_session(neighbour_id) as session:
         visible = (
@@ -687,7 +607,7 @@ async def test_recording_terms_against_a_tenant_that_does_not_exist_is_a_404() -
     """A mistyped uuid must not reach the FK as a 500 — and must certainly not mint a
     plan row nobody can find."""
     token = await _make_admin("operator")
-    response = await _post(token, uuid.uuid4(), {"monthly_fee_inr": "100.00"})
+    response = await _post(token, uuid.uuid4(), {"llm_model_surcharge_inr": "1.0000"})
     assert response.status_code == 404, response.text
 
 
@@ -717,7 +637,7 @@ async def test_terms_whose_window_has_closed_report_lapsed_not_none() -> None:
         await _post(
             token,
             tenant_id,
-            {"monthly_fee_inr": "5000.00", "included_minutes": 100, "overage_rate_inr": "5.0000"},
+            {"llm_model_surcharge_inr": "1.5000", "hard_cap_minutes": 100},
         )
     ).status_code == 201
     async with tenant_session(tenant_id) as session:
@@ -733,154 +653,22 @@ async def test_terms_whose_window_has_closed_report_lapsed_not_none() -> None:
     assert len(body["history"]) == 1, "the expired row is still history, not nothing"
 
 
-# ------------------------------------------------------------------ the margin guard
-#
-# D-469. A committed-volume bundle sells minutes the same way a prepaid pack does, so it
-# answers to the same floor — but a pack's bonus is capped by code review and a CI guard,
-# while these terms are typed into a console during an onboarding call with neither. These
-# tests pin the POSTURE, which is deliberately two different answers to two different
-# facts: a guaranteed loss is refused, a thin deal is allowed and said out loud.
-
-
-async def test_terms_that_price_a_minute_below_cost_are_refused() -> None:
-    """The one shape nobody intends. ₹7,000 for 2,000 minutes is ₹3.50/min against the cost
-    floor — it loses money on every minute, and worse the harder the client uses it.
-
-    ⚠ The floor is READ, not typed — and so is the FEE now. It was ₹3.70 until D-547
-    re-derived it without telephony (₹4.1211), then ₹3.3111 when D-592 put the engine leg on
-    Pipecat's active minute. The floor was already read here; the ₹7,000 fee was not, and at
-    ₹3.50/min it drifted from "comfortably below cost" to "profitable" without anyone
-    touching this file. Both sides are derived now.
-    """
+async def test_a_retainer_row_from_before_d706_still_reads_with_its_margin() -> None:
+    """Invoices already issued are honoured, so a retainer row written before D-707 is
+    still history an operator reads — with the margin it was struck at."""
     tenant_id = await _tenant()
-    token = await _make_admin("operator")
-
-    response = await _post(
-        token,
-        tenant_id,
-        {
-            # DERIVED: 90% of the floor over 2,000 minutes. It was a flat ₹7,000 (₹3.50/min)
-            # until D-592 halved the engine leg and pulled the floor to ₹3.3111, at which
-            # ₹3.50 CLEARS cost and this test was asserting a refusal that could not happen.
-            "monthly_fee_inr": str(
-                (SELF_SERVE_COST_FLOOR_INR_PER_MIN * Decimal("0.9") * 2000).quantize(
-                    Decimal("0.01")
-                )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO plans (id, tenant_id, monthly_fee, included_min, overage_rate, "
+                "created_at, updated_at) VALUES (:i, :t, 9999.00, 2000, 8.0000, "
+                "clock_timestamp(), clock_timestamp())"
             ),
-            "included_minutes": 2000,
-            "overage_rate_inr": "8.0000",
-        },
-    )
-
-    assert response.status_code == 422, response.text
-    body = response.json()
-    # RFC-9457: the machine-readable code is the tail of `type`, not a bare field.
-    assert body["type"].endswith("/plan_below_cost")
-    # The refusal has to name WHICH rate and WHAT it must clear, or the operator is left
-    # guessing which of the three numbers they typed to move.
-    assert "committed" in body["detail"]
-    assert str(SELF_SERVE_COST_FLOOR_INR_PER_MIN) in body["detail"]
-    assert body["remediation"]
-
-    # And nothing was written: a refused agreement must not leave a plan row behind.
-    assert await _plan_rows(tenant_id) == []
-
-
-async def test_a_below_cost_overage_is_refused_even_behind_a_healthy_bundle() -> None:
-    """A comfortable committed rate does not launder the overage — the client pays that
-    one on exactly the minutes they use hardest."""
-    tenant_id = await _tenant()
-    token = await _make_admin("operator")
-
-    response = await _post(
-        token,
-        tenant_id,
-        {"monthly_fee_inr": "10000.00", "included_minutes": 2000, "overage_rate_inr": "2.0000"},
-    )
-
-    assert response.status_code == 422, response.text
-    assert response.json()["type"].endswith("/plan_below_cost")
-    assert "overage" in response.json()["detail"]
-
-
-async def test_a_thin_but_profitable_bundle_is_accepted_and_flagged() -> None:
-    """A rate a paise over the cost floor clears cost but not the 20% target. That is a
-    founder's call to make — a lighthouse client, a displacement — so the route records it
-    and SAYS so rather than standing in the way of a commercial decision.
-
-    The fee is DERIVED from the floor (+1 paise per minute) rather than typed at ₹4,000:
-    when D-547 re-derived the floor upward, ₹4.00/min stopped being 'thin' and became
-    'below cost', and this test would have been asserting the opposite posture to the one
-    it is named for.
-    """
-    tenant_id = await _tenant()
-    token = await _make_admin("operator")
-    thin_rate = SELF_SERVE_COST_FLOOR_INR_PER_MIN + Decimal("0.01")
-
-    response = await _post(
-        token,
-        tenant_id,
-        {"monthly_fee_inr": str(thin_rate * 1000), "included_minutes": 1000},
-    )
-
-    assert response.status_code == 201, response.text
-    margin = response.json()["margin"]
-    assert margin["below_target_margin"] == ["committed"]
-    assert Decimal(margin["effective_committed_rate_inr_per_min"]) == thin_rate
-    # A FRACTION, so it compares directly against `min_gross_margin` in the same payload,
-    # and recomputed here through the shared formula rather than typed.
-    assert Decimal(margin["committed_gross_margin"]) == gross_margin_ratio(
-        rate=thin_rate, cost=SELF_SERVE_COST_FLOOR_INR_PER_MIN
-    ).quantize(Decimal("0.0001"))
-    assert margin["min_gross_margin"] == "0.20"
-    assert Decimal(margin["cost_floor_inr_per_min"]) == SELF_SERVE_COST_FLOOR_INR_PER_MIN
-    # The agreement really was recorded — a warning is not a refusal.
-    assert len(await _plan_rows(tenant_id)) == 1
-
-
-async def test_every_plan_read_carries_its_margin() -> None:
-    """The margin of a bundle is a number on the screen that SETS it, not something
-    discovered months later when a client reconciles."""
-    tenant_id = await _tenant()
-    token = await _make_admin("operator")
-
-    # A fee struck EXACTLY at the target margin, derived from the floor: the read-back is
-    # about the margin travelling with the plan, not about a particular rupee figure, and
-    # a typed one stops being at-target the moment the cost model moves (it did, D-547).
-    at_target = (SELF_SERVE_COST_FLOOR_INR_PER_MIN / (Decimal("1") - MIN_GROSS_MARGIN)).quantize(
-        Decimal("0.0001")
-    )
-    assert (
-        await _post(
-            token,
-            tenant_id,
-            {
-                "monthly_fee_inr": str(at_target * 2000),
-                "included_minutes": 2000,
-                "overage_rate_inr": "8.0000",
-            },
+            {"i": uuid.uuid4(), "t": tenant_id},
         )
-    ).status_code == 201
-
-    in_effect = (await _get(token, tenant_id)).json()["in_effect"]
-
-    assert Decimal(in_effect["margin"]["effective_committed_rate_inr_per_min"]) == at_target
-    assert Decimal(in_effect["margin"]["committed_gross_margin"]) >= MIN_GROSS_MARGIN
-    assert in_effect["margin"]["overage_rate_inr_per_min"] == "8.0000"
-    assert in_effect["margin"]["below_target_margin"] == []
-
-
-async def test_a_retainer_with_no_bundled_minutes_quotes_no_committed_rate() -> None:
-    """Unset is not zero. A fee with no included minutes has no per-minute rate to judge,
-    and reading it as ₹0.00 would refuse an ordinary agreement as a below-cost sale."""
-    tenant_id = await _tenant()
-    token = await _make_admin("operator")
-
-    response = await _post(token, tenant_id, {"monthly_fee_inr": "9999.00"})
-
-    assert response.status_code == 201, response.text
-    margin = response.json()["margin"]
-    assert margin["effective_committed_rate_inr_per_min"] is None
-    assert margin["committed_gross_margin"] is None
-    assert margin["overage_rate_inr_per_min"] is None
-    assert margin["below_target_margin"] == []
+    body = (await _get(await _make_admin("operator"), tenant_id)).json()
+    assert body["state"] == "set"
+    assert body["in_effect"]["monthly_fee_inr"] == "9999.0000"
+    assert Decimal(body["in_effect"]["margin"]["effective_committed_rate_inr_per_min"]) == Decimal(
+        "4.9995"
+    )

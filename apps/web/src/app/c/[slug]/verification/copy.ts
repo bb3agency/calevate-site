@@ -34,7 +34,7 @@ export const NOT_RECORDED: VerdictCopy = {
 export const UNNAMED_STATUS: VerdictCopy = {
   ...NOT_RECORDED,
   headline: "Your business is not verified yet.",
-  next: "Ask your account manager where your verification stands.",
+  next: "Ask us where your verification stands.",
 };
 
 /** The lead-in of a list item: the claim, before the paragraph that qualifies it. */

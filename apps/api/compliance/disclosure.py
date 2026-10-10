@@ -148,10 +148,15 @@ DEFAULT_LANGUAGE = get_language("english_india").bcp47
 #: notice in one string. That bundling is why the two invariants SEC-COMP §2 states
 #: separately could only ever be switched on and off together: there was one column, so
 #: there was one answer.
+#:
+#: NO GREETING WORD IN IT (D-708). The greeting is the agent's own opening line, in its
+#: script, and follows this sentence when it is switched on; a "Namaskaram," here made the
+#: notice read as the greeting and made the agent say hello twice. Agents created before
+#: this keep the sentence they were given until an operator rewrites it.
 AI_DISCLOSURE_TEMPLATES: dict[str, str] = {
-    "te-IN": "Namaskaram, idi {business} AI assistant.",
-    "hi-IN": "Namaste, main {business} ka AI assistant hoon.",
-    "en-IN": "Hello, this is the AI assistant for {business}.",
+    "te-IN": "Idi {business} AI assistant.",
+    "hi-IN": "Main {business} ka AI assistant hoon.",
+    "en-IN": "This is the AI assistant for {business}.",
 }
 
 #: Sentence two: **"this call is recorded"** — the DPDP notice-and-consent side, and a

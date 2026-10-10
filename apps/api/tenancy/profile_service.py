@@ -53,6 +53,7 @@ from apps.api.tenancy.business_profile import (
     StepId,
     load_profile,
 )
+from apps.api.tenancy.onboarding import complete_onboarding_if_finished
 
 log = get_logger(__name__)
 
@@ -293,6 +294,9 @@ async def save_profile(
     # prompt version and re-publishes nothing.
     changed = {step for step in after if after[step] != before[step]}
     updated = await apply_to_agents(session, tenant_id=tenant_id, changed=changed)
+    # The save that completes the profile is what finishes an onboarding whose owner has
+    # already joined (D-695).
+    await complete_onboarding_if_finished(session, tenant_id=tenant_id)
     # Section names and a count only: the answers are the client's business detail and
     # the contacts are phone numbers (hard rule 6).
     log.info(

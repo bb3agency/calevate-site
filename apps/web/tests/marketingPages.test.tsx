@@ -268,7 +268,7 @@ describe("the pricing page", () => {
     // And it must still be USEFUL: the two facts a buyer needs are pinned rather than
     // merely permitted.
     expect(text).toMatch(/minutes your agents actually talk/i);
-    expect(text).toMatch(/agreed with you/i);
+    expect(text).toMatch(/same for every client/i);
   });
 
   it("prints the self-serve card the API sent, and nothing it did not", async () => {
@@ -443,17 +443,13 @@ describe("the pricing page", () => {
     expect(prose).not.toMatch(/start today/i);
   });
 
-  it("says which price is published and which is a conversation, and never the reverse", async () => {
-    // BOTH WERE ON THE PAGE AND NEITHER WAS QUALIFIED: "nothing to sign" and "Start today"
-    // over the card, and "the price is a conversation" four sections down. They are true of
-    // DIFFERENT things — the self-serve card is published, a managed plan is quoted — and a
-    // buyer who read both learned that we will not say what a minute costs on the page that
-    // says exactly that.
+  it("states one pricing model, with no negotiated plan and no setup fee (D-707)", async () => {
     stubApi(RATE_CARD_ROUTES);
     const { container } = render(await PricingPage());
     const text = bodyText(container);
-    expect(text).toMatch(/published price, not a quote/i);
-    expect(text).toMatch(/agreed with you/i);
+    expect(text).toMatch(/published price, the same for every client/i);
+    expect(text).toMatch(/no setup fee/i);
+    expect(text).not.toMatch(/agreed with you|managed plan|retainer|included minutes/i);
     expect(text).not.toMatch(/the price is a conversation/i);
     // And no claim about how an ACCOUNT is opened: `self_serve_signup_enabled` decides that
     // at runtime and the homepage door is the one place that reads it.
@@ -462,31 +458,23 @@ describe("the pricing page", () => {
     );
   });
 
-  it("promises no per-voice overage rate on a managed plan", async () => {
-    /*
-     * `plans` HAS NO SUCH COLUMN. There are two overage columns
-     * (`apps/api/billing/models.py:281-296`) and the second is D-36's premium/value TTS
-     * ladder, not one of the two VOICE QUALITIES the self-serve card prices — and every
-     * call is counted on the base rung regardless (`apps/workers/pipeline.py:2743-2745`,
-     * `tts_tier=BASE_OVERAGE_RUNG`). So the plan section may not name a voice: a client
-     * order form cannot carry a rate per voice, and the copy promised one.
-     *
-     * Asserted with the RELABELLED card, so the guard catches a voice name however it got
-     * onto the page — the labels arrive on the wire and a hand-typed "Studio" would pass a
-     * test written against today's names.
-     */
+  it("quotes the monthly platform fee only from the live card, and none while it is off", async () => {
+    stubApi(RATE_CARD_ROUTES);
+    const off = render(await PricingPage());
+    const offFee = off.container.querySelector("#platform-fee")?.textContent ?? "";
+    expect(offFee).toMatch(/no monthly fee today/i);
+    expect(offFee).not.toContain("₹");
+    off.unmount();
+
     stubApi({
-      "/v1/public/rate-card": {
-        ...RATE_CARD,
-        clear_tier_label: "Everyday",
-        studio_tier_label: "Concert",
-      },
+      ...RATE_CARD_ROUTES,
+      "/v1/public/rate-card": { ...RATE_CARD, platform_fee_inr_per_month: "1999.00" },
     });
     const { container } = render(await PricingPage());
-    const plan = container.querySelector("#plan")?.textContent ?? "";
-    expect(plan.length, "the plan section did not render").toBeGreaterThan(100);
-    expect(plan).not.toMatch(/Everyday|Concert/);
-    expect(plan).not.toMatch(/each voice|per voice|two-rate/i);
+    const fee = container.querySelector("#platform-fee")?.textContent ?? "";
+    expect(fee).toContain("₹1,999 a month");
+    expect(fee).toMatch(/never taken from your calling credit/i);
+    expect(fee).toMatch(/incoming calls keep being answered/i);
   });
 
   /**

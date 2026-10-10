@@ -1059,7 +1059,7 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
         <p className="mt-1">
           {recipients === null
             ? "This deployment's API did not say how many clients are on a wallet, so no number is shown rather than a guessed one. Every client the new rates would price is still emailed when the card is recorded."
-            : "Everyone on a wallet is told the new rates and the day they start, as soon as the card is recorded — not on the day itself. Clients on an invoiced plan are not emailed: this card does not price them."}
+            : "Everyone on a wallet is told the new rates and the day they start, as soon as the card is recorded — not on the day itself."}
         </p>
         <p className="mt-2">
           Credit already bought is not repriced. Every top-up keeps the rates it was bought

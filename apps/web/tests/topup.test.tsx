@@ -9,7 +9,7 @@ import { expectNoA11yViolations } from "./a11y";
 import { renderBillingHub } from "./billingHub";
 import { expectTextCount, problem } from "./harness";
 import { WALLET_LOTS_PATH } from "@/app/c/[slug]/billing/lots";
-import { walletLots } from "./fixtures/sharedReads";
+import { PLATFORM_FEE_OFF, walletLots } from "./fixtures/sharedReads";
 
 /**
  * The top-up panel (D-98) — a control that must not exist unless it can work, and, since
@@ -282,6 +282,7 @@ const CHECKOUT_RESPONSE = {
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": ME,
+    "/v1/billing/platform-fee": PLATFORM_FEE_OFF,
     [WALLET]: wallet(),
     // Both are read by the screen AROUND the panel. Routed with the emptiest honest
     // answer, because an unrouted request throws in this harness — a hole in a test's
@@ -578,7 +579,7 @@ describe("the top-up panel", () => {
   });
 
   it("tells a client the voice is theirs to pick, on the screen they pay on", async () => {
-    // ⚠ THIS ASSERTED `/tell your account manager/i` AND WAS PINNING AN EXPIRED CLAIM.
+    // ⚠ THIS ASSERTED `/tell us/i` AND WAS PINNING AN EXPIRED CLAIM.
     // It cited D-21; **D-586 (11 Sep 2026) supersedes D-21 for the `live` lane** — `PATCH
     // /v1/agents/{agent_id}/voice` is a client-realm door, `agents:write` is on `owner`
     // and `staff`, and the picker is mounted at
@@ -594,7 +595,7 @@ describe("the top-up panel", () => {
     // Per-agent is the load-bearing half and survives the correction.
     expect(container.textContent).toMatch(/set per agent/i);
     expect(container.textContent).toMatch(/you choose that on each agent/i);
-    expect(container.textContent).not.toMatch(/tell your account manager/i);
+    expect(container.textContent).not.toMatch(/tell us/i);
   });
 
   it("lands the reader on a pack from the minutes they call, without doing money arithmetic", async () => {
@@ -643,10 +644,10 @@ describe("the top-up panel", () => {
     // recommending a pack that does not cover it.
     fireEvent.change(field, { target: { value: "40000" } });
     await waitFor(() => expect(suggestion()).toContain("more than one pack"));
-    // AND IT NAMES THE RIGHT THING TO ASK FOR. It used to say "a monthly plan", which is
-    // the arrangement `InvoicedAccount` describes as having NO wallet at all — offered, on
-    // the top-up screen, as though it were an upgrade to the thing being bought.
-    expect(suggestion()).toContain("a monthly invoiced plan");
+    // AND IT NAMES SOMETHING THAT EXISTS. There is one pricing model since D-707, so the
+    // answer to "more than the largest pack" is more credit, never an invoiced plan.
+    expect(suggestion()).toContain("auto-recharge");
+    expect(suggestion()).not.toMatch(/invoice/);
 
     // Not a number: a sentence they can act on, and no recommendation invented from it.
     fireEvent.change(field, { target: { value: "lots" } });

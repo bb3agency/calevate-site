@@ -43,12 +43,12 @@ const OWNER: Me = {
 
 /** `self_serve_purchase_refused()` — the sentence every closed gate answers with. */
 const REFUSAL =
-  "A phone number cannot be bought from this screen. Numbers are arranged with your " +
-  "account manager as part of setting your agent up.";
+  "A phone number cannot be bought from this screen. Numbers are arranged with " +
+  "us as part of setting your agent up.";
 
 /** The server's remediation: the number is ours, and no provider is named (white label). */
 const REMEDIATION =
-  "Talk to us and your account manager will arrange the number. Calevate provides it on " +
+  "Talk to us and we will arrange the number. Calevate provides it on " +
   "our own telephony account, so there is no operator account for you to open.";
 
 const STATEMENT = "I confirm that my business is the sender of these calls.";
@@ -149,7 +149,7 @@ describe("a deployment that may not supply a number says so", () => {
 
     await screen.findByText(REFUSAL);
     expect(container.textContent).not.toMatch(/account holder|withdraw our access|connection you already hold/i);
-    expect(screen.getByText(/arranges your number with you/i).textContent).not.toMatch(
+    expect(screen.getByText(/arrange your number with you/i).textContent).not.toMatch(
       /Vobiz|Plivo|Thinnest|Pipecat/i,
     );
   });

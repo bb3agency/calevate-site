@@ -399,6 +399,17 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash: 
           "sha256:b2b9b68886a69169bfd0bc8aad01ff9fb010a47643b04d45a558fb59bb8b289a",
       },
+      // D-707: clause 6.1 puts every account on one pricing model (prepaid credit at the
+      // published card, no setup fee) and adds the optional monthly platform fee, paid
+      // separately, whose non-payment pauses outbound after seven days; invoices under
+      // earlier arrangements are honoured. Clause 11 drops the managed engagement.
+      // MATERIAL: what a client pays changes.
+      {
+        revision: "14",
+        material: true,
+        contentHash:
+          "sha256:890f24739803639c4e237b56078dabd9f65a91a7df1fd7bdd4f2d444a9ab159f",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -776,6 +787,15 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash: 
           "sha256:81ed76eaa163b78a969a1cfb0242e0ad5faea8fa626b3cb7ea3f4513d93f0f06",
+      },
+      // D-707: section 1 describes one way of paying (prepaid credit) and the optional
+      // monthly platform fee; the managed engagement and its cancellation clause go.
+      // MATERIAL: what a client pays changes.
+      {
+        revision: "6",
+        material: true,
+        contentHash:
+          "sha256:714e543d04509af4b063f4745878e58e95d22ccdd8d1b7f6bd1c3cc95294b812",
       },
     ],
     effectiveDate: "2026-09-02",

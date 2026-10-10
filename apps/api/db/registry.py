@@ -132,6 +132,11 @@ TENANT_TABLES = [
     # One-time charges (the onboarding setup fee, migration c7e1a4b90d63). Tenant money:
     # what this client was billed once, read by the invoice.
     "one_time_charges",
+    # The monthly platform fee (D-707, migration e5a1d706c3f2): what one client owes for one
+    # month, and its paid record. Tenant money. The charge is NOT append-only (its notice
+    # stamps are claimed before each email); the payments are (see APPEND_ONLY_TABLES).
+    "monthly_fee_charges",
+    "monthly_fee_payments",
     "spend_state",
     # A refund this platform has committed to asking the provider for, written BEFORE the
     # ask (migration c4b8e91d7a05). Tenant money: which of this client's payments is being
@@ -961,6 +966,9 @@ APPEND_ONLY_TABLES = [
     "autodialer_notices",
     "credit_ledger",
     "one_time_charges",
+    # A paid monthly platform fee (D-707). Append-only for `credit_ledger`'s reason: it is
+    # money received, and a correction is a refund handled outside it, never an edit.
+    "monthly_fee_payments",
     # A withdrawn WhatsApp alert opt-in is a NEW row, never an edit of the grant it
     # supersedes: DPDP §6(6) requires withdrawal to be as easy as consent, not that it
     # erase the evidence of the consent that was live when we sent last month's alerts.

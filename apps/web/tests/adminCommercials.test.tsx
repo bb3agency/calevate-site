@@ -13,7 +13,7 @@ import {
 } from "@/lib/api/commercials";
 import type { Routes } from "./harness";
 
-import { problem } from "./harness";
+import { noReply, problem } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 
 /**
@@ -130,6 +130,7 @@ function render(routes: Partial<Routes> = {}) {
       [TENANT_PATH]: tenant(),
       [ADMIN_ME_PATH]: ME,
       [TERMS_PATH]: terms(),
+      [`${TENANT_PATH}/platform-fee`]: noReply(),
       ...routes,
     },
   );
@@ -206,31 +207,25 @@ describe("the commercials screen", () => {
     expect(document.body.textContent).toContain("₹7.1250");
   });
 
-  it("offers no default for the value-tier rate", async () => {
+  it("offers no retainer terms — every client buys prepaid credits (D-707)", async () => {
     await renderWithTerms();
 
-    // "Second overage rate", not "Value-tier rate": the field is `overage_rate_value`, a
-    // second agreed rate on the plan, and the old label both used excluded rung vocabulary
-    // and claimed it priced a different voice (`tests/rung_naming_copy_test.py`).
-    const field = (await screen.findByLabelText(
-      /Second overage rate/,
-    )) as HTMLInputElement;
-    expect(field.value).toBe("");
+    await screen.findByLabelText(/AI model surcharge/);
+    expect(screen.queryByLabelText(/Second overage rate/)).toBeNull();
+    expect(screen.queryByLabelText(/Included minutes/)).toBeNull();
+    expect(screen.queryByLabelText(/Setup fee/)).toBeNull();
   });
 
   it("refuses a minute figure it cannot read instead of recording it as none", async () => {
-    // `Number("1,000")` is NaN, which JSON sends as null: "1,000 minutes included" was
-    // recorded as NO allowance, and a first minute ceiling of "1,000" as no ceiling at all.
+    // `Number("50 000")` is NaN, which JSON sends as null: a first minute ceiling of
+    // "50 000" would have been recorded as no ceiling at all.
     const { calls } = await renderWithTerms({ [TERMS_PATH]: terms({ in_effect: null, state: "none" }) });
 
-    fireEvent.change(await screen.findByLabelText(/Included minutes/), {
-      target: { value: "1,000" },
-    });
-    fireEvent.change(screen.getByLabelText(/Minute ceiling/), { target: { value: "50 000" } });
+    fireEvent.change(await screen.findByLabelText(/Minute ceiling/), { target: { value: "50 000" } });
     fireEvent.click(screen.getByRole("button", { name: /Record new terms/ }));
 
-    expect((await screen.findAllByText(/whole number in digits only/i)).length).toBe(2);
-    expect(screen.getByLabelText(/Included minutes/).getAttribute("aria-invalid")).toBe("true");
+    expect((await screen.findAllByText(/whole number in digits only/i)).length).toBe(1);
+    expect(screen.getByLabelText(/Minute ceiling/).getAttribute("aria-invalid")).toBe("true");
     expect(calls.some((call) => call.method === "POST")).toBe(false);
   });
 
@@ -451,26 +446,27 @@ async function renderWithProbe(seen: { facts: string[] }, over: Partial<Commerci
       [TENANT_PATH]: tenant(),
       [ADMIN_ME_PATH]: ME,
       [TERMS_PATH]: terms(over),
+      [`${TENANT_PATH}/platform-fee`]: noReply(),
     },
   );
 }
 
 describe("the terms the assistant is told about", () => {
-  it("does not report an unstated minute allowance as zero minutes", async () => {
+  it("does not report an unstated minute ceiling as zero minutes", async () => {
     const seen = { facts: [] as string[] };
-    await renderWithProbe(seen, { in_effect: plan({ included_minutes: null }) });
+    await renderWithProbe(seen, { in_effect: plan({ hard_cap_minutes: null }) });
 
     await waitFor(() => expect(seen.facts.length).toBeGreaterThan(0));
     const fact = seen.facts.join(" ");
-    expect(fact).toContain("included minutes not stated");
-    expect(fact).not.toContain("0 minutes included");
+    expect(fact).toContain("no minute ceiling");
+    expect(fact).not.toContain("minute ceiling 0");
   });
 
-  it("reports a real allowance as the number it is", async () => {
+  it("reports a real ceiling as the number it is", async () => {
     const seen = { facts: [] as string[] };
-    await renderWithProbe(seen, { in_effect: plan({ included_minutes: 100 }) });
+    await renderWithProbe(seen, { in_effect: plan({ hard_cap_minutes: 100 }) });
 
     await waitFor(() => expect(seen.facts.length).toBeGreaterThan(0));
-    expect(seen.facts.join(" ")).toContain("100 minutes included");
+    expect(seen.facts.join(" ")).toContain("minute ceiling 100");
   });
 });

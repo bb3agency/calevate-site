@@ -544,10 +544,11 @@ async def _agent_row(session: AsyncSession, agent_id: UUID) -> AgentOut:
         "sets the calling direction; a `direction` that contradicts it is refused with "
         "`starter_direction_mismatch`.\n\n"
         "Both opening notices — the AI disclosure and the recording notice — are written "
-        "for you from the chosen language and are switched on. They cannot be supplied "
-        "here: every agent on this platform has an AI disclosure on file, the voice "
-        "platform is verified against it on every publish, and no field on this form can "
-        "change that."
+        "for you from the chosen language and start switched off, so a new agent opens "
+        "with its own opening line (part of its script). They cannot be supplied here: "
+        "every agent on this platform has an AI disclosure on file, and no field on this "
+        "form can change that. Switching a notice on adds it before the opening line; it "
+        "never replaces the opening line."
     ),
 )
 async def create_agent_route(
@@ -909,7 +910,8 @@ class DisclosureOut(BaseModel):
     agent_id: UUID
     ai_disclosure_enabled: bool
     recording_notice_enabled: bool
-    #: What callers now hear first. Empty = the agent volunteers neither notice.
+    #: The notices now said before the agent's opening line. Empty = the agent volunteers
+    #: neither and opens on its opening line, which these switches never change (D-708).
     opening_line: str
     #: Did the voice platform get the change? False on an agent that is not live yet —
     #: there is nothing on the platform to update, and the first publish carries it.
@@ -927,7 +929,9 @@ class DisclosureOut(BaseModel):
     description=(
         "Each opening notice is separately controllable, per agent, on inbound and "
         "outbound agents alike. A notice switched off means the agent does not VOLUNTEER "
-        "that fact at the start of the call.\n\n"
+        "that fact at the start of the call. Neither switch changes the agent's opening "
+        "line, which is part of its script: a notice switched on is said before it, and "
+        "with both off the opening line is the first thing callers hear.\n\n"
         "It does not change what the agent says when a caller ASKS. Asked whether they "
         "are speaking to a human, the agent says it is an AI assistant. Asked whether "
         "the call is recorded, it answers according to whether the voice platform records "
@@ -1045,7 +1049,8 @@ class CallerMemoryOut(BaseModel):
 
     agent_id: UUID
     enabled: bool
-    #: What callers now hear first. When this is on it GAINS the sentence telling them a
+    #: The notices callers now hear before the opening line. When this is on it GAINS the
+    #: sentence telling them a
     #: short note is kept; when it goes off it loses it. Shown rather than described, so
     #: the screen and the phone line cannot say different things.
     opening_line: str

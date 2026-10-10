@@ -31,6 +31,7 @@ import asyncio
 import sys
 from uuid import UUID
 
+from apps.api.billing.plans import IST
 from apps.api.compliance.processor_erasure import (
     OVERDUE_AFTER_DAYS,
     overdue_tasks,
@@ -80,7 +81,7 @@ async def _settled(tenant_id: UUID) -> int:
         print("No vendor-side erasure obligation has been answered for this tenant yet.")
         return 0
     for task in tasks:
-        answered = task.answered_at.date().isoformat() if task.answered_at else "?"
+        answered = task.answered_at.astimezone(IST).date().isoformat() if task.answered_at else "?"
         print(
             f"  {task.status.upper():9} {task.processor:12} answered {answered} "
             f"after {task.days_open}d   task {task.id}"

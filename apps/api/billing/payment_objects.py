@@ -29,11 +29,13 @@ from apps.api.db.session import untenanted_session
 log = get_logger(__name__)
 
 RouteKind = Literal["order", "token", "customer"]
-RoutePurpose = Literal["topup", "mandate", "auto_recharge"]
+RoutePurpose = Literal["topup", "mandate", "auto_recharge", "platform_fee"]
 
 TOPUP: Final = "topup"
 MANDATE: Final = "mandate"
 AUTO_RECHARGE: Final = "auto_recharge"
+#: A monthly platform fee (D-707): the payment settles a fee and never credits the wallet.
+PLATFORM_FEE: Final = "platform_fee"
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +137,7 @@ def verify_order(payment: CapturedPayment, route: ObjectRoute | None) -> None:
 __all__ = [
     "AUTO_RECHARGE",
     "MANDATE",
+    "PLATFORM_FEE",
     "TOPUP",
     "ObjectRoute",
     "RouteKind",

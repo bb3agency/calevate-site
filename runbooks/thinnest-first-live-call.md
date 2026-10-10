@@ -61,7 +61,7 @@ metered minutes, wallet debit).
       voice-runtime (`docs/DEPLOYMENT.md` §12.7), and backed up with `PLATFORM_KEK`.
 - [ ] Restart: `scripts/vps-deploy.sh api workers voice-runtime`.
 
-## 2. Our console settings (ops console → Platform configuration → Calling)
+## 2. Our console settings (ops console → Platform configuration → Voice engine, and Calling limits and pacing for `thinnest_max_concurrent_calls`)
 
 - [ ] `engine` = `thinnest`.
 - [ ] `webhook_base_url` = our public hooks origin (`https://…`). ThinnestAI sends call
@@ -80,7 +80,7 @@ metered minutes, wallet debit).
       this engine it names `THINNEST_API_KEY`, `ENGINE_INTAKE_KEK`, `WEBHOOK_BASE_URL` and
       `ENGINE_ACTIONS_BASE_URL` when any is absent or not usable.
 
-## 3. Record the rates (ops console → Platform configuration → Calling → Per-minute rates)
+## 3. Record the rates (ops console → Platform configuration → Voice engine → Per-minute rates)
 
 ThinnestAI's call result carries no rate we may bill from without your attestation (hard
 rule 7). Record each from your own invoice or plan page; each needs a step-up confirmation.
@@ -190,8 +190,10 @@ own business name; nothing is rented in their console. Paths are under
       copy in our developer workspace is deleted once no call is on it
       (`engine_agent_retire_failed` if it cannot be). Publish is refused with
       `engine_workspace_not_provisioned` while the workspace is not active (§3b).
-- [ ] Opening line (AI introduction and recording notice) under 200 characters. An agent
-      that calls out needs one: every outbound call speaks it first.
+- [ ] The script has an opening line (the greeting). Callers hear any notice switched on
+      (AI introduction, recording notice), then the opening line; together they must be
+      under 200 characters. The switches never remove the opening line (D-708). An agent
+      that calls out needs first words: every outbound call speaks them first.
 - [ ] Keep the script short. The instructions hold at most 20,000 characters
       (`api-reference/agents/update-agent.md:426-431`), our rules count towards that, and
       a longer one is refused with `engine_prompt_too_long` (never truncated). The business

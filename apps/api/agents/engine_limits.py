@@ -1,8 +1,9 @@
 """Refuse a publish whose text will not fit the engine's own fields — before the vendor write.
 
 On an engine that holds our agent in its records (ThinnestAI today), the composed prompt,
-the opening line and an outbound call's first utterance each land in a vendor field with a
-ceiling (`engine/hosted_platform.HostedAgentLimits`). Two other responses were rejected:
+the first words (notices, then opening line) and an outbound call's first utterance each
+land in a vendor field with a ceiling (`engine/hosted_platform.HostedAgentLimits`). Two
+other responses were rejected:
 
 * **Truncating to fit.** `compose_engine_prompt` puts the confidentiality rule and hard
   rule 5's truthful-answer block LAST, so the characters a cut removes are exactly the ones
@@ -20,7 +21,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from calevate_shared.engine import AgentConfig, VoiceEngine, compose_engine_prompt
+from calevate_shared.engine import (
+    AgentConfig,
+    VoiceEngine,
+    compose_engine_prompt,
+    compose_first_utterance,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.engine_minutes import (
@@ -28,9 +34,10 @@ from apps.api.billing.engine_minutes import (
     BASE_RATE_KEY,
     engine_minute_is_billable,
 )
+from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.engine.hosted_platform import hosted_agent_limits
+from apps.api.engine.hosted_platform import engine_greeting, hosted_agent_limits
 
 log = get_logger(__name__)
 
@@ -39,6 +46,8 @@ PROMPT_TOO_LONG = "engine_prompt_too_long"
 OPENING_TOO_LONG = "engine_greeting_too_long"
 OPENING_REQUIRED = "engine_opening_required"
 MINUTE_UNPRICED = "engine_minute_unpriced"
+#: The alarm that tells the operator a client was refused for want of a minute rate.
+PUBLISH_REFUSED_UNPRICED_ALARM = "engine_publish_refused_unpriced"
 
 
 def refuse_over_engine_limits(engine: VoiceEngine, cfg: AgentConfig) -> None:
@@ -46,9 +55,12 @@ def refuse_over_engine_limits(engine: VoiceEngine, cfg: AgentConfig) -> None:
     limits = hosted_agent_limits(engine)
     if limits.prompt_chars is not None:
         _check_prompt(engine, cfg, limits.prompt_chars)
-    opening = cfg.opening_line.strip()
-    # The opening line is the agent's greeting on every direction (the adapter sends it as
-    # the agent-level greeting), so its ceiling applies to every agent.
+    # The text the engine holds as the greeting on every direction: on ThinnestAI the
+    # notices switched on and then the opening line (D-708), so the ceiling and the
+    # outbound requirement apply to both together.
+    opening = engine_greeting(
+        engine, notices=cfg.opening_line, first_words=compose_first_utterance(cfg)
+    )
     if limits.greeting_chars is not None and len(opening) > limits.greeting_chars:
         raise _opening_too_long(engine, cfg, length=len(opening), cap=limits.greeting_chars)
     if cfg.direction == "inbound":
@@ -65,13 +77,12 @@ def refuse_over_engine_limits(engine: VoiceEngine, cfg: AgentConfig) -> None:
             code=OPENING_REQUIRED,
             title="This agent needs an opening line to make calls",
             detail=(
-                "On the voice platform this account uses, every outgoing call starts by "
-                "speaking the agent's opening line, and this agent has none because both "
-                "the AI introduction and the recording notice are switched off."
+                "Every outgoing call starts with the agent's opening line, and this agent's "
+                "script has none written."
             ),
             remediation=(
-                "Switch on the AI introduction or the recording notice for this agent, or "
-                "set it to answer incoming calls only, then publish again."
+                "Write an opening line in the agent's script, or set the agent to answer "
+                "incoming calls only, then publish again."
             ),
         )
 
@@ -125,13 +136,13 @@ def _opening_too_long(
         code=OPENING_TOO_LONG,
         title="This agent's opening line is too long to publish",
         detail=(
-            f"The agent's opening line (the AI introduction, recording notice and memory "
-            f"notice it speaks first) is {length:,} characters, and the voice platform this "
-            f"account uses speaks at most {cap:,}. Nothing was shortened and nothing was published."
+            f"What the agent says first (any notices switched on, then its opening line) is "
+            f"{length:,} characters, and at most {cap:,} can be spoken there. Nothing was "
+            "shortened and nothing was published."
         ),
         remediation=(
-            f"Shorten the AI introduction or the recording notice by at least "
-            f"{length - cap:,} characters, then publish again."
+            f"Shorten the opening line in the agent's script by at least {length - cap:,} "
+            "characters, then publish again."
         ),
     )
 
@@ -164,16 +175,22 @@ async def refuse_unpriced_engine(session: AsyncSession, engine: VoiceEngine) -> 
         "agent_publish_refused_engine_limit",
         extra={"engine": engine.name, "reason": MINUTE_UNPRICED},
     )
+    # The operator's remedy travels on the alert. The refusal itself is read by a CLIENT
+    # publishing their own agent, who cannot open the ops console.
+    alert(
+        "CORE_LOGIC",
+        PUBLISH_REFUSED_UNPRICED_ALARM,
+        detail=(
+            "A publish was refused because the voice platform's base per-minute rate is not "
+            "recorded. Record it in the ops console (Platform configuration, Voice engine, "
+            "Per-minute rates), then ask the client to publish again."
+        ),
+        engine=engine.name,
+    )
     raise ProblemError(
         kind="business_rule",
         code=MINUTE_UNPRICED,
-        title="Calls on this voice platform have not been priced yet",
-        detail=(
-            "No per-minute rate has been recorded for the voice platform this account uses, "
-            "so a call on it could not be metered. Nothing was published."
-        ),
-        remediation=(
-            "Record the platform's per-minute rate in the ops console (Platform "
-            "configuration, Calling, Per-minute rates), then publish again."
-        ),
+        title="Calling isn't priced on our side yet",
+        detail="Calling isn't priced on our side yet. We've been told. Nothing was published.",
+        remediation="Publish again once we let you know it is fixed.",
     )

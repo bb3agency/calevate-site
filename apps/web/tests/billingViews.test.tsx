@@ -10,7 +10,7 @@ import {
   HUB_STATEMENTS_ROUTE,
   renderBillingHub,
 } from "./billingHub";
-import { prepaidWallet, walletLots } from "./fixtures/sharedReads";
+import { PLATFORM_FEE_OFF, prepaidWallet, walletLots } from "./fixtures/sharedReads";
 import { stillLoading } from "./harness";
 
 /**
@@ -50,6 +50,7 @@ const SERIES = {
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": ME,
+    "/v1/billing/platform-fee": PLATFORM_FEE_OFF,
     "/v1/billing/wallet": prepaidWallet(),
     "/v1/billing/wallet/ledger?limit=50": { entries: [], payments: [] },
     "/v1/billing/wallet/topups": [],

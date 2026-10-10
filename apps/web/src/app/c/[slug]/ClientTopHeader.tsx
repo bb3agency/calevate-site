@@ -6,7 +6,7 @@ import { Bell, Menu } from "lucide-react";
 
 import { ClientCopilotDock } from "@/components/copilot/CopilotDock";
 import { LiveCallsPill } from "@/components/console/liveCalls";
-import { SHELL_RAIL_CLASS } from "@/components/ui";
+import { SHELL_RAIL_CLASS, formatCountOf } from "@/components/ui";
 import { useAttention } from "@/lib/api/attention";
 import { useClientRealm } from "@/lib/api/session";
 import { minutesLeftPhrase, useWallet, walletState } from "@/lib/api/wallet";
@@ -63,7 +63,7 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
               attention.error != null
                 ? "Needs attention: we could not read your queue"
                 : waiting !== undefined && waiting > 0
-                  ? `Needs attention: ${waiting} item(s)`
+                  ? `Needs attention: ${formatCountOf(waiting, "item")}`
                   : "Needs attention"
             }
             className="press relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:h-11 touch:w-11 dark:hover:bg-white/5"

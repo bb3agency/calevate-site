@@ -584,6 +584,12 @@ async def set_value(
         from apps.api.ops.trial_number import assert_trial_number_selectable
 
         await assert_trial_number_selectable(stored)
+    # Clear may not be moved onto a voice band the last refresh showed the account is not
+    # listed: on pay-as-you-go ThinnestAI lists no Studio voice, so Clear would sell nothing.
+    if key == "thinnest_clear_voice_band":
+        from apps.api.agents.hosted_voices import assert_clear_band_listed
+
+        await assert_clear_band_listed(session, stored)
     # The lock comes FIRST — before the read whose result the precondition is checked
     # against — or the check-then-write is not atomic and the precondition is decoration.
     await _lock_key(session, key)

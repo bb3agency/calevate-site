@@ -35,24 +35,16 @@ const RULE_SCREENS: Record<string, RuleScreen> = {
   spend_cap: { href: (id) => `/admin/tenants/${id}/spend`, cta: "Open the cap" },
   no_credits: { href: (id) => `/admin/tenants/${id}/credits`, cta: "Open credits" },
   account_closed: { href: (id) => `/admin/tenants/${id}/closure`, cta: "Open closure" },
-  // The registrar's verdict on the client's own DLT registration (`DltRegistrationPanel`).
-  pe_registration_missing: {
-    href: (id) => `/admin/tenants/${id}/campaign-setup`,
-    cta: "Record registration",
-  },
-  pe_registration_not_active: {
-    href: (id) => `/admin/tenants/${id}/campaign-setup`,
-    cta: "Record registration",
-  },
+  // D-692's outbound conditions beside KYC: DigiLocker when an admin required it, and the
+  // pledge, both shown on the KYC page. The DLT entity chain is no longer a rule.
+  kyc_digilocker_required: { href: (id) => `/admin/tenants/${id}/kyc`, cta: "Open verification" },
+  outbound_pledge_missing: { href: (id) => `/admin/tenants/${id}/kyc`, cta: "Open verification" },
+  outbound_pledge_outdated: { href: (id) => `/admin/tenants/${id}/kyc`, cta: "Open verification" },
   // DELIBERATELY ABSENT: the four `autodialer_notice_*` rules. The notice is the client's
   // own letter to their access provider and only the client realm records it
   // (`POST /v1/compliance/autodialer-notice`); no admin screen can, so a link here would
   // send an operator to a page with nothing on it. The row's next step says what to ask.
   //
-  // OURS, not this client's: the telemarketer registration and the PE-TM chain are one
-  // platform-wide fact, recorded on the ops switchboard.
-  tm_registration_missing: { href: () => "/admin/ops", cta: "Open the ops switchboard" },
-  tm_link_not_active: { href: () => "/admin/ops", cta: "Open the ops switchboard" },
   big_red_switch: { href: () => "/admin/ops", cta: "Open the ops switchboard" },
   // DELIBERATELY ABSENT: `agreements_not_accepted`. Accepting is the account owner's own
   // act and there is no admin path to it — `VIEW_AS_WITHHELD_ACTS` withholds it from a

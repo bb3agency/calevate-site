@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.db.session import tenant_session
 from apps.api.tenancy.business_profile import go_live_blockers, load_profile, step_state
 from apps.api.tenancy.models import PROFILE_STEPS
+from apps.api.tenancy.onboarding import OwnerStatus, onboarding_finished, owner_status
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,26 +52,6 @@ _CANDIDATES = (
     "SELECT id, name, slug, created_at, vertical_template FROM organizations "
     "WHERE deleted_at IS NULL AND status = 'onboarding' ORDER BY created_at DESC"
 )
-#: Under the tenant session `memberships` is RLS-scoped to this account; `users` is not.
-_OWNER_PRESENT = (
-    "SELECT 1 FROM memberships m JOIN users u ON u.id = m.user_id "
-    "WHERE u.deactivated_at IS NULL LIMIT 1"
-)
-_INVITE_PENDING = "SELECT 1 FROM invitations WHERE used_at IS NULL AND expires_at > now() LIMIT 1"
-
-
-@dataclass(frozen=True, slots=True)
-class OwnerStatus:
-    owner_present: bool
-    invite_pending: bool
-
-
-async def owner_status(scoped: AsyncSession) -> OwnerStatus:
-    """Whether anybody has joined this account, and whether an invitation is still live.
-    `scoped` is the tenant's own session."""
-    owner = (await scoped.execute(text(_OWNER_PRESENT))).first() is not None
-    pending = (await scoped.execute(text(_INVITE_PENDING))).first() is not None
-    return OwnerStatus(owner_present=owner, invite_pending=pending)
 
 
 async def unfinished_onboardings(directory: AsyncSession) -> list[UnfinishedOnboarding]:
@@ -88,7 +69,7 @@ async def unfinished_onboardings(directory: AsyncSession) -> list[UnfinishedOnbo
             status = await owner_status(scoped)
         owner = status.owner_present
         blockers = tuple(go_live_blockers(profile))
-        if owner and not blockers:
+        if onboarding_finished(owner_present=owner, blockers=blockers):
             continue
         unfinished.append(
             UnfinishedOnboarding(

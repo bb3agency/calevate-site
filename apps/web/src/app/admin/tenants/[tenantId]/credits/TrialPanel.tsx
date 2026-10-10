@@ -9,6 +9,8 @@ import {
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
+  formatCount,
+  formatCountOf,
   formatINR,
   formatIST,
 } from "@/components/ui";
@@ -21,6 +23,8 @@ import {
   useTenantTrial,
   type TrialStatus,
 } from "@/lib/api/trials";
+
+import { CostBreakdownList } from "../CostBreakdownList";
 
 import { EndTrialForm } from "./EndTrialForm";
 import { StartTrialForm } from "./StartTrialForm";
@@ -144,18 +148,18 @@ function TrialFacts({ state }: { state: TrialStatus }) {
       }
       title={
         state.active
-          ? `On us for ${state.days_remaining ?? 0} more day(s) — until ${formatIST(state.ends_at)}`
+          ? `On us for ${formatCountOf(state.days_remaining ?? 0, "more day", "more days")} — until ${formatIST(state.ends_at)}`
           : `Their trial ended ${state.ended_at ? formatIST(state.ended_at) : ""} (${state.status})`
       }
     >
       <p className="mt-1">
-        {state.days} day(s) from {formatIST(state.started_at)}.
+        {formatCountOf(state.days, "day")} from {formatIST(state.started_at)}.
         {state.ended_reason ? ` “${state.ended_reason}”` : ""}
       </p>
       <p className="mt-1">
         {state.free_minutes === null
-          ? `${state.minutes_used} test-call minute(s) used; this trial has no minute limit.`
-          : `${state.minutes_used} of ${state.free_minutes} free test-call minute(s) used.`}
+          ? `${formatCountOf(state.minutes_used, "test-call minute")} used; this trial has no minute limit.`
+          : `${formatCount(state.minutes_used)} of ${formatCountOf(state.free_minutes, "free test-call minute")} used.`}
       </p>
       {/* OUR SUPPLIER COST: there is no spend ceiling on a trial by explicit choice, so this
           figure is the visibility that makes that choice survivable. Operator-only — no
@@ -165,6 +169,11 @@ function TrialFacts({ state }: { state: TrialStatus }) {
         <span className="font-semibold tabular-nums">{formatINR(state.cost_to_us_inr)}</span>{" "}
         at our supplier rates. This figure is ours and is never shown to the client.
       </p>
+      {state.cost_breakdown && (
+        <div className="mt-2">
+          <CostBreakdownList breakdown={state.cost_breakdown} />
+        </div>
+      )}
       {state.erase_after && !state.active && (
         <p className="mt-2 text-meta">
           They did not convert, so their leads, calls and transcripts become erasable on{" "}

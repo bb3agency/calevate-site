@@ -115,10 +115,11 @@ PACK_GRACE_S: Final = 7 * 24 * 60 * 60
 MAX_DELETIONS_PER_TICK: Final = 2000
 
 #: The schedule, read from here by `settings.py` so the cron and the reasoning cannot
-#: drift. 05:07 — after the hours the fleet already uses (02:33 trials, 03:17 expiry,
-#: 03:40 retention, 04:05 the TLS probe, 04:40 the account KB sweep) and off every
-#: recurring minute (:12/:42 gloss, :19/:49 index sync, :23 KB drift, :25 copilot).
-PACK_GC_HOUR: Final = frozenset({5})
+#: drift. 10:07 IST (`settings.CRON_TIMEZONE`, D-709) — after the hours the fleet already
+#: uses (07:33 trials, 08:17 expiry, 08:40 retention, 09:05 the TLS probe, 09:40 the
+#: account KB sweep) and off every recurring minute (:12/:42 gloss, :19/:49 index sync,
+#: :23 KB drift, :25 copilot).
+PACK_GC_HOUR: Final = frozenset({10})
 PACK_GC_MINUTE: Final = frozenset({7})
 
 #: Every agent in the fleet that points at a pack, as `(tenant_id, agent_id, digest)`.

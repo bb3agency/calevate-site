@@ -78,11 +78,17 @@ class AgentOut(BaseModel):
     #: fact only the flag carries.
     caller_memory_notice_line: str
     caller_memory_enabled: bool
-    #: What a caller actually hears first, composed by the server from the two toggles.
-    #: Empty string = this agent volunteers neither notice and opens on its script.
-    #: Composed here rather than left to the screen because a UI that re-joined the two
-    #: sentences itself would be a second implementation of a compliance rule.
+    #: The NOTICES this agent says before its opening line, composed by the server from the
+    #: two switches. Empty string = both off: the agent volunteers neither and opens on its
+    #: opening line. Composed here rather than left to the screen because a UI that
+    #: re-joined the sentences itself would be a second implementation of a compliance rule.
     opening_line: str
+    #: The agent's own opening line (its greeting), from the script callers hear now. The
+    #: switches above never add, remove or replace it (D-708). Empty when none is written,
+    #: or when the script is free text without an `[OPENING]` section.
+    script_opening_line: str = ""
+    #: What a caller hears first: `opening_line`, then `script_opening_line`.
+    first_words: str = ""
     #: The one sentence no toggle reaches, in words a client can read. Server-composed for
     #: the same reason the lane table's `why` strings are: a screen that paraphrases this
     #: is a screen that can accidentally promise the opposite. REQUIRED rather than

@@ -11,6 +11,7 @@ import {
   RestrictionNote,
   Skeleton,
   formatCount,
+  formatCountOf,
   formatDuration,
 } from "@/components/ui";
 import { useMe } from "@/lib/api/hooks";
@@ -155,13 +156,13 @@ export function PerformanceScreen() {
               label: "Busiest hour, IST (24 buckets, index = hour)",
               // The empty-array case is handled BEFORE the spread rather than after it:
               // `Math.max()` of nothing is -Infinity, which `indexOf` then misses and
-              // renders as "undefined call(s)". The endpoint documents 24 buckets always;
+              // renders as "undefined calls". The endpoint documents 24 buckets always;
               // a declaration must not be the thing that crashes or lies if it sends none.
               value: (() => {
                 const hours = perf.data.busiest_hours_ist;
                 const busiest = hours.length === 0 ? 0 : Math.max(...hours);
                 if (busiest === 0) return "no calls in any hour";
-                return `${hours.indexOf(busiest)}:00 with ${busiest} call(s)`;
+                return `${hours.indexOf(busiest)}:00 with ${formatCountOf(busiest, "call")}`;
               })(),
             },
           ]

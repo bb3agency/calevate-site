@@ -208,6 +208,22 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "rate in force now, never the history."
         )
     ),
+    "GET /v1/billing/platform-fee": BoundedByConstruction(
+        by=(
+            "`charges` is the newest `platform_fee_routes.HISTORY_MONTHS` (12) months, a "
+            "code constant passed as the SQL LIMIT; one fee per client per month is a "
+            "unique index on `monthly_fee_charges`."
+        )
+    ),
+    "GET /v1/admin/tenants/{tenant_id}/platform-fee": BoundedByConstruction(
+        by="the same twelve-month `charges` list as `GET /v1/billing/platform-fee`."
+    ),
+    "PUT /v1/admin/tenants/{tenant_id}/platform-fee/waiver": BoundedByConstruction(
+        by="the same twelve-month `charges` list as `GET /v1/billing/platform-fee`."
+    ),
+    "DELETE /v1/admin/tenants/{tenant_id}/platform-fee/waiver": BoundedByConstruction(
+        by="the same twelve-month `charges` list as `GET /v1/billing/platform-fee`."
+    ),
     "GET /v1/ops/inr-llm-prices": BoundedByConstruction(
         by=(
             "one row per model in `billing/rates.INR_PRICED_LLMS`, a code constant, each "

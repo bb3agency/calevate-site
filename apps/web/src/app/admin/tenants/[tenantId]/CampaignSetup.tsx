@@ -38,8 +38,10 @@ const LINK =
 const state = (value: string) => sentenceCase(value);
 
 /**
- * The prerequisites every client campaign stalls on (SEC-COMP §3), as the Campaign setup
- * page's body.
+ * The client's DLT records (numbers' registrar status, voice templates, the entity
+ * registration), as the Campaign setup page's body. Since D-692 no launch gate asks for
+ * any of them: outbound needs verified KYC and the no-cold-calls pledge. The records stay
+ * writable for clients who registered anyway, and the tables are kept (hard rule 8).
  *
  * None of them is a thing we obtain. **We do not buy the number**: the client takes the
  * connection in their own name and stays the subscriber of record (Model B,
@@ -70,7 +72,7 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
     <div className="max-w-3xl space-y-10">
       <PageHeader
         title="Campaign setup"
-        description="Until a number, an approved template and an active entity registration exist, every campaign this client creates is blocked at launch."
+        description="The client's DLT records, kept for those who registered. None of them is needed to call out: a campaign launches once the client's identity is verified and the no-cold-calls pledge is accepted."
       />
 
       {/* THE FOURTH PREREQUISITE, NOT RECORDED HERE: a promotional campaign is also held by
@@ -84,7 +86,7 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
         <Link href={`/admin/tenants/${tenantId}/dnd-scrub`} className={LINK}>
           DND scrub
         </Link>
-        . Without a current one it stays held whatever is green below.
+        . Without a current one it stays held.
       </p>
 
       <RestrictionNote reason={write.reason} />

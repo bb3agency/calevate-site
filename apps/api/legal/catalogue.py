@@ -532,6 +532,16 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "each charge) and what a payment dispute pauses. MATERIAL: a client loses "
                 "money they might have expected back.",
             ),
+            # D-707.
+            Revision(
+                "14",
+                True,
+                "D-707: clause 6.1 puts every account on one pricing model, prepaid credit at "
+                "the published card with no setup fee, and adds an optional monthly platform "
+                "fee paid separately whose non-payment pauses outbound calling after seven "
+                "days; invoices under earlier arrangements are honoured as issued. Clause 11 "
+                "drops the managed engagement. MATERIAL: what a client pays changes.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -959,6 +969,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "Acceptable Use termination) instead of refunded; a top-up taken in error "
                 "is refundable up to its unspent part; section 6 says what a dispute pauses "
                 "and holds. MATERIAL: a client loses money they might have expected back.",
+            ),
+            # D-707.
+            Revision(
+                "6",
+                True,
+                "D-707: section 1 describes one way of paying, prepaid credit, and the "
+                "optional monthly platform fee; the managed engagement and its cancellation "
+                "clause go, and a setup fee is non-refundable only where one was invoiced "
+                "before 10 October 2026. MATERIAL: what a client pays changes.",
             ),
         ),
         effective_date="2026-09-02",

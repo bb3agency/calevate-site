@@ -163,9 +163,10 @@ const GLOSSARY: readonly { term: string; detail: string; sample?: ReactNode }[] 
   {
     term: "Registration (DLT)",
     detail:
-      "Indian rules require the business whose calls they are to be registered, and the " +
-      "telemarketer placing them to be registered too. Getting that in place is part of " +
-      "setting you up, and the product refuses to dial a campaign until it is. Inbound " +
+      "The register of commercial callers that India's telecom access providers run, for " +
+      "businesses and for the telemarketers who place calls for them. The product does " +
+      "not ask for a DLT registration before your agent calls out: it asks for a " +
+      "verified business identity and an accepted no-cold-calls pledge. Inbound " +
       "answering is not affected. What the obligation itself is belongs in the terms " +
       "rather than in a paragraph here.",
   },

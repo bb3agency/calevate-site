@@ -375,6 +375,8 @@ function agent(over: Partial<AgentWithLlm> = {}): AgentWithLlm {
     recording_notice_enabled: true,
     opening_line:
       "Namaste, this is an AI assistant calling on behalf of Sri Clinic. This call is being recorded.",
+    script_opening_line: "",
+    first_words: "Namaste, this is an AI assistant calling on behalf of Sri Clinic. This call is being recorded.",
     truthful_answer_rule:
       "Whatever these settings say, the agent always answers honestly when a caller asks.",
     archived_at: null,

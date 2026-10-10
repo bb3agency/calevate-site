@@ -95,7 +95,7 @@ class ScheduledCallback(PKMixin, TimestampMixin, Base):
         PgUUID(as_uuid=True), ForeignKey("leads.id", ondelete="SET NULL")
     )
     phone_e164: Mapped[str] = mapped_column(Text, nullable=False)
-    #: THE PROMISE, UTC (repo convention: timestamptz UTC in the DB, IST at the edge).
+    #: THE PROMISE, an instant (`timestamptz`; shown in IST, D-709).
     #: It is what the caller was told and it never moves — a transient refusal defers
     #: `next_attempt_at` instead, which is the livelock the migration records.
     requested_at: Mapped[datetime] = mapped_column(nullable=False)

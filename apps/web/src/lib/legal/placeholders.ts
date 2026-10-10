@@ -365,15 +365,6 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
       "the promise is made to anyone.",
     value: "7",
   },
-  TERMINATION_NOTICE_DAYS: {
-    describes:
-      "Notice period either party must give to end a managed engagement, in days, so " +
-      "the prose can write \"{{TERMINATION_NOTICE_DAYS}} days' written notice\".",
-    source:
-      "The founder's decision. It must match what a signed order form says — an order " +
-      "form with a different period wins for that client, and the Terms say so.",
-    value: "30",
-  },
   DATA_RETURN_WINDOW_DAYS: {
     describes:
       "How long after termination a client may still export their data before it is " +
@@ -440,7 +431,7 @@ export function assertLegalSetPublishable(pendingReview: boolean = PENDING_LEGAL
   const missing = unresolvedPlaceholders();
   if (missing.length === 0) return;
   throw new Error(
-    `The pending-review banner has been removed while ${missing.length} fact(s) in the ` +
+    `The pending-review banner has been removed while ${missing.length} ${missing.length === 1 ? "fact" : "facts"} in the ` +
       `legal documents are still blank, so these tokens would publish as literal text: ` +
       `${missing.join(", ")}. Give each one a \`value\` in ` +
       `src/lib/legal/placeholders.ts, or put the banner back.`,

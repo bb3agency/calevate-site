@@ -15,8 +15,11 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from apps.api.admin import service as admin_service
-from apps.api.agents import prompts, script_builder
+from apps.api.agents import prompts, script_builder, t0
+from apps.api.agents.t0_block import T0_HEADER
+from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from calevate_shared.call_script import CallScript, FaqEntry, ScriptStep
 from calevate_shared.engine import TRUTHFUL_ANSWER_MARKER
@@ -132,3 +135,123 @@ async def test_a_second_tenant_cannot_read_or_write_structured_script() -> None:
             {"aid": agent_id},
         )
         assert written.rowcount == 0, "another tenant wrote structured_script on our row"
+
+
+# --- the builder and the agent page read one saved script --------------------------------
+
+
+async def _save(tenant_id: uuid.UUID, agent_id: uuid.UUID, script: CallScript, **check: object):
+    async with tenant_session(tenant_id) as session:
+        return await script_builder.save_agent_script(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            script=script,
+            notes=None,
+            created_by=None,
+            **check,  # type: ignore[arg-type]
+        )
+
+
+async def test_a_save_from_an_older_copy_is_refused_rather_than_written_over_a_newer_one() -> None:
+    """The founder's mismatch: a builder holding v3 saved over v4, and the agent page and
+    the builder then showed different opening lines. A save names the version it started
+    from and is refused when the draft has moved."""
+    tenant_id, agent_id = await _tenant()
+    await _save(tenant_id, agent_id, CallScript(opening_line="Namaste!"))
+    await _save(tenant_id, agent_id, CallScript(opening_line="Namaste {{lead_name}} garu!"))
+
+    with pytest.raises(ProblemError) as refused:
+        await _save(
+            tenant_id,
+            agent_id,
+            CallScript(opening_line="stale copy"),
+            check_version=True,
+            expected_version=1,
+        )
+    assert refused.value.code == "script_changed_elsewhere"
+
+    async with tenant_session(tenant_id) as session:
+        loaded = await script_builder.load_agent_script(session, agent_id)
+    assert loaded.version == 2
+    assert loaded.script.opening_line == "Namaste {{lead_name}} garu!"
+
+    saved = await _save(
+        tenant_id,
+        agent_id,
+        CallScript(opening_line="from the current copy"),
+        check_version=True,
+        expected_version=2,
+    )
+    assert saved.version == 3
+
+
+async def test_a_first_save_expects_no_script() -> None:
+    tenant_id, agent_id = await _tenant()
+    saved = await _save(
+        tenant_id,
+        agent_id,
+        CallScript(opening_line="first"),
+        check_version=True,
+        expected_version=None,
+    )
+    assert saved.version == 1
+    with pytest.raises(ProblemError):
+        await _save(
+            tenant_id,
+            agent_id,
+            CallScript(opening_line="second, from an empty copy"),
+            check_version=True,
+            expected_version=None,
+        )
+
+
+async def test_a_recompile_keeps_the_script_structured_and_a_save_keeps_the_facts() -> None:
+    """A recompile used to drop `structured_script`, so the builder reopened a structured
+    script as raw text holding the platform's facts block; and a builder save compiled the
+    body without the block, taking the business's facts out of the agent."""
+    tenant_id, agent_id = await _tenant()
+    await _save(tenant_id, agent_id, CallScript(opening_line="Namaste!"))
+    async with tenant_session(tenant_id) as session:
+        version = await t0.recompile_t0(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            knowledge=[t0.KnowledgeFact(name="Hours", text="Open 9 to 6, Monday to Saturday.")],
+        )
+    assert version == 2
+
+    async with tenant_session(tenant_id) as session:
+        loaded = await script_builder.load_agent_script(session, agent_id)
+    assert loaded.is_freeform is False
+    assert loaded.script.opening_line == "Namaste!"
+    assert loaded.script.raw_override is None
+
+    await _save(tenant_id, agent_id, CallScript(opening_line="Namaste, welcome."))
+    async with tenant_session(tenant_id) as session:
+        body = (
+            await session.execute(
+                text(
+                    "SELECT pv.body FROM prompt_versions pv JOIN agents a "
+                    "ON a.system_prompt_id = pv.id WHERE a.id = :aid"
+                ),
+                {"aid": agent_id},
+            )
+        ).scalar()
+    assert str(body).count(T0_HEADER) == 1
+    assert "Open 9 to 6, Monday to Saturday." in str(body)
+    assert "Namaste, welcome." in str(body)
+
+
+async def test_a_rollback_keeps_the_rolled_back_script_structured() -> None:
+    tenant_id, agent_id = await _tenant()
+    await _save(tenant_id, agent_id, CallScript(opening_line="first"))
+    await _save(tenant_id, agent_id, CallScript(opening_line="second"))
+    async with tenant_session(tenant_id) as session:
+        await prompts.rollback_prompt(
+            session, tenant_id=tenant_id, agent_id=agent_id, version=1, created_by=None
+        )
+        loaded = await script_builder.load_agent_script(session, agent_id)
+    assert loaded.version == 3
+    assert loaded.is_freeform is False
+    assert loaded.script.opening_line == "first"

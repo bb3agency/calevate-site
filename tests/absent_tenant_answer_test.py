@@ -141,7 +141,7 @@ BODIES: dict[str, dict[str, Any] | None] = {
         "scrubbed_at": "2026-08-16T05:00:00+05:30",
         "blocked_numbers": [],
     },
-    "POST /v1/admin/tenants/{tenant_id}/commercial-terms": {"monthly_fee_inr": "10000"},
+    "POST /v1/admin/tenants/{tenant_id}/commercial-terms": {"hard_cap_minutes": 500},
     "POST /v1/admin/tenants/{tenant_id}/credits": {
         "amount_inr": "1000",
         "payment_ref": "UTR-CENSUS-1",
@@ -248,9 +248,9 @@ BODIES: dict[str, dict[str, Any] | None] = {
     # `agent_id` is REQUIRED and nullable (D-576): null is the detach, not an omission,
     # so an empty body is a 422 and would hide whatever this route really answers.
     "POST /v1/admin/tenants/{tenant_id}/numbers/{number_id}/agent": {"agent_id": None},
-    "POST /v1/admin/tenants/{tenant_id}/plan-tier": {
-        "plan_tier": "managed",
-        "reason": "census",
+    "PUT /v1/admin/tenants/{tenant_id}/platform-fee/waiver": {"reason": "census"},
+    "POST /v1/admin/tenants/{tenant_id}/platform-fee/{charge_id}/payments": {
+        "reference": "UTR-CENSUS"
     },
     "POST /v1/admin/tenants/{tenant_id}/status": {
         "status": "suspended",
@@ -275,6 +275,8 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "GET /v1/admin/tenants/{tenant_id}/invitations": None,
     "GET /v1/admin/tenants/{tenant_id}/invoice": None,
     "GET /v1/admin/tenants/{tenant_id}/margin": None,
+    "GET /v1/admin/tenants/{tenant_id}/platform-fee": None,
+    "DELETE /v1/admin/tenants/{tenant_id}/platform-fee/waiver": None,
     "GET /v1/admin/tenants/{tenant_id}/spend": None,
     "GET /v1/admin/tenants/{tenant_id}/trial": None,
     "GET /v1/admin/tenants/{tenant_id}/whatsapp-alerts": None,

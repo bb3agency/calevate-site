@@ -312,13 +312,27 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             {
               kind: "para",
               text:
-                "Managed accounts pay what the signed order form says: a one-off setup " +
-                "fee, a monthly fee including a stated number of minutes, and a per-minute " +
-                "rate for minutes over that. Self-serve accounts pay in advance by topping " +
-                "up a credit balance, which is drawn down as calls are metered. Call time " +
-                "is billed in 30-second steps, each part-step rounded up to the next, and " +
-                "a call that is never answered is not charged. All prices are in Indian " +
-                "Rupees.",
+                "Every account pays the same way. You pay in advance by buying calling " +
+                "credit at the per-minute rates on our published rate card for the voice " +
+                "each agent uses; larger packs carry bonus credit, on the same terms for " +
+                "every account. Credit is drawn down as calls are metered. Call time is " +
+                "billed in 30-second steps, each part-step rounded up to the next, and a " +
+                "call that is never answered is not charged. There is no setup fee. All " +
+                "prices are in Indian Rupees.",
+            },
+            {
+              kind: "para",
+              text:
+                "We may also charge a monthly platform fee, the same for every account. " +
+                "While it applies, its amount is shown on our price list and on your " +
+                "Billing page; it is paid separately each month and is never taken from " +
+                "your calling credit; and an account on a free trial, or one we have " +
+                "excused in writing, does not pay it. If a monthly platform fee is still " +
+                "unpaid seven days after it is raised, we pause your outbound calling " +
+                "until it is paid. Incoming calls keep being answered, and outbound " +
+                "calling resumes as soon as the fee is paid. Invoices we issued under an " +
+                "earlier arrangement before 10 October 2026 remain payable as issued, " +
+                "and no new invoice is raised under such an arrangement.",
             },
             {
               // The lot promise, in the founder's own approved words (7 September 2026) and
@@ -571,7 +585,7 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             "your verification lapses or is withdrawn, or you break the outbound pledge;",
             "there is a security risk, a live risk to the people being called, or a " +
               "runaway cost;",
-            "an invoice is overdue and we have told you.",
+            "an invoice or a monthly platform fee is overdue and we have told you.",
           ],
         },
         {
@@ -591,10 +605,7 @@ export const TERMS_OF_SERVICE: LegalDocument = {
         {
           kind: "list",
           items: [
-            "A managed engagement runs for the term on the order form and continues " +
-              "monthly afterwards. Either party may end it on {{TERMINATION_NOTICE_DAYS}} " +
-              "days' written notice, expiring at the end of a billing month.",
-            "A self-serve account may be closed by you at any time from the dashboard or " +
+            "You may close your account at any time from the dashboard or " +
               "by writing to {{SUPPORT_EMAIL}}. Unused credit is forfeited when the account " +
               "closes and is not refunded; the Refund and Cancellation Policy explains the " +
               "exceptions.",

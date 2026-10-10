@@ -162,6 +162,9 @@ describe("every screen that uses a term explains it", () => {
    * a line here without one.
    */
   const NO_GLOSS_NEEDED: Record<string, string> = {
+    "src/app/admin/tenants/[tenantId]/accountFacts.ts:kyc":
+      "Facts handed to the admin assistant, never rendered on a screen; an operator reads the " +
+      "assistant's answer, which explains itself.",
     "src/app/admin/ops/dnc/page.tsx:tm":
       "Operator realm, and the word appears inside an example a colleague types into a " +
       "suppression note — not our own prose about the role.",

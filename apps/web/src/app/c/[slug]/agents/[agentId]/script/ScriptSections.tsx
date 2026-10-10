@@ -80,8 +80,9 @@ export function OpeningSection({
         Opening line
       </label>
       <span className={FIELD_HINT}>
-        What the agent says after it introduces itself. The AI/recording notice is spoken
-        first automatically — this follows it.
+        The greeting the agent opens every call with. If you have switched on the AI or
+        recording notice for this agent, that is said just before it; with both off, this is
+        the first thing callers hear.
       </span>
       <textarea
         id="opening-line"
@@ -90,7 +91,7 @@ export function OpeningSection({
         value={value}
         onFocus={(e) => trackFocus(e.currentTarget)}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="Namaste! How can I help you today?"
+        placeholder="For example: Namaste! How can I help you today?"
       />
     </section>
   );
@@ -329,7 +330,8 @@ export function RawEditor({
       />
       <p id="raw-script-hint" className="mt-2 text-xs text-ink-muted">
         You are editing the script as plain text. The platform still adds the AI/recording
-        answer underneath — you cannot remove it. Switch back to the structured builder any
+        answer underneath — you cannot remove it. To give the agent an opening line, put it
+        on the line after one that reads [OPENING]. Switch back to the structured builder any
         time.
       </p>
     </section>

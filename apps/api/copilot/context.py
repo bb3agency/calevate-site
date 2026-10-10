@@ -236,6 +236,38 @@ class Viewer:
 
 
 @dataclass(frozen=True, slots=True)
+class LiveAccount:
+    """Where the account stands on the axes people ask about by name, as status words.
+
+    "Are they KYC verified?" and "are we still on the trial?" were unanswerable from this
+    block: a verified KYC shows up only as the ABSENCE of a blocker rule, which a model
+    cannot tell from "nobody looked", and the standby model — which has no tools — could
+    not look it up either. Every value is an enum label from our own vocabulary or a
+    blocker code, so property 2 holds: no tenant-authored string, nothing that identifies
+    a person.
+    """
+
+    #: `organizations.status`.
+    lifecycle: str
+    #: `kyc_records.status`, or `not_started` when there is no record.
+    kyc: str
+    #: `manual` or `digilocker`, or None before a path is chosen.
+    kyc_path: str | None
+    #: `accepted`, `outdated` (an older version was accepted) or `not_accepted`.
+    pledge: str
+    #: The newest trial's status (`active`, `converted`, `expired`, `stopped`) or `none`.
+    trial: str
+    #: Has the account made its first payment (D-697)?
+    paid: bool
+    #: `tenant_engine_workspaces.status`, or `not_provisioned`.
+    workspace: str
+    #: Has anybody accepted an invitation into the account?
+    owner_joined: bool
+    #: `business_profile.go_live_blockers` codes; empty when an agent may go live.
+    profile_missing: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class LiveState:
     """Everything the block can carry. Either half may be `None` — see property 3."""
 
@@ -251,6 +283,10 @@ class LiveState:
     #: the admin realm composes this block for a TENANT's business state and has its own
     #: console, so it passes no viewer and gets no `<viewer>` element.
     viewer: Viewer | None = None
+    #: The account's standing, or `None` when it was not read (a caller that composed a
+    #: state by hand) — `account_unreadable` marks a read that was attempted and failed.
+    account: LiveAccount | None = None
+    account_unreadable: bool = False
 
     @property
     def partial(self) -> bool:
@@ -300,6 +336,46 @@ async def _read_counts(session: AsyncSession) -> LiveCounts:
     )
 
 
+async def read_account_standing(session: AsyncSession, *, tenant_id: UUID) -> LiveAccount:
+    """The account's standing, from the readers each gate already uses. Raises."""
+    from apps.api.billing.first_payment import has_paid
+    from apps.api.billing.trials import read_trial
+    from apps.api.compliance.kyc import read_kyc
+    from apps.api.compliance.outbound_pledge import read_pledge
+    from apps.api.tenancy.business_profile import go_live_blockers, load_profile
+    from apps.api.tenancy.engine_workspace import read_workspace_state
+    from apps.api.tenancy.onboarding import owner_status
+
+    lifecycle = (
+        await session.execute(
+            text("SELECT status FROM organizations WHERE id = :tid"), {"tid": tenant_id}
+        )
+    ).scalar_one_or_none()
+    kyc = await read_kyc(session, tenant_id=tenant_id)
+    pledge = await read_pledge(session, tenant_id=tenant_id)
+    trial = await read_trial(session, tenant_id=tenant_id)
+    workspace = await read_workspace_state(session, tenant_id)
+    owner = await owner_status(session)
+    profile = await load_profile(session, tenant_id=tenant_id)
+    return LiveAccount(
+        lifecycle=str(lifecycle or "unknown"),
+        kyc=str(kyc.status) if kyc.recorded and kyc.status else "not_started",
+        kyc_path=kyc.kyc_path,
+        pledge=(
+            "not_accepted"
+            if pledge.accepted_version is None
+            else "accepted"
+            if pledge.is_current
+            else "outdated"
+        ),
+        trial="none" if trial is None else trial.status,
+        paid=await has_paid(session, tenant_id=tenant_id),
+        workspace=workspace.status,
+        owner_joined=owner.owner_present,
+        profile_missing=tuple(go_live_blockers(profile)),
+    )
+
+
 async def read_live_state(session: AsyncSession, *, tenant_id: UUID) -> LiveState:
     """Compose the snapshot on an already-open, RLS-scoped session. NEVER RAISES.
 
@@ -333,7 +409,24 @@ async def read_live_state(session: AsyncSession, *, tenant_id: UUID) -> LiveStat
             extra={"tenant_id": str(tenant_id), "error": type(failure).__name__},
         )
 
-    return LiveState(now_ist=datetime.now(BUSINESS_HOURS_TZ), counts=counts, blocker_rules=blockers)
+    # LAST, because a failed statement aborts the transaction it ran in: read first, it
+    # would take the two halves above down with it.
+    account: LiveAccount | None = None
+    try:
+        account = await read_account_standing(session, tenant_id=tenant_id)
+    except (SQLAlchemyError, OSError) as failure:
+        log.warning(
+            "copilot_live_account_unavailable",
+            extra={"tenant_id": str(tenant_id), "error": type(failure).__name__},
+        )
+
+    return LiveState(
+        now_ist=datetime.now(BUSINESS_HOURS_TZ),
+        counts=counts,
+        blocker_rules=blockers,
+        account=account,
+        account_unreadable=account is None,
+    )
 
 
 def render_live(state: LiveState) -> str:
@@ -392,6 +485,25 @@ def render_live(state: LiveState) -> str:
         parts.append(f"<outbound_blockers>{rules}</outbound_blockers>")
     else:
         parts.append("<outbound_blockers/>")
+    if state.account_unreadable:
+        parts.append('<unavailable part="account"/>')
+    elif state.account is not None:
+        account = state.account
+        attributes = [
+            f"lifecycle={xml_attr(account.lifecycle)}",
+            f"kyc={xml_attr(account.kyc)}",
+        ]
+        if account.kyc_path is not None:
+            attributes.append(f"kyc_path={xml_attr(account.kyc_path)}")
+        attributes += [
+            f"no_cold_calls_pledge={xml_attr(account.pledge)}",
+            f"trial={xml_attr(account.trial)}",
+            f"paid={xml_attr('yes' if account.paid else 'no')}",
+            f"voice_workspace={xml_attr(account.workspace)}",
+            f"owner_joined={xml_attr('yes' if account.owner_joined else 'no')}",
+            f"business_profile_missing={xml_attr(' '.join(account.profile_missing) or 'nothing')}",
+        ]
+        parts.append(f"<account {' '.join(attributes)}/>")
     if state.viewer is not None:
         viewer = state.viewer
         # NAMES, NOT ROUTES, AND NEVER AN EMPTY ATTRIBUTE. `screens_you_cannot_open` is
@@ -484,10 +596,12 @@ __all__ = [
     "LIVE_CLOSE",
     "LIVE_OPEN",
     "WAITING_STATUSES",
+    "LiveAccount",
     "LiveCounts",
     "LiveState",
     "Viewer",
     "live_state_block",
+    "read_account_standing",
     "read_live_state",
     "render_live",
     "viewer_for",

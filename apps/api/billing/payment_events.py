@@ -18,6 +18,7 @@ it, and lands on the same ledger `ref`.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Final, Literal
 from uuid import UUID
@@ -33,6 +34,7 @@ from apps.api.billing.disputes import apply_dispute_event, extract_dispute
 from apps.api.billing.payment_objects import (
     AUTO_RECHARGE,
     MANDATE,
+    PLATFORM_FEE,
     ObjectRoute,
     route_for,
     verify_order,
@@ -52,6 +54,7 @@ from apps.api.billing.payments import (
     refund_idempotency_key,
     release_refund_claim,
 )
+from apps.api.billing.platform_fee import charge_for_order, record_payment
 from apps.api.billing.service import get_balance, to_paise
 from apps.api.billing.wallet import settle_attempt
 from apps.api.compliance.audit import write_audit
@@ -73,6 +76,7 @@ EventStatus = Literal[
     "refund_failed",
     "mandate",
     "dispute",
+    "fee_paid",
 ]
 
 _UNKNOWN_TENANT: Final = "razorpay_unknown_tenant"
@@ -131,6 +135,8 @@ async def apply_captured(
             envelope, tenant_hint=None if route is None else route.tenant_id
         )
     verify_order(payment, route)
+    if route is not None and route.purpose == PLATFORM_FEE:
+        return await _apply_fee_payment(envelope, event=event, event_id=event_id, payment=payment)
     async with tenant_session(payment.tenant_id) as session:
         await _require_tenant(session, payment.tenant_id)
         claim = None
@@ -206,6 +212,76 @@ async def apply_captured(
         entry_id=result.entry_id,
         amount_inr=to_paise(payment.amount_inr),
         balance_inr=to_paise(result.balance.amount_inr),
+    )
+
+
+async def _apply_fee_payment(
+    envelope: Any, *, event: str, event_id: str | None, payment: CapturedPayment
+) -> EventResult:
+    """A captured payment for a monthly platform fee (D-707): one `monthly_fee_payments`
+    row and NOTHING on the wallet. The fee is a separate payment by decision, so this
+    branch never reaches `credit_captured_payment`.
+
+    Matched to the fee by the order we opened for it, never by the notes alone; a fee
+    order we cannot match is real money we cannot place, so it alarms and refuses."""
+    async with tenant_session(payment.tenant_id) as session:
+        await _require_tenant(session, payment.tenant_id)
+        claim = None
+        if envelope is not None:
+            claim = await claim_inbox_event(
+                session,
+                provider=PROVIDER,
+                event_key=event_id or f"{event}:{payment.payment_id}",
+                payload_hash=body_hash(
+                    {
+                        "payment_id": payment.payment_id,
+                        "tenant_id": str(payment.tenant_id),
+                        "amount_inr": str(payment.amount_inr),
+                        "currency": payment.currency,
+                    }
+                ),
+                event_name=event,
+            )
+            if claim.state == "duplicate":
+                return EventResult(status="duplicate", payment_id=payment.payment_id)
+        charge = (
+            None
+            if payment.order_id is None
+            else await charge_for_order(
+                session, tenant_id=payment.tenant_id, order_id=payment.order_id
+            )
+        )
+        if charge is None:
+            alert(
+                "ROUTE_HANDLER",
+                "platform_fee_payment_unmatched",
+                detail="A platform-fee payment arrived for an order no fee carries.",
+                payment_id=payment.payment_id,
+            )
+            raise ProblemError.conflict(
+                "platform_fee_unmatched",
+                "This payment's order does not belong to a platform fee.",
+                remediation="Nothing was recorded. Reconcile it against the provider dashboard.",
+            )
+        recorded = await record_payment(
+            session,
+            tenant_id=payment.tenant_id,
+            charge=charge,
+            amount_inr=payment.amount_inr,
+            method="razorpay",
+            payment_ref=payment.payment_id,
+            paid_at=datetime.now(UTC),
+        )
+        if claim is not None:
+            await mark_inbox_processed(session, row_id=claim.row_id)
+    log.info(
+        "platform_fee_paid",
+        extra={"tenant_id": str(payment.tenant_id), "charge_id": str(charge.id)},
+    )
+    return EventResult(
+        status="fee_paid" if recorded else "duplicate",
+        payment_id=payment.payment_id,
+        amount_inr=to_paise(payment.amount_inr),
     )
 
 

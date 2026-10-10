@@ -1203,7 +1203,7 @@ describe("recording the next rate card", () => {
     await screen.findByText(
       "3 clients will be emailed as soon as you record this",
     );
-    expect(container.textContent).toContain(
+    expect(container.textContent).not.toContain(
       "Clients on an invoiced plan are not emailed",
     );
     // And the promise that stops the support call, on the same panel.

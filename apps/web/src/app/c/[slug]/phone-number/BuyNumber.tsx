@@ -133,7 +133,7 @@ function CannotSupply({
         {remediation && <p className="mt-2 text-ink-muted">{remediation}</p>}
       </NoticeBox>
       <p className="text-body text-ink-muted">
-        There is nothing for you to do here. Your account manager arranges your number with
+        There is nothing for you to do here. We arrange your number with
         you, and Calevate provides it on our own telephony account — there is no operator
         account for you to open.
       </p>
@@ -417,7 +417,7 @@ export function BuyNumber() {
             <EmptyState
               illustration={<EmptySketch kind="numbers" />}
               message="No numbers are free to take right now"
-              hint="Our supplier has none available at the moment. Talk to us and your account manager can source one."
+              hint="Our supplier has none available at the moment. Talk to us and we can source one."
             />
           ) : (
             <>

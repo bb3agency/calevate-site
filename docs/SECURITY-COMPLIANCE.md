@@ -33,9 +33,16 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
    column, config row or prompt version — `scripts/check_compliance_invariants.py` §6
    fails the build if it ever becomes a settable field, a parameter, or a second binding.
    The two toggles below govern what is VOLUNTEERED, never what is ANSWERED.
+   **They are not the agent's opening line either (D-708).** The opening line is the
+   agent's greeting, written in its script (`CallScript.opening_line`). What a caller hears
+   first is the notices switched on, then the opening line
+   (`calevate_shared.engine.compose_first_utterance`); with both off it is the opening line
+   alone. No toggle adds, removes or replaces the opening line, and the notice sentences
+   carry no greeting word of their own.
 1. **AI disclosure** (TRAI/UCC-side): `agents.ai_disclosure_line` is NOT NULL and
    non-blank on every agent, so the sentence always EXISTS and `check_dispatch` refuses a
-   dial from an agent without one. Whether it is spoken as the first utterance is
+   dial from an agent without one. Whether it is spoken at the start of the call, before
+   the opening line, is
    `agents.ai_disclosure_enabled`, a per-agent toggle on inbound and outbound alike,
    defaulting FALSE since D-669 (it was TRUE under D-163). `calls.disclosure_played` records whether it was observed on a call —
    and records NULL, not `false`, for an agent whose owner switched the notice off, since
@@ -1239,7 +1246,7 @@ design is (a) keep secrets out of the prompt, (b) instruct the model, and (c) en
 outside the model.
 
 1. **Nothing secret is in the prompt.** The composed prompt (`compose_engine_prompt`)
-   carries the platform rules, the speaking rules, the opening line, the client's script,
+   carries the platform rules, the speaking rules, the opening notices, the client's script,
    the `[T0 FACTS]` block and — on a memory-enabled agent — notes about the caller on the
    line. It carries no credential, key, tenant/agent/call id, internal URL or other
    tenant's data. Escalation phone numbers are deliberately dropped from `[T0 FACTS]`
@@ -1268,7 +1275,7 @@ outside the model.
    a machine identifier (tool name, `snake_case` code, UUID) is not synthesised; a leak
    also drops the rest of that turn and speaks one neutral decline in the agent's primary
    language. Excluded from its reference because the agent is meant to say them: the
-   truthful-answer block, the opening line, `[T0 FACTS]`, `[OPENING]`, FAQ answers and
+   truthful-answer block, the opening notices, `[T0 FACTS]`, `[OPENING]` (the opening line), FAQ answers and
    anything a tool returns (where knowledge-base text arrives). It logs ids, a reason word
    and a count — never text (hard rule 6). Measured cost: ~8 µs median per sentence.
    **Limits, stated:** it catches verbatim recitation only; a paraphrase or translation

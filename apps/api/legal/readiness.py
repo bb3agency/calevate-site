@@ -133,7 +133,7 @@ ROW_COPY: dict[str, _Copy] = {
         title="This account is suspended",
         actor="calevate",
         next_step=(
-            "Talk to your account manager; outgoing calls stay stopped until we lift the "
+            "Talk to us; outgoing calls stay stopped until we lift the "
             "suspension. Calls coming in are still answered."
         ),
     ),
@@ -183,7 +183,7 @@ ROW_COPY: dict[str, _Copy] = {
         actor="calevate",
         next_step=(
             "Our carrier approves each business before a number we supply can be used. "
-            "Your account manager will ask for the documents it needs. Calls coming in "
+            "We will ask for the documents it needs. Calls coming in "
             "are unaffected."
         ),
     ),

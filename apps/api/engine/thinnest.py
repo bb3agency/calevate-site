@@ -41,6 +41,7 @@ import hashlib
 import json
 import re
 import uuid
+from collections import Counter
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -48,6 +49,7 @@ from typing import Any, Final, get_args
 from urllib.parse import quote, urlsplit
 
 import httpx
+from calevate_shared.call_script import substitute_variables
 from calevate_shared.engine import (
     E164,
     AccountKBListing,
@@ -74,6 +76,7 @@ from calevate_shared.engine import (
     RecallOutcome,
     WebhookVerdict,
     compose_engine_prompt,
+    compose_first_utterance,
 )
 from calevate_shared.engine_scope import raw_of, scoped_handle
 from calevate_shared.events import (
@@ -345,6 +348,16 @@ SigningSecretResolver = Callable[[str], str | None]
 
 def _str(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _tidy_spoken(text: str) -> str:
+    """A sentence with an unfilled `{{name}}` removed, without the gap it leaves.
+
+    "Hello {{lead_name}}, calling from …" with no name becomes "Hello, calling from …"
+    rather than "Hello , calling", which a voice reads as a pause in the wrong place.
+    """
+    collapsed = re.sub(r"[ \t]{2,}", " ", text)
+    return re.sub(r"[ \t]+([,.!?])", r"\1", collapsed).strip()
 
 
 def _parse_dt(value: Any) -> datetime | None:
@@ -993,8 +1006,11 @@ class ThinnestEngine:
             code="engine_prompt_too_long",
             what="agent's script, with the platform rules added",
         )
+        # The greeting field is the whole first utterance on this engine: the notices the
+        # agent's switches turn on, then its own opening line (D-708). With both notices off
+        # it is the opening line alone, never empty because a switch is off.
         greeting = self._within(
-            cfg.opening_line.strip(),
+            compose_first_utterance(cfg),
             GREETING_MAX_CHARS,
             code="engine_greeting_too_long",
             what="opening line",
@@ -1456,13 +1472,17 @@ class ThinnestEngine:
 
     # --- calls ---------------------------------------------------------------
 
-    async def _outbound_opening(self, ref: EngineAgentRef) -> str:
-        """The agent's greeting as the engine holds it, which the publish read-back verified.
+    async def _outbound_opening(self, ref: EngineAgentRef, variables: dict[str, str]) -> str:
+        """The agent's greeting as the engine holds it, with this call's variables filled in.
 
         `purpose` is required and spoken first on an outbound call (place-call.md:66-72), so
-        it carries the same opening line the agent greets inbound callers with (D-669).
-        Read per dial: a cached copy would speak a superseded disclosure after a republish.
-        Any failure here is before `POST /calls`, so it is reported as not placed.
+        it carries the same first words the agent greets inbound callers with: the notices
+        switched on, then the opening line (D-669, D-708). Read per dial: a cached copy would
+        speak a superseded disclosure after a republish. The `{{name}}` fields of the opening
+        line are filled here from the dial's own variables, unfilled ones dropped, because
+        the vendor documents its substitution for the agent's greeting and instructions
+        (`snapshots/2026-10-08/pages/channels/voice-campaigns.md:165-209`), not for
+        `purpose`. Any failure here is before `POST /calls`, so it is reported as not placed.
         """
         try:
             raw, workspace = self._at(ref)
@@ -1472,10 +1492,12 @@ class ThinnestEngine:
         except ProblemError as exc:
             raise _dial_precondition_failed(missing="published agent") from exc
         greeting = _str(data.get("greeting"))
-        if greeting is None or not greeting.strip():
+        values: dict[str, str | None] = {**variables}
+        spoken = _tidy_spoken(substitute_variables(greeting or "", values))
+        if not spoken:
             raise _dial_precondition_failed(missing="agent's opening line")
         return self._within(
-            greeting.strip(), PURPOSE_MAX_CHARS, code="engine_greeting_too_long", what="opening"
+            spoken, PURPOSE_MAX_CHARS, code="engine_greeting_too_long", what="opening"
         )
 
     async def start_outbound_call(
@@ -1497,7 +1519,7 @@ class ThinnestEngine:
         if len(variables) > CALL_VARIABLES_MAX:
             raise _dial_precondition_failed(missing=f"room for {len(variables)} call variables")
         raw_agent, workspace = self._at(ref)
-        purpose = await self._outbound_opening(ref)
+        purpose = await self._outbound_opening(ref, variables)
         body: dict[str, Any] = {
             "to": to,
             "purpose": purpose,
@@ -1852,25 +1874,37 @@ class ThinnestEngine:
         Studio voices and our clones (`mine: true`) are listed on the Pro plan and above only,
         so a lower plan answers standard and premium voices and no Studio ones; "every voice
         speaks every supported language" (snapshots/2026-10-07b/pages/api-reference/voices/
-        list-voices.md:7, :346-347, :417-451). Which band may be sold is the caller's
-        decision (`agents/hosted_voices.py`)."""
+        list-voices.md:7, :346-347, :417-451; unchanged in snapshots/2026-10-08 and on
+        docs.thinnest.ai, read 10 Oct 2026). The one Studio voice the vendor's guide says
+        "previews free on every plan" (snapshots/2026-10-08/pages/guides/
+        how-your-agent-sounds.md:132-134) is a console listening sample: the schema has no
+        preview or lock field and every id listed is one an agent can be set to, so it is not
+        expected here below Pro. A row in a tier we do not read is counted in `unread_bands`
+        rather than dropped silently. Which band may be sold is the caller's decision
+        (`agents/hosted_voices.py`)."""
         data = await self._request("GET", "/voices", route="/voices", workspace=workspace_of(None))
-        voices = [
-            HostedVoice(
-                voice_id=voice_id,
-                label=label,
-                source="engine",
-                is_custom=row.get("mine") is True,
-                language=_str(row.get("accent")),
-                description=_str(row.get("description")),
-                band=band,
+        voices: list[HostedVoice] = []
+        unread: Counter[str] = Counter()
+        for row in _items(data):
+            voice_id, label = _str(row.get("id")), _str(row.get("name"))
+            if voice_id is None or label is None:
+                continue
+            band = _VOICE_BANDS.get(str(row.get("tier")))
+            if band is None:
+                unread[str(row.get("tier"))] += 1
+                continue
+            voices.append(
+                HostedVoice(
+                    voice_id=voice_id,
+                    label=label,
+                    source="engine",
+                    is_custom=row.get("mine") is True,
+                    language=_str(row.get("accent")),
+                    description=_str(row.get("description")),
+                    band=band,
+                )
             )
-            for row in _items(data)
-            if (voice_id := _str(row.get("id")))
-            and (label := _str(row.get("name")))
-            and (band := _VOICE_BANDS.get(str(row.get("tier")))) is not None
-        ]
-        return HostedVoiceListing(voices=voices)
+        return HostedVoiceListing(voices=voices, unread_bands=dict(unread))
 
     async def list_own_key_voices(self) -> HostedVoiceListing:
         """`GET /byok/voices`: the voices our installed voice key reaches, with the

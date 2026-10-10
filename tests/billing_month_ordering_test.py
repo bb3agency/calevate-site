@@ -176,9 +176,10 @@ async def test_the_sql_billing_month_is_the_same_under_any_session_timezone() ->
 
     `to_char` on a `timestamptz` renders the instant in the SESSION's `TimeZone`, so
     shifting first and formatting second is the IST month only while that setting is UTC.
-    It IS UTC on this database and nothing in `apps/` sets it — which is precisely why
-    this is a test rather than a comment: the property was held by an environment
-    variable, and the failure it hid is silent and moves money.
+    App sessions are pinned to UTC (`db/session.APP_SESSION_TIMEZONE`) while the production
+    server's default is IST (D-709), so the expression meets both — which is precisely why
+    this is a test rather than a comment: a property held by a setting fails silently when
+    the setting moves, and this one moves money.
 
     23:00 IST on the last of August is an August call under every session zone.
     """

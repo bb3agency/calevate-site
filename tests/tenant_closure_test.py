@@ -37,6 +37,7 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.admin.closure_routes import close_account_confirmation
 from apps.api.admin.routes import notice_address_confirmation
+from apps.api.billing.plans import IST
 from apps.api.compliance.service import account_stopped_blocker
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
@@ -162,8 +163,10 @@ async def test_closing_stops_the_account_sets_the_deadline_and_tells_the_client(
 
     queued = await _outbox_jobs(tenant_id)
     assert [job["event"] for job in queued] == ["closed"]
-    # The client is told the DATE, not a timestamp: it is a deadline a person acts on.
-    assert queued[0]["erase_on"] == body["erase_after"][:10]
+    # The client is told the DATE, not a timestamp: it is a deadline a person acts on. The
+    # IST day (D-709): `erase_after` is a UTC instant, a day behind after 18:30 UTC.
+    erase_after = datetime.fromisoformat(body["erase_after"])
+    assert queued[0]["erase_on"] == erase_after.astimezone(IST).date().isoformat()
     assert queued[0]["reason"] == "Client asked us to stop"
 
     assert "tenant.closed" in await _audit_actions(tenant_id)

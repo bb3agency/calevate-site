@@ -170,19 +170,20 @@ export function Erasure({
                     <span className="font-semibold tabular-nums">
                       {formatCount(preview.data.counts.calls)}
                     </span>{" "}
-                    call(s),{" "}
+                    {preview.data.counts.calls === 1 ? "call" : "calls"},{" "}
                     <span className="font-semibold tabular-nums">
                       {formatCount(preview.data.counts.transcript_turns)}
                     </span>{" "}
-                    transcript turn(s),{" "}
+                    {preview.data.counts.transcript_turns === 1 ? "transcript turn" : "transcript turns"},{" "}
                     <span className="font-semibold tabular-nums">
                       {formatCount(preview.data.counts.leads)}
                     </span>{" "}
-                    CRM record(s) and{" "}
+                    {preview.data.counts.leads === 1 ? "CRM record" : "CRM records"} and{" "}
                     <span className="font-semibold tabular-nums">
                       {formatCount(preview.data.counts.consent_records)}
                     </span>{" "}
-                    consent record(s) for this number. All of it will be erased.
+                    {preview.data.counts.consent_records === 1 ? "consent record" : "consent records"} for this number.
+                    All of it will be erased.
                   </>
                 )}
               </p>

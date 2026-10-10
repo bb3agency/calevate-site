@@ -152,12 +152,28 @@ export function signalCopy(rule: string): SignalCopy | null {
  * one layer up. `causeLabel` and `causeHref` below ask that table first.
  */
 const CAUSE_LABELS: Record<string, string> = {
+  account_suspended: "Account suspended",
+  account_closed: "Account closed",
+  trial_campaigns_unavailable: "On the free trial (test calls only)",
+  kyc_digilocker_required: "DigiLocker check required",
+  outbound_pledge_missing: "No-cold-calls pledge not accepted",
+  outbound_pledge_outdated: "No-cold-calls pledge needs accepting again",
+  agreements_not_accepted: "Agreements not accepted",
   spend_cap: "Monthly spend cap reached",
+  payment_dispute: "Payment dispute open",
+  platform_fee_overdue: "Platform fee unpaid",
   no_credits: "Prepaid wallet empty",
-  pe_registration_missing: "No DLT Principal Entity registration",
-  pe_registration_not_active: "DLT Principal Entity registration not active",
-  tm_link_not_active: "PE has not authorised Calevate as telemarketer",
 };
+
+/**
+ * Causes cleared on the account's identity-verification screen: the D-692 outbound
+ * conditions (verified KYC and the no-cold-calls pledge) that replaced the DLT entity chain.
+ */
+const KYC_SCREEN_CAUSES = new Set([
+  "kyc_digilocker_required",
+  "outbound_pledge_missing",
+  "outbound_pledge_outdated",
+]);
 
 /**
  * A cause in words: the hold queue's own wording where it has some, ours where it does
@@ -175,11 +191,15 @@ export function causeLabel(cause: string): string {
  * Where an operator goes to clear this cause.
  *
  * A hold goes to the screen `HOLD_RULES` names — the queue owns those two gates and their
- * remedies, and this board is not a second place to work them. Everything else goes to the
- * account, which is where the DLT registration, the caps and the credit ledger are.
+ * remedies, and this board is not a second place to work them. The pledge and DigiLocker
+ * go to the account's verification screen; everything else goes to the account, which is
+ * where the caps and the credit ledger are.
  */
 export function causeHref(cause: string, tenantId: string): string {
-  return holdRule(cause)?.screen(tenantId) ?? `/admin/tenants/${tenantId}`;
+  const hold = holdRule(cause);
+  if (hold) return hold.screen(tenantId);
+  if (KYC_SCREEN_CAUSES.has(cause)) return `/admin/tenants/${tenantId}/kyc`;
+  return `/admin/tenants/${tenantId}`;
 }
 
 /**
@@ -190,7 +210,9 @@ export function causeHref(cause: string, tenantId: string): string {
  * destination that disagree is the shape that sends an operator to the wrong desk.
  */
 export function causeCta(cause: string): string {
-  return holdRule(cause)?.cta ?? "Open the account";
+  const hold = holdRule(cause);
+  if (hold) return hold.cta;
+  return KYC_SCREEN_CAUSES.has(cause) ? "Identity (KYC)" : "Open the account";
 }
 
 export type TrendClaim =

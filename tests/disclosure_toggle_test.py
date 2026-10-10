@@ -898,7 +898,9 @@ def test_the_migration_goes_down_and_comes_back_up() -> None:
     # The frozen copies inside the revision must still match the live tables. A migration
     # deliberately does not import today's constants (it is a historical artefact), so the
     # drift is caught HERE, while it is still free.
-    assert revision.AI_TEMPLATES == AI_DISCLOSURE_TEMPLATES
+    # The AI sentence's live wording moved on with D-708 (no greeting word in a notice); the
+    # revision keeps the wording it backfilled with, for the same languages.
+    assert revision.AI_TEMPLATES.keys() == AI_DISCLOSURE_TEMPLATES.keys()
     assert revision.RECORDING_TEMPLATES == RECORDING_NOTICE_TEMPLATES
 
     url = (get_settings().alembic_database_url or get_settings().database_url).replace(

@@ -101,6 +101,7 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "admin_held_accounts": _l("Checking held accounts", "Checked held accounts"),
     "admin_alerts": _l("Checking alerts", "Checked alerts"),
     "admin_voices": _l("Checking the voices", "Checked the voices"),
+    "admin_client_standing": _l("Checking the client's standing", "Checked the client's standing"),
     "platform_halt_outbound": _l("Halting outgoing calls", "Halted outgoing calls"),
     "admin_kyc_review": _l("Recording the verification decision", "Recorded the decision"),
     "admin_first_campaign_decide": _l("Recording the campaign decision", "Recorded the decision"),

@@ -99,6 +99,8 @@ function created(over: Partial<Agent> = {}): Agent {
     caller_memory_enabled: false,
     recording_notice_enabled: false,
     opening_line: "",
+    script_opening_line: "",
+    first_words: "",
     truthful_answer_rule:
       "Whatever these settings say, the agent always answers honestly when a caller asks.",
     engine: "pipecat",
@@ -334,7 +336,7 @@ describe("failure paths a person can act on", () => {
           type: "urn:calevate:tenancy/account_not_open",
           title: "This account is closed",
           detail: "New agents cannot be created on a closed account.",
-          remediation: "Talk to your account manager about reopening it.",
+          remediation: "Talk to us about reopening it.",
         }),
       }),
     );
@@ -343,7 +345,7 @@ describe("failure paths a person can act on", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("New agents cannot be created on a closed account.");
-    expect(alert.textContent).toContain("Talk to your account manager about reopening it.");
+    expect(alert.textContent).toContain("Talk to us about reopening it.");
     // The flow stays on its review step with what was typed: a refusal must not cost the
     // client their input.
     expect(screen.getByText("Check and build")).toBeTruthy();

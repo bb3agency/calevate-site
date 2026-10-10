@@ -153,8 +153,13 @@ FROM python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf2583
 # curl is here for ONE reason: the compose healthcheck. Without an in-image HTTP client
 # the healthcheck has to be a python one-liner that imports httpx and pays an interpreter
 # start every few seconds on the box that also has to ack webhooks in 500ms.
+#
+# tzdata because `TZ=Asia/Kolkata` below names a zone file, and without one glibc falls
+# back to UTC silently. The bookworm-slim base already carries it (tzdata 2025b-0+deb12u2
+# in `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`, 10 Oct 2026); naming it makes that a
+# property of this file rather than of the base.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl \
+ && apt-get install -y --no-install-recommends curl tzdata \
  && rm -rf /var/lib/apt/lists/*
 
 # Non-root. The container writes nothing to disk in normal operation (recordings and raw
@@ -164,10 +169,15 @@ RUN useradd --create-home --uid 10001 calevate
 WORKDIR /app
 COPY --from=builder --chown=calevate:calevate /app /app
 
+# IST is the platform's standard time (D-709). TZ sets the process's LOCAL zone, which is
+# what anything that names no zone falls back to. What matters names its own and is not
+# moved by this: `core/logging.LOG_TIMEZONE`, `workers/settings.CRON_TIMEZONE`, and the UTC
+# database session (`db/session.APP_SESSION_TIMEZONE`).
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    TZ=Asia/Kolkata
 
 USER calevate
 

@@ -155,11 +155,11 @@ async def _platform_ops_state(
     this month's AI budget is left.
 
     THREE FACTS AN OPERATOR CHECKS TOGETHER, in one tool, because they are the three that
-    decide whether an incident is ours: the big red switch, the DLT registration that makes
-    a commercial dial legal at all, and the ceiling that pauses every AI surface on the
-    platform. Each is read through the function that OWNS it — `read_halt_state`,
-    `read_tm_registration`, `read_platform_ai_spend` — never re-queried here, so the
-    assistant and the ops console cannot disagree about a halt.
+    decide whether an incident is ours: the big red switch, our telemarketer registration
+    (on record only since D-692, which no dial gate asks for), and the ceiling that pauses
+    every AI surface on the platform. Each is read through the function that OWNS it —
+    `read_halt_state`, `read_tm_registration`, `read_platform_ai_spend` — never re-queried
+    here, so the assistant and the ops console cannot disagree about a halt.
     """
     del context, args
     halt = await read_halt_state(session)
@@ -169,7 +169,9 @@ async def _platform_ops_state(
         "Outbound dialling: "
         + (f"HALTED — {halt.reason or 'no reason recorded'}" if halt.outbound_halted else "running")
         + f"\nTelemarketer (TM) registration: {registration.status}"
-        + (" (live — commercial dialling is permitted)" if registration.is_live else "")
+        # D-692: no gate asks for it; outbound needs each client's verified KYC and
+        # no-cold-calls pledge, so a missing registration is not an incident.
+        + " (on record only; not required to dial out)"
         + (f", TM id {registration.tm_id}" if registration.tm_id else "")
         + f"\nPlatform AI spend {spend.month}: INR {spend.spend_inr} of {PLATFORM_AI_BRAKE_INR} "
         f"({spend.requests} metered request(s))"
@@ -274,7 +276,8 @@ _FIRST_ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         name="platform_ops_state",
         description=(
             "The platform's own state right now: whether outbound dialling is halted (the "
-            "big red switch) and why, whether Calevate's telemarketer registration is live, "
+            "big red switch) and why, Calevate's telemarketer registration (on record only; "
+            "outbound does not need it), "
             "and how much of this month's platform-wide AI budget has been spent against "
             "the ceiling that pauses AI for everyone. Call this before saying anything "
             "about whether the platform is working."
@@ -411,6 +414,87 @@ async def _admin_voices(
     )
 
 
+#: The most clients a name can match before the tool asks which one was meant.
+_STANDING_CANDIDATES: Final = 5
+
+
+async def _admin_client_standing(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """ONE client's standing, named by slug or by name, from any admin screen.
+
+    The account tools (`verification_status` and the live block's `<account>` line) answer
+    for the client whose page is open; an operator on the clients list or the dashboard who
+    asks "is Raghava Organics verified?" has no page open. This resolves the name in the
+    directory session, then reads the client under its OWN tenant session with the same
+    readers the live block uses and the readiness gates' own rows — nothing re-derived.
+    """
+    del context
+    from sqlalchemy import text
+
+    from apps.api.copilot.context import read_account_standing
+    from apps.api.core.loadshed import get_platform_status
+    from apps.api.db.session import tenant_session
+    from apps.api.legal.readiness import readiness_rows
+
+    asked = str(args.get("client") or "").strip()
+    if not asked:
+        return "Name the client: its slug or part of its name."
+    matches = (
+        await session.execute(
+            text(
+                "SELECT id, name, slug FROM organizations WHERE deleted_at IS NULL "
+                "AND (lower(slug) = lower(:q) OR name ILIKE :like) "
+                "ORDER BY (lower(slug) = lower(:q)) DESC, name LIMIT :n"
+            ),
+            {
+                "q": asked,
+                # The directory search's own pattern, so `%` and `_` match themselves.
+                "like": admin_service._directory_params(
+                    tenant_id=None, q=asked, status=None, plan_tier=None
+                )["like"],
+                "n": _STANDING_CANDIDATES,
+            },
+        )
+    ).all()
+    if not matches:
+        return _clean(f"No client's name or slug matches “{asked}”.")
+    exact = [row for row in matches if str(row[2]).lower() == asked.lower()]
+    if len(matches) > 1 and not exact:
+        names = "; ".join(f"{row[1]} ({row[2]})" for row in matches)
+        return _clean(f"More than one client matches: {names}. Ask again with the slug.")
+    tenant_id, name, slug = (exact or matches)[0]
+    platform = await get_platform_status()
+    async with tenant_session(tenant_id) as scoped:
+        account = await read_account_standing(scoped, tenant_id=tenant_id)
+        rows = await readiness_rows(scoped, tenant_id=tenant_id, platform=platform)
+    kyc = account.kyc.replace("_", " ")
+    if account.kyc_path:
+        kyc += f" (path: {'DigiLocker' if account.kyc_path == 'digilocker' else 'document review'})"
+    lines = [
+        f"{name} ({slug})",
+        f"Lifecycle: {account.lifecycle}.",
+        f"Business verification (KYC): {kyc}.",
+        f"No-cold-calls pledge: {account.pledge.replace('_', ' ')}.",
+        f"Trial: {account.trial}; first payment made: {'yes' if account.paid else 'no'}.",
+        f"Voice workspace: {account.workspace.replace('_', ' ')}.",
+        f"Owner has joined: {'yes' if account.owner_joined else 'no'}.",
+        "Business profile: "
+        + (
+            "ready for an agent to go live."
+            if not account.profile_missing
+            else "missing " + ", ".join(account.profile_missing) + "."
+        ),
+        "Outbound calling: "
+        + (
+            "nothing at account level is blocking it."
+            if not rows
+            else "blocked by " + "; ".join(f"{row.rule} ({row.actor}'s move)" for row in rows) + "."
+        ),
+    ]
+    return _clean("\n".join(lines))
+
+
 _NO_ARGS: Final[dict[str, Any]] = {
     "type": "object",
     "properties": {},
@@ -474,6 +558,30 @@ ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         permission="ops:manage",
         scope="platform",
         run=_admin_voices,
+    ),
+    ReadTool(
+        name="admin_client_standing",
+        description=(
+            "One client's standing, from any admin screen: lifecycle, business verification "
+            "(KYC) status and path, the no-cold-calls pledge, trial and first payment, voice "
+            "workspace, whether the owner has joined, what the business profile lacks, and "
+            "what blocks outbound calling. Use it for 'is X verified', 'is X still on "
+            "trial', 'why can X not dial'."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "client": {
+                    "type": "string",
+                    "description": "The client's slug, or part of its name.",
+                }
+            },
+            "required": ["client"],
+            "additionalProperties": False,
+        },
+        permission="admin:tenants",
+        scope="platform",
+        run=_admin_client_standing,
     ),
 )
 

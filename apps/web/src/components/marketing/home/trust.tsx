@@ -57,7 +57,7 @@ export function Trust() {
             is verbatim and long. */}
         <div className={`${HOME.contentGap} grid ${HOME.itemGap} lg:grid-cols-[0.85fr_1.15fr] lg:items-start`}>
           <MockStage
-            label="Illustration of the check a campaign passes before it can call anyone: a published agent, its AI disclosure line, the DLT voice template, the calling number, the contact list and where it came from — then calls only between 9am and 9pm, with the do-not-call list removed."
+            label="Illustration of the check a campaign passes before it can call anyone: a published agent, its AI disclosure line, a verified business identity, the calling number, the contact list and where it came from — then calls only between 9am and 9pm, with the do-not-call list removed."
             className="lg:sticky lg:top-28"
           >
             <LaunchCheckMock />

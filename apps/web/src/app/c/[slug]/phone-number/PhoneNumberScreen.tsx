@@ -140,7 +140,7 @@ export function PhoneNumberScreen() {
               <h2 className="flex items-center gap-1 text-body font-semibold text-ink">
                 Numbers your agents call out from
                 <InfoTip label="Where these numbers come from">
-                  Your account manager set these numbers up for you. Calevate provides them on
+                  We set these numbers up for you. Calevate provides them on
                   our own telephony account, so there is no operator account for you to open or
                   manage.
                 </InfoTip>

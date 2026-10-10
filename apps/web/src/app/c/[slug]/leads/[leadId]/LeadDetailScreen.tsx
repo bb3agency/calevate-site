@@ -11,6 +11,7 @@ import {
   StatusBadge,
   formatCount,
   formatIST,
+  formatISTStamp,
   formatPhone,
 } from "@/components/ui";
 import { CopyButton } from "@/components/interior/copy-button";
@@ -137,8 +138,8 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
               label: "Has this person called before?",
               value: lead.data.is_repeat_caller ? "yes" : "no",
             },
-            { key: "created_at", label: "First seen (UTC)", value: lead.data.created_at },
-            { key: "updated_at", label: "Last changed (UTC)", value: lead.data.updated_at },
+            { key: "created_at", label: "First seen (IST)", value: formatISTStamp(lead.data.created_at) },
+            { key: "updated_at", label: "Last changed (IST)", value: formatISTStamp(lead.data.updated_at) },
             {
               key: "captured_fields",
               label: "Captured detail names on file (the field names, never their values)",

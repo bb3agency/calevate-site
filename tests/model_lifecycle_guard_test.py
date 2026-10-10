@@ -93,7 +93,9 @@ def test_entry_for_a_model_nobody_can_select_refuses() -> None:
 def test_evidence_read_in_the_future_refuses() -> None:
     doctored = replace(
         MODEL_LIFECYCLE["gpt-4o-mini"],
-        retirement=Evidence(source="s", read_on=date.today() + timedelta(days=1), verified=True),
+        retirement=Evidence(
+            source="s", read_on=guard.ist_today() + timedelta(days=1), verified=True
+        ),
     )
     problems = guard.refusals(frozenset({"gpt-4o-mini"}), {"gpt-4o-mini": doctored})
     assert any("in the future" in p for p in problems)

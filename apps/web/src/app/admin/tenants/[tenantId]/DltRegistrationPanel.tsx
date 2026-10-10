@@ -76,7 +76,7 @@ export function DltRegistrationPanel({ tenantId, write }: { tenantId: string; wr
           us.
         </>
       }
-      info="The registrar issues three separate registrations and none implies another: this one is the client's own entity, the number header is its own, the voice template is a third. The campaign launch check asks for all three by name."
+      info="The registrar issues three separate registrations and none implies another: this one is the client's own entity, the number header is its own, the voice template is a third. None of them is needed to launch a campaign; this is a record for clients who registered."
     >
 
       {record.error && <ProblemNotice error={record.error} />}
@@ -96,7 +96,7 @@ export function DltRegistrationPanel({ tenantId, write }: { tenantId: string; wr
                 <MonoValue>{record.data.pe_id}</MonoValue>
               </>
             )}
-            . The client&apos;s campaign launch check reflects this on its next refresh.
+            .
           </p>
         </NoticeBox>
       )}

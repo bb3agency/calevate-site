@@ -46,6 +46,7 @@ _TENANTS: list[uuid.UUID] = []
 @pytest.fixture
 def lines(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("CARRIER_CONCURRENCY", "3")
+    monkeypatch.delenv("INBOUND_RESERVED_LINES", raising=False)
     monkeypatch.setenv("INBOUND_RESERVE_RATIO", "0.3")
     get_settings.cache_clear()
     yield
@@ -56,13 +57,33 @@ def lines(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 @pytest.mark.parametrize(
-    ("concurrency", "ratio", "reserve"),
-    [(3, 0.3, 1), (10, 0.3, 3), (1, 0.3, 1), (3, 0.0, 1), (4, 0.5, 2)],
+    ("concurrency", "reserved_lines", "reserve"),
+    [
+        # Unset: the automatic share, never rounded up by a float.
+        (3, None, 1),
+        (5, None, 2),
+        (10, None, 3),
+        (1, None, 1),
+        # A count: taken as typed, never zero, never more than the account has.
+        (5, 2, 2),
+        (5, 1, 1),
+        (3, 9, 3),
+    ],
 )
 def test_the_inbound_reserve_is_never_zero_and_never_rounds_up_a_float(
-    concurrency: int, ratio: float, reserve: int
+    concurrency: int, reserved_lines: int | None, reserve: int
 ) -> None:
-    assert inbound_line_reserve(concurrency, ratio) == reserve
+    assert inbound_line_reserve(concurrency, reserved_lines, 0.3) == reserve
+
+
+def test_a_typed_count_sets_the_outbound_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CARRIER_CONCURRENCY", "5")
+    monkeypatch.setenv("INBOUND_RESERVED_LINES", "1")
+    get_settings.cache_clear()
+    try:
+        assert outbound_line_pool() == 4
+    finally:
+        get_settings.cache_clear()
 
 
 def test_three_lines_leave_two_for_outbound(lines: None) -> None:

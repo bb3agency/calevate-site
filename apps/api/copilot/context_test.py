@@ -51,7 +51,60 @@ def _state(
     )
 
 
+#: The longest `<account>` this vocabulary can produce.
+WORST_ACCOUNT = context.LiveAccount(
+    lifecycle="onboarding",
+    kyc="not_started",
+    kyc_path="digilocker",
+    pledge="not_accepted",
+    trial="converted",
+    paid=False,
+    workspace="not_provisioned",
+    owner_joined=False,
+    profile_missing=(
+        "business_hours_missing",
+        "branch_missing",
+        "service_missing",
+        "escalation_contact_missing",
+    ),
+)
+
+
 # --- what it says ---------------------------------------------------------------------
+
+
+def test_the_account_standing_is_stated_not_inferred() -> None:
+    """FAILS IF a verified KYC is again only the absence of a blocker rule: the standby
+    model has no tool to look it up, so the block must say it in words."""
+    verified = context.LiveAccount(
+        lifecycle="active",
+        kyc="verified",
+        kyc_path="manual",
+        pledge="accepted",
+        trial="active",
+        paid=False,
+        workspace="not_provisioned",
+        owner_joined=True,
+        profile_missing=(),
+    )
+    rendered = context.render_live(
+        context.LiveState(now_ist=AT, counts=None, blocker_rules=(), account=verified)
+    )
+    assert (
+        '<account lifecycle="active" kyc="verified" kyc_path="manual" '
+        'no_cold_calls_pledge="accepted" trial="active" paid="no" '
+        'voice_workspace="not_provisioned" owner_joined="yes" '
+        'business_profile_missing="nothing"/>'
+    ) in rendered
+    assert not redact(rendered).changed
+
+
+def test_an_unreadable_account_is_marked_not_guessed() -> None:
+    rendered = context.render_live(
+        context.LiveState(now_ist=AT, counts=None, blocker_rules=None, account_unreadable=True)
+    )
+    assert '<unavailable part="account"/>' in rendered
+    assert "<account " not in rendered
 
 
 def test_the_block_is_fenced_labelled_and_carries_every_half() -> None:
@@ -163,6 +216,10 @@ def test_the_block_is_small_by_construction() -> None:
     names or campaign names to this block moves it by an order of magnitude and fails
     here.
 
+    RAISED TO 1,450 for the `<account>` element: nine status words and at most four
+    profile blocker codes, every one from our own closed vocabularies, which is what lets a
+    model answer "are they KYC verified?" without a tool.
+
     ⚠ **RAISED AGAIN, 1,000 → 1,100 BY D-522**, for the `<viewer>` element: a role, the
     name of the screen the person is on, and the names of the screens their role cannot
     open. Every one of those strings comes from `screens.CLIENT_SCREENS`, so the growth is
@@ -205,8 +262,9 @@ def test_the_block_is_small_by_construction() -> None:
         # tenant string — which is why it is allowed in a block whose whole discipline is
         # that its size cannot be moved by data.
         viewer=context.viewer_for(role="staff", route="/c/{slug}/settings/models"),
+        account=WORST_ACCOUNT,
     )
-    assert len(context.render_live(worst).encode("utf-8")) < 1_100
+    assert len(context.render_live(worst).encode("utf-8")) < 1_450
 
 
 # --- what it must never say -----------------------------------------------------------

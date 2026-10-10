@@ -51,6 +51,10 @@ services:
     # published on the host it is reachable from the internet the moment ufw is
     # misconfigured, with no authentication in front of it.
     command: ["redis-server", "--appendonly", "yes", "--save", "900", "1"]
+    # Its log lines in IST like everything else on the host (D-709); the image carries
+    # /usr/share/zoneinfo. The three Python services get TZ from the Dockerfile.
+    environment:
+      TZ: Asia/Kolkata
     volumes: [redis-data:/data]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]

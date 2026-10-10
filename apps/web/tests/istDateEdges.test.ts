@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { istDateToInstant, istInputToInstant } from "@/components/ui";
+import { formatISTStamp, istDateToInstant, istInputToInstant } from "@/components/ui";
 import { consentCollectedAt } from "@/lib/api/campaigns";
 
 /**
@@ -102,5 +102,24 @@ describe("the consent collection date a client asserts", () => {
 
   it("refuses an empty field rather than sending an instant nobody chose", () => {
     expect(consentCollectedAt("")).toBeNull();
+  });
+});
+
+describe("formatISTStamp — a time read as text names IST and the year (D-709)", () => {
+  afterEach(() => {
+    process.env.TZ = ORIGINAL_TZ;
+  });
+
+  it.each(["UTC", "America/Los_Angeles", "Pacific/Auckland"])(
+    "puts 19:00 UTC on 31 October in IST's 1 November whatever the viewer's zone (%s)",
+    (zone) => {
+      process.env.TZ = zone;
+      expect(formatISTStamp("2026-10-31T19:00:00Z")).toBe("2026-11-01 00:30 IST");
+    },
+  );
+
+  it("says what is absent rather than inventing a time", () => {
+    expect(formatISTStamp(null, "never")).toBe("never");
+    expect(formatISTStamp("not a time")).toBe("—");
   });
 });

@@ -112,6 +112,16 @@ decide whether the row exists, so there is no TTL to tune and no second system w
 outage forks the chain. Reach for a Redis mutex only where the critical section is NOT
 a database transaction. See D-59 and `apps/api/compliance/audit.py`.
 
+**Time names its zone (D-709).** IST (`Asia/Kolkata`) is the standard time. Store
+`timestamptz`; compare instants as instants (`now()`, aware `datetime`s); and wherever an
+instant becomes a calendar fact — a day, a week, a billing month, a cron slot, a line a
+person reads — name IST: `AT TIME ZONE 'Asia/Kolkata'` in SQL (`crm/performance.IST_*_SQL`,
+`billing/service._IST_MONTH`), `.astimezone(billing.plans.IST)` in Python,
+`WorkerSettings.timezone` for crons, `core/logging.LOG_TIMEZONE` for log stamps. Never let
+the session's `TimeZone`, the container's `TZ` or the host clock decide one: app sessions
+pin UTC (`db/session.APP_SESSION_TIMEZONE`) while the production server's default is IST,
+and code that leaned on either would read differently in CI and in production.
+
 ## 6. Health & readiness (ADOPTED)
 
 Three endpoints per service: `/healthz/live` (no dependency touch), `/healthz`

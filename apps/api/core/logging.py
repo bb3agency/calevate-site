@@ -31,7 +31,9 @@ import logging
 import re
 import sys
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from calevate_shared.carrier import CALLBACK_SECRET_PARAM
 
@@ -339,10 +341,19 @@ def safe_extra(fields: Mapping[str, Any]) -> dict[str, Any]:
     return {(f"{key}_" if key in _RESERVED else key): value for key, value in fields.items()}
 
 
+#: The zone every log line's `ts` is written in (D-709: IST is the platform's standard
+#: time), with the offset printed so a line is never ambiguous. Named here rather than left
+#: to `logging.Formatter.formatTime`, which uses the PROCESS's local zone: that made the
+#: stamp a property of whichever `TZ` the container happened to start with.
+LOG_TIMEZONE = ZoneInfo("Asia/Kolkata")
+
+
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
-            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "ts": datetime.fromtimestamp(record.created, LOG_TIMEZONE).isoformat(
+                timespec="milliseconds"
+            ),
             "level": record.levelname,
             "logger": record.name,
             # Through the redactor like everything else. Every log message in this repo
@@ -398,6 +409,7 @@ def get_logger(name: str) -> logging.Logger:
 
 
 __all__ = [
+    "LOG_TIMEZONE",
     "MESSAGE_WITHHELD",
     "REDACTED",
     "REDACT_KEYS",

@@ -16,6 +16,7 @@ import {
   Skeleton,
   formatINR,
   formatIST,
+  formatISTStamp,
   hasNonZeroDigit,
 } from "@/components/ui";
 import { ActionButton } from "@/components/actionButton";
@@ -72,12 +73,12 @@ export function ClosureScreen({ tenantId }: { tenantId: string }) {
           { key: "tenant_id", label: "Tenant id", value: tenantId },
           { key: "client", label: "Client", value: tenantQuery.data?.name ?? "could not be read" },
           { key: "status", label: "Account status", value: closure.data.status },
-          { key: "closed_at", label: "Closed at", value: closure.data.closed_at ?? "not closed" },
+          { key: "closed_at", label: "Closed at", value: formatISTStamp(closure.data.closed_at, "not closed") },
           { key: "reason", label: "Why it was closed", value: closure.data.reason ?? "none recorded" },
           {
             key: "erase_after",
             label: "Records are erased on",
-            value: closure.data.erase_after ?? "no erasure scheduled",
+            value: formatISTStamp(closure.data.erase_after, "no erasure scheduled"),
           },
           {
             key: "days_remaining",
@@ -92,7 +93,11 @@ export function ClosureScreen({ tenantId }: { tenantId: string }) {
             label: "Can this close still be undone (nothing has been erased)",
             value: closure.data.restorable ? "yes" : "no",
           },
-          { key: "erased_at", label: "Records were erased at", value: closure.data.erased_at ?? "not erased" },
+          {
+            key: "erased_at",
+            label: "Records were erased at",
+            value: formatISTStamp(closure.data.erased_at, "not erased"),
+          },
           {
             key: "may_close",
             label: "May this operator close or reopen the account",

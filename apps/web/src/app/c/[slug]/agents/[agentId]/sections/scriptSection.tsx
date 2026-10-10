@@ -22,6 +22,21 @@ import { noFill } from "@/lib/copilot/types";
 
 import { stagedScript } from "../../panels/publishing";
 
+/**
+ * Which script version callers hear, in the words the publishing panel uses. An agent that
+ * was never switched on has no live version, whatever is saved; one that is switched on
+ * hears the applied version, which is the saved one unless a newer one is waiting.
+ */
+export function liveVersionText(
+  agent: Pick<Agent, "published">,
+  savedVersion: number | null,
+  staged: { live_version: number | null } | undefined,
+): string {
+  if (!agent.published) return "Not switched on yet";
+  if (staged) return staged.live_version === null ? "None yet" : `Version ${staged.live_version}`;
+  return savedVersion === null ? "None yet" : `Version ${savedVersion}`;
+}
+
 export function ScriptSection({ agent, slug }: { agent: Agent; slug: string }) {
   const { href } = useClientRealm();
   const session = useClientSession();
@@ -68,22 +83,12 @@ export function ScriptSection({ agent, slug }: { agent: Agent; slug: string }) {
         <Skeleton rows={3} />
       ) : data ? (
         <SettingRows>
-          <SettingRow
-            label="Callers hear"
-            value={
-              !agent.published
-                ? "Nothing yet — not on the calling system"
-                : staged
-                  ? staged.live_version === null
-                    ? "Nothing live yet"
-                    : `Version ${staged.live_version}`
-                  : data.version === null
-                    ? "No script yet"
-                    : `Version ${data.version}`
-            }
-          />
+          <SettingRow label="Live version" value={liveVersionText(agent, data.version, staged)} />
           {staged && (
             <SettingRow label="Waiting to be applied" value={`Version ${staged.staged_version}`} />
+          )}
+          {!staged && data.version !== null && (
+            <SettingRow label="Saved version" value={`Version ${data.version}`} />
           )}
           <SettingRow
             label="Opening line"

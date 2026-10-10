@@ -330,7 +330,7 @@ describe("the hosted voices", () => {
     expect(row.getByText(/Priya is in the Standard tier/)).toBeTruthy();
     expect(within(card("Anjali")).getByText("Premium tier")).toBeTruthy();
     expect(
-      screen.getByText(/On the platform: 3 Standard · 1 Premium · 2 Studio/),
+      screen.getByText(/Tiers on the platform: 3 Standard · 1 Premium · 2 Studio/),
     ).toBeTruthy();
     fireEvent.click(add);
     expect(calls.some((c) => c.method === "POST" && c.path === OPS_HOSTED_PATH)).toBe(false);
@@ -352,6 +352,24 @@ describe("the hosted voices", () => {
 
     expect(await screen.findByText("No Premium-tier voices on the voice platform")).toBeTruthy();
     expect(screen.getByText(sentence)).toBeTruthy();
+    expect(screen.queryByText(/not the Studio voices switch below/)).toBeNull();
+  });
+
+  it("on the Studio tier, says the Cartesia switch adds no voice to it", async () => {
+    renderAdminPage(
+      <VoicesPage />,
+      routes({
+        [HOSTED_VOICES_PROBE_PATH]: hosted({
+          voices: [],
+          clear_band: "studio",
+          bands: { standard: 3, premium: 4 },
+          plan_note: "ThinnestAI listed 7 voice(s) but none in the Studio tier.",
+        }),
+      }),
+    );
+
+    expect(await screen.findByText("No Studio-tier voices on the voice platform")).toBeTruthy();
+    expect(screen.getByText(/not the Studio voices switch below: that switch is our Cartesia key/)).toBeTruthy();
   });
 
   it("prints the server's refresh sentence as written", async () => {

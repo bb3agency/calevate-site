@@ -72,8 +72,9 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
               <InfoTip label="Refresh">
                 Re-reads every voice ThinnestAI lists (Standard, Premium and Studio tiers), our clones
                 and, while Studio voices are on, the Cartesia voices of our key. Only voices of the
-                tier sold as Clear can be offered as Clear. A newly seen voice arrives not added;
-                nothing here changes an agent or a call.
+                tier sold as Clear can be offered as Clear. ThinnestAI lists its Studio tier only on
+                its Pro plan and above, so a voice its console merely lets you preview is not read.
+                A newly seen voice arrives not added; nothing here changes an agent or a call.
               </InfoTip>
             </div>
             <button type="button" className={PRIMARY_BUTTON} onClick={() => setCloning(true)}>
@@ -97,6 +98,8 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
           <p className="mt-1">
             Clear is sold on {soldBand}-tier voices only, so no Clear voice can be added until
             they are listed.
+            {added.clear_band === "studio" &&
+              " The platform's Studio tier is not the Studio voices switch below: that switch is our Cartesia key and adds no voice to this tier."}
           </p>
         </NoticeBox>
       )}
@@ -173,7 +176,7 @@ const BAND_ORDER = ["standard", "premium", "studio"] as const;
 function BandSummary({ bands, soldBand }: { bands: HostedVoices["bands"]; soldBand: string }) {
   return (
     <p className="text-body tabular-nums text-ink-muted">
-      {"On the platform: "}
+      {"Tiers on the platform: "}
       {BAND_ORDER.map((band) => `${formatCount(bands[band] ?? 0)} ${lookup(BAND_LABEL, band) ?? band}`).join(" · ")}
       {`. Only ${soldBand}-tier voices can be added as Clear.`}
     </p>

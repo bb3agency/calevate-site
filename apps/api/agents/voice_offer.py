@@ -348,7 +348,7 @@ def not_curated_reason() -> str:
 #: setting and no console — the three things a client-readable route may not print.
 CLIENT_NOT_OFFERED_REASON: Final = (
     "this voice is not one of the voices offered on your account — pick another from the "
-    "list, or ask your account manager"
+    "list, or ask us"
 )
 
 
@@ -405,7 +405,7 @@ def client_unofferable_reason(voice: Voice) -> str:
     """
     return (
         f"the {voice_tier_label(voice.provider)} voice is not available on your account "
-        "yet — ask your account manager"
+        "yet — ask us"
     )
 
 

@@ -11,6 +11,7 @@ import {
   RestrictionNote,
   SECONDARY_BUTTON_SM,
   formatCount,
+  formatCountOf,
   formatIST,
   istDateStamp,
 } from "@/components/ui";
@@ -159,7 +160,7 @@ export function SubjectExport({ session }: { session: Session }) {
                 counts above are what they are.
                 {exportDocument.data.erasure.recordings_pending_destruction > 0 &&
                   exportDocument.data.erasure.recordings_destroyed_by !== null &&
-                  ` ${formatCount(exportDocument.data.erasure.recordings_pending_destruction)} recording(s) are still held under the mandatory retention period and are destroyed by ${formatIST(exportDocument.data.erasure.recordings_destroyed_by)}.`}
+                  ` ${formatCountOf(exportDocument.data.erasure.recordings_pending_destruction, "recording")} ${exportDocument.data.erasure.recordings_pending_destruction === 1 ? "is" : "are"} still held under the mandatory retention period and are destroyed by ${formatIST(exportDocument.data.erasure.recordings_destroyed_by)}.`}
               </p>
             )}
             <button

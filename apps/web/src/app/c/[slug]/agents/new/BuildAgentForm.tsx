@@ -92,8 +92,9 @@ export function ComplianceFloor() {
         <li>
           It starts every call with its greeting only. It does not volunteer that it is an
           AI assistant or that the call is being recorded unless you switch that
-          announcement on. Both sentences are already written for you in the language you
-          chose.
+          announcement on; an announcement you switch on is said just before the greeting,
+          never instead of it. Both sentences are already written for you in the language
+          you chose.
         </li>
         <li>
           You can switch either announcement on later, per agent, on the agent&apos;s own

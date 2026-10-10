@@ -16,7 +16,7 @@ import {
 } from "@/lib/copilot/registry";
 
 import { hubUsageIdle, renderBillingHub } from "./billingHub";
-import { activeTrialBlock } from "./fixtures/sharedReads";
+import { PLATFORM_FEE_OFF, activeTrialBlock } from "./fixtures/sharedReads";
 import { problem, renderClientPage, stillLoading } from "./harness";
 
 /**
@@ -265,6 +265,7 @@ const BILL_OF_SUPPLY: Invoice = {
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": ME,
+    "/v1/billing/platform-fee": PLATFORM_FEE_OFF,
     [WALLET]: wallet(),
     [LEDGER]: LEDGER_ROWS,
     [ATTEMPTS]: [],
@@ -1264,7 +1265,7 @@ describe("the states that are not a balance", () => {
     expect(screen.queryByText(/Outgoing calls have stopped/)).toBeNull();
   });
 
-  it("gives an invoiced account a screen of its own rather than a dead end", async () => {
+  it("tells an account still on the retired invoiced motion that it is moving to credits (D-707)", async () => {
     const { container } = await renderBillingHub(
       routes({
         [WALLET]: wallet({
@@ -1274,8 +1275,8 @@ describe("the states that are not a balance", () => {
         }),
       }),
     );
-    await screen.findByText("This account is billed on a monthly invoice");
-    await screen.findByText(/never stop for want of credit/);
+    await screen.findByText("This account is moving to prepaid calling credit");
+    await screen.findByText(/honoured as issued/);
     // THE DEAD END IS THE DEFECT. This branch used to name two other screens in prose and
     // offer nothing; now the three money questions each have a link, because an invoiced
     // client who lands here has usually been sent by somebody who assumed they had a
@@ -1287,7 +1288,7 @@ describe("the states that are not a balance", () => {
     expect(screen.getByRole("radio", { name: "Statements" })).toBeTruthy();
     // Prepaid is what an account gets unless an operator says otherwise, so this screen
     // says so — a client reading it who expected a wallet is reading OUR misconfiguration.
-    await screen.findByText(/Most accounts pay as they go/);
+    await screen.findByText(/Nothing on your account is lost/);
     // No balance about nothing, and no control the intent route is bound to refuse.
     expect(screen.queryByText(/Add credit/)).toBeNull();
     await expectNoA11yViolations(
@@ -1369,7 +1370,7 @@ describe("the explainer's claims about the money", () => {
     expect(explainer.textContent).toMatch(
       /How it sounds, and how long a call may run/,
     );
-    expect(explainer.textContent).not.toMatch(/tell your account manager/i);
+    expect(explainer.textContent).not.toMatch(/tell us/i);
   });
 });
 

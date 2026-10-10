@@ -82,6 +82,11 @@ class HostedVoiceListing(BaseModel):
     voices: list[HostedVoice] = Field(default_factory=list)
     #: The voice provider behind a `byok` listing (`cartesia`), None for `engine` voices.
     provider: str | None = None
+    #: Voices the engine listed in a band we do not read, counted by the engine's own word.
+    #: They cannot be priced, so they are not in `voices`, but the operator is told they
+    #: exist rather than having them vanish (a renamed or newly added band would otherwise
+    #: read as the engine listing nothing in it).
+    unread_bands: dict[str, int] = Field(default_factory=dict)
 
 
 class VoiceCloneSample(BaseModel):

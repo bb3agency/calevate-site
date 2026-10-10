@@ -1424,6 +1424,18 @@ export function formatCount(value: number | null | undefined): string {
 }
 
 /**
+ * A count with its noun agreeing: "1 day", "3 days", never "3 day(s)". `plural` defaults
+ * to `singular + "s"`; pass it for nouns that do not take a plain "s" ("entries").
+ */
+export function formatCountOf(
+  value: number | null | undefined,
+  singular: string,
+  plural: string = `${singular}s`,
+): string {
+  return `${formatCount(value)} ${value === 1 ? singular : plural}`;
+}
+
+/**
  * Rupees, from the STRING the API sent.
  *
  * The money fields on `UsagePanelOut` are strings for a reason its docstring states:
@@ -1518,7 +1530,7 @@ export function hasNonZeroDigit(value: string): boolean {
 }
 
 /**
- * Times are stored UTC and shown IST at the edge (CLAUDE.md conventions).
+ * Times are stored as instants and shown in IST, the platform's standard time (D-709).
  *
  * The unparseable arm is not defensive padding: `new Date("…").toLocaleString()` renders
  * the literal words **"Invalid Date"**, and this is the helper all hundred-odd timestamps
@@ -1615,6 +1627,16 @@ export function formatISTInput(value: string | null | undefined): string {
   const { year, month, day, hour, minute } = parts;
   if (!year || !month || !day || !hour || !minute) return "";
   return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+
+/**
+ * An instant as `YYYY-MM-DD HH:mm IST`, year and zone spelled out — for a time that is read
+ * as text rather than seen in a table, such as a fact handed to the copilot (D-709: IST is
+ * the platform's standard time). `absent` when there is no instant or it does not parse.
+ */
+export function formatISTStamp(value: string | null | undefined, absent = "—"): string {
+  const local = formatISTInput(value);
+  return local ? `${local.replace("T", " ")} IST` : absent;
 }
 
 /**

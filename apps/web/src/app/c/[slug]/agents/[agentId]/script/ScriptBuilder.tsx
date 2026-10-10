@@ -21,7 +21,7 @@
 import { useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useRef, useState } from "react";
 
-import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
+import { NoticeBox, ProblemNotice, RestrictionNote, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { Drawer } from "@/components/console/drawer";
 import { InfoTip } from "@/components/console/infoTip";
@@ -55,6 +55,7 @@ import {
 import { AssistPanel } from "./AssistPanel";
 import { CompiledPrompt, ModeToggle, ScriptToolbar } from "./ScriptToolbar";
 import { scriptCopilotFields } from "./scriptSurface";
+import { reconcileDraft, sameScript, type SavedCopy } from "./scriptDraft";
 
 
 export function ScriptBuilder({ agentId, backHref }: { agentId: string; backHref: string }) {
@@ -150,18 +151,43 @@ function Editor({
   standardVariables: { key: string; label: string }[];
 }) {
   const session = useClientSession();
+  const incoming = useMemo<SavedCopy>(() => ({ script: initial, version }), [initial, version]);
   const [script, setScript] = useState<CallScript>(initial);
   const [raw, setRaw] = useState<boolean>(initial.raw_override !== null);
   const [preview, setPreview] = useState<string | null>(null);
   const [assisting, setAssisting] = useState(startAssist);
   const [switching, setSwitching] = useState<"raw" | "structured" | null>(null);
+  // The saved copy the draft on screen started from, and the read last reconciled against.
+  // The editor follows every new read through `reconcileDraft` (`scriptDraft.ts`) rather
+  // than copying `initial` once, which is what let it show and re-save a superseded script.
+  const [base, setBase] = useState<SavedCopy>(incoming);
+  const [seen, setSeen] = useState<SavedCopy>(incoming);
+  // What this editor's last save sent; `version` is null until the server answers.
+  const [lastSave, setLastSave] = useState<SavedCopy | null>(null);
+  // Set when the saved script moved while the author had unsaved edits.
+  const [movedTo, setMovedTo] = useState<{ version: number | null } | null>(null);
 
-  // Compared by VALUE: every keystroke replaces the object, so a reference check would keep
-  // asking after an edit that was typed and undone.
-  const unsaved = useMemo(
-    () => JSON.stringify(script) !== JSON.stringify(initial),
-    [script, initial],
-  );
+  const adopt = (copy: SavedCopy) => {
+    setScript(copy.script);
+    setRaw(copy.script.raw_override !== null);
+    setBase(copy);
+    setMovedTo(null);
+  };
+
+  // Adjusting state while rendering, the documented alternative to an effect for "reset
+  // when a prop changes" (react.dev, "You Might Not Need an Effect").
+  if (seen !== incoming) {
+    setSeen(incoming);
+    const next = reconcileDraft(script, base, incoming, lastSave);
+    if (next.kind === "adopt") adopt(incoming);
+    else if (next.kind === "rebase") {
+      setBase(incoming);
+      setMovedTo(null);
+    } else if (next.kind === "conflict") setMovedTo({ version: next.version });
+  }
+
+  // Compared by CONTENT against the saved copy the draft started from.
+  const unsaved = useMemo(() => !sameScript(script, base.script), [script, base]);
   useUnsavedGuard(unsaved);
 
   const save = useSaveScript(session, agentId);
@@ -249,7 +275,17 @@ function Editor({
   const askStructured = () => (hasRaw ? setSwitching("structured") : toStructured());
 
   const onSave = () => {
-    save.mutate({ script });
+    const sent = script;
+    setLastSave({ script: sent, version: null });
+    save.mutate(
+      // The version the draft started from: the server refuses the save if it has moved,
+      // so an older copy can never be written over a newer one.
+      { script: sent, expected_version: base.version },
+      {
+        onSuccess: (r) => setLastSave({ script: sent, version: r.version }),
+        onError: () => setLastSave(null),
+      },
+    );
   };
 
   const onPreview = () => {
@@ -261,7 +297,7 @@ function Editor({
       <ScriptToolbar
         backHref={backHref}
         agentName={agentName}
-        version={version}
+        version={base.version}
         hasPending={hasPending}
         unsaved={unsaved}
         canWrite={write.allowed}
@@ -269,7 +305,7 @@ function Editor({
         saving={save.isPending}
         applying={apply.isPending}
         onSave={onSave}
-        onApply={() => apply.mutate({ expected_version: version })}
+        onApply={() => apply.mutate({ expected_version: base.version })}
         onUndo={() => undo.mutate()}
         onPreview={onPreview}
         onAssist={() => setAssisting(true)}
@@ -280,6 +316,25 @@ function Editor({
       {apply.error && <ProblemNotice error={apply.error} />}
       {undo.error && <ProblemNotice error={undo.error} />}
       {previewMut.error && <ProblemNotice error={previewMut.error} />}
+
+      {movedTo && (
+        <NoticeBox tone="warn" title="This script was changed somewhere else">
+          <p className="mt-1 text-meta">
+            {movedTo.version === null
+              ? "The saved script was removed after you started editing."
+              : `Version ${movedTo.version} was saved after you started editing.`}{" "}
+            Your edits are still on screen, but they cannot be saved over the newer version.
+            Load it to see what changed, then make your edit again.
+          </p>
+          <button
+            type="button"
+            className={`${SECONDARY_BUTTON_SM} mt-2`}
+            onClick={() => adopt(incoming)}
+          >
+            {movedTo.version === null ? "Load the saved script" : `Load version ${movedTo.version}`}
+          </button>
+        </NoticeBox>
+      )}
 
       {/* Both pointers as data, because "the version on screen is the one callers hear" is
           the one misreading the two-speed model must never allow. */}
@@ -361,7 +416,20 @@ function Editor({
         description="Describe your business; review the draft before you save."
         width="md"
       >
-        <AssistPanel agentId={agentId} onDraft={(s) => setScript(s)} disabled={raw} />
+        <AssistPanel
+          agentId={agentId}
+          // The draft fills what it writes (opening, steps, answers) and leaves the author's
+          // variables, end-call rules and fallback answer alone, since it never drafts them.
+          onDraft={(draft) =>
+            setScript((s) => ({
+              ...s,
+              opening_line: draft.opening_line,
+              steps: draft.steps,
+              faqs: draft.faqs,
+            }))
+          }
+          disabled={raw}
+        />
       </Drawer>
 
       {preview !== null && (

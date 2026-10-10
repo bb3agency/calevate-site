@@ -2259,6 +2259,136 @@ priced at is an operator attestation, not an environment variable (hard rule 7,
 `docs/THINNEST-INTEGRATION.md` §5); without it no minute on this engine is sold.
 
 
+## 13. Time zone: IST everywhere (D-709)
+
+IST (`Asia/Kolkata`, +05:30, no daylight saving) is the platform's standard time. Stored
+data does not change: every time column is `timestamptz`, an absolute instant. What D-709
+sets is the zone things are SHOWN, LOGGED and SCHEDULED in. What each layer does:
+
+| Layer | Zone | Where it is set |
+|---|---|---|
+| App log lines (`"ts"`) | IST, offset printed | `apps/api/core/logging.LOG_TIMEZONE` — in code, not the container's `TZ` |
+| ARQ cron fields | IST | `apps/workers/settings.CRON_TIMEZONE` → `WorkerSettings.timezone` |
+| Container local time (anything that names no zone) | IST | `TZ=Asia/Kolkata` in `Dockerfile` (with `tzdata`); `redis` in `compose.prod.yml` |
+| The app's own database session | **UTC, on purpose** | `apps/api/db/session.APP_SESSION_TIMEZONE`, a connect-time option that outranks any server default. It keeps every datetime in Python a UTC-aware instant; every IST calendar question in SQL names its zone. |
+| psql, and Postgres's own log lines | IST | `ALTER SYSTEM` below |
+| Host clock, journald display, nginx `$time_local`, cron | IST | `timedatectl` below |
+| systemd timers | IST, named in each unit | `OnCalendar=… Asia/Kolkata`; same instants as the old `… UTC` spellings |
+| Docker's own `docker logs --timestamps` prefix | UTC | the json-file driver writes UTC; read the `"ts"` field instead |
+
+**Order does not matter.** The host change cannot move a cron (the worker names its zone)
+and cannot move a stored instant (the app's sessions pin UTC). The app image change ships
+with an ordinary `scripts/vps-deploy.sh` run. What the new image changes on its own: every
+daily and weekly ARQ cron fires 30 minutes EARLIER in absolute time than before (the full
+before/after table is D-709), and log stamps read `+05:30`.
+
+### 13.1 On the VPS — run as `d_user`, one block at a time, reading each result
+
+Nothing here has been run on the VPS. Each step prints what it changed.
+
+**1. Inspect first.** Record the output; it is also the rollback reference.
+
+```sh
+timedatectl                          # "Time zone:" line — expect Etc/UTC today
+date; date -u
+ls -l /usr/share/zoneinfo/Asia/Kolkata   # must exist (package tzdata)
+systemctl list-timers 'calevate-*' --all # NEXT/LAST instants, to compare after
+sudo -u postgres psql -Atc "SELECT name, setting, source, coalesce(sourcefile,'') FROM pg_settings WHERE name IN ('TimeZone','log_timezone')"
+sudo -u postgres psql -Atc "SELECT coalesce(setdatabase::regdatabase::text,'*'), coalesce(setrole::regrole::text,'*'), setconfig FROM pg_db_role_setting"
+```
+
+The second `psql` line lists per-database and per-role settings. If any row carries a
+`TimeZone=` or `timezone=`, it overrides step 3 for that database or role — stop and
+decide whether it should go before continuing.
+
+**2. The host clock.**
+
+```sh
+sudo timedatectl set-timezone Asia/Kolkata
+timedatectl | grep 'Time zone'       # expect: Asia/Kolkata (IST, +0530)
+```
+
+**3. Postgres: what psql shows and what its log lines say.** Both settings are reloadable;
+no restart. The app is not affected (its sessions pin UTC at connect time, which outranks
+`ALTER SYSTEM` — measured on postgres:16, 10 Oct 2026).
+
+```sh
+sudo -u postgres psql -c "ALTER SYSTEM SET timezone = 'Asia/Kolkata'" \
+                      -c "ALTER SYSTEM SET log_timezone = 'Asia/Kolkata'" \
+                      -c "SELECT pg_reload_conf()"
+sudo -u postgres psql -Atc "SHOW timezone" -c "SHOW log_timezone" -c "SELECT now()"
+# expect: Asia/Kolkata / Asia/Kolkata / a time ending +05:30
+```
+
+**4. Services that read the zone only at start.** cron and rsyslog cache it; restart each
+only if it is active on this host. nginx: reload, check the stamp, restart only if the
+stamp still says +0000 (a restart drops in-flight connections for a moment).
+
+```sh
+for s in cron rsyslog; do systemctl is-active --quiet "$s" && sudo systemctl restart "$s" && echo "restarted $s"; done
+sudo nginx -t && sudo systemctl reload nginx
+curl -s -o /dev/null https://api.calevate.tech/healthz/live; sudo tail -n 1 /var/log/nginx/access.log
+# expect [dd/Mon/yyyy:HH:MM:SS +0530]; if it still says +0000: sudo systemctl restart nginx
+```
+
+**5. The timer units**, so the host's copies match the repository. The instants are
+unchanged (the old units named UTC explicitly), so this is housekeeping, not a fix.
+Install only units that are already installed:
+
+```sh
+cd /var/www/calevate
+for t in infra/backup/systemd/calevate-basebackup.timer infra/backup/systemd/calevate-dump-offsite.timer infra/hygiene/systemd/calevate-hygiene.timer; do
+  [ -f "/etc/systemd/system/$(basename "$t")" ] && sudo install -o root -g root -m 0644 "$t" /etc/systemd/system/ && echo "installed $(basename "$t")"
+done
+sudo systemctl daemon-reload
+systemctl list-timers 'calevate-*' --all  # NEXT must be the same instants as in step 1, now shown in IST
+```
+
+**6. Ship the image** with the usual deploy (§4; `scripts/vps-deploy.sh --all --no-pull
+--expected-sha <sha>`). Redis takes its `TZ` the next time compose recreates it; that is
+log-only and needs no special step.
+
+### 13.2 Verify
+
+```sh
+cd /var/www/calevate
+docker compose -p calevate -f compose.prod.yml exec -T workers date          # … IST …
+docker compose -p calevate -f compose.prod.yml logs --since 10m api | tail -n 1  # "ts":"…+05:30"
+# The app's own session must still be UTC — this is the property that keeps stored instants honest:
+docker compose -p calevate -f compose.prod.yml exec -T api python - <<'PY'
+import asyncio
+from sqlalchemy import text
+from apps.api.db.session import untenanted_session
+async def main() -> None:
+    async with untenanted_session() as s:
+        print((await s.execute(text("SHOW timezone"))).scalar())
+asyncio.run(main())
+PY
+# expect: UTC
+sudo tail -n 2 /var/log/postgresql/postgresql-16-main.log   # stamps end in IST
+# backup-health.sh parses the timers' LastTriggerUSec with `date -d`, and systemctl now prints
+# it with the zone abbreviation "IST". GNU date 9.4 reads "IST" as +05:30 (checked on
+# ubuntu:24.04, 10 Oct 2026); this host's `date` is NOT verified, so check it parses to the
+# same instant `-u` shows — a failure here would raise backup_timer_not_firing falsely:
+t=$(systemctl show -p LastTriggerUSec --value calevate-basebackup.timer); echo "$t"; date -u -d "$t"
+```
+
+The Pipecat worker (§12) runs on Pipecat Cloud, not this host. Its image sets
+`TZ=Asia/Kolkata`; whether `dailyco/pipecat-base` carries `/usr/share/zoneinfo` is
+UNVERIFIED. Check once on a built image: `docker run --rm --entrypoint date <image>` must
+print IST; if it prints UTC the base has no zone files and the worker logs stay UTC.
+
+### 13.3 Rollback
+
+```sh
+sudo timedatectl set-timezone Etc/UTC
+sudo -u postgres psql -c "ALTER SYSTEM RESET timezone" -c "ALTER SYSTEM RESET log_timezone" -c "SELECT pg_reload_conf()"
+for s in cron rsyslog; do systemctl is-active --quiet "$s" && sudo systemctl restart "$s"; done
+sudo systemctl reload nginx
+```
+
+The app image needs no rollback for the host's sake: it names every zone it depends on.
+
 Cross-references: TRD §1 (deployables) · OPERATIONS §5–6 (SLOs, drills) ·
 SECURITY-COMPLIANCE §5 (secrets, TLS) · ROADMAP D-25/D-26/D-27/D-592/D-606 · SURFACES §3 ·
 PIPECAT-MIGRATION §8 (the three boxes) for the fourth deployable in §12.

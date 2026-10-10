@@ -144,7 +144,7 @@ export const LANGUAGE_CHOICES: { value: AgentLanguage; label: string }[] = (
 export const STATUS_COPY: Record<string, { label: string; hint: string }> = {
   draft: {
     label: "Draft",
-    hint: "Still being put together by your account manager.",
+    hint: "Still being put together.",
   },
   live: { label: "Switched on", hint: "Cleared to take calls." },
   paused: { label: "Paused", hint: "Switched off for now, on purpose." },

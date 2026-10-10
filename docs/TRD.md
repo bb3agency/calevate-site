@@ -1266,6 +1266,14 @@ FLOWS §6.
 
 ## 9. Metering & Billing
 
+> **D-707 (10 Oct 2026) supersedes the managed retainer described in this document.** Every
+> client is prepaid: calls draw down credit lots, and the only other charge is the optional
+> monthly platform fee (`billing/platform_fee.py`), raised per client per IST month while the
+> ops switch is on, paid as a separate Razorpay order into the append-only
+> `monthly_fee_payments` ledger, and enforced on OUTBOUND only by the dispatch gate after a
+> seven-day grace. §10.2's reading of D-11 (setup fee and retainer carry the fixed base) is the
+> record of that decision, not the current model.
+
 Append-only `usage_events` (tenant_id, call_id, unit_type[telephony_s|stt_min|tts_chars|
 llm_tok_in|llm_tok_out|platform_min|…; the full list is `billing/models.UNIT_TYPES`], qty,
 unit_cost_paid, occurred_at) — records OUR cost

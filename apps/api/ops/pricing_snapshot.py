@@ -69,6 +69,7 @@ from apps.api.agents.llm_models import (
 from apps.api.agents.voice_offer import default_tts_price_is_billable, install_tts_price_reader
 from apps.api.agents.voice_sync import load_voice_catalogue
 from apps.api.agents.voices import VoiceProvider
+from apps.api.billing.plans import IST
 from apps.api.billing.rates import (
     InrLlmPriceAttestation,
     LlmPriceAttestation,
@@ -145,7 +146,7 @@ _refresher: asyncio.Task[None] | None = None
 def _to_attestation(record: AttestedModelPrice) -> LlmPriceAttestation | None:
     """One store row as the billing seam's record, or `None` if it cannot be one.
 
-    `read_on` is the attestation's own date (`attested_at.date()`) — the store keeps no
+    `read_on` is the attestation's own IST date (D-709) — the store keeps no
     separate "read on" instant, and the date the operator wrote it is the best available
     reading of when they read it.
 
@@ -165,7 +166,7 @@ def _to_attestation(record: AttestedModelPrice) -> LlmPriceAttestation | None:
             model=record.model,
             input_usd_per_mtok=record.input_usd_per_mtok,
             output_usd_per_mtok=record.output_usd_per_mtok,
-            read_on=record.attested_at.date(),
+            read_on=record.attested_at.astimezone(IST).date(),
             attested_by=record.attested_by,
             source=record.source_note,
         )

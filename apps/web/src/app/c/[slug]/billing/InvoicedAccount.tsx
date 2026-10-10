@@ -5,37 +5,30 @@ import { FileText } from "lucide-react";
 import { NoticeBox } from "@/components/ui";
 
 /**
- * The wallet header an INVOICED account gets, where a prepaid one gets a balance.
+ * The wallet header for an account still on the retired invoiced motion.
  *
- * No balance, no ₹0.00, no Add credit: there is no wallet behind this account, so a figure
- * would be a number about nothing and the button would earn a `topup_not_available`
- * refusal after the click instead of before it. Where the money IS answered by the views
- * right under this header (Usage, Transactions, Statements), which is why the panel no
- * longer carries its own links to them.
- *
- * Prepaid is what an account gets unless an operator says otherwise, so the second
- * paragraph says so: a client reading it who expected a wallet is reading OUR setting.
+ * Since D-707 every client buys prepaid credits and the migration moved every invoiced
+ * account onto them, so this only renders for an account that has not been moved yet (the
+ * tier is admitted for one more release). It says what is happening rather than offering
+ * a balance about nothing: invoices already issued stand, and new calling is paid from
+ * credit.
  */
 export function InvoicedAccount() {
   return (
     <div className="space-y-2">
       <NoticeBox
-        tone="ok"
+        tone="neutral"
         icon={<FileText className="h-4 w-4" aria-hidden />}
-        title="This account is billed on a monthly invoice"
+        title="This account is moving to prepaid calling credit"
       >
         <p className="mt-1">
-          Your calling is billed against the plan we agreed with you rather than from a
-          credit balance, so there is nothing to top up and no balance to keep an eye on.
-          Your outgoing calls never stop for want of credit, and people calling you always
-          get through.
+          Every Calevate account now pays for calls from prepaid credit. Invoices we have
+          already sent you stay valid and are honoured as issued, and no new monthly
+          invoices are raised.
         </p>
       </NoticeBox>
       <p className="max-w-prose text-meta text-ink-muted">
-        Most accounts pay as they go: they keep a credit balance on this screen and top it
-        up whenever they like. Yours is set up the other way, on an invoice. If that is not
-        what you agreed with us, ask your account manager to check it — it is a setting on
-        our side and nothing on your account is lost either way.
+        We will finish the move with you. Nothing on your account is lost.
       </p>
     </div>
   );

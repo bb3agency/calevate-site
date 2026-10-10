@@ -43,6 +43,7 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
+from apps.api.billing.platform_fee import PLATFORM_FEE_RULE
 from apps.api.campaigns.service import CAMPAIGN_STOPPED_RULE, CAMPAIGN_WINDOW_CLOSED_RULE
 from apps.api.compliance import service as gate_module
 from apps.api.compliance.service import (
@@ -94,6 +95,7 @@ TRANSIENT_REFUSALS: dict[str, str] = {
     "no_credits": "the account is topped up",
     "spend_cap": "the cap is raised or the period rolls over",
     "payment_dispute": "the disputed payment is won, accepted or closed and the hold lifts",
+    PLATFORM_FEE_RULE: "the client pays the platform fee, an operator waives it or turns it off",
     "agent_missing": "the agent is restored; `archive_agent` refuses to create this state",
     "agent_not_live": "the agent is published; the same two doors apply",
     "agent_inbound_only": "the agent is given an outbound direction",

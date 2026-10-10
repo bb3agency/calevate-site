@@ -142,6 +142,15 @@ async def test_the_block_reports_what_the_tenant_actually_has() -> None:
     assert state.blocker_rules == expected
     assert "kyc_missing" in expected, "a fresh org has not verified its business"
     assert not state.partial
+    # THE ACCOUNT STANDING, IN WORDS: a fresh account is onboarding, unverified, with no
+    # pledge, no trial, no payment, no workspace and an empty business profile.
+    assert state.account is not None
+    assert state.account.lifecycle == "onboarding"
+    assert state.account.kyc == "not_started"
+    assert state.account.pledge == "not_accepted"
+    assert (state.account.trial, state.account.paid) == ("none", False)
+    assert state.account.workspace == "not_provisioned"
+    assert "branch_missing" in state.account.profile_missing
 
     rendered = context.render_live(state)
     assert '<calls today="2" last_7_days="3"/>' in rendered
@@ -236,6 +245,7 @@ async def test_a_failing_snapshot_degrades_instead_of_taking_the_answer_down() -
     rendered = context.render_live(state)
     assert '<unavailable part="activity"/>' in rendered
     assert '<unavailable part="outbound_blockers"/>' in rendered
+    assert '<unavailable part="account"/>' in rendered
 
     # And the prompt around it is intact: screen, block, rules, question, in that order.
     payload = CopilotAskIn.model_validate(

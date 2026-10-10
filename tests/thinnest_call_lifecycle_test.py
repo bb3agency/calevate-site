@@ -80,6 +80,7 @@ def on_thinnest(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setattr(carrier_pacing, "get_engine", lambda: SimpleNamespace(name="thinnest"))
     monkeypatch.setenv("THINNEST_MAX_CONCURRENT_CALLS", "5")
     monkeypatch.setenv("INBOUND_RESERVE_RATIO", "0.3")
+    monkeypatch.delenv("INBOUND_RESERVED_LINES", raising=False)
     monkeypatch.setenv("CARRIER_CONCURRENCY", "3")
     get_settings.cache_clear()
     yield

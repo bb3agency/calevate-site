@@ -47,7 +47,7 @@ from apps.api.db.base import Base, PKMixin, TimestampMixin
 MONEY = Numeric(12, 4)
 
 ROUTE_KINDS: Final = ("order", "token", "customer")
-ROUTE_PURPOSES: Final = ("topup", "mandate", "auto_recharge")
+ROUTE_PURPOSES: Final = ("topup", "mandate", "auto_recharge", "platform_fee")
 MANDATE_METHODS: Final = ("upi", "card")
 #: `none` before any authorisation; `pending` between the authorisation payment and
 #: `token.confirmed`; the rest are Razorpay's token states

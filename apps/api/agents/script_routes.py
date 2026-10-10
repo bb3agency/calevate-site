@@ -87,6 +87,11 @@ class SaveScriptIn(BaseModel):
 
     script: CallScript
     notes: str | None = Field(default=None, max_length=200)
+    #: The draft version this edit started from (null: the agent had no script). When sent,
+    #: the save is refused with `script_changed_elsewhere` if the draft has moved since, so
+    #: a builder holding an older copy can never save over a newer version. Left out, the
+    #: save is unconditional, as before.
+    expected_version: int | None = Field(default=None, ge=1)
 
 
 class SaveScriptOut(BaseModel):
@@ -184,6 +189,8 @@ async def save_script(
         script=payload.script,
         notes=payload.notes,
         created_by=principal.user_id,
+        check_version="expected_version" in payload.model_fields_set,
+        expected_version=payload.expected_version,
     )
     await write_audit(
         session,

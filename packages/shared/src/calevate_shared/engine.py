@@ -24,6 +24,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
+from calevate_shared.call_script import opening_line_of
 from calevate_shared.events import CallDirection, CallEvent, CallStatus, TranscriptTurn
 from calevate_shared.languages import find_language
 
@@ -3365,21 +3366,19 @@ class AgentConfig(BaseModel):
     language_primary: str = "te-IN"
     languages_extra: list[str] = Field(default_factory=list)
     system_prompt: str
-    # WHAT THE AGENT SAYS BEFORE ANYTHING ELSE — composed by us from the agent's two
-    # notice toggles (`compliance/disclosure.compose_opening_line`), never typed by a
-    # client as one string. The adapter puts it in the engine's greeting field AND
-    # prepends it to the prompt, so it is spoken first whichever way the agent opens.
+    # THE NOTICES THE AGENT SAYS BEFORE ITS OPENING LINE — composed by us from the agent's
+    # two notice switches (`compose_opening_line`), never typed by a client. Despite the
+    # name it is NOT the script's opening line (the greeting, `CallScript.opening_line`):
+    # the switches decide only whether these sentences are said, and the greeting follows
+    # them either way (D-708). An engine with one greeting field speaks
+    # `compose_first_utterance(cfg)` there; the owned runtime speaks this verbatim and then
+    # lets the model greet. It is also prepended to the prompt.
     #
-    # IT MAY BE EMPTY, and that is the change D-163 made rather than an oversight. Hard
-    # rule 5 used to read "agents always have a non-null disclosure line" and this field
-    # carried it; the rule is now "an agent always ANSWERS TRUTHFULLY when asked", which
-    # `TRUTHFUL_ANSWER_DIRECTIVE` above carries and no configuration can empty. An agent
-    # with both notices switched off volunteers neither and opens on its script — so an
-    # empty string here is a tenant's recorded choice, not a missing value, and
-    # `verification.judge` checks the ENGINE holds no stale greeting rather than skipping
-    # the check. The AI sentence itself is still mandatory ON FILE
-    # (`agents.ai_disclosure_line` NOT NULL, non-empty) because the compliance gate and
-    # the honest answer both need it to exist.
+    # IT MAY BE EMPTY (D-163): both notices switched off. The agent then volunteers neither
+    # and opens on its opening line; it still answers truthfully when asked
+    # (`TRUTHFUL_ANSWER_DIRECTIVE`, which no configuration can empty). The AI sentence is
+    # still mandatory ON FILE (`agents.ai_disclosure_line` NOT NULL, non-empty) because the
+    # compliance gate and the honest answer both need it to exist.
     opening_line: str
     #: Does a call on the engine that will run this agent produce a recording we store?
     #:
@@ -3512,7 +3511,7 @@ def compose_opening_line(posture: DisclosurePosture, *, call_is_recorded: bool) 
         both on     "…AI assistant. This call is being recorded."
         AI only     "…AI assistant."
         recording   "This call is being recorded."
-        neither     "" — the agent volunteers nothing and opens on its script.
+        neither     "" — the agent volunteers neither notice and opens on its opening line.
         + memory    "… I keep a short note of what you ask about…"
 
     `call_is_recorded` is the ENGINE's fact (`EngineCapabilities.records_audio`), and when
@@ -3525,7 +3524,7 @@ def compose_opening_line(posture: DisclosurePosture, *, call_is_recorded: bool) 
     does.
 
     THE EMPTY CASE IS A CHOICE, NOT A GAP (D-163). It does not reach the caller as
-    silence: the engine simply has no greeting to play and the script speaks first. What
+    silence: the agent's own opening line is said first (`join_first_words`). What
     it never means is that the agent will DENY being an AI or misstate the recording —
     that answer is `truthful_answer_directive`, which `compose_engine_prompt` appends to
     every prompt and which is composed from nothing on this posture.
@@ -3544,6 +3543,29 @@ def compose_opening_line(posture: DisclosurePosture, *, call_is_recorded: bool) 
         posture.caller_memory_notice_line.strip() if posture.caller_memory_enabled else "",
     ]
     return " ".join(part for part in parts if part)
+
+
+def join_first_words(notices: str, opening: str) -> str:
+    """What a caller hears first: the notices switched on, then the agent's opening line.
+
+    The two halves stay separate things (D-708): the switches decide only whether the
+    notices are said, never whether the opening line is, and the opening line never stands
+    in for a notice. With both notices off this is the opening line alone; with no opening
+    line written it is the notices alone. One space, for `compose_opening_line`'s reason.
+    """
+    return " ".join(part for part in (notices.strip(), opening.strip()) if part)
+
+
+def compose_first_utterance(cfg: AgentConfig) -> str:
+    """`cfg`'s first words, for an engine that speaks one greeting field verbatim.
+
+    The notices come from `cfg.opening_line`; the opening line is read from the script the
+    engine will hold (`call_script.opening_line_of`), so an experiment arm greets with its
+    own script's line. An engine that speaks the notices and then lets the model greet (the
+    owned runtime, D-654) uses `cfg.opening_line` alone and finds the opening line in the
+    prompt's `[OPENING]` section.
+    """
+    return join_first_words(cfg.opening_line, opening_line_of(cfg.system_prompt))
 
 
 def _caller_memory_section(cfg: AgentConfig, facts: Sequence[str] | None) -> str:

@@ -35,7 +35,7 @@ export function WalletSummary({
         <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-8 gap-y-4 lg:grid-cols-4">
           <Metric
             label="Minutes left"
-            value={minutes ?? (tenant.plan_tier === "managed" ? "Invoiced" : "—")}
+            value={minutes ?? (tenant.plan_tier === "managed" ? "Moving to credits" : "—")}
             hint={
               tenant.minutes_left === null && tenant.credit_inr !== null
                 ? "Not quoted during a trial: the calling is on us."
@@ -60,7 +60,7 @@ export function WalletSummary({
 
       {/* `is_low` is the SERVER's verdict (`billing.service.LOW_BALANCE_INR`), displayed and
           never computed here: a console that decided what counts as low would eventually
-          disagree with the gate that actually stops the dialling. EVERY tier but managed,
+          disagree with the gate that actually stops the dialling. EVERY client,
           and BOTH directions (D-551, D-577) — guarded by `tests/credit_stop_copy_test.py`. */}
       {wallet.is_low && (
         <NoticeBox
@@ -70,12 +70,11 @@ export function WalletSummary({
         >
           <p className="mt-1">
             An empty wallet stops this client calling and being called. Every account that
-            pays from a wallet — which is all of them except a managed client — has its
+            pays from a wallet — which is every client — has its
             outgoing calls refused by the compliance gate at a balance of zero or below,
             and its agents stop answering incoming ones: callers hear a short apology that
-            gives no reason. Record the payment below and both start again. A managed
-            client is invoiced against their retainer and neither half applies — their
-            plan is on the Commercials screen. A client inside a trial period is on us and
+            gives no reason. Record the payment below and both start again. A client
+            inside a trial period is on us and
             is stopped by neither, however empty this wallet is.
           </p>
         </NoticeBox>
@@ -142,7 +141,7 @@ export function CorrectionCard() {
           Use <span className="font-semibold">Correct a wrong entry</span> above. It
           names the entry it cancels, takes back at most what that entry put in, derives
           the direction from it, and is keyed so that clicking twice corrects once. The
-          balance may end below zero — for every client but a managed one that stops their
+          balance may end below zero — that stops the client&apos;s
           outgoing calls and stops their agents answering incoming ones until you add
           credit back, and the result says so.
         </li>

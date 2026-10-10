@@ -420,7 +420,7 @@ EXTRA_REFUSAL: Final[dict[str, tuple[str, str, str]]] = {
         "ai_paused_platform_wide",
         "AI help is paused across Calevate right now, so there is nothing to add to. "
         "Nothing has been charged.",
-        "Try again later, or ask your account manager for an update.",
+        "Try again later, or ask us for an update.",
     ),
     "month_ending": (
         "ai_extra_month_ending",
@@ -433,7 +433,7 @@ EXTRA_REFUSAL: Final[dict[str, tuple[str, str, str]]] = {
         "ai_extra_not_available",
         "Extra AI help is not something this account can buy directly — it is billed "
         "with your plan. Nothing has been charged.",
-        "Talk to your account manager to add more AI help this month.",
+        "Talk to us to add more AI help this month.",
     ),
     "not_at_ceiling": (
         "ai_quota_not_reached",
@@ -657,6 +657,30 @@ async def read_ai_usage(
     through `_USAGE_SQL`, so there is still one spelling of the AI ledger's sum.
     """
     parse_billing_month(month)
+    bounds = _month_bounds(month)
+    return await read_ai_usage_between(
+        session,
+        tenant_id=tenant_id,
+        start=bounds["month_from"],
+        end=bounds["month_to"],
+        include_free=include_free,
+    )
+
+
+async def read_ai_usage_between(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    start: datetime,
+    end: datetime,
+    include_free: bool,
+) -> AiUsage:
+    """The AI-ledger totals over any half-open instant range `[start, end)`.
+
+    A trial is counted from its own start instant rather than from the 1st, so the trial
+    panel and the month's money board need the same sum over different windows
+    (`billing/cost_breakdown.py`).
+    """
     row = (
         await session.execute(
             text(_USAGE_SQL),
@@ -667,7 +691,8 @@ async def read_ai_usage(
                 "free_features": (
                     [] if include_free else [*FREE_ASSIST_FEATURES, *ABSORBED_ASSIST_FEATURES]
                 ),
-                **_month_bounds(month),
+                "month_from": start,
+                "month_to": end,
             },
         )
     ).one()
@@ -1147,7 +1172,7 @@ async def require_ai_assist(session: AsyncSession, *, tenant_id: UUID) -> AiQuot
                 "AI help is paused across Calevate while we check unusually high usage. "
                 "Your calls, campaigns and leads are unaffected."
             ),
-            remediation="Try again later, or ask your account manager for an update.",
+            remediation="Try again later, or ask us for an update.",
         )
 
     if not quota.at_ceiling:
@@ -1160,13 +1185,13 @@ async def require_ai_assist(session: AsyncSession, *, tenant_id: UUID) -> AiQuot
                 "This account has used all of this month's AI help, including the extra "
                 "you added. It resets at the start of next month."
             ),
-            remediation=("Talk to your account manager if you need more AI help before then."),
+            remediation=("Talk to us if you need more AI help before then."),
         )
 
     if quota.plan_tier not in PREPAID_TIERS:
         # A MANAGED tenant cannot be offered the block: their wallet is not what pays for
         # anything, and there is no priced AI-overage line on a derived invoice to put
-        # this on. The remediation used to say "talk to your account manager to add more
+        # this on. The remediation used to say "talk to us to add more
         # AI help to this month's plan", which names an action nobody at Calevate can
         # currently perform — the line does not exist. Promising a purchase that cannot
         # be made is worse than naming the wait, so it names the wait, and asking is
@@ -1185,8 +1210,7 @@ async def require_ai_assist(session: AsyncSession, *, tenant_id: UUID) -> AiQuot
             ),
             remediation=(
                 "Your calls, campaigns and leads are unaffected. If you need AI help "
-                "before the reset, raise it with your account manager — extra AI help is "
-                "not something we can add to an invoiced plan from the console."
+                "before the reset, talk to us."
             ),
         )
 
@@ -1436,6 +1460,8 @@ __all__ = [
     "purchase_ai_overage",
     "quota_payload",
     "read_ai_quota",
+    "read_ai_usage",
+    "read_ai_usage_between",
     "read_platform_ai_spend",
     "record_ai_assist_usage",
     "reference_assist_cost_inr",

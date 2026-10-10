@@ -222,7 +222,7 @@ function SignupClosed({
               <code className="rounded bg-black/5 px-1 font-mono text-ink dark:bg-white/10">
                 /c/your-slug
               </code>{" "}
-              — the URL your account manager gave you.
+              — the URL we gave you.
             </p>
           )}
           {onRetry && (

@@ -115,7 +115,7 @@ export function UsageTab({
                   outbound-only — and saying so prevents a needless support call. */}
               Outgoing calls are paused for this month — you have reached your spending
               cap. People calling you still get through. Raise your own limit below, or
-              talk to your account manager if the limit on your plan is the one you have
+              talk to us if the limit on your plan is the one you have
               reached.
             </div>
           )}

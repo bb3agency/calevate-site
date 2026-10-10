@@ -23,17 +23,13 @@
  * The rest map to enforced behaviour: KB approval before anything is answerable
  * (`kb_sources` review states), `text_redacted` plus a role check and an `audit_log`
  * write for a raw number (hard rule 5), the CSV export and the signed outbound webhook
- * (D-23), DNC scrubbed before every dispatch (hard rule 5), and the PE/TM registration
- * gate that blocks outbound while leaving inbound alone (`pe_registration_blocker`,
- * `apps/api/compliance/registration.py`, which is exactly what `/verification` tells a
- * client whose outbound stopped).
+ * (D-23), DNC scrubbed before every dispatch (hard rule 5), and the identity and pledge
+ * gate that blocks outbound while leaving inbound alone (`kyc_blocker` and
+ * `outbound_pledge_blocker` in `apps/api/compliance/service.py`, D-692).
  *
- * The DLT answer describes the GATE and not our own paperwork, deliberately. An earlier
- * draft said "Calevate is registered as the telemarketer", which is a claim about the
- * world rather than about the code — and the code says the opposite is possible:
- * `tm_registration_missing` exists as a platform-level blocker precisely because that
- * registration can be absent. What the product genuinely does is refuse the dial, so
- * that is what the answer says.
+ * The DLT answer describes the GATE and not the law, deliberately: what the product
+ * genuinely does is refuse the dial until its own conditions hold, so that is what the
+ * answer says.
  *
  * ## Why `<details>` rather than a built accordion
  *
@@ -64,10 +60,10 @@ const QUESTIONS: { q: string; a: string }[] = [
   {
     q: "What does it cost?",
     /*
-     * BOTH WAYS TO BUY GET AN ANSWER: prepaid credit is a published card served from
-     * `GET /v1/public/rate-card` and printed on `/pricing`, and a MANAGED plan is negotiated
-     * per client (D-11) with no publishable figure. Saying only the second, on a site that
-     * prints the first, reads as a refusal to say what anything costs.
+     * ONE WAY TO BUY (D-707): prepaid credit at a published card served from
+     * `GET /v1/public/rate-card` and printed on `/pricing`, plus an optional monthly
+     * platform fee that is the same for every client. Worded without "fee" because
+     * this block renders on the homepage (see below).
      *
      * NO FIGURE AND NO LADDER-SHAPE CLAIM HERE, and there cannot be either: this is a
      * `"use client"` component holding no card, so a typed rate is the drift
@@ -83,11 +79,11 @@ const QUESTIONS: { q: string; a: string }[] = [
      * vocabulary of one outside the ROI calculator.
      */
     a:
-      "Two answers, depending on how you buy. Prepaid calling credit is published: a " +
+      "One answer for everyone. You buy prepaid calling credit at a published " +
       "rate for each of the two voices, and the whole ladder is on our price list, so " +
-      "you can see what a minute costs before you talk to anybody. A monthly plan — a bundle of talk time " +
-      "included and a rate for anything past that bundle — we quote for your business, " +
-      "because what those figures should say depends on how much you call and get called.",
+      "you can see what a minute costs before you talk to anybody. Nothing is charged " +
+      "to set you up, and if a monthly platform charge applies it is the same for every " +
+      "client, it is on the price list, and it is paid separately from your credit.",
   },
   {
     q: "Where does the agent get its answers from?",
@@ -154,32 +150,29 @@ const QUESTIONS: { q: string; a: string }[] = [
   {
     q: "Do we need a DLT registration to make outbound calls?",
     /*
-     * THREE REFUSALS, NOT ONE. `check_dispatch` gates outbound on the DLT chain (item 7),
-     * the sender's own advance autodialer notice (7b, `compliance/autodialer.py`) and the
-     * business identity check (2c, `compliance/kyc.py`). Naming only the first tells a
-     * buyer the paperwork is done when it is not, on the surface where that is a
-     * representation rather than a note.
+     * WHAT THE GATE ASKS SINCE D-692: verified KYC (`compliance/kyc.py`), the no-cold-calls
+     * pledge (`compliance/outbound_pledge.py`) and the sender's own advance autodialer
+     * notice (`compliance/autodialer.py`). No DLT registration is asked for. The answer
+     * says what the product refuses, never that the law requires nothing, because the
+     * legal questions in `docs/evidence/dlt-roles-and-operating-model-2026-09-18.md` are
+     * still open with counsel.
      *
      * The notice is the CLIENT's to give and we may not imply otherwise — the access
      * provider's counterparty is the sender. Its legal ground is REPORTED (nobody here has
      * opened TCCCPR Reg 4), so this describes what the product refuses, not what the law
      * says. The notice IS lodgeable — `POST /v1/compliance/autodialer-notice` and the
-     * panel on the agreements screen — so the answer names where; what it may still not
-     * read as is "do these three things and you are dialling", because the number outbound
-     * goes out from is arranged with us. No figure and no price vocabulary: this block
-     * renders on the homepage.
+     * panel on the agreements screen — so the answer names where. No figure and no price
+     * vocabulary: this block renders on the homepage.
      */
     a:
-      "Yes, and two more things besides. Indian rules require the business whose calls " +
-      "they are to be registered, and the telemarketer placing them to be registered " +
-      "too. You must also tell your own telecom access provider, in writing and in " +
-      "advance, that the calls are placed by an automated dialler and what they are for " +
-      "— that notice has to come from you rather than from us. And we check the identity " +
-      "of the business behind the account. The product refuses to dial until every one " +
-      "of those is in place. You record your own notice on your agreements screen; the " +
-      "number your calls go out from is arranged with us, so " +
-      "outbound is something we set up with you rather than something an account " +
-      "switches on. Inbound answering is not affected by any of it.",
+      "The product does not ask for one, from you or from a telemarketer. Before your " +
+      "agent can call out, we verify the identity of the business behind the account, " +
+      "and you accept our no-cold-calls pledge: your agent calls only people who asked " +
+      "to hear from you. You must also tell your own telecom access provider, in writing " +
+      "and in advance, that the calls are placed by an automated dialler and what they " +
+      "are for — that notice has to come from you rather than from us, and you record it " +
+      "on your agreements screen. The product refuses to dial until each of those is in " +
+      "place. Inbound answering is not affected by any of it.",
   },
   {
     q: "Can we stop it once it is running?",

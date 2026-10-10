@@ -141,7 +141,7 @@ export function AcceptChargeDialog({
  *
  * The mapping is exhaustive and its fallback is deliberately vague rather than
  * confident: a reason this build does not know is a reason it must not paraphrase, and
- * "talk to your account manager" is true whatever it turns out to be.
+ * "talk to us" is true whatever it turns out to be.
  *
  * Shared with the dialog for the same reason the dialog is shared: two screens can offer
  * the block, so two screens can have to explain why it is not there, and two copies of
@@ -151,7 +151,7 @@ export function AcceptChargeDialog({
 export function extraUnavailableSentence(quota: AiQuota): string {
   switch (quota.extra_unavailable_reason) {
     case "not_prepaid":
-      return "More AI help for this month is arranged with your account manager — it goes on your invoice rather than coming out of a balance.";
+      return "More AI help cannot be bought for this account yet — talk to us.";
     case "already_purchased":
       return "You have already added extra AI help this month.";
     case "not_at_ceiling":
@@ -162,6 +162,6 @@ export function extraUnavailableSentence(quota: AiQuota): string {
     case "month_ending":
       return "This month is nearly over, so there is nothing worth adding to it — your included AI help comes back within the hour, and it is larger than what you would be buying.";
     default:
-      return "More AI help cannot be added from here right now — talk to your account manager.";
+      return "More AI help cannot be added from here right now — talk to us.";
   }
 }

@@ -66,8 +66,8 @@ In scope v1:
    filters; CSV export; hot-lead notifications (email/WhatsApp).
 4. Admin console: client onboarding wizard, agent config, KB management with
    preview-and-approve, recording the client's own number, usage/margin view, spend caps.
-5. Billing: metered ledger; plan = setup fee + monthly retainer with included minutes +
-   overage; prepaid credit + hard caps.
+5. Billing: metered ledger; prepaid credit in volume packs at one published card for every client, plus an optional platform-wide monthly platform fee paid separately (D-707, 10 Oct 2026, superseding the setup fee + monthly retainer with included minutes +
+   overage); hard caps.
 6. Compliance built-in: an agent that ALWAYS answers truthfully when asked whether it is
    an AI or whether the call is recorded (unconditional, D-163); AI disclosure and a
    recording notice at call start, each a per-agent choice the client makes and is
@@ -192,6 +192,12 @@ used only for follow-up notifications); building our own STT/TTS/LLM; GPU self-h
   billing make them uncompetitive for our segment.
 
 ## 6. Pricing & Revenue Model (decided)
+
+> **SUPERSEDED 10 Oct 2026 by D-707 (ROADMAP).** There is one pricing model: every client buys
+> prepaid credit in volume packs at the same published per-minute card (Clear and Studio), with
+> an optional platform-wide monthly platform fee set in the ops console and paid separately.
+> There is no setup fee and no retainer; existing managed clients moved to credits, and invoices
+> issued before then are honoured. The two motions below are the record of D-34 and D-11.
 
 **Two motions, one product (D-34, resolved Aug 2026).** A self-serve org and a managed org are
 the same `organizations` row distinguished by a plan/tier column — nothing forks.

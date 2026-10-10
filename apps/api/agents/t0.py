@@ -54,6 +54,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
@@ -61,7 +62,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.prompts import insert_prompt_version
 from apps.api.agents.service import publish_agent
-from apps.api.agents.t0_block import T0_HEADER, T0_KNOWLEDGE_MARKER, block_of, intake_lines
+from apps.api.agents.t0_block import (
+    T0_HEADER,
+    T0_KNOWLEDGE_MARKER,
+    block_of,
+    intake_lines,
+    splice_t0_block,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.tenancy.business_profile import profile_fact_lines
@@ -74,10 +81,6 @@ log = get_logger(__name__)
 # per character than English). A number, not a guess about tokens: the compiler has
 # characters and the budget is a ceiling, so it must be enforced in the unit it holds.
 KNOWLEDGE_CHAR_BUDGET = 1500
-
-# Where a freshly compiled block is inserted when the prompt has no block yet — the
-# position PROMPT-GUIDE §2's template order puts it in.
-_INSERT_BEFORE = ("[TASK FLOW]", "[TOOLS]", "[GUARDRAILS]", "[WRAP]")
 
 _NOTES = "T0 recompiled from published knowledge (FLOWS §7)"
 
@@ -178,38 +181,6 @@ def compile_block(*, facts: Sequence[str], knowledge: Sequence[KnowledgeFact]) -
     return CompiledT0(block="\n".join(lines), sources=len(knowledge_half), skipped=skipped)
 
 
-def splice_t0_block(body: str | None, block: str, *, identity: str) -> str:
-    """Put `block` where the prompt's [T0 FACTS] section is, or where it should be.
-
-    Replacing rather than appending is the rule PROMPT-GUIDE §2 states: the block is
-    auto-generated and regenerated, so a second copy of stale hours above the fresh
-    ones is not a merge, it is an agent that quotes two opening times. Everything
-    outside the block — the guardrails an operator wrote by hand, the task flow, the
-    wrap — is not this compiler's to touch.
-    """
-    if not body or not body.strip():
-        return f"[IDENTITY] {identity}\n{block}\n"
-
-    lines = body.splitlines()
-    start = next((i for i, line in enumerate(lines) if line.startswith(T0_HEADER)), None)
-    if start is None:
-        anchor = next(
-            (
-                i
-                for i, line in enumerate(lines)
-                if any(line.startswith(marker) for marker in _INSERT_BEFORE)
-            ),
-            len(lines),
-        )
-        return "\n".join([*lines[:anchor], block, *lines[anchor:]]).rstrip() + "\n"
-
-    end = next(
-        (i for i in range(start + 1, len(lines)) if lines[i].startswith("[")),
-        len(lines),
-    )
-    return "\n".join([*lines[:start], block, *lines[end:]]).rstrip() + "\n"
-
-
 @dataclass(frozen=True, slots=True)
 class _AgentState:
     name: str
@@ -217,6 +188,8 @@ class _AgentState:
     engine_agent_ref: str | None
     body: str | None
     compiled: str | None
+    #: The authored structure of the draft, or None for a freeform one.
+    structured: dict[str, Any] | None
     # SURFACES §2b: is a hand-written script edit staged behind "Apply to live calls"?
     script_staged: bool
 
@@ -231,7 +204,7 @@ async def _agent_state(session: AsyncSession, agent_id: UUID) -> _AgentState:
         await session.execute(
             text(
                 "SELECT a.name, a.status, a.engine_agent_ref, pv.body, pv.compiled_t0_context, "
-                "(a.system_prompt_id IS DISTINCT FROM a.live_prompt_id) "
+                "(a.system_prompt_id IS DISTINCT FROM a.live_prompt_id), pv.structured_script "
                 "FROM agents a LEFT JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
             ),
@@ -246,8 +219,15 @@ async def _agent_state(session: AsyncSession, agent_id: UUID) -> _AgentState:
         engine_agent_ref=row[2],
         body=row[3],
         compiled=row[4],
+        structured=row[6],
         script_staged=bool(row[5]),
     )
+
+
+def _structure_to_carry(structured: dict[str, Any] | None) -> dict[str, Any] | None:
+    if structured is None or structured.get("raw_override") is not None:
+        return None
+    return structured
 
 
 async def recompile_t0(
@@ -317,6 +297,11 @@ async def recompile_t0(
         notes=_NOTES,
         created_by=created_by,
         compiled_t0_context=compiled.block,
+        # The client's script is unchanged by a recompile, so its authored structure is
+        # carried forward; dropping it reopened every structured script in the builder as
+        # raw text holding the platform's facts block. A raw-mode script is the exception:
+        # its text would still hold the OLD block, so it is reloaded from the new body.
+        structured_script=_structure_to_carry(agent.structured),
         apply_live=applies_now,
     )
 
