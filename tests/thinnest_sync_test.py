@@ -180,6 +180,7 @@ async def test_the_sentence_is_logged_from_error_and_never_carried(
     await _dial(409, {"error": "Outside hours for +919876543210", "code": "outside_calling_hours"})
     logged = next(r for r in caplog.records if r.getMessage() == "engine_error")
     assert logged.vendor_code == "outside_calling_hours"
+    assert "Outside hours for" in str(logged.vendor_message)
     assert "9876543210" not in str(logged.vendor_message)
 
 

@@ -35,6 +35,7 @@ reads the call itself with `GET /calls/{id}` (`call`).
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Final
 from urllib.parse import quote
@@ -114,6 +115,85 @@ class ActionDefinition:
             "bodyTemplate": self.body_template(),
             **({"speakBefore": self.speak_before} if self.speak_before or self.client else {}),
         }
+
+
+#: The vendor's rules for an action, from `CreateHttpActionRequest` and
+#: `HttpActionParameter` (snap:api-reference/actions/create-action.md, re-read live
+#: 10 Oct 2026). Checked before the request, because the vendor's 400 names only the
+#: class (`validation_failed`) on the screen and an owner cannot act on that.
+_ACTION_NAME_RE: Final = re.compile(r"^[a-z][a-z0-9_]{2,39}$")
+_PLACEHOLDER_RE: Final = re.compile(r"\{\{\s*([^{}\s]+)\s*\}\}")
+#: Dotted placeholders the platform fills itself; any other dotted one is refused.
+_PLATFORM_PLACEHOLDERS: Final = frozenset(
+    {
+        "call.id",
+        "call.from",
+        "call.to",
+        "call.direction",
+        "conversation.id",
+        "contact.id",
+        "contact.phone",
+        "agent.id",
+        "workspace.id",
+    }
+)
+_MIN_DESCRIPTION: Final = 10
+_MAX_URL: Final = 2048
+_MAX_PARAMS: Final = 20
+_MAX_BODY: Final = 8000
+_MAX_SPOKEN: Final = 200
+
+
+def action_problems(definition: ActionDefinition) -> list[str]:
+    """Every documented rule `definition` breaks, as sentences an owner can act on."""
+    problems: list[str] = []
+    if not _ACTION_NAME_RE.match(definition.name):
+        problems.append(
+            "its name must be 3 to 40 lower-case letters, numbers or underscores, "
+            "starting with a letter"
+        )
+    if len(definition.description.strip()) < _MIN_DESCRIPTION:
+        problems.append("its description must say in a sentence when to use it")
+    if not definition.url.startswith("https://") or len(definition.url) > _MAX_URL:
+        problems.append("its address must be a secure https:// address")
+    if len(definition.parameters) > _MAX_PARAMS:
+        problems.append(f"it may take at most {_MAX_PARAMS} values from the conversation")
+    names = [p.name for p in definition.parameters]
+    if len(set(names)) != len(names):
+        problems.append("two of its values have the same name")
+    for param in definition.parameters:
+        if not _ACTION_NAME_RE.match(param.name):
+            problems.append(
+                f"the value '{param.name}' needs a name of 3 to 40 lower-case letters, "
+                "numbers or underscores, starting with a letter"
+            )
+        if not param.description.strip():
+            problems.append(f"the value '{param.name}' needs a description")
+    body = definition.body_template()
+    if len(body) > _MAX_BODY:
+        problems.append("the values it sends are too long together")
+    for placeholder in _PLACEHOLDER_RE.findall(definition.url + body):
+        if "." in placeholder:
+            if placeholder not in _PLATFORM_PLACEHOLDERS:
+                problems.append(f"'{{{{{placeholder}}}}}' is not something the call can fill")
+        elif placeholder not in names:
+            problems.append(f"'{{{{{placeholder}}}}}' has no value of that name")
+    if definition.speak_before and len(definition.speak_before) > _MAX_SPOKEN:
+        problems.append(f"what it says while it runs must be at most {_MAX_SPOKEN} characters")
+    return problems
+
+
+def assert_action_acceptable(definition: ActionDefinition) -> None:
+    """Refuse, in words, an action the calling system would reject."""
+    problems = action_problems(definition)
+    if problems:
+        raise ProblemError(
+            kind="validation",
+            code="engine_action_invalid",
+            title="An action cannot be added to the calling system",
+            detail=f"The action '{definition.name}' cannot be added: " + "; ".join(problems) + ".",
+            remediation="Fix the action on the agent's Actions screen, then switch it on again.",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,6 +378,7 @@ class ThinnestActions:
     async def create(
         self, agent_ref: str, definition: ActionDefinition, *, secret: str
     ) -> VendorAction:
+        assert_action_acceptable(definition)
         return _action(
             await self._request(
                 "POST",
@@ -317,6 +398,8 @@ class ThinnestActions:
         secret: str | None = None,
         enabled: bool | None = None,
     ) -> VendorAction:
+        if definition is not None:
+            assert_action_acceptable(definition)
         body: dict[str, Any] = dict(definition.wire()) if definition is not None else {}
         if secret is not None:
             body["headers"] = {SECRET_HEADER: secret}

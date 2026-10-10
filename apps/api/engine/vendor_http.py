@@ -572,10 +572,14 @@ def _vendor_error_message(envelope: dict[str, Any] | None) -> str | None:
     """
     if envelope is None:
         return None
-    # Only `message`. ThinnestAI's sentence is `error` itself (errors.md:9-16), and its
-    # `code` already says which refusal it was; an `error` string is not read, because a body
-    # that is not the vendor's could carry anything there.
+    # `message`, or ThinnestAI's `error` sentence when the body is their documented
+    # `{error, code}` envelope (`api-reference/actions/create-action.md` `Error`). Their
+    # `code` names only the class (`validation_failed`); the sentence is what says which
+    # field broke which rule, and without it a 400 cannot be diagnosed. Requiring a string
+    # `code` beside it keeps a body that is not the vendor's (an edge page) from being read.
     raw = envelope.get("message")
+    if not isinstance(raw, str) and isinstance(envelope.get("code"), str):
+        raw = envelope.get("error")
     if not isinstance(raw, str):
         return None
     printable = _NON_PRINTABLE_RE.sub(_NON_PRINTABLE, raw[:_VENDOR_MESSAGE_READ_LIMIT])
