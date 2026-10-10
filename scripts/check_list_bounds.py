@@ -208,6 +208,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "rate in force now, never the history."
         )
     ),
+    "GET /v1/ops/inr-llm-prices": BoundedByConstruction(
+        by=(
+            "one row per model in `billing/rates.INR_PRICED_LLMS`, a code constant, each "
+            "carrying only the attestation in force now, never the history."
+        )
+    ),
     "GET /v1/agents/engine-catalogue": BoundedByConstruction(
         by=(
             "the voices an operator added and enabled out of `platform_voice_catalog`'s hosted "
