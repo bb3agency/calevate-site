@@ -121,7 +121,7 @@ from apps.api.engine.catalogue import (
 )
 from apps.api.engine.charges import EngineCharge, EngineChargeListing
 from apps.api.engine.document import engine_document
-from apps.api.engine.forwarding_test import (
+from apps.api.engine.forwarding_probe import (
     FORWARDING_TEST_AGENT_NAMES,
     TEST_CALL_INSTRUCTIONS,
     TEST_CALL_MAX_SECONDS,

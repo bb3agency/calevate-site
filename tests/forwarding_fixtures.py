@@ -16,7 +16,7 @@ from apps.api.campaigns import engine_numbers
 from apps.api.core.context import Principal
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.engine.forwarding_test import ForwardingLegReport
+from apps.api.engine.forwarding_probe import ForwardingLegReport
 from apps.api.forwarding import service, testing
 from sqlalchemy import text
 

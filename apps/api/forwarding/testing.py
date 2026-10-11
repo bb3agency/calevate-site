@@ -23,7 +23,7 @@ reaches a non-commercial test call is not settled: OPERATIONS gate F-6.
 
 HOW IT RUNS. Leg 1 rings from the shared trial number, leg 2 (when an operator has chosen a
 second number) from that one, each placed by its own developer-workspace agent
-(`engine/forwarding_test.py`). They share the trial number's one line with free-trial calls,
+(`engine/forwarding_probe.py`). They share the trial number's one line with free-trial calls,
 so the trial line lock (`agents.service.TRIAL_LINE_LOCK_KEY`) is taken and both kinds of
 use are counted. The forwarded arrival is seen twice, and the larger count wins because the
 two see different ids for the same call: the caller lookup, before the client's agent
@@ -68,7 +68,7 @@ from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
-from apps.api.engine.forwarding_test import PlacesForwardingTests
+from apps.api.engine.forwarding_probe import PlacesForwardingTests
 from apps.api.forwarding.service import (
     platform_caller_numbers,
     published_numbers,
