@@ -1203,3 +1203,48 @@ def test_a_suspended_account_has_its_own_row_copy() -> None:
     row = readiness._row("account_suspended", "Suspended.")
     assert row.title == "This account is suspended"
     assert row.actor == "calevate"
+
+
+async def test_clearing_the_last_agreement_brings_the_live_agents_up_to_date() -> None:
+    """A live-apply run refuses an account's agents while an agreement is outstanding, and
+    nothing else re-runs it. So the acceptance that clears the LAST one queues one run for
+    that account; earlier acceptances and a repeat click queue nothing."""
+    org = await _org("reapply")
+    user_id, _ = await _member(org["tenant_id"])
+
+    async def accept(slug: str) -> None:
+        async with tenant_session(org["tenant_id"]) as session:
+            await legal_service.record_acceptance(
+                session,
+                tenant_id=org["tenant_id"],
+                slug=slug,
+                version=_spec(slug).current_version,
+                statement_version=statements.statement_version(),
+                user_id=user_id,
+            )
+
+    async def runs() -> int:
+        async with untenanted_session() as session:
+            return int(
+                (
+                    await session.execute(
+                        text(
+                            "SELECT count(*) FROM live_apply_runs WHERE tenant_id = :t "
+                            "AND reasons ? 'agreements_accepted'"
+                        ),
+                        {"t": org["tenant_id"]},
+                    )
+                ).scalar_one()
+            )
+
+    for slug in catalogue.BLOCKING_SLUGS[:-1]:
+        await accept(slug)
+    assert await runs() == 0
+    async with tenant_session(org["tenant_id"]) as session:
+        await session.execute(
+            text("UPDATE agents SET status = 'live' WHERE id = :a"), {"a": org["agent_id"]}
+        )
+    await accept(catalogue.BLOCKING_SLUGS[-1])
+    assert await runs() == 1
+    await accept(catalogue.BLOCKING_SLUGS[-1])
+    assert await runs() == 1

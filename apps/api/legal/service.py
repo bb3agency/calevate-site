@@ -157,6 +157,20 @@ async def assert_agreements_accepted(session: AsyncSession, *, tenant_id: UUID) 
     )
 
 
+async def _has_live_agent(session: AsyncSession, *, tenant_id: UUID) -> bool:
+    return bool(
+        (
+            await session.execute(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM agents WHERE tenant_id = :tid "
+                    "AND status = 'live' AND deleted_at IS NULL)"
+                ),
+                {"tid": tenant_id},
+            )
+        ).scalar()
+    )
+
+
 async def record_acceptance(
     session: AsyncSession,
     *,
@@ -217,6 +231,7 @@ async def record_acceptance(
             remediation="Reload the page and confirm again — the text has changed since it loaded.",
         )
 
+    was_blocked = bool(outstanding_slugs(await latest_acceptances(session, tenant_id=tenant_id)))
     row = (
         await session.execute(
             text(
@@ -245,6 +260,20 @@ async def record_acceptance(
             "statement_version": statement_version,
         },
     )
+    if (
+        was_blocked
+        and not outstanding_slugs(await latest_acceptances(session, tenant_id=tenant_id))
+        and await _has_live_agent(session, tenant_id=tenant_id)
+    ):
+        # A live-apply run refuses this tenant's agents while agreements are outstanding
+        # (`assert_agreements_accepted` on publish), and nothing else re-runs it, so the
+        # acceptance that clears the last one brings the live agents up to date. Imported
+        # here because `agents` imports this module.
+        from apps.api.agents.live_apply import queue_live_apply
+
+        await queue_live_apply(
+            session, scope="tenant", tenant_id=tenant_id, reason="agreements_accepted"
+        )
     name = (
         await session.execute(text("SELECT name FROM users WHERE id = :uid"), {"uid": user_id})
     ).scalar()
