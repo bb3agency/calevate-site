@@ -62,12 +62,6 @@ ALLOWED: tuple[tuple[str, frozenset[str], str], ...] = (
         "pipeline tests classify, never a production default",
     ),
     (
-        "scripts/seed_dev.py",
-        frozenset({"dental", "appointment", "clinic", "appointments"}),
-        "the local development seed is a clinic account chosen on purpose "
-        "(TENANT_VERTICAL), to exercise the clinic type",
-    ),
-    (
         "scripts/spike/kb_pgvector_latency.py",
         frozenset({"clinic", "appointment", "dentist", "doctor", "prescription"}),
         "a one-off latency spike's synthetic corpus, never run by the product",

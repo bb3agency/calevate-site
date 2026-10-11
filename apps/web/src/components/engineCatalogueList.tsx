@@ -161,7 +161,7 @@ export function EngineCatalogueList({
               <p className="text-xs text-ink-muted">{rung.blurb}</p>
               {rung.value === "studio" && !data.studio_available ? (
                 <p className="mt-1 text-sm text-ink-muted">
-                  {/* The server's own reason: a trial account, or Studio not ready yet. */}
+                  {/* The server's own reason: Studio is not ready on this deployment yet. */}
                   {data.studio_note ??
                     "Studio voices are not available on this account yet."}
                 </p>

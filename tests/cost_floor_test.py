@@ -334,14 +334,14 @@ def test_the_cartesia_cost_curve_at_real_volumes_including_one_that_is_underwate
     # At 100 call-minutes a month the deepest Studio rungs still sell a minute for less
     # than it cost — the case the ₹4.3639 "floor" said could not exist and the console has
     # to warn about. The COUNT has moved twice and is not the property: four rungs before
-    # D-592 halved the engine leg, one after it, and two again under the founder's 14 Sep
-    # card, which cut the Studio floor rung from ₹6.00 to ₹5.50. What must hold is that the
-    # set is a non-empty run of the DEEPEST rungs — a per-rung warning the console can
-    # print, rather than a blanket one.
+    # D-592 halved the engine leg, one after it, two under the 14 Sep card, and all six
+    # under the flat ₹6.00 card of 11 Oct (D-728), whose one Studio rate sits just under
+    # the ₹6.0211 cost. What must hold is that the set is a non-empty run of the DEEPEST
+    # rungs — a per-rung warning the console can print, rather than a blanket one.
     at_100 = cartesia_cost_inr_per_call_minute(Decimal("100"), usd_inr=CARTESIA_EVIDENCE_USD_INR)
     assert at_100 == Decimal("6.0211")
     underwater = sorted(pack.pack_id for pack in PACK_CATALOGUE if pack.studio_inr_per_min < at_100)
-    assert underwater == ["max", "pro"]
+    assert underwater == sorted(pack.pack_id for pack in PACK_CATALOGUE)
     assert underwater, "some rung must be under water at the ladder's bottom volume"
     by_depth = sorted(PACK_CATALOGUE, key=lambda pack: pack.amount_inr, reverse=True)
     assert sorted(pack.pack_id for pack in by_depth[: len(underwater)]) == underwater, (
@@ -394,12 +394,12 @@ def test_every_studio_rung_carries_the_volume_it_needs_to_stop_losing_money() ->
         )
         for pack in PACK_CATALOGUE
     } == {
-        "starter": Decimal("82"),
-        "growth": Decimal("87"),
-        "scale": Decimal("93"),
-        "plus": Decimal("99"),
-        "pro": Decimal("106"),
-        "max": Decimal("114"),
+        "starter": Decimal("101"),
+        "growth": Decimal("101"),
+        "scale": Decimal("101"),
+        "plus": Decimal("101"),
+        "pro": Decimal("101"),
+        "max": Decimal("101"),
     }
     sustained = cartesia_rung_breakeven_call_minutes(
         Decimal("5.00"), usd_inr=CARTESIA_EVIDENCE_USD_INR
@@ -585,18 +585,18 @@ def test_the_approved_card_clears_both_floors_and_thin_cells_are_warned_not_refu
     read back.
     """
     expected = {
-        ("starter", "clear"): Decimal("0.2127"),
-        ("starter", "studio"): Decimal("0.3272"),
-        ("growth", "clear"): Decimal("0.2127"),
-        ("growth", "studio"): Decimal("0.2970"),
-        ("scale", "clear"): Decimal("0.2127"),
-        ("scale", "studio"): Decimal("0.2641"),
-        ("plus", "clear"): Decimal("0.2127"),
-        ("plus", "studio"): Decimal("0.2279"),
-        ("pro", "clear"): Decimal("0.2127"),
-        ("pro", "studio"): Decimal("0.1879"),
-        ("max", "clear"): Decimal("0.2127"),
-        ("max", "studio"): Decimal("0.1437"),
+        ("starter", "clear"): Decimal("0.3002"),
+        ("starter", "studio"): Decimal("0.2150"),
+        ("growth", "clear"): Decimal("0.3002"),
+        ("growth", "studio"): Decimal("0.2150"),
+        ("scale", "clear"): Decimal("0.3002"),
+        ("scale", "studio"): Decimal("0.2150"),
+        ("plus", "clear"): Decimal("0.3002"),
+        ("plus", "studio"): Decimal("0.2150"),
+        ("pro", "clear"): Decimal("0.3002"),
+        ("pro", "studio"): Decimal("0.2150"),
+        ("max", "clear"): Decimal("0.3002"),
+        ("max", "studio"): Decimal("0.2150"),
     }
     thin = []
     for pack in PACK_CATALOGUE:
@@ -615,9 +615,9 @@ def test_the_approved_card_clears_both_floors_and_thin_cells_are_warned_not_refu
             assert verdict.below_target is (margin < MIN_GROSS_MARGIN)
             if verdict.below_target:
                 thin.append(f"{pack.pack_id}/{voice}")
-    # Thin cells exist on the card that is on sale, and not one of them makes it
-    # unsellable — the whole reason `card_refusals` separates cost from target.
-    assert thin
+    # The D-728 card clears target on every cell, so nothing is thin; the per-cell posture
+    # above still holds for a thin card, and `card_refusals` refuses only below cost.
+    assert thin == []
     assert card_refusals(PACK_CATALOGUE) == []
 
 
@@ -646,7 +646,7 @@ def test_the_floor_moves_with_the_dollar_and_the_refusal_bound_does_not() -> Non
     assert cartesia_cost_floor_inr_per_min_at(Decimal("100")) == Decimal("5.2511")
 
     cheapest_rung = min(pack.studio_inr_per_min for pack in PACK_CATALOGUE)
-    assert cheapest_rung == Decimal("5.50")
+    assert cheapest_rung == Decimal("6.00")
     assert cheapest_rung > cartesia_cost_floor_inr_per_min_at(Decimal("88"))
     # ⚠ **THE FLOOR RUNG NO LONGER GOES UNDER WATER AT THE LLM CARD'S RATE, AND THAT IS
     # THE WHOLE POINT OF FREEZING THE BOUND, NOT A REASON TO UNFREEZE IT.** Until D-592 the
@@ -664,7 +664,7 @@ def test_the_floor_moves_with_the_dollar_and_the_refusal_bound_does_not() -> Non
     at_9566 = gross_margin_ratio(
         rate=cheapest_rung, cost=cartesia_cost_floor_inr_per_min_at(Decimal("95.66"))
     ).quantize(Decimal("0.0001"))
-    assert at_9566 == Decimal("0.0808")
+    assert at_9566 == Decimal("0.1574")
 
     # The refusal is struck at the FROZEN rate and the card therefore still records — which
     # is the property `tests/credit_packs_test.py` scores and this one explains.
@@ -682,7 +682,7 @@ def test_the_scary_marginal_figure_is_not_the_blended_one_and_both_are_published
     The floor is the pure OVERAGE marginal rate and applies only ABOVE the included
     allotment — it is the cost of the NEXT minute for a high-volume client on the ₹50,000
     pack. At 200 call-minutes a month on Pro the BLENDED cost at the same ₹95.66 is ₹4.3379
-    and the ₹5.50 rung earns 21.1% against it, where the marginal reading gives 8.1%. A
+    and the ₹6.00 rung earns 27.7% against it, where the marginal reading gives 15.7%. A
     console that showed only the first would be crying wolf, and one that showed only the
     second would be hiding the exposure; both are on the wire
     (`CartesiaVolumeOut.floor_inr_per_min` and `.cost_inr_per_min`).
@@ -693,7 +693,7 @@ def test_the_scary_marginal_figure_is_not_the_blended_one_and_both_are_published
     assert blended < cartesia_cost_floor_inr_per_min_at(fx)
     floor_rung = min(pack.studio_inr_per_min for pack in PACK_CATALOGUE)
     assert gross_margin_ratio(rate=floor_rung, cost=blended).quantize(Decimal("0.0001")) == Decimal(
-        "0.2113"
+        "0.2770"
     )
 
 

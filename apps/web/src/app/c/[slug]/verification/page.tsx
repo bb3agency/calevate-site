@@ -87,7 +87,7 @@ export default function VerificationPage() {
   const blocked = kycRecord && !kycRecord.is_verified;
 
   return (
-    <div className="space-y-8 pb-12">
+    <div className="max-w-3xl space-y-8 pb-12">
       <PageHeader
         description={
           <>

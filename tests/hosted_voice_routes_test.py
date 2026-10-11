@@ -164,7 +164,8 @@ async def test_a_thinnest_refresh_reads_the_hosted_lists_and_never_list_voices(
 async def test_our_voice_key_on_adds_its_voices_and_prunes_what_left(
     hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Studio voices are listed through a Studio client workspace (D-717)."""
+    """Studio voices are listed in our developer workspace once it is on (D-727), else through
+    a Studio client workspace (D-717)."""
     use_studio_workspace(monkeypatch)
     gone = await hosted_rows.add("byok", label="Old", origin="synced", state="disabled")
     kept = f"k{uuid.uuid4().hex[:8]}"
@@ -172,10 +173,17 @@ async def test_our_voice_key_on_adds_its_voices_and_prunes_what_left(
     engine = HostingEngine(
         own_key=[HostedVoice(voice_id=kept, label="Meera", source="byok", language="te")]
     )
+    developer_off = HostingEngine(
+        own_key=[HostedVoice(voice_id=kept, label="Meera", source="byok", language="te")],
+        key_state=OFF_KEY,
+    )
+    developer_off.workspace_keys[STUDIO_WS] = READY_KEY
     async with admin_session() as session:
+        first = await sync_voice_catalogue(session, developer_off)
         result = await sync_voice_catalogue(session, engine)
-    assert engine.own_keys_listed == 1 and engine.listed_in == [STUDIO_WS]
-    assert result.note is None and result.pruned >= 1
+    assert developer_off.listed_in == [STUDIO_WS]
+    assert engine.own_keys_listed == 1 and engine.listed_in == [None]
+    assert result.note is None and first.pruned + result.pruned >= 1
     assert (await _entry(gone)).withdrawn_at is not None
     fresh = await _entry(f"byok:{kept}")
     assert (fresh.provider, fresh.languages, fresh.withdrawn_at) == ("cartesia", ["te-IN"], None)
@@ -627,18 +635,19 @@ async def test_an_uploaded_preview_must_be_mp3_or_wav(
     assert previews == {storage.voice_preview_key(voice): WAV}
 
 
-async def test_a_studio_preview_needs_a_studio_client_workspace(
+async def test_a_studio_preview_needs_a_workspace_that_runs_studio(
     admin: dict[str, str], hosted_rows: CatalogueRows, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Our developer workspace's switch is off, where the vendor refuses a preview with 409
-    (preview-byok-voice.md:396-397), so with no Studio client the preview is refused here."""
+    """The vendor refuses a preview with 409 in a workspace not on its own keys
+    (preview-byok-voice.md:396-397), so with our developer workspace off and no Studio
+    client the preview is refused here."""
 
     async def _none(*, limit: int = 1000) -> list[Any]:
         return []
 
     monkeypatch.setattr(hosted_voices, "studio_workspaces", _none)
     studio = await hosted_rows.add("byok")
-    engine = HostingEngine()
+    engine = HostingEngine(key_state=OFF_KEY)
     with selected(engine):
         async with _client() as http:
             response = await http.post(
@@ -799,7 +808,7 @@ def _ws() -> str:
     return f"org_ss{uuid.uuid4().hex[:10]}"
 
 
-async def test_studio_readiness_says_what_is_missing_and_that_the_developer_switch_stays_off(
+async def test_studio_readiness_says_what_is_missing_and_wants_the_developer_switch_on(
     admin: dict[str, str],
 ) -> None:
     with selected(HostingEngine(key_state=OFF_KEY)):
@@ -811,32 +820,94 @@ async def test_studio_readiness_says_what_is_missing_and_that_the_developer_swit
             holding = (await http.get("/v1/ops/voices/studio-voices", headers=admin)).json()
     with selected(HostingEngine(key_state=READY_KEY)):
         async with _client() as http:
-            legacy = (await http.get("/v1/ops/voices/studio-voices", headers=admin)).json()
+            on = (await http.get("/v1/ops/voices/studio-voices", headers=admin)).json()
     assert bare["ready"] is False and bare["developer_holds_key"] is False
     assert any("Studio ready" in step for step in bare["missing"])
+    # Holding the key with the switch off is not ready any more (D-727).
     assert holding["developer_holds_key"] is True and holding["developer_switch_on"] is False
-    assert "switch off" in holding["explanation"]
-    assert legacy["developer_switch_on"] is True and "ON" in legacy["note"]
+    assert any("developer workspace" in step for step in holding["missing"])
+    assert on["developer_switch_on"] is True
+    assert not any("developer workspace" in step for step in on["missing"])
+    assert "trial" in on["explanation"]
 
 
-async def test_studio_ready_holds_our_key_in_the_developer_workspace_and_never_switches_it_on(
-    admin: dict[str, str], cartesia_key: None
+async def test_studio_ready_switches_our_key_on_in_the_developer_workspace(
+    admin: dict[str, str], cartesia_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """D-727: before the switch goes on, every agent that would follow it and is not on a
+    Studio voice is set off and read back: the developer workspace's own, and those in a client
+    workspace with no key of its own (bring-your-own-keys.md:128-133). A Studio agent, and an
+    agent in a client workspace on its own key, are left as they are."""
+    own_ws, inheriting_ws = _ws(), _ws()
+    dev_clear = f"ag_{uuid.uuid4().hex[:8]}"
+    dev_studio = f"ag_{uuid.uuid4().hex[:8]}"
+    inheriting_clear = f"ag_{uuid.uuid4().hex[:8]}@{inheriting_ws}"
+    own_clear = f"ag_{uuid.uuid4().hex[:8]}@{own_ws}"
+    refs = {
+        dev_clear: "premium",
+        dev_studio: "byok_voice",
+        inheriting_clear: "premium",
+        own_clear: "premium",
+    }
+    tenant, _ = await _routes_for(refs)
+    _only_routes_of(monkeypatch, tenant)
     engine = HostingEngine(key_state=OFF_KEY)
-    with selected(engine):
-        async with _client() as http:
-            refused = await http.post("/v1/ops/voices/studio-voices/enable", headers=admin, json={})
-            done = await http.post(
-                "/v1/ops/voices/studio-voices/enable",
-                headers={**admin, "X-Confirm-Action": routes.STUDIO_ENABLE_CONFIRMATION},
-                json={"model": "sonic-3"},
-            )
+    engine.workspace_keys[own_ws] = READY_KEY
+    for ref in (dev_clear, inheriting_clear, own_clear):
+        engine.own_voice_key[ref] = True
+    try:
+        with selected(engine):
+            async with _client() as http:
+                refused = await http.post(
+                    "/v1/ops/voices/studio-voices/enable", headers=admin, json={}
+                )
+                done = await http.post(
+                    "/v1/ops/voices/studio-voices/enable",
+                    headers={**admin, "X-Confirm-Action": routes.STUDIO_ENABLE_CONFIRMATION},
+                    json={"model": "sonic-3"},
+                )
+                again = await http.post(
+                    "/v1/ops/voices/studio-voices/enable",
+                    headers={**admin, "X-Confirm-Action": routes.STUDIO_ENABLE_CONFIRMATION},
+                    json={},
+                )
+    finally:
+        await _drop_routes(list(refs), tenant)
     assert refused.json()["type"].rsplit("/", 1)[-1] == "step_up_required"
     assert done.status_code == 200, done.text
+    assert engine.own_voice_key[dev_clear] is False
+    assert engine.own_voice_key[inheriting_clear] is False
+    assert engine.own_voice_key[own_clear] is True and dev_studio not in engine.own_voice_key
     assert engine.installed == [("cartesia", "sonic-3")] and engine.installed_in == [None]
-    assert engine.enabled == 0 and engine.key_state.enabled is False
-    assert done.json()["developer_holds_key"] is True
+    assert engine.enabled_in == [None] and engine.key_state.speaks_on_own_voice
+    assert done.json()["developer_switch_on"] is True
+    # Idempotent: a workspace already on is only read.
+    assert again.status_code == 200 and engine.enabled == 1
     assert await _audits("ops.studio_voices_prepared") >= 1
+
+
+@pytest.mark.parametrize("failure", ["refused", "stuck"])
+async def test_the_developer_switch_stays_off_while_an_agent_cannot_be_kept_off(
+    admin: dict[str, str], cartesia_key: None, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    clear = f"ag_{uuid.uuid4().hex[:8]}"
+    tenant, _ = await _routes_for({clear: "premium"})
+    _only_routes_of(monkeypatch, tenant)
+    engine = HostingEngine(key_state=OFF_KEY)
+    engine.own_voice_key[clear] = True
+    (engine.refuse_switch if failure == "refused" else engine.stuck_switch).add(clear)
+    try:
+        with selected(engine):
+            async with _client() as http:
+                response = await http.post(
+                    "/v1/ops/voices/studio-voices/enable",
+                    headers={**admin, "X-Confirm-Action": routes.STUDIO_ENABLE_CONFIRMATION},
+                    json={},
+                )
+    finally:
+        await _drop_routes([clear], tenant)
+    assert response.json()["type"].rsplit("/", 1)[-1] == "studio_agents_not_kept_off"
+    assert engine.installed == [] and engine.enabled == 0
 
 
 async def test_studio_ready_needs_our_cartesia_key(
@@ -866,11 +937,12 @@ async def test_naming_a_client_switches_studio_on_in_its_workspace_with_clear_ag
 ) -> None:
     ws = _ws()
     clear, studio = f"ag_{uuid.uuid4().hex[:8]}@{ws}", f"ag_{uuid.uuid4().hex[:8]}@{ws}"
-    elsewhere = f"ag_{uuid.uuid4().hex[:8]}"
+    elsewhere = f"ag_{uuid.uuid4().hex[:8]}@{_ws()}"
     tenant, _ = await _routes_for(
         {clear: "premium", studio: "byok_voice", elsewhere: "premium"}, workspace=ws
     )
-    engine = HostingEngine(key_state=OFF_KEY)
+    # Our developer workspace already on: only the client's workspace is switched here.
+    engine = HostingEngine(key_state=READY_KEY)
     engine.workspace_keys[ws] = OFF_KEY
     engine.own_voice_key[clear] = True
     engine.own_voice_key[elsewhere] = True
@@ -898,9 +970,8 @@ async def test_naming_a_client_switches_studio_on_in_its_workspace_with_clear_ag
     assert engine.own_voice_key[clear] is False and studio not in engine.own_voice_key
     # An agent outside that workspace is not this switch's business.
     assert engine.own_voice_key[elsewhere] is True
-    assert engine.installed_in == [None, ws] and engine.enabled == 1
+    assert engine.installed_in == [ws] and engine.enabled_in == [ws]
     assert engine.workspace_keys[ws].speaks_on_own_voice
-    assert engine.key_state.enabled is False
     assert enabled_at is not None
 
 
@@ -911,7 +982,7 @@ async def test_a_client_workspace_is_not_switched_on_while_a_clear_agent_cannot_
     ws = _ws()
     clear = f"ag_{uuid.uuid4().hex[:8]}@{ws}"
     tenant, _ = await _routes_for({clear: "premium"}, workspace=ws)
-    engine = HostingEngine(key_state=OFF_KEY)
+    engine = HostingEngine(key_state=READY_KEY)
     engine.workspace_keys[ws] = OFF_KEY
     engine.own_voice_key[clear] = True
     (engine.refuse_switch if failure == "refused" else engine.stuck_switch).add(clear)
@@ -926,66 +997,7 @@ async def test_a_client_workspace_is_not_switched_on_while_a_clear_agent_cannot_
     finally:
         await _drop_routes([clear], tenant)
     assert response.json()["type"].rsplit("/", 1)[-1] == "studio_agents_not_kept_off"
-    assert engine.installed_in == [None] and engine.enabled == 0
-
-
-async def test_the_developer_switch_goes_off_only_once_no_studio_agent_depends_on_it(
-    admin: dict[str, str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ws = _ws()
-    on_developer = f"ag_{uuid.uuid4().hex[:8]}"
-    on_client = f"ag_{uuid.uuid4().hex[:8]}@{ws}"
-    tenant, _ = await _routes_for({on_developer: "byok_voice", on_client: "byok_voice"})
-    _only_routes_of(monkeypatch, tenant)
-    engine = HostingEngine(key_state=READY_KEY)
-    engine.workspace_keys[ws] = READY_KEY
-    headers = {**admin, "X-Confirm-Action": routes.STUDIO_DISABLE_CONFIRMATION}
-    try:
-        with selected(engine):
-            async with _client() as http:
-                blocked = await http.post("/v1/ops/voices/studio-voices/disable", headers=headers)
-                async with tenant_session(tenant) as session:
-                    await session.execute(
-                        text(
-                            "UPDATE engine_agent_routes SET active = false "
-                            "WHERE engine_agent_ref = :ref"
-                        ),
-                        {"ref": on_developer},
-                    )
-                done = await http.post("/v1/ops/voices/studio-voices/disable", headers=headers)
-    finally:
-        await _drop_routes([on_developer, on_client], tenant)
-    assert blocked.json()["type"].rsplit("/", 1)[-1] == "studio_clients_not_moved"
-    assert "developer workspace" in blocked.json()["detail"]
-    assert done.status_code == 200, done.text
-    assert engine.disabled == 1 and done.json()["developer_switch_on"] is False
-    assert engine.workspace_keys[ws].speaks_on_own_voice
-    assert await _audits("ops.studio_developer_switch_off") >= 1
-
-
-async def test_a_client_workspace_inheriting_ours_also_blocks_the_developer_switch_off(
-    admin: dict[str, str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ws = _ws()
-    studio = f"ag_{uuid.uuid4().hex[:8]}@{ws}"
-    tenant, _ = await _routes_for({studio: "byok_voice"})
-    _only_routes_of(monkeypatch, tenant)
-    engine = HostingEngine(key_state=READY_KEY)
-    # Inheriting ours rather than on its own key: switching ours off would silence it.
-    engine.workspace_keys[ws] = READY_KEY.model_copy(update={"using": "developer"})
-    try:
-        with selected(engine):
-            async with _client() as http:
-                blocked = await http.post(
-                    "/v1/ops/voices/studio-voices/disable",
-                    headers={**admin, "X-Confirm-Action": routes.STUDIO_DISABLE_CONFIRMATION},
-                )
-    finally:
-        await _drop_routes([studio], tenant)
-    assert blocked.json()["type"].rsplit("/", 1)[-1] == "studio_clients_not_moved"
-    assert engine.disabled == 0
+    assert engine.installed_in == [] and engine.enabled == 0
 
 
 # --- the operator's preview player ---------------------------------------------------

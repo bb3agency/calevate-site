@@ -124,7 +124,7 @@ export function NavDrawer({
         <button
           type="button"
           aria-label="Close navigation"
-          className="scrim-enter fixed inset-0 z-40 bg-ink/40 backdrop-blur-sm lg:hidden"
+          className="scrim-enter fixed inset-0 z-drawer bg-ink/40 backdrop-blur-sm lg:hidden"
           onClick={onClose}
         />
       )}
@@ -137,7 +137,7 @@ export function NavDrawer({
         aria-modal={isModal ? true : undefined}
         aria-label={isModal ? label : undefined}
         tabIndex={isModal ? -1 : undefined}
-        className={`fixed inset-y-0 left-0 z-50 flex shrink-0 flex-col border-r border-line bg-surface transition-transform duration-(--duration-slow) ease-drawer motion-reduce:transition-none lg:static lg:translate-x-0 lg:shadow-none ${
+        className={`fixed inset-y-0 left-0 z-drawer flex shrink-0 flex-col border-r border-line bg-surface transition-transform duration-(--duration-slow) ease-drawer motion-reduce:transition-none lg:static lg:translate-x-0 lg:shadow-none ${
           isOpen ? "translate-x-0 shadow-overlay" : "-translate-x-full"
         } ${className}`}
       >

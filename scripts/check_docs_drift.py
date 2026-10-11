@@ -157,6 +157,8 @@ from decimal import ROUND_HALF_UP, Decimal
 from functools import cache
 from pathlib import Path
 
+from scripts.tree_walk import walk_files
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # The doc set this guards. `docs/` is authoritative (CLAUDE.md), the runbooks are read at
@@ -389,7 +391,7 @@ def doc_files(
         path
         for root in (DOC_ROOTS if roots is None else roots)
         if root.exists()
-        for path in sorted(root.rglob("*.md"))
+        for path in walk_files(root, "*.md")
     ]
     files += [path for path in (EXTRA_DOCS if extra is None else extra) if path.exists()]
     return files
@@ -508,9 +510,7 @@ def _citation_files(roots: Iterable[Path] | None = None) -> Iterator[Path]:
     for root in CITATION_ROOTS if roots is None else roots:
         if not root.exists():
             continue
-        for path in sorted(root.rglob("*")):
-            if not path.is_file() or "__pycache__" in path.parts:
-                continue
+        for path in walk_files(root):
             if path.suffix in {".md", ".py", ".sql", ".yml", ".yaml", ".toml", ".conf"}:
                 yield path
 
@@ -789,10 +789,9 @@ def _python_files(roots: Iterable[Path] | None = None) -> Iterator[Path]:
     for root in CODE_ROOTS if roots is None else roots:
         if not root.exists():
             continue
-        for path in sorted(root.rglob("*.py")):
-            if "__pycache__" in path.parts or path.name.endswith("_test.py"):
-                continue
-            yield path
+        for path in walk_files(root, "*.py"):
+            if not path.name.endswith("_test.py"):
+                yield path
 
 
 def code_vocabulary(roots: Iterable[Path] | None = None) -> set[str]:
@@ -2145,9 +2144,7 @@ def _capability_python(roots: Iterable[Path] | None = None) -> Iterator[Path]:
     for root in CAPABILITY_ROOTS if roots is None else roots:
         if not root.exists():
             continue
-        for path in sorted(root.rglob("*.py")):
-            if "__pycache__" not in path.parts:
-                yield path
+        yield from walk_files(root, "*.py")
 
 
 @cache
@@ -2239,9 +2236,8 @@ def prose_blocks(
             yield _rel(path), line, text
     web_root = WEB_SOURCE_ROOT if web is None else web
     if web_root.exists():
-        for path in sorted(web_root.rglob("*.ts*")):
-            if "node_modules" not in path.parts:
-                yield _rel(path), 1, path.read_text(encoding="utf-8")
+        for path in walk_files(web_root, "*.ts*"):
+            yield _rel(path), 1, path.read_text(encoding="utf-8")
 
 
 @cache

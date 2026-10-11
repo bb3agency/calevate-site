@@ -86,10 +86,18 @@ describe("the edge security headers", () => {
     expect(policy).toBeDefined();
     // `()` and not `(self)`: an empty allowlist is denial, and denial to our OWN origin is
     // the half that an XSS foothold would otherwise walk through.
-    for (const feature of ["camera", "microphone", "geolocation", "usb", "serial", "midi"]) {
+    for (const feature of ["camera", "geolocation", "usb", "serial", "midi"]) {
       expect(policy).toContain(`${feature}=()`);
     }
     expect(policy).not.toContain("=(*)");
+  });
+
+  it("allows the microphone to this origin only, for the knowledge base's voice note", () => {
+    const policy = lines.find((line) => line.startsWith("add_header Permissions-Policy"));
+    // `()` here makes the browser refuse `getUserMedia` without asking, so "Say it" could
+    // never work; `(self)` keeps every embedded frame out.
+    expect(policy).toContain("microphone=(self)");
+    expect(policy).not.toMatch(/microphone=\((?!self\))/);
   });
 
   it("carries `always` on every header, so an error page is not the unprotected one", () => {

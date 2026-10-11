@@ -63,6 +63,7 @@ from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.fake import FakeEngine
+from apps.workers import live_apply as live_apply_worker
 from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
     AZURE_OPENAI_MODELS,
@@ -133,6 +134,15 @@ def _azure(monkeypatch: pytest.MonkeyPatch, *, deployments: str = "") -> None:
         ("llm_tier_plus_model", ALTERNATE_MODEL),
     ):
         monkeypatch.setattr(settings, field, value, raising=False)
+    # These fields live on the cached `Settings` object. The live-apply worker re-reads the
+    # platform store before it walks (`platform_config.refresh`), which rebuilds `Settings`
+    # from the environment and would drop them, so a drained run would publish against a
+    # deployment with no Azure leg and fail every agent.
+    monkeypatch.setattr(live_apply_worker, "refresh", _keep_patched_settings)
+
+
+async def _keep_patched_settings(*, force: bool = False) -> None:
+    del force
 
 
 def _azure_leg_for_both_models(monkeypatch: pytest.MonkeyPatch) -> None:

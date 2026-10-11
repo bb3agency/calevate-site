@@ -149,7 +149,6 @@ export function AddVoicesDrawer({ onClose }: { onClose: () => void }) {
                   key={tier}
                   label={tier === "all" ? "All tiers" : tier === "clear" ? "Clear" : "Studio"}
                   active={filters.tier === tier}
-                  capitalize={false}
                   onClick={() => set({ tier })}
                 />
               ))}

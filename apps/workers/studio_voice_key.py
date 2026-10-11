@@ -1,8 +1,9 @@
-"""Our Cartesia key in every workspace that holds it, and every Studio workspace kept on (D-717).
+"""Our Cartesia key in every workspace that holds it, and every Studio workspace kept on.
 
-Studio voices speak on our Cartesia key, switched on (voice-only BYOK) in the ThinnestAI
-customer workspace of each client that uses Studio, and HELD with its switch off in our
-developer workspace (`agents/studio_voices.py`). There is no fallback when the key fails:
+Studio voices speak on our Cartesia key, switched on (voice-only BYOK) in our developer
+workspace, where trial agents live (D-727), and in the ThinnestAI customer workspace of each
+paying client that uses Studio (D-717) (`agents/studio_voices.py`). There is no fallback when
+the key fails:
 "the voice does not speak" (`thinnest-findings/mirror/snapshots/2026-10-08/pages/
 api-reference/bring-your-own-keys.md:122-127`). So:
 
@@ -14,17 +15,17 @@ api-reference/bring-your-own-keys.md:122-127`). So:
   another's. Replacing a key for the same provider keeps its model (`bring-your-own-keys.
   md:188`), so nothing but the key is sent. The key is read from the store, not this
   process's settings, which may not have re-read it yet, and is never logged.
-* `sweep_studio_workspaces` — hourly. Every Studio workspace must answer `GET /byok` with
+* `sweep_studio_workspaces` — hourly. Our developer workspace and every Studio client
+  workspace must answer `GET /byok` with
   `enabled`, `scope: voice`, `complete`, `using: own` and a Cartesia voice key
   (`bring-your-own-keys/get-byok-status.md:7`). One that does not is REPAIRED by the same
   idempotent steps a publish runs (its Clear agents kept off and read back first, then the
   key and the switch) and alarmed either way. Repair rather than only alarm because the
   failure is silent and priced wrong: a Studio agent in a workspace that is off follows the
   workspace onto ThinnestAI's own voices and their rate while we meter `byok_voice`, and the
-  repair cannot move a Clear agent, which it confirms `off` before switching anything on. Our
-  developer workspace found switched ON is alarmed and NOT switched off here: under the old
-  design it carried every Studio client, and turning it off is the runbook's last step
-  (`runbooks/thinnest-studio-voices.md`).
+  repair cannot move a Clear agent, which it confirms `off` before switching anything on. The
+  developer workspace is repaired the same way (`ensure_developer_studio`), but only once
+  Studio ready has held our key there: a deployment that never set Studio up is not drift.
 """
 
 from __future__ import annotations
@@ -155,8 +156,8 @@ async def push_studio_voice_key_to_workspace(ctx: dict[str, Any], payload: dict[
 
 
 async def sweep_studio_workspaces(ctx: dict[str, Any]) -> str:
-    """Hourly: every Studio client workspace verified on our key, and repaired when not; our
-    developer workspace's switch alarmed if found on."""
+    """Hourly: our developer workspace and every Studio client workspace verified on our key,
+    and repaired when not."""
     del ctx
     engine = _hosting()
     if engine is None:
@@ -164,22 +165,7 @@ async def sweep_studio_workspaces(ctx: dict[str, Any]) -> str:
     from apps.api.agents.studio_voices import ensure_studio_workspace
 
     tally = dict.fromkeys(("ok", "repaired", "failed"), 0)
-    try:
-        developer_on = (await engine.own_key_state()).enabled
-    except ProblemError as exc:
-        log.warning("engine_byok_state_unreadable", extra={"code": exc.code})
-        developer_on = False
-    if developer_on:
-        alert(
-            "CORE_LOGIC",
-            "studio_developer_switch_on",
-            detail=(
-                "Our developer workspace's own-keys switch is ON, so every client workspace "
-                "without a key of its own runs on it and any agent not set to stay off speaks "
-                "Cartesia at the Studio rate. Follow runbooks/thinnest-studio-voices.md to "
-                "move each Studio client onto its own key, then switch it off from Voices."
-            ),
-        )
+    developer = await _check_developer(engine)
     for row in await studio_workspaces():
         try:
             with in_workspace(row.workspace_id):
@@ -233,7 +219,54 @@ async def sweep_studio_workspaces(ctx: dict[str, Any]) -> str:
             count=str(tally["failed"]),
         )
     summary = " ".join(f"{k}={v}" for k, v in tally.items())
-    return f"developer_on={developer_on} {summary}"
+    return f"developer={developer} {summary}"
+
+
+async def _check_developer(engine: HostsVoices) -> str:
+    """The developer workspace's half of the hourly check: `ok`, `repaired`, `failed`,
+    or `not_set_up` while Studio ready has never held our key there."""
+    from apps.api.agents.studio_voices import ensure_developer_studio
+
+    try:
+        state = await engine.own_key_state()
+    except ProblemError as exc:
+        log.warning("engine_byok_state_unreadable", extra={"code": exc.code})
+        return "failed"
+    if own_voice_key_ready(state):
+        return "ok"
+    if state.voice_provider != STUDIO_VOICE_PROVIDER:
+        return "not_set_up"
+    log.warning(
+        "studio_developer_drift",
+        extra={"enabled": state.enabled, "scope": state.scope, "using": state.using},
+    )
+    try:
+        async with untenanted_session() as session:
+            await ensure_developer_studio(session, engine)
+    except ProblemError as exc:
+        log.warning("studio_developer_repair_failed", extra={"reason": exc.code})
+        alert(
+            "CORE_LOGIC",
+            "studio_developer_drift",
+            detail=(
+                "Our developer workspace is not on our Cartesia key for Studio and could not "
+                f"be switched back on ({exc.code}), so free-trial agents on a Studio voice "
+                "speak the platform's default voice or not at all. Run Studio ready from "
+                "Voices; runbooks/thinnest-studio-voices.md says what each code means."
+            ),
+            reason=exc.code,
+        )
+        return "failed"
+    alert(
+        "CORE_LOGIC",
+        "studio_developer_repaired",
+        detail=(
+            "Our developer workspace was no longer on our Cartesia key for Studio and was "
+            "switched back on, every agent not on a Studio voice confirmed off first. Find "
+            "out who changed it on the voice platform."
+        ),
+    )
+    return "repaired"
 
 
 __all__ = [

@@ -183,7 +183,7 @@ export function NewItemsPill({
 
   return (
     <div
-      className={`pointer-events-none absolute inset-x-0 z-10 flex justify-center ${
+      className={`pointer-events-none absolute inset-x-0 z-sticky flex justify-center ${
         anchor === "bottom" ? "bottom-2" : "top-2"
       } ${className}`}
     >

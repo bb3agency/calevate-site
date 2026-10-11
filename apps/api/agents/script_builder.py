@@ -401,6 +401,31 @@ async def recompile_collect(
     A freeform script has no collect list and is left alone. Returns the new version, or
     None when nothing changed.
     """
+    return await rewrite_script(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        script=None,
+        notes="Lead details changed: what the agent collects was updated",
+    )
+
+
+async def rewrite_script(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    script: CallScript | None,
+    notes: str,
+) -> int | None:
+    """Write `script` (None: the draft's own structure, recompiled) as a platform-made version.
+
+    Unlike `save_agent_script`, which is the owner's save and stages on a live agent, this is
+    for changes the platform makes on the owner's behalf: the version is applied, and a live
+    agent republished, unless the owner has a script edit staged, in which case it rides
+    with that edit. A freeform draft is left alone. Returns the new version, or None when
+    the compiled body would not change.
+    """
     # Local import: `agents/service` imports this module.
     from apps.api.agents.service import publish_agent
 
@@ -417,7 +442,9 @@ async def recompile_collect(
     ).first()
     if row is None or not isinstance(row[4], dict):
         return None
-    script = CallScript.model_validate(row[4]).model_copy(update={"faqs": []})
+    if script is None:
+        script = CallScript.model_validate(row[4])
+    script = script.model_copy(update={"faqs": []})
     body = compile_call_script(script, collect=await collect_fields(session, agent_id))
     body = await pinned_facts.spliced_body(session, body)
     facts = block_of(str(row[3]))
@@ -431,7 +458,7 @@ async def recompile_collect(
         tenant_id=tenant_id,
         agent_id=agent_id,
         body=body,
-        notes="Lead details changed: what the agent collects was updated",
+        notes=notes,
         created_by=None,
         compiled_t0_context=row[5],
         structured_script=script.model_dump(mode="json"),
@@ -597,6 +624,7 @@ __all__ = [
     "read_draft",
     "recompile_collect",
     "restore_into_draft",
+    "rewrite_script",
     "save_agent_script",
     "save_draft",
 ]

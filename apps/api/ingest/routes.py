@@ -145,9 +145,12 @@ async def ingest(webhook_id: UUID, request: Request) -> IngestAckOut:
     # routing key, same shape as engine_agent_routes (see ingest_config_session).
     async with ingest_config_session(webhook_id) as session:
         config = await load_config(session, webhook_id)
-    if config is None:
+    if config is None or config.source == META_SOURCE:
         # 404, not 401: an inactive or unknown endpoint should be indistinguishable
-        # from a nonexistent one to a probing sender.
+        # from a nonexistent one to a probing sender. A Meta source is unknown HERE for
+        # the reason `_meta_config` gives in the other direction: its stored secret is the
+        # Meta App Secret, which signs a body and must never also open this
+        # bearer-header door — and a Meta lead arrives only signed, at `/ingest/meta/`.
         raise ProblemError.not_found("Lead source")
 
     if not verify_ingest_secret(config, request.headers.get(SECRET_HEADER)):

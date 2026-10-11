@@ -34,7 +34,7 @@ export function AssistantScreen() {
 
   if (realm.session.impersonateOrg) {
     return (
-      <div className="space-y-5 pb-12">
+      <div className="max-w-4xl space-y-5 pb-12">
         <PageHeader description="What the assistant is doing for this client, and everything it did." />
         <EmptyState
           message="The assistant is not available while you view this account."

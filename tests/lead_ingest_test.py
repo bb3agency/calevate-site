@@ -370,3 +370,22 @@ async def test_the_dry_run_reports_every_decision_and_does_nothing() -> None:
 
     assert leads == 0, "a dry run writes nothing"
     assert calls == 0, "and dials nobody"
+
+
+async def test_a_meta_sources_app_secret_does_not_open_the_shared_secret_door() -> None:
+    """A Meta source stores its App Secret, which signs Meta's bodies. The generic intake
+    took it as an `X-Ingest-Secret` bearer too, so whoever held the App Secret could post
+    unsigned leads (and ring their numbers) through the door Meta never uses."""
+    tenant_id, _agent_id, webhook_id = await _tenant_with_ingest()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE inbound_webhooks SET source = 'meta_lead_ads' WHERE id = :i"),
+            {"i": webhook_id},
+        )
+    async with _client() as http:
+        response = await http.post(
+            f"/hooks/v1/ingest/{webhook_id}",
+            json={"phone": "+919876500001", "name": "Unsigned"},
+            headers={"X-Ingest-Secret": SECRET},
+        )
+    assert response.status_code == 404, response.text

@@ -78,7 +78,7 @@ export default function CallerNoticePage() {
   if (notice.isError) return <ProblemNotice error={notice.error} />;
   if (!notice.data) {
     return (
-      <div className="mx-auto max-w-[46rem] rounded-sm border border-line bg-surface p-8">
+      <div className="max-w-[46rem] rounded-sm border border-line bg-surface p-8">
         <Skeleton rows={8} label="Loading your privacy notice" />
       </div>
     );

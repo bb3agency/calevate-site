@@ -1044,7 +1044,13 @@ async def _fetch_page(url: str) -> bytes | None:
                         location = response.headers.get("location")
                         if not location:
                             return None
-                        current = str(httpx.URL(vetted.url).join(location))
+                        try:
+                            current = str(httpx.URL(vetted.url).join(location))
+                        except httpx.InvalidURL:
+                            # Not an `HTTPError`: an unparsable Location is an unreadable
+                            # page, not a failure of the sweep.
+                            log.info("kb_link_bad_redirect")
+                            return None
                         continue
                     if response.status_code >= 400:
                         log.info("kb_link_fetch_status", extra={"status": response.status_code})

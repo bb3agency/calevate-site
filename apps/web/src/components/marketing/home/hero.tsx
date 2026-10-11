@@ -49,11 +49,11 @@ export function Hero() {
     <section className="relative isolate overflow-hidden">
       {/*
         Decorative ground: the masked line grid and two soft brand glows. A SIBLING of the
-        content at `-z-10`, never an ancestor of it — a background image on an ancestor of
+        content at `z-below`, never an ancestor of it — a background image on an ancestor of
         text is what makes a contrast check unresolvable. `isolate` on the section is what
-        keeps `-z-10` inside it rather than behind the page's own background.
+        keeps `z-below` inside it rather than behind the page's own background.
       */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+      <div aria-hidden className="pointer-events-none absolute inset-0 z-below">
         <div className="mk-grid-lines absolute inset-0" />
         <div className="mk-blob mk-blob--a mk-float absolute -top-24 left-[8%] h-56 w-56 sm:h-96 sm:w-96" />
         <div className="mk-blob mk-blob--b mk-float--slow absolute top-[38%] right-[-6rem] h-64 w-64 sm:h-[28rem] sm:w-[28rem]" />
@@ -74,10 +74,10 @@ export function Hero() {
             Never miss a lead because{" "}
             <span className="whitespace-nowrap">
               <span className="relative inline-block">
-                <span className="relative z-10">nobody answered</span>
+                <span className="relative z-raised">nobody answered</span>
                 <span
                   aria-hidden
-                  className="absolute inset-x-[-0.12em] bottom-[0.06em] z-0 h-[0.42em] -rotate-1 rounded-sm bg-brand-soft dark:bg-brand-strong/45"
+                  className="absolute inset-x-[-0.12em] bottom-[0.06em] z-base h-[0.42em] -rotate-1 rounded-sm bg-brand-soft dark:bg-brand-strong/45"
                 />
               </span>
               .

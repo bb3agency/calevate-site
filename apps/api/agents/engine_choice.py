@@ -65,12 +65,6 @@ VOICE_REQUIRED: Final = "engine_voice_required"
 KEYS_NOT_ON_SALE: Final = "engine_own_keys_not_on_sale"
 #: The operator's `THINNEST_BYOK_ENABLED` and the vendor's `GET /byok` disagree.
 KEYS_MODE_MISMATCH: Final = "engine_byok_mismatch"
-#: A free-trial account's agents live in our developer workspace, whose own-keys switch stays
-#: off (D-697, D-717), so they speak Clear voices only.
-STUDIO_AFTER_GO_LIVE: Final = "studio_after_go_live"
-#: What a trial account reads wherever Studio is held from it. No vendor name (D-679).
-STUDIO_AFTER_GO_LIVE_NOTE: Final = "Studio voices are available once you go live."
-
 #: The sentence the pickers lock on, and the refusal's detail. No vendor name: a client reads it.
 BYOK_CHOICE_NOTE: Final = (
     "This account's voice platform runs on the account's own speech, model and voice "
@@ -254,19 +248,6 @@ def _check_model(
         )
 
 
-def refuse_studio_on_trial() -> ProblemError:
-    """The refusal a free-trial account gets for a Studio voice at publish."""
-    return _refusal(
-        STUDIO_AFTER_GO_LIVE,
-        title="Studio voices are available once you go live",
-        detail=(
-            "During the free trial your agents speak Clear voices. You can still play the "
-            "Studio voices to hear them."
-        ),
-        remediation="Choose a Clear voice for now, or add credit from Billing to go live.",
-    )
-
-
 async def require_engine_choice(
     session: AsyncSession,
     engine: VoiceEngine,
@@ -431,8 +412,6 @@ __all__ = [
     "MODEL_NOT_IN_CATALOGUE",
     "MODEL_NOT_ON_PLAN",
     "MODEL_NOT_WITH_OWN_VOICE",
-    "STUDIO_AFTER_GO_LIVE",
-    "STUDIO_AFTER_GO_LIVE_NOTE",
     "VOICE_CHOICE_NOT_OFFERED",
     "VOICE_NOT_IN_CATALOGUE",
     "VOICE_NOT_ON_OFFER",
@@ -443,7 +422,6 @@ __all__ = [
     "engine_rate_key_for",
     "in_call_default_model",
     "refuse_choice_under_byok",
-    "refuse_studio_on_trial",
     "require_engine_choice",
     "resolve_in_call_default",
 ]

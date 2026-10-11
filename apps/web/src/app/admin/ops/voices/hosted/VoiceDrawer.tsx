@@ -152,23 +152,27 @@ function ListenSection({ voice }: { voice: HostedVoice }) {
           <ProblemNotice error={fetchPreview.error} />
         </div>
       )}
-      {(!canGenerate || fetchRefused) && (
-        <FileDrop
-          className="mt-3"
-          label={voice.preview_available ? "Replace the preview" : "Upload a preview"}
-          hint="An MP3 or WAV clip of this voice, up to 2 MB."
-          accept="audio/mpeg,audio/wav,.mp3,.wav"
-          maxBytes={MAX_SAMPLE_BYTES}
-          files={file ? [file] : []}
-          onRemove={() => setFile(null)}
-          sending={upload.isPending && file ? { file, percent: null } : null}
-          onFiles={([chosen]) => {
-            if (!chosen) return;
-            setFile(chosen);
-            upload.mutate({ voiceId: voice.voice_id, sample: chosen }, { onSettled: () => setFile(null) });
-          }}
-        />
-      )}
+      {/* Upload is offered for every voice, beside Generate where it exists: an operator may
+          prefer a clip they recorded or chose over the platform's generated line. */}
+      <FileDrop
+        className="mt-3"
+        label={voice.preview_available ? "Replace the preview" : "Upload a preview"}
+        hint={
+          canGenerate && !fetchRefused
+            ? "Or upload your own MP3 or WAV clip of this voice, up to 2 MB."
+            : "An MP3 or WAV clip of this voice, up to 2 MB."
+        }
+        accept="audio/mpeg,audio/wav,.mp3,.wav"
+        maxBytes={MAX_SAMPLE_BYTES}
+        files={file ? [file] : []}
+        onRemove={() => setFile(null)}
+        sending={upload.isPending && file ? { file, percent: null } : null}
+        onFiles={([chosen]) => {
+          if (!chosen) return;
+          setFile(chosen);
+          upload.mutate({ voiceId: voice.voice_id, sample: chosen }, { onSettled: () => setFile(null) });
+        }}
+      />
       {upload.error != null && (
         <div className="mt-2">
           <ProblemNotice error={upload.error} />

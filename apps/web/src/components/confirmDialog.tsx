@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
-import { DANGER_BUTTON, MODAL_ACTIONS, MODAL_PANEL, MODAL_SCRIM, ProblemNotice, SECONDARY_BUTTON } from "./ui";
-import { useFocusTrap } from "@/lib/focusTrap";
+import { ModalDialog } from "./modalDialog";
+import { DANGER_BUTTON, ProblemNotice, SECONDARY_BUTTON } from "./ui";
 
 /**
  * "Are you sure?" for the actions a client cannot take back — ONE dialog, not one per
@@ -23,7 +23,7 @@ import { useFocusTrap } from "@/lib/focusTrap";
  *
  * ## Why a shared component rather than three dialogs
  *
- * CLAUDE.md: one way per problem. `aiExtraDialog.tsx` is this repo's accessible-dialog
+ * Built on `ModalDialog` (scrim, focus trap, portal). CLAUDE.md: one way per problem. `aiExtraDialog.tsx` is this repo's accessible-dialog
  * reference — `role="dialog"` + `aria-modal` + `aria-labelledby`/`aria-describedby` and
  * the full APG focus contract through `useFocusTrap` — and it is deliberately NOT
  * generalised, because it is the one thing in the console that debits a wallet and there
@@ -73,46 +73,27 @@ export function ConfirmDialog({
   /** The consequence, in the client's own terms. Rendered as the dialog's description. */
   children: ReactNode;
 }) {
-  const panel = useRef<HTMLDivElement>(null);
-
-  // Always `true`: every caller renders this inside a `{confirming && …}`, so mounting IS
-  // opening and unmounting is what hands focus back to the control that opened it.
-  useFocusTrap(panel, true, onCancel, "container");
-
   return (
-    <div className={MODAL_SCRIM}>
-      <div
-        ref={panel}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="confirm-title"
-        aria-describedby="confirm-body"
-        tabIndex={-1}
-        className={MODAL_PANEL}
-      >
-        <h2 id="confirm-title" className="text-[17px] font-semibold text-ink">
-          {title}
-        </h2>
-
-        <div id="confirm-body" className="mt-3 space-y-3 text-sm text-ink-muted">
-          {children}
-        </div>
-
-        {error != null && (
-          <div className="mt-3">
-            <ProblemNotice error={error} />
-          </div>
-        )}
-
-        <div className={MODAL_ACTIONS}>
+    <ModalDialog
+      title={title}
+      description={children}
+      onClose={onCancel}
+      actions={
+        <>
           <button type="button" className={SECONDARY_BUTTON} onClick={onCancel} disabled={pending}>
             {cancelLabel}
           </button>
           <button type="button" className={DANGER_BUTTON} onClick={onConfirm} disabled={pending || confirmDisabled}>
             {pending ? pendingLabel : confirmLabel}
           </button>
+        </>
+      }
+    >
+      {error != null && (
+        <div className="mt-3">
+          <ProblemNotice error={error} />
         </div>
-      </div>
-    </div>
+      )}
+    </ModalDialog>
   );
 }

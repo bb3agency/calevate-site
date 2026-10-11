@@ -13,8 +13,9 @@ operator wizard pre-selected `clinic`, so a chilli shop captured "Preferred doct
   (`confirm`). A suggestion alone changes nothing.
 
 Confirming queues `APPLY_JOB`, which writes the type's lead details onto agents that have
-none, recompiles each agent's script so "what to collect" matches, and republishes live
-agents through the one publish path.
+none, swaps an untouched ready-made starter for the new type's, recompiles each agent's
+script so "what to collect" matches, and republishes live agents through the one publish
+path.
 """
 
 from __future__ import annotations

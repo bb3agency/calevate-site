@@ -51,12 +51,13 @@ from calevate_shared.call_script import (
 from calevate_shared.languages import get_language
 from calevate_shared.spoken_style import example_exchange, opening_in
 from scripts.seed import CUSTOM_EXTRACTION_FIELDS, VERTICAL_TEMPLATES
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.extraction_routes import validate_fields, write_schema
 from apps.api.agents.lead_fields import starting_business_fields
 from apps.api.agents.models import AgentDirection
-from apps.api.agents.script_builder import save_agent_script
+from apps.api.agents.script_builder import rewrite_script, save_agent_script
 from apps.api.core.errors import ProblemError
 
 StarterJob = Literal["answer_calls", "call_leads"]
@@ -561,10 +562,86 @@ async def apply_starter(
     return saved.version
 
 
+#: The job an agent's direction implies. "both" has none: no starter makes such an agent.
+JOB_OF_DIRECTION: Final[Mapping[str, StarterJob]] = {d: j for j, d in JOB_DIRECTION.items()}
+
+
+def _canonical(script: CallScript) -> dict[str, Any]:
+    # Quick facts move to the business's pinned facts at every save, so a stored script
+    # never carries them; compared without them.
+    return script.model_copy(update={"faqs": []}).model_dump(mode="json")
+
+
+def starter_vertical_of(
+    stored: Mapping[str, Any], *, job: StarterJob, business: str, language: str
+) -> str | None:
+    """The business type whose starter wrote `stored`, if nobody has changed it since.
+
+    Recognised by content rather than by a version note, because the script's structure is
+    what the owner edits and a recompile (`recompile_collect`) writes new versions without
+    touching it. A starter written under an earlier business name, an earlier catalogue
+    wording or another language does not match, and is treated as edited.
+    """
+    try:
+        script = _canonical(CallScript.model_validate(stored))
+    except ValueError:
+        return None
+    for vertical in TRADES:
+        candidate = CATALOGUE[(vertical, job)].call_script(business=business, language=language)
+        if _canonical(candidate) == script:
+            return vertical
+    return None
+
+
+async def replace_unedited_starter(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
+) -> int | None:
+    """Put the account's business type's starter on an agent still carrying another type's.
+
+    For an operator confirming a business type (D-722): an agent made from the old type's
+    starter would otherwise keep that trade's words ("appointment", "doctor") however the
+    type changed. Only when the draft is a starter exactly as written, with no autosaved
+    working copy and no staged edit; anything an owner changed is left alone. An account
+    whose type is still unconfirmed keeps its scripts. Returns the new version, or None.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT a.direction, a.language_primary, pv.structured_script, o.name, "
+                "o.vertical_template, a.script_draft IS NOT NULL, "
+                "(a.live_prompt_id IS NOT NULL "
+                "AND a.system_prompt_id IS DISTINCT FROM a.live_prompt_id) "
+                "FROM agents a JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
+                "JOIN organizations o ON o.id = a.tenant_id "
+                "WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
+            ),
+            {"aid": agent_id},
+        )
+    ).first()
+    if row is None or row[4] is None or row[5] or row[6] or not isinstance(row[2], dict):
+        return None
+    job = JOB_OF_DIRECTION.get(str(row[0]))
+    if job is None:
+        return None
+    business, language = str(row[3]), str(row[1])
+    written_for = starter_vertical_of(row[2], job=job, business=business, language=language)
+    target = vertical_of(str(row[4]))
+    if written_for is None or written_for == target:
+        return None
+    return await rewrite_script(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        script=CATALOGUE[(target, job)].call_script(business=business, language=language),
+        notes=f"Ready-made starter: {JOB_LABEL[job]} (business type changed)",
+    )
+
+
 __all__ = [
     "CATALOGUE",
     "JOB_DIRECTION",
     "JOB_LABEL",
+    "JOB_OF_DIRECTION",
     "NEUTRAL_VERTICAL",
     "STARTER_JOBS",
     "TRADES",
@@ -575,6 +652,8 @@ __all__ = [
     "apply_starter",
     "captured_fields",
     "direction_for",
+    "replace_unedited_starter",
     "starter_for",
+    "starter_vertical_of",
     "vertical_of",
 ]

@@ -56,7 +56,7 @@ export function Closing({ devSlug }: { devSlug?: string }) {
           */}
           <div
             aria-hidden
-            className="mk-grid-lines mk-grid-lines--vignette pointer-events-none absolute inset-0 -z-10"
+            className="mk-grid-lines mk-grid-lines--vignette pointer-events-none absolute inset-0 z-below"
           />
           <div
             aria-hidden

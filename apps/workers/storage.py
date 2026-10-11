@@ -829,8 +829,14 @@ def voice_preview_key(voice_id: str) -> str:
 async def fetch_voice_preview(url: str) -> bytes:
     """The clip at a vendor's short-lived preview link, through the same vetted, streamed,
     capped fetch a recording copy uses. The host is the vendor's to choose and is not
-    documented, so no host allow-list applies; `egress_client` still refuses a private one."""
-    data = await _fetch_recording(url)
+    documented, so no host allow-list applies; `egress_client` still refuses a private one.
+    Under the same overall deadline as a recording copy, for the same reason: httpx's
+    timeouts are per operation and a sender that drips never trips one."""
+    try:
+        async with asyncio.timeout(RECORDING_FETCH_DEADLINE_S):
+            data = await _fetch_recording(url)
+    except TimeoutError as exc:
+        raise RecordingUnavailableError("preview_unusable") from exc
     if not data or len(data) > MAX_VOICE_PREVIEW_BYTES:
         raise RecordingUnavailableError("preview_unusable")
     return data

@@ -60,7 +60,6 @@ export function MoreFilters({
             <div role="group" aria-label="Filter by owner">
               <FilterChip
                 label="Assigned to me"
-                capitalize={false}
                 active={assignedToMe}
                 onClick={() => onAssignedToMe(!assignedToMe)}
               />

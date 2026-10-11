@@ -51,6 +51,7 @@ from apps.api.compliance.service import SELF_SERVE_TIERS, spend_capped
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
+from apps.api.db.like import contains_pattern
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.tenancy.lifecycle import assert_account_open
 from apps.api.tenancy.models import DEFAULT_PLAN_TIER as _DEFAULT_PLAN_TIER
@@ -1008,8 +1009,7 @@ def _directory_params(
     needle = (q or "").strip()
     like = None
     if needle:
-        escaped = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        like = f"%{escaped}%"
+        like = contains_pattern(needle)
     return {
         "tid": tenant_id,
         "status": status,

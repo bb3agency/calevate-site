@@ -63,8 +63,8 @@ const HIDE: Record<NonNullable<DataColumn<unknown>["hideBelow"]>, string> = {
 
 /** Opaque, so rows scrolled under a pinned column do not show through it. */
 const PIN: Record<NonNullable<DataColumn<unknown>["pin"]>, string> = {
-  "left-0": "sticky left-0 z-[1] bg-surface",
-  "left-12": "sticky left-12 z-[1] bg-surface",
+  "left-0": "sticky left-0 z-raised bg-surface",
+  "left-12": "sticky left-12 z-raised bg-surface",
 };
 
 const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
@@ -171,7 +171,7 @@ export type DataTableProps<T> = {
  * THE CONSOLE'S DATA TABLE. Sortable headers (`aria-sort`, a polite status naming the
  * order), rows that can carry a single link stretched over the row (UX-DOCTRINE §4: one
  * target per row — give the link `after:absolute after:inset-0` and any other control in
- * the row `relative z-[1]`), columns that drop out at narrow widths, and cells that mark
+ * the row `relative z-raised`), columns that drop out at narrow widths, and cells that mark
  * themselves when a poll changes their value.
  *
  * Sorting is CLIENT-SIDE over the rows it is given. Where those rows are a page of a

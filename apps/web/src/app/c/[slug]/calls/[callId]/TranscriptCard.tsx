@@ -99,7 +99,7 @@ export function TranscriptCard({
         {player ? (
           // Flush under the shell header: the negative offset cancels <main>'s top padding
           // (`SHELL_MAIN_CLASS`), so no strip of transcript scrolls above the player.
-          <div className="sticky -top-4 z-10 -mx-1 border-b border-line bg-surface px-1 pb-3 pt-3 lg:-top-8">{player}</div>
+          <div className="sticky -top-4 z-sticky -mx-1 border-b border-line bg-surface px-1 pb-3 pt-3 lg:-top-8">{player}</div>
         ) : noRecording ? (
           <p className="text-meta text-ink-faint">There is no recording of this call.</p>
         ) : null}

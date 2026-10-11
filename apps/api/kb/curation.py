@@ -84,7 +84,7 @@ from fastapi import Depends, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.core.auth import PermissionDependency, current_any
+from apps.api.core.auth import PermissionDependency, current_any, enforce_write_rules
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
@@ -239,6 +239,10 @@ def requires_kb_curation() -> PermissionDependency:
             role=principal.role,
             impersonating=principal.impersonating,
         ):
+            # The rules `requires()` applies after the role check — a view-as write must
+            # be attributable to a grant, and a deleted agent refuses writes — apply here
+            # too; this gate replaced `requires("kb:write")` and had dropped them.
+            await enforce_write_rules(request, principal, CURATE_PERMISSION)
             return principal
         withheld = withheld_from_view_as(CURATE_PERMISSION)
         if principal.impersonating and withheld is not None:

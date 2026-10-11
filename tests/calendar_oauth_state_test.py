@@ -174,3 +174,22 @@ async def test_the_state_from_connect_completes_the_connection(google: list[str]
     assert finished.status_code == 200, finished.text
     assert len(google) == 1
     assert await _credentials(tenant_id) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_state_answers_one_callback_and_a_replay_is_refused_before_the_exchange(
+    google: list[str],
+) -> None:
+    """The state was signed and bound to this person for ten minutes but never consumed, so
+    a callback URL lifted from a log or a history entry could be redeemed again inside that
+    window. It is now a one-time token (RFC 9700 §4.7.1)."""
+    _tenant_id, _, headers = await _owner()
+    async with _client() as client:
+        started = await client.get(CONNECT, headers=headers)
+        state = httpx.URL(started.json()["authorize_url"]).params["state"]
+        first = await client.post(CALLBACK, json={"code": "c1", "state": state}, headers=headers)
+        replay = await client.post(CALLBACK, json={"code": "c2", "state": state}, headers=headers)
+    assert first.status_code == 200, first.text
+    assert replay.status_code == 403, replay.text
+    assert replay.json()["type"].endswith("oauth_state_invalid")
+    assert len(google) == 1, "the replayed code was exchanged"

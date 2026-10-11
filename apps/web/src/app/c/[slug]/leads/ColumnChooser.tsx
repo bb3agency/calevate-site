@@ -2,6 +2,7 @@
 
 import { Columns3 } from "lucide-react";
 
+import { Popover } from "@/components/interior/popover";
 import { SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { LeadColumn } from "@/lib/api/leads";
 
@@ -10,11 +11,10 @@ import type { LeadColumn } from "@/lib/api/leads";
  * selection, which columns leave the building (SURFACES §2, "column chooser mirrored in
  * CSV export").
  *
- * **`<details>`, not a hand-rolled popover.** The native element is keyboard-operable,
- * screen-reader-announced and dismissible without a single line of focus management,
- * which is three ways a hand-rolled dropdown gets accessibility wrong. shadcn/ui's
- * Popover is the eventual answer for the design pass; this is correct today at a
- * hundredth of the code.
+ * **The shared `Popover`**, not `<details>`: an inline panel was painted inside whatever
+ * stacking context the toolbar sat in, so the page's sticky bars and the assistant could
+ * cover it. The popover is portalled, moves focus in, and closes on Escape or a press
+ * outside, handing focus back to the button.
  *
  * **Every control carries a persistent visible label.** Each checkbox is wrapped in a
  * `<label>` whose text is the column's own name, and the group carries a `<legend>` —
@@ -69,59 +69,60 @@ export function ColumnChooser({
   };
 
   return (
-    <details className="relative">
-      <summary
-        className={`${SECONDARY_BUTTON_SM} cursor-pointer list-none marker:content-none`}
-        aria-label={`Choose columns — ${selected.length} of ${available.length} shown`}
-      >
-        <Columns3 className="h-3.5 w-3.5" />
-        Columns
-        <span className="tabular-nums text-ink-muted">
-          {selected.length}/{available.length}
-        </span>
-      </summary>
-      {/* Anchored under the trigger's right edge, so it grows from there rather than from
-          its own centre. Opening is a click, not a keystroke loop, so a short entry helps
-          place it; reduced motion keeps the fade and drops the scale. */}
-      <div className="absolute right-0 z-20 mt-1 w-64 max-w-[calc(100vw-2rem)] origin-top-right rounded-card border border-line bg-surface p-3 shadow-raised transition-[opacity,scale] duration-(--duration-fast) ease-out starting:scale-[0.97] starting:opacity-0 motion-reduce:starting:scale-100">
-        <fieldset>
-          <legend className="mb-2 text-meta font-semibold text-ink">
-            Columns shown here and in the CSV
-          </legend>
-          <div className="max-h-72 space-y-1 overflow-y-auto">
-            {available.map((column) => (
-              <label
-                key={column.key}
-                className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm text-ink hover:bg-ink/[0.04] touch:min-h-11"
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.includes(column.key)}
-                  onChange={() => toggle(column.key)}
-                  className="h-3.5 w-3.5"
-                />
-                <span>{column.label}</span>
-              </label>
-            ))}
-          </div>
-          <div className="mt-2 flex flex-wrap gap-x-4">
-            <button
-              type="button"
-              onClick={() => onChange(available.map((c) => c.key))}
-              className="rounded-sm text-xs font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:text-brand-bright"
+    <Popover
+      label="Columns shown here and in the CSV"
+      align="end"
+      className="w-64 max-w-[calc(100vw-1rem)]"
+      renderTrigger={(props) => (
+        <button
+          type="button"
+          {...props}
+          className={SECONDARY_BUTTON_SM}
+          aria-label={`Choose columns — ${selected.length} of ${available.length} shown`}
+        >
+          <Columns3 className="h-3.5 w-3.5" />
+          Columns
+          <span className="tabular-nums text-ink-muted">
+            {selected.length}/{available.length}
+          </span>
+        </button>
+      )}
+    >
+      <fieldset>
+        <legend className="mb-2 text-meta font-semibold text-ink">Columns shown here and in the CSV</legend>
+        <div className="max-h-72 space-y-1 overflow-y-auto">
+          {available.map((column) => (
+            <label
+              key={column.key}
+              className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm text-ink hover:bg-ink/[0.04] touch:min-h-11"
             >
-              Show every column
-            </button>
-            <button
-              type="button"
-              onClick={() => onChange(undefined)}
-              className="rounded-sm text-xs font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:text-brand-bright"
-            >
-              Back to the usual columns
-            </button>
-          </div>
-        </fieldset>
-      </div>
-    </details>
+              <input
+                type="checkbox"
+                checked={selected.includes(column.key)}
+                onChange={() => toggle(column.key)}
+                className="h-3.5 w-3.5"
+              />
+              <span>{column.label}</span>
+            </label>
+          ))}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-x-4">
+          <button
+            type="button"
+            onClick={() => onChange(available.map((c) => c.key))}
+            className="inline-flex items-center rounded-sm text-xs font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:text-brand-bright"
+          >
+            Show every column
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange(undefined)}
+            className="inline-flex items-center rounded-sm text-xs font-medium text-brand-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11 dark:text-brand-bright"
+          >
+            Back to the usual columns
+          </button>
+        </div>
+      </fieldset>
+    </Popover>
   );
 }

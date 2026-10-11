@@ -152,7 +152,7 @@ export function CommandPalette({
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[10svh] sm:px-4">
+    <div className="fixed inset-0 z-modal flex items-start justify-center px-3 pt-[10svh] sm:px-4">
       {/* The scrim closes on click; it is not a control a keyboard needs (Escape is). */}
       <div aria-hidden onClick={onClose} className="absolute inset-0 bg-ink/40 dark:bg-black/65" />
       <div

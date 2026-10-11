@@ -331,6 +331,20 @@ RULES: tuple[Rule, ...] = (
     # stream has nothing to replay, and names this profile as what bounds a double-click
     # instead.
     Rule("/v1/copilot/ask", "costly", _m("POST")),
+    # The other LLM and engine round trips a client starts with one click. Each is gated on
+    # the AI allowance, which bounds the money but not the rate: at `client_api` (240/min)
+    # one session could queue a model call every quarter second.
+    Rule("/v1/calls/*/translation", "costly", _m("POST")),
+    Rule("/v1/agents/*/script/assist", "costly", _m("POST")),
+    Rule("/v1/agents/*/script/convert", "costly", _m("POST")),
+    Rule("/v1/agents/*/script/tests", "costly", _m("POST")),
+    Rule("/v1/agents/*/script/tests/*/improve", "costly", _m("POST")),
+    Rule("/v1/agents/*/try-chat", "costly", _m("POST")),
+    Rule("/v1/agents/*/test-cases/run", "costly", _m("POST")),
+    Rule("/v1/kb/teach", "costly", _m("POST")),
+    Rule("/v1/kb/teach/upload", "costly", _m("POST")),
+    Rule("/v1/kb/teach/*/words", "costly", _m("POST")),
+    Rule("/v1/copilot/routines/*/run", "costly", _m("POST")),
     Rule("/v1/campaigns/*/launch", "costly", _m("POST")),
     Rule("/v1/numbers/purchase", "costly", _m("POST")),
     Rule("/v1/billing/topups/intent", "costly", _m("POST")),

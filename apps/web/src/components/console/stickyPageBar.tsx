@@ -45,7 +45,7 @@ export function StickyPageBar({ children, className = "" }: { children: ReactNod
 }
 
 const STICKY_PAGE_BAR_CLASS =
-  "sticky -top-4 z-20 -mt-4 bg-surface py-3 lg:-top-8 lg:-mt-8 " +
+  "sticky -top-4 z-sticky -mt-4 bg-surface py-3 lg:-top-8 lg:-mt-8 " +
   "[border-image:linear-gradient(to_bottom,var(--color-surface)_calc(100%_-_1px),var(--color-line)_0)_fill_0//0_100vmax]";
 
 /**

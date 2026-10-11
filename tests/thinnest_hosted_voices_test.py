@@ -414,10 +414,19 @@ def _cfg(**over: Any) -> AgentConfig:
     return AgentConfig.model_validate({**base, **over})
 
 
-@pytest.mark.parametrize(("on", "sent"), [(True, "workspace"), (False, "off"), (None, None)])
-def test_every_agent_body_states_its_own_voice_key_switch(on: bool | None, sent: Any) -> None:
+@pytest.mark.parametrize(("on", "sent"), [(True, "workspace"), (False, "off")])
+def test_every_agent_body_states_its_own_voice_key_switch(on: bool, sent: str) -> None:
     body = _engine(_Vendor({}))._agent_body(_cfg(engine_own_voice_key=on))
-    assert body.get("byok") == sent
+    assert body["byok"] == sent
+
+
+def test_an_agent_that_does_not_state_its_switch_is_refused_before_anything_is_sent() -> None:
+    """D-727: left unstated, the vendor's default `workspace` (bring-your-own-keys.md:304-306)
+    would put the agent on our key wherever the voice-only switch is on (:69-79, :128-133)."""
+    vendor = _Vendor({})
+    with pytest.raises(ProblemError) as caught:
+        _engine(vendor)._agent_body(_cfg(engine_own_voice_key=None))
+    assert caught.value.code == "engine_agent_byok_unstated"
 
 
 async def test_an_agent_is_created_and_updated_in_its_clients_own_workspace() -> None:

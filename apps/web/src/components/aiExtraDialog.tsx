@@ -1,11 +1,7 @@
 "use client";
 
-import { useRef } from "react";
-
+import { ModalDialog } from "./modalDialog";
 import {
-  MODAL_ACTIONS,
-  MODAL_PANEL,
-  MODAL_SCRIM,
   PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
@@ -13,7 +9,6 @@ import {
   formatINR,
 } from "./ui";
 import type { AiQuota } from "@/lib/api/aiQuota";
-import { useFocusTrap } from "@/lib/focusTrap";
 
 /**
  * G-5's acceptance dialog — the ONE thing in this console that debits a wallet, and
@@ -42,18 +37,10 @@ import { useFocusTrap } from "@/lib/focusTrap";
  *    selling a block rather than metering per use;
  * 4. that nothing has been charged yet, which is the whole promise of the dialog.
  *
- * ACCESSIBILITY. `role="dialog"` + `aria-modal` + a heading it is labelled by, and the
- * full APG focus contract via `useFocusTrap`. The two buttons are real buttons in DOM
- * order, so a keyboard reaches "Not now" first — the safe answer should not be the one
- * that takes more keystrokes.
- *
- * This dialog used to move focus on open and handle Escape and NOTHING ELSE, which is
- * half of `aria-modal="true"`'s promise and the wrong half: the first Tab left the panel
- * and landed on the page behind it, and Escape dropped focus onto `<body>`. On the one
- * control in this console that debits a wallet, a keyboard user could be typing into a
- * page they believed was covered by a modal. `navDrawer` had had the trap since it
- * shipped and said in its own header that the next modal should borrow it; the borrowing
- * is now a hook both call (src/lib/focusTrap.ts), so there is one implementation.
+ * ACCESSIBILITY. Built on `ModalDialog`: labelled by its title, the full APG focus
+ * contract, and portalled so it shows above the assistant panel it is opened from. The
+ * two buttons are real buttons in DOM order, so a keyboard reaches "Not now" first — the
+ * safe answer should not be the one that takes more keystrokes.
  */
 export function AcceptChargeDialog({
   quota,
@@ -68,37 +55,12 @@ export function AcceptChargeDialog({
   onCancel: () => void;
   onAccept: () => void;
 }) {
-  const panel = useRef<HTMLDivElement>(null);
-
-  /*
-   * Always `true`: this component only exists while the dialog is open — both callers
-   * render it inside a `{showing && …}` — so mounting IS opening, and unmounting is what
-   * hands focus back to the button that opened it.
-   *
-   * The Escape listener that used to live here (on `document`, not on a wrapper's
-   * `onKeyDown`, because a React handler only fires for keys pressed inside its own
-   * subtree and Escape has to work when focus has left the dialog) is inside the hook,
-   * for that same reason and one more: the hook needs the document listener anyway to
-   * pull focus back when Tab tries to leave.
-   */
-  useFocusTrap(panel, true, onCancel, "container");
-
   return (
-    <div className={MODAL_SCRIM}>
-      <div
-        ref={panel}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="ai-extra-title"
-        aria-describedby="ai-extra-body"
-        tabIndex={-1}
-        className={MODAL_PANEL}
-      >
-        <h2 id="ai-extra-title" className="text-[17px] font-semibold text-ink">
-          Add more AI help this month
-        </h2>
-
-        <div id="ai-extra-body" className="mt-3 space-y-3 text-sm text-ink-muted">
+    <ModalDialog
+      title="Add more AI help this month"
+      onClose={onCancel}
+      description={
+        <>
           <p>
             <strong className="font-semibold tabular-nums text-ink">
               {formatINR(quota.extra_block_inr)}
@@ -112,27 +74,28 @@ export function AcceptChargeDialog({
             You can add this once per month.
           </p>
           <p className="font-medium text-ink">Nothing has been charged yet.</p>
-        </div>
-
-        {/* A refusal INSIDE the dialog, because that is where the decision is being
-            made: closing the dialog to show it elsewhere would leave a person unsure
-            whether the money moved. */}
-        {error != null && (
-          <div className="mt-3">
-            <ProblemNotice error={error} />
-          </div>
-        )}
-
-        <div className={MODAL_ACTIONS}>
+        </>
+      }
+      actions={
+        <>
           <button type="button" className={SECONDARY_BUTTON} onClick={onCancel} disabled={pending}>
             Not now
           </button>
           <button type="button" className={PRIMARY_BUTTON} onClick={onAccept} disabled={pending}>
             {pending ? "Adding…" : `Add ${formatINR(quota.extra_block_inr)}`}
           </button>
+        </>
+      }
+    >
+      {/* A refusal INSIDE the dialog, because that is where the decision is being
+          made: closing the dialog to show it elsewhere would leave a person unsure
+          whether the money moved. */}
+      {error != null && (
+        <div className="mt-3">
+          <ProblemNotice error={error} />
         </div>
-      </div>
-    </div>
+      )}
+    </ModalDialog>
   );
 }
 

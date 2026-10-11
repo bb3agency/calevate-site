@@ -198,6 +198,8 @@ recorded against no client (OPERATIONS §2 gate T-22; unset, the client's Trial 
 test calls are not available yet); `trial_daily_call_cap` (default 10) is how many test calls
 one trial account may place per IST day; `trial_call_max_seconds` (default 180, 60..1200) is
 the per-call `maxCallSeconds` each test call carries (THINNEST-INTEGRATION §3c).
+D-727 adds `trial_studio_minutes` (default 15, 0..1000, live): the Studio minutes one trial
+account may use on test calls before a Studio test call is refused; Clear test calls go on.
 D-703 adds, all live: `self_serve_trial_days` (default 7) and `self_serve_trial_free_minutes`
 (default 15), the trial a business gets the moment it signs itself up; under Integrations,
 Google, `google_signin_redirect_uri` (`https://app.calevate.tech/auth/google/callback`,
@@ -206,9 +208,9 @@ OPERATIONS gate G-1), `google_cloud_project_number` and the secret `google_picke
 client's own Google account.
 `ENGINE_INTAKE_KEK` is env-only, in `ENV_ONLY_REASONS`. No BYOK provider key is stored
 under a ThinnestAI setting: full (`scope: all`) BYOK is not on sale (D-681), and the Studio
-rung's voice-only BYOK sends our Cartesia key to ThinnestAI: held in our developer workspace
-with its switch off (on "Studio ready"), and switched on in the customer workspace of each
-client that uses Studio (at its first Studio publish, D-717), and again to every one of them
+rung's voice-only BYOK sends our Cartesia key to ThinnestAI: switched on in our developer
+workspace for free-trial agents (on "Studio ready", D-727), and in the customer workspace of
+each paying client that uses Studio (at its first Studio publish, D-717), and again to every one of them
 through the outbox when `cartesia_api_key` is rotated, where it is stored encrypted (`thinnest-findings/mirror/snapshots/2026-10-07b/pages/
 api-reference/bring-your-own-keys.md:77-78`; `docs/THINNEST-INTEGRATION.md` §4a).
 The ThinnestAI keys appear in the console's Calling section with plain labels, and

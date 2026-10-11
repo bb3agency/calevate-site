@@ -205,7 +205,7 @@ export function StepUpPrompt() {
   if (prompt === null) return null;
 
   return (
-    <div className="scrim-enter fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className="scrim-enter fixed inset-0 z-modal flex items-center justify-center bg-black/40 p-4">
       <div
         ref={panel}
         role="alertdialog"

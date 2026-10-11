@@ -16,11 +16,9 @@
     POST   /v1/ops/voices/hosted/preview      upload a preview clip for a voice (audited)
     POST   /v1/ops/voices/hosted/preview/fetch  store the platform's own preview (audited)
     GET    /v1/ops/voices/studio-voices       Studio readiness and the client workspaces on it
-    POST   /v1/ops/voices/studio-voices/enable   Studio ready: hold our key in the developer
-                                              workspace, optionally switch one client on
-                                              (step-up, audited; D-717)
-    POST   /v1/ops/voices/studio-voices/disable  switch the developer workspace off once no
-                                              Studio agent depends on it (step-up, audited)
+    POST   /v1/ops/voices/studio-voices/enable   Studio ready: switch our key on in the developer
+                                              workspace, optionally one client too
+                                              (step-up, audited; D-727)
 
 The operator plays a preview from `GET /v1/ops/voices/hosted/preview`, for any hosted voice
 added or not; a client plays an offered one from `GET /v1/agents/engine-catalogue/preview`.
@@ -98,7 +96,6 @@ from apps.api.agents.studio_voices import (
     StudioReadiness,
     prepare_studio,
     studio_readiness,
-    switch_developer_off,
 )
 from apps.api.agents.voice_consent import (
     accept_document,
@@ -112,6 +109,7 @@ from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import global_db
+from apps.api.core.disposition import attachment_disposition
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
@@ -137,7 +135,6 @@ VoiceCurator = Annotated[Principal, Depends(requires("ops:manage", realm="admin"
 #: the Studio switch, which name no voice; per-voice for the delete.
 CLONE_CONFIRMATION: Final = "clone_voice"
 STUDIO_ENABLE_CONFIRMATION: Final = "enable_studio_voices"
-STUDIO_DISABLE_CONFIRMATION: Final = "disable_studio_voices"
 
 
 def delete_clone_confirmation(voice_id: str) -> str:
@@ -382,8 +379,8 @@ class StudioWorkspaceOut(Strict):
 
 
 class StudioVoicesOut(Strict):
-    #: The engine's own report of OUR developer workspace's keys. Its switch stays off; it
-    #: only holds the key (D-717).
+    #: The engine's own report of OUR developer workspace's keys, switched on for the voice
+    #: since D-727 so trial agents can speak Studio.
     key: OwnVoiceKeyOut
     #: Studio can be sold: key in the console and held, both prices attested, voices listed.
     ready: bool
@@ -391,8 +388,8 @@ class StudioVoicesOut(Strict):
     cartesia_key_configured: bool
     #: The developer workspace holds a Cartesia voice key.
     developer_holds_key: bool
-    #: The developer workspace's own-keys switch is ON: a legacy of the old "Enable Studio
-    #: voices" to migrate off (`/studio-voices/disable`), never set by us since D-717.
+    #: The developer workspace speaks on that key for the voice: on, scope voice, complete
+    #: and in use. Studio ready switches it on (D-727).
     developer_switch_on: bool
     #: The `byok_voice` per-minute rate is attested.
     minute_attested: bool
@@ -985,7 +982,7 @@ async def hosted_clone_consent_document(
         content=document.data,
         media_type=document.content_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{document.filename}"',
+            "Content-Disposition": attachment_disposition(document.filename, fallback="consent"),
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
         },
@@ -1265,19 +1262,19 @@ async def fetch_preview(
     engine = _hosting_engine()
     row = await read_hosted_voice(session, payload.voice_id)
     if row.source == "byok":
-        # Spoken in a Studio client's workspace: the developer workspace's switch is off,
-        # where the vendor refuses a preview with 409 (preview-byok-voice.md:396-397).
-        workspace = await studio_listing_workspace(engine)
-        if workspace is None:
+        # Spoken where our key is switched on; elsewhere the vendor refuses a preview with
+        # 409 (preview-byok-voice.md:396-397).
+        found = await studio_listing_workspace(engine)
+        if found is None:
             raise ProblemError(
                 kind="business_rule",
                 code="studio_preview_no_workspace",
-                title="No client workspace runs Studio yet",
-                detail="A Studio voice is spoken on our key in a client workspace that runs "
-                "Studio, and none answers as ready.",
-                remediation="Run Studio ready naming the first Studio client, then try again.",
+                title="No workspace runs Studio yet",
+                detail="A Studio voice is spoken on our key in a workspace where it is "
+                "switched on, and none answers as ready.",
+                remediation="Run Studio ready, then try again.",
             )
-        with in_workspace(workspace):
+        with in_workspace(found.workspace):
             audio = await engine.preview_own_key_voice(
                 voice_id=row.vendor_id,
                 text=payload.text,
@@ -1329,17 +1326,17 @@ async def hosted_voice_preview(
     return await stored_preview_response(voice_id, offered_only=False)
 
 
-# --- Studio voices: our Cartesia key, in each Studio client's own workspace (D-717) ------
+# --- Studio voices: our Cartesia key, in the developer workspace and each Studio client's ---
 
 
 #: What Studio is on this platform, said where the operator decides.
 STUDIO_SWITCH_EXPLAINED: Final = (
-    "Studio voices are our Cartesia key, switched on for the voice only in the voice "
-    "platform workspace of each client that publishes a Studio agent, automatically, after "
-    "that client's Clear agents are set to stay off it. Our developer workspace only holds "
-    "the key with its switch off, so no client inherits it. Studio ready holds the key "
-    "there; naming a client also switches Studio on in that client's workspace, which is "
-    "how the first Studio voices are listed. This is not ThinnestAI's own Studio band."
+    "Studio voices are our Cartesia key, switched on for the voice only. Studio ready "
+    "switches it on in our developer workspace, where free-trial agents speak Studio and "
+    "where the voices are listed; every agent that is not on a Studio voice is set to stay "
+    "off it first. A paying client's workspace is switched on automatically at its first "
+    "Studio publish, after its Clear agents are set to stay off. This is not ThinnestAI's "
+    "own Studio band."
 )
 
 
@@ -1360,16 +1357,11 @@ async def _studio_out(
     session: AsyncSession, engine: HostsVoices, readiness: StudioReadiness, state: OwnVoiceKeyState
 ) -> StudioVoicesOut:
     names = await _tenant_names([w.tenant_id for w in readiness.workspaces])
-    if readiness.developer_switch_on:
+    if readiness.ready:
         note = (
-            "Our developer workspace's own-keys switch is ON, so every client without a key of "
-            "its own inherits it. Switch it off once every Studio client runs on its own "
-            "(runbooks/thinnest-studio-voices.md)."
-        )
-    elif readiness.ready:
-        note = (
-            f"Ready: Studio is on in {len(readiness.workspaces)} client workspace(s), and "
-            "switches on in a client's workspace at its first Studio publish."
+            "Ready: Studio is on in our developer workspace for trial agents and in "
+            f"{len(readiness.workspaces)} client workspace(s), and switches on in a paying "
+            "client's workspace at its first Studio publish."
         )
     else:
         note = "Not ready: " + " ".join(readiness.missing())
@@ -1416,13 +1408,13 @@ async def studio_voices(session: GlobalSession, _: VoiceCurator) -> StudioVoices
     "/studio-voices/enable",
     response_model=StudioVoicesOut,
     openapi_extra=permission_meta("ops:manage"),
-    summary="Studio ready: hold our Cartesia key in the developer workspace (step-up, audited)",
+    summary="Studio ready: switch our Cartesia key on in our developer workspace (step-up)",
     description=(
-        "Installs our Cartesia key in the developer workspace unless one is there, with its "
-        "own-keys switch left OFF so no client inherits it. With `tenant_id`, also switches "
-        "Studio on in that client's own workspace (its published Clear agents set to stay off "
-        "first, then the key, the voice-only switch and a read-back), which is where Studio "
-        "voices are listed from. Then re-reads the voices. Idempotent. Requires "
+        "Switches our Cartesia key on, for the voice only, in the developer workspace, where "
+        "free-trial agents publish Studio voices: every published agent not on a Studio voice "
+        "that would follow the switch is set to stay off and read back first, then the key, "
+        "the switch and a read-back. With `tenant_id`, also switches Studio on in that paying "
+        "client's own workspace the same way. Then re-reads the voices. Idempotent. Requires "
         "`X-Confirm-Action: enable_studio_voices`."
     ),
 )
@@ -1450,7 +1442,7 @@ async def enable_studio(
         action="ops.studio_voices_prepared",
         voice_id=None,
         summary={
-            "key_installed": result.key_installed,
+            "developer_switched_on": result.developer_switched_on,
             "tenant_id": str(payload.tenant_id) if payload.tenant_id else None,
             "developer_switch_on": result.readiness.developer_switch_on,
         },
@@ -1460,44 +1452,8 @@ async def enable_studio(
     return await _studio_out(session, engine, readiness, state)
 
 
-@router.post(
-    "/studio-voices/disable",
-    response_model=StudioVoicesOut,
-    openapi_extra=permission_meta("ops:manage"),
-    summary="Switch the developer workspace's own keys off (step-up confirmed, audited)",
-    description=(
-        "The last step of moving off the old developer-workspace switch: turns our developer "
-        "workspace's own keys off, keeping the key held there. Refused with "
-        "`studio_clients_not_moved` while any published Studio agent lives in the developer "
-        "workspace or in a client workspace not on its own Cartesia key, because it would "
-        "stop speaking its voice. Requires `X-Confirm-Action: disable_studio_voices`."
-    ),
-)
-async def disable_studio(
-    session: GlobalSession,
-    request: Request,
-    principal: VoiceCurator,
-    step_up: StepUpGate,
-    x_confirm_action: Annotated[str | None, Header()] = None,
-) -> StudioVoicesOut:
-    step_up.require(x_confirm_action, STUDIO_DISABLE_CONFIRMATION)
-    engine = _hosting_engine()
-    state = await switch_developer_off(session, engine)
-    await _audit(
-        session,
-        request,
-        principal,
-        action="ops.studio_developer_switch_off",
-        voice_id=None,
-        summary={"developer_switch_on": state.enabled},
-    )
-    readiness = await studio_readiness(session, engine, developer=state)
-    return await _studio_out(session, engine, readiness, state)
-
-
 __all__ = [
     "CLONE_CONFIRMATION",
-    "STUDIO_DISABLE_CONFIRMATION",
     "STUDIO_ENABLE_CONFIRMATION",
     "consent_confirmation",
     "delete_clone_confirmation",

@@ -56,6 +56,7 @@ from apps.api.crm.schemas import (
     TranscriptTurnOut,
 )
 from apps.api.db.base import uuid7
+from apps.api.db.like import contains_pattern, suffix_pattern
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import session_tenant
 from apps.api.db.transition import transition_status
@@ -837,8 +838,8 @@ def _lead_scope(
         # Name or phone suffix. Never a LIKE on the full number in a logged query
         # string — the route passes this as a bound parameter for that reason.
         clauses.append("(l.name ILIKE :search OR l.phone_e164 LIKE :phone_suffix)")
-        params["search"] = f"%{search}%"
-        params["phone_suffix"] = f"%{search}"
+        params["search"] = contains_pattern(search)
+        params["phone_suffix"] = suffix_pattern(search)
     if agent_id:
         clauses.append("l.agent_id = :agent_id")
         params["agent_id"] = agent_id

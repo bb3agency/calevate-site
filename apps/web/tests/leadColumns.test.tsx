@@ -263,6 +263,7 @@ describe("the column chooser reaches the table AND the file", () => {
     // unticks from there. The checkboxes carry the column's own visible label — axe
     // cannot see a placeholder, and neither can a person.
     await screen.findAllByRole("columnheader");
+    fireEvent.click(screen.getByRole("button", { name: /Choose columns/ }));
     fireEvent.click(await screen.findByLabelText("Budget band"));
 
     expect(await lensSentTo(calls, "/v1/leads/search")).toEqual({

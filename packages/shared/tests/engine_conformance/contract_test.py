@@ -140,6 +140,9 @@ def _agent_config(
         # ThinnestAI creates an agent only in the client's own workspace (D-693) and
         # refuses before any request without one; production resolves it per tenant.
         engine_workspace=CONFORMANCE_WORKSPACE if engine.name == "thinnest" else None,
+        # ThinnestAI refuses an agent that does not state whether it speaks on our voice key
+        # (D-727); production always states it (`agents/service._engine_voice_fields`).
+        engine_own_voice_key=False if engine.name == "thinnest" else None,
     )
 
 

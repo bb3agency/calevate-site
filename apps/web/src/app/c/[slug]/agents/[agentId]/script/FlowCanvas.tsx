@@ -382,7 +382,7 @@ export function FlowCanvas({
           return (
             <div
               key={s.id}
-              className={`absolute ${moving?.id === s.id && moving.moved ? "z-10" : ""}`}
+              className={`absolute ${moving?.id === s.id && moving.moved ? "z-raised" : ""}`}
               style={{ left: b.x, top: b.y, width: b.w, height: b.h }}
             >
               <button

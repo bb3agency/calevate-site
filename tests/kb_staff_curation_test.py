@@ -740,3 +740,37 @@ async def test_the_admin_approval_path_names_the_admin_even_from_inside_view_as(
         "and it must record that the admin was inside the client's own session — the "
         "fact D-22 kept true by refusing the write"
     )
+
+
+async def test_the_curation_gate_refuses_an_unattributable_view_as_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gate replaced `requires("kb:write")` and had dropped the rules that run after
+    the role check: a view-as principal with no grant id must not write knowledge."""
+    import uuid as _uuid
+
+    from apps.api.core.context import Principal
+    from apps.api.core.errors import ProblemError
+    from apps.api.kb import curation
+    from starlette.requests import Request
+
+    principal = Principal(
+        realm="admin",
+        user_id=_uuid.uuid4(),
+        tenant_id=_uuid.uuid4(),
+        role="operator",
+        impersonating=True,
+    )
+
+    async def _who(request: Request) -> Principal:
+        return principal
+
+    async def _may(*_a: object, **_k: object) -> bool:
+        return True
+
+    monkeypatch.setattr(curation, "current_any", _who)
+    monkeypatch.setattr(curation, "may_curate_knowledge", _may)
+    request = Request({"type": "http", "method": "POST", "path": "/v1/kb/facts", "headers": []})
+    with pytest.raises(ProblemError) as refused:
+        await curation.requires_kb_curation()(request, session=object())  # type: ignore[call-arg]
+    assert refused.value.status == 403

@@ -1,4 +1,4 @@
-"""Behaviour of four `scripts/vps-deploy.sh` functions, executed in bash with stubs.
+"""Behaviour of five `scripts/vps-deploy.sh` functions, executed in bash with stubs.
 
 The other deploy guards read the script as text; these run the real function bodies,
 lifted out of the script, against a stubbed `docker`/`compose`/`git`. What each pins:
@@ -13,6 +13,8 @@ lifted out of the script, against a stubbed `docker`/`compose`/`git`. What each 
    change and the deploy would otherwise print "HEAD is already live".
 4. A non-revision line from `alembic current` is refused. The revision checker answers
    "absent" for any unresolvable string, and "absent" skips migrations.
+5. The web build runs at the lowest CPU and I/O priority with a V8 heap ceiling, so it
+   cannot starve the live api on a one-vCPU host.
 """
 
 from __future__ import annotations
@@ -260,3 +262,50 @@ def test_every_revision_in_the_tree_has_the_shape_the_deploy_accepts() -> None:
     assert ids, "no alembic revisions found"
     odd = [rev for rev in ids if not re.fullmatch(r"[0-9a-f]{12}", rev)]
     assert not odd, f"revision ids vps-deploy.sh would refuse: {odd}"
+
+
+def _web_build_invocations(extra: str = "") -> list[str]:
+    """Run `deploy_web` with pnpm, pm2, nice and ionice stubbed; return what each recorded."""
+    result = _run(
+        _functions("deploy_web")
+        + extra
+        + r"""
+WEB_BUILD_HEAP_MB=2048
+LOG=$(mktemp)
+nice() { printf 'nice %s\n' "$1 $2" >> "$LOG"; shift 2; "$@"; }
+ionice() { printf 'ionice %s\n' "$1 $2" >> "$LOG"; shift 2; "$@"; }
+pnpm() { printf 'pnpm %s | NODE_OPTIONS=%s | BUILD=%s\n' "$*" "${NODE_OPTIONS:-}" \
+  "${CALEVATE_DEPLOY_BUILD:-}" >> "$LOG"; }
+pm2() { return 0; }
+wait_healthy() { :; }
+deploy_web
+cat "$LOG"
+rm -f "$LOG"
+"""
+    )
+    assert result.returncode == 0, result.stderr
+    return [
+        line
+        for line in result.stdout.splitlines()
+        if line.split(" ")[0] in {"nice", "ionice", "pnpm"}
+    ]
+
+
+def test_the_web_build_yields_to_the_live_api_and_has_a_heap_ceiling() -> None:
+    """On the one-vCPU production host the web build runs beside the live api; at default
+    priority with no ceiling it starved an api worker until its supervisor replaced it."""
+    lines = _web_build_invocations()
+    build = [line for line in lines if line.startswith("pnpm -C apps/web build")]
+    assert build == ["pnpm -C apps/web build | NODE_OPTIONS=--max-old-space-size=2048 | BUILD=1"]
+    install = lines.index("pnpm install --frozen-lockfile | NODE_OPTIONS= | BUILD=")
+    built = lines.index(build[0])
+    for at in (install, built):
+        assert lines[at - 2 : at] == ["nice -n 19", "ionice -c 3"], lines
+
+
+def test_an_operators_node_options_are_kept_beside_the_ceiling() -> None:
+    lines = _web_build_invocations('export NODE_OPTIONS="--trace-warnings"\n')
+    assert (
+        "pnpm -C apps/web build | NODE_OPTIONS=--trace-warnings --max-old-space-size=2048 | BUILD=1"
+        in lines
+    )

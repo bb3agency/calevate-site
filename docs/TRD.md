@@ -1311,6 +1311,13 @@ Razorpay for collection (phase 1 can invoice manually; ledger from day 1 is non-
 > ThinnestAI's Clear floor is ₹2.75 (₹2.50 Premium × 1.10 top-up fee, FOUNDER-RELAYED).
 > `tests/cost_floor_test.py` pins the derivations. Clients are billed in 30-second steps.
 >
+> **11 Oct 2026 (D-728): the card is Clear ₹4.50 and Studio ₹6.00, flat on every pack.**
+> Against the costs below, Clear earns 36.5% on ThinnestAI's Premium band (₹2.75/min) and
+> 25% on its Studio band (₹3.27/min) before the Pro subscription; Studio earns about 28% at
+> the first measured speaking rate (571 agent characters per call-minute, 3 calls) when
+> Cartesia bills per character. D-728 carries the working, the market comparison and the
+> open items (ThinnestAI GST, the Pro plan fee, Cartesia overage).
+>
 > **8 Oct 2026 (D-687): ThinnestAI's Clear is now its studio band, and Studio is sold.** On
 > `ENGINE=thinnest` Clear costs ₹3.00 studio band × 1.09 Pro top-up fee = **₹3.27/min**
 > against the ₹4.00 Clear price, an **18.3%** gross margin before the Pro subscription

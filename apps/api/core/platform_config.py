@@ -577,6 +577,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "trial_caller_number": AppliesRule(LIVE),
     "trial_daily_call_cap": AppliesRule(LIVE),
     "trial_call_max_seconds": AppliesRule(LIVE),
+    "trial_studio_minutes": AppliesRule(LIVE),
     "self_serve_trial_days": AppliesRule(LIVE),  # tenancy/signup, per signup
     "self_serve_trial_free_minutes": AppliesRule(LIVE),
     # Where ThinnestAI's in-call actions call us. Written into each action at publish

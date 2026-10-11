@@ -24,7 +24,8 @@ from apps.api.admin import service as admin_service
 from apps.api.admin.routes import CreateOrgIn
 from apps.api.agents import lead_fields
 from apps.api.agents.extraction_routes import write_schema
-from apps.api.agents.starters import apply_starter
+from apps.api.agents.script_builder import load_agent_script, save_agent_script, save_draft
+from apps.api.agents.starters import StarterJob, apply_starter, starter_vertical_of
 from apps.api.compliance.caller_memory import memory_enabled
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import admin_session, tenant_session
@@ -361,3 +362,113 @@ async def test_one_clients_confirm_touches_no_other_client(monkeypatch: pytest.M
     assert state.business_type is None and state.unconfirmed is not None
     missing = await _http("GET", f"/v1/admin/tenants/{uuid.uuid4()}/business-type", headers)
     assert missing.status_code == 404
+
+
+# --- 6. ready-made starters follow a confirmed type ---------------------------------------
+
+
+async def _starter_agent(tenant_id: uuid.UUID) -> tuple[uuid.UUID, StarterJob, str, str]:
+    """The account's agent, made from its type's "Answer my calls" starter."""
+    agent_id = await _first_agent(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET direction = 'inbound' WHERE id = :aid"), {"aid": agent_id}
+        )
+        row = (
+            await session.execute(
+                text(
+                    "SELECT a.language_primary, o.name, o.vertical_template FROM agents a "
+                    "JOIN organizations o ON o.id = a.tenant_id WHERE a.id = :aid"
+                ),
+                {"aid": agent_id},
+            )
+        ).one()
+        await apply_starter(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            job="answer_calls",
+            vertical_template=str(row[2]),
+            business=str(row[1]),
+            created_by=None,
+            language=str(row[0]),
+        )
+    return agent_id, "answer_calls", str(row[1]), str(row[0])
+
+
+async def _draft_script(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> tuple[dict[str, Any], str]:
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT pv.structured_script, pv.notes FROM agents a "
+                    "JOIN prompt_versions pv ON pv.id = a.system_prompt_id WHERE a.id = :aid"
+                ),
+                {"aid": agent_id},
+            )
+        ).one()
+    return dict(row[0]), str(row[1])
+
+
+async def _confirm(tenant_id: uuid.UUID, business: str) -> None:
+    async with tenant_session(tenant_id) as session:
+        await business_type.confirm(session, tenant_id=tenant_id, business_type=business)
+
+
+@pytest.mark.rls
+async def test_an_untouched_starter_becomes_the_confirmed_types_starter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = await _tenant("clinic", name="Lakshmi Homes")
+    agent_id, job, name, language = await _starter_agent(tenant_id)
+    _suggests(monkeypatch, None)
+    await _confirm(tenant_id, "real_estate")
+    await _apply(tenant_id)
+
+    script, notes = await _draft_script(tenant_id, agent_id)
+    assert starter_vertical_of(script, job=job, business=name, language=language) == "real_estate"
+    assert notes == "Ready-made starter: Answer my calls (business type changed)"
+
+    # Applying again is a no-op: the starter already matches the type.
+    await _apply(tenant_id)
+    assert (await _draft_script(tenant_id, agent_id))[1] == notes
+
+
+@pytest.mark.rls
+async def test_a_starter_the_owner_edited_is_left_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    tenant_id = await _tenant("clinic", name="Lakshmi Homes")
+    agent_id, job, name, language = await _starter_agent(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        loaded = await load_agent_script(session, agent_id)
+        await save_agent_script(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            script=loaded.script.model_copy(update={"goal": "Book a site visit for the caller."}),
+            notes="Owner's edit",
+            created_by=None,
+        )
+    _suggests(monkeypatch, None)
+    await _confirm(tenant_id, "real_estate")
+    await _apply(tenant_id)
+
+    script, _ = await _draft_script(tenant_id, agent_id)
+    assert script["goal"] == "Book a site visit for the caller."
+    assert starter_vertical_of(script, job=job, business=name, language=language) is None
+
+
+@pytest.mark.rls
+async def test_an_autosaved_working_copy_counts_as_an_edit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id = await _tenant("clinic", name="Lakshmi Homes")
+    agent_id, job, name, language = await _starter_agent(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        loaded = await load_agent_script(session, agent_id)
+        await save_draft(session, agent_id, loaded.script)
+    _suggests(monkeypatch, None)
+    await _confirm(tenant_id, "real_estate")
+    await _apply(tenant_id)
+
+    script, _ = await _draft_script(tenant_id, agent_id)
+    assert starter_vertical_of(script, job=job, business=name, language=language) == "clinic"

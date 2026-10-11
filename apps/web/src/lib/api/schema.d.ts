@@ -9694,26 +9694,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/ops/voices/studio-voices/disable": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Switch the developer workspace's own keys off (step-up confirmed, audited)
-         * @description The last step of moving off the old developer-workspace switch: turns our developer workspace's own keys off, keeping the key held there. Refused with `studio_clients_not_moved` while any published Studio agent lives in the developer workspace or in a client workspace not on its own Cartesia key, because it would stop speaking its voice. Requires `X-Confirm-Action: disable_studio_voices`.
-         */
-        post: operations["disable_studio_v1_ops_voices_studio_voices_disable_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/ops/voices/studio-voices/enable": {
         parameters: {
             query?: never;
@@ -9724,8 +9704,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Studio ready: hold our Cartesia key in the developer workspace (step-up, audited)
-         * @description Installs our Cartesia key in the developer workspace unless one is there, with its own-keys switch left OFF so no client inherits it. With `tenant_id`, also switches Studio on in that client's own workspace (its published Clear agents set to stay off first, then the key, the voice-only switch and a read-back), which is where Studio voices are listed from. Then re-reads the voices. Idempotent. Requires `X-Confirm-Action: enable_studio_voices`.
+         * Studio ready: switch our Cartesia key on in our developer workspace (step-up)
+         * @description Switches our Cartesia key on, for the voice only, in the developer workspace, where free-trial agents publish Studio voices: every published agent not on a Studio voice that would follow the switch is set to stay off and read back first, then the key, the switch and a read-back. With `tenant_id`, also switches Studio on in that paying client's own workspace the same way. Then re-reads the voices. Idempotent. Requires `X-Confirm-Action: enable_studio_voices`.
          */
         post: operations["enable_studio_v1_ops_voices_studio_voices_enable_post"];
         delete?: never;
@@ -43040,37 +43020,6 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StudioVoicesOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    disable_studio_v1_ops_voices_studio_voices_disable_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-confirm-action"?: string | null;
-            };
             path?: never;
             cookie?: never;
         };

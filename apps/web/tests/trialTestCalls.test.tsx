@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest";
 
 import { TrialCallCard } from "@/app/c/[slug]/TrialCallPanel";
-import { TrialStrip } from "@/app/c/[slug]/TrialBanner";
+import { TrialChipView, TrialStrip, trialView } from "@/app/c/[slug]/TrialBanner";
 import { TRIAL_LOCK_COPY } from "@/app/c/[slug]/TrialLockNotice";
 import type { TrialPanel } from "@/lib/api/trialCalls";
 
@@ -39,23 +39,28 @@ function panel(over: Partial<TrialPanel> = {}): TrialPanel {
   };
 }
 
-describe("the trial strip on a test-calls-only trial", () => {
-  it("says what the trial is for, what is left, and links to add credit", () => {
+describe("the trial in the shell on a test-calls-only trial", () => {
+  it("the chip's panel says what is left and that everything else opens with credit", () => {
     const wallet = prepaidWallet({
       balance_inr: "0.00",
       trial: activeTrialBlock({ test_calls_only: true, free_minutes: 30, minutes_left: 26 }),
     });
-    const { container } = render(
-      <TrialStrip wallet={wallet} creditsHref={CREDITS} now={new Date(ENDS.getTime() - 70 * 3_600_000)} />,
+    const view = trialView(wallet);
+    if (view === null) throw new Error("expected a trial");
+    render(
+      <TrialChipView view={view} creditsHref={CREDITS} open now={new Date(ENDS.getTime() - 70 * 3_600_000)} />,
     );
-    const text = container.textContent ?? "";
-    expect(text).toContain("You're on a free trial until 10 Oct, 10:58 pm IST — 3 days left, 26 free minutes left.");
-    expect(text).toContain("Try your agents with test calls from your dashboard.");
+    const panel = screen.getByRole("dialog", { name: "Your free trial" });
+    const text = panel.textContent ?? "";
+    expect(text).toContain("10 Oct, 10:58 pm IST");
+    expect(text).toContain("26 of 30");
+    expect(text).toContain("Answering calls, campaigns, your own number and business verification open once you add credit.");
     expect(text).not.toContain("Calls are on us until then");
     expect(screen.getByRole("link", { name: "Add credit" }).getAttribute("href")).toBe(CREDITS);
   });
 
   it("says the trial has ended once it has, and still offers the way on", () => {
+    window.localStorage.clear();
     const wallet = prepaidWallet({
       trial: activeTrialBlock({
         active: false,
@@ -64,7 +69,7 @@ describe("the trial strip on a test-calls-only trial", () => {
         test_calls_only: true,
       }),
     });
-    const { container } = render(<TrialStrip wallet={wallet} creditsHref={CREDITS} />);
+    const { container } = render(<TrialStrip wallet={wallet} slug="acme" creditsHref={CREDITS} />);
     expect(container.textContent).toContain("Your free trial has ended.");
     expect(screen.getByRole("link", { name: "Add credit" })).toBeTruthy();
   });

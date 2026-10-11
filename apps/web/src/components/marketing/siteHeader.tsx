@@ -92,7 +92,7 @@ const MENU_LINK =
 
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-30 border-b border-line bg-surface/85 backdrop-blur-md">
+    <header className="sticky top-0 z-header border-b border-line bg-surface/85 backdrop-blur-md">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-5 py-3 sm:gap-4 sm:px-6 xl:max-w-7xl 2xl:max-w-[90rem]">
         {/* Square mark on a phone, wordmark from `sm` — one element, one request. The row
             does not fit at 320px otherwise; `BrandHeaderMark` carries the measurement. */}
@@ -127,7 +127,7 @@ export function SiteHeader() {
                 that corner (globals.css). */}
             <nav
               aria-label="Pages menu"
-              className="mk-menu-panel absolute right-0 z-40 mt-2 w-60 rounded-xl border border-line bg-surface p-2 shadow-raised"
+              className="mk-menu-panel absolute right-0 z-dropdown mt-2 w-60 rounded-xl border border-line bg-surface p-2 shadow-raised"
             >
               <ul>
                 {NAV_ROUTES.map((item) => (

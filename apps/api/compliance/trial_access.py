@@ -21,9 +21,12 @@ from typing import Final, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.engine_minutes import BYOK_VOICE_RATE_KEY
 from apps.api.billing.first_payment import has_paid
+from apps.api.billing.rates import PREMIUM_VOICE_TIER
 from apps.api.billing.trials import (
     TRIAL_ACTIVE,
     TRIAL_CONVERTED,
@@ -249,6 +252,84 @@ async def read_trial_access(
     )
 
 
+# --- Studio minutes on a trial (D-727) ---------------------------------------------------
+
+TRIAL_STUDIO_MINUTES_USED_RULE: Final = "trial_studio_minutes_used"
+
+#: Is this agent's live vendor agent on a Studio voice (our own voice key)?
+_AGENT_ON_STUDIO_SQL: Final = (
+    "SELECT EXISTS (SELECT 1 FROM engine_agent_routes WHERE agent_id = :aid AND active "
+    "AND engine = :engine AND engine_rate_key = :studio_key)"
+)
+
+#: The trial's Studio seconds: metered test-call minutes on the Studio rung, plus the
+#: recorded length of any test call not metered yet whose agent is on a Studio voice, so a
+#: call that ended a moment ago counts before the post-call pipeline has run.
+_TRIAL_STUDIO_SECONDS_SQL: Final = (
+    "SELECT COALESCE((SELECT SUM(u.qty) * 60 FROM usage_events u JOIN calls c "
+    "ON c.id = u.call_id AND c.tenant_id = u.tenant_id WHERE u.tenant_id = :tid "
+    "AND u.unit_type = 'platform_min' AND u.meta->>'voice_tier' = :studio_tier "
+    "AND c.trial_call AND c.created_at >= :since), 0) "
+    "+ COALESCE((SELECT SUM(COALESCE(c.duration_s, 0)) FROM calls c WHERE c.tenant_id = :tid "
+    "AND c.trial_call AND c.created_at >= :since AND NOT EXISTS (SELECT 1 FROM usage_events u "
+    "WHERE u.tenant_id = c.tenant_id AND u.call_id = c.id AND u.unit_type = 'platform_min') "
+    "AND EXISTS (SELECT 1 FROM engine_agent_routes r WHERE r.agent_id = c.agent_id AND r.active "
+    "AND r.engine = :engine AND r.engine_rate_key = :studio_key)), 0)"
+)
+
+
+async def trial_studio_seconds_used(
+    session: AsyncSession, *, tenant_id: UUID, trial: TrialState
+) -> int:
+    """Seconds of Studio test calls this trial has used (`_TRIAL_STUDIO_SECONDS_SQL`)."""
+    value = (
+        await session.execute(
+            text(_TRIAL_STUDIO_SECONDS_SQL),
+            {
+                "tid": tenant_id,
+                "since": trial.started_at,
+                "studio_tier": PREMIUM_VOICE_TIER,
+                "engine": get_settings().engine,
+                "studio_key": BYOK_VOICE_RATE_KEY,
+            },
+        )
+    ).scalar()
+    return int(value or 0)
+
+
+async def refuse_trial_studio_over_cap(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
+) -> None:
+    """Refuse a trial test call on a Studio voice once the trial's Studio minutes reach
+    `trial_studio_minutes`. Clear test calls are not asked.
+
+    Called by `agents.service.dispatch_call` inside the intent transaction, after
+    `_hold_trial_line` took the platform's trial-line lock: the count and the new call's row
+    are serialised with every other test call, so two dials cannot both pass it."""
+    trial = await restricting_trial(session, tenant_id=tenant_id)
+    if trial is None:
+        return
+    settings = get_settings()
+    on_studio = (
+        await session.execute(
+            text(_AGENT_ON_STUDIO_SQL),
+            {"aid": agent_id, "engine": settings.engine, "studio_key": BYOK_VOICE_RATE_KEY},
+        )
+    ).scalar()
+    if not on_studio:
+        return
+    allowance = settings.trial_studio_minutes
+    if await trial_studio_seconds_used(session, tenant_id=tenant_id, trial=trial) < allowance * 60:
+        return
+    raise ProblemError(
+        kind="business_rule",
+        code=TRIAL_STUDIO_MINUTES_USED_RULE,
+        title="Your Studio minutes for the trial are used up",
+        detail=f"This free trial includes {allowance} minutes of test calls on Studio voices.",
+        remediation="Switch this agent to a Clear voice, or add credit to keep using Studio.",
+    )
+
+
 #: How long a placed trial call holds the shared number before its row ages out of the line
 #: count even if its end was never reported: the call limit plus this margin for ringing and
 #: a late end-of-call delivery. Ringing time is not documented by the platform, so the margin
@@ -275,6 +356,7 @@ __all__ = [
     "TRIAL_MINUTES_USED_REASON",
     "TRIAL_MINUTES_USED_RULE",
     "TRIAL_REFUSALS",
+    "TRIAL_STUDIO_MINUTES_USED_RULE",
     "TrialAccess",
     "TrialLocked",
     "daily_cap_reason",
@@ -282,7 +364,9 @@ __all__ = [
     "read_trial_access",
     "refuse_on_trial",
     "refuse_trial_numbers",
+    "refuse_trial_studio_over_cap",
     "restricting_trial",
     "trial_blocker",
     "trial_line_horizon",
+    "trial_studio_seconds_used",
 ]

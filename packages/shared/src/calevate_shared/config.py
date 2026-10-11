@@ -476,6 +476,11 @@ class Settings(BaseSettings):
     #: which the platform bounds to 60..1200 (`thinnest-findings/mirror/snapshots/2026-10-08/
     #: pages/api-reference/calls/place-call.md:1122-1126`).
     trial_call_max_seconds: int = Field(default=180, ge=60, le=1200)
+    #: The Studio minutes one free-trial account may use on test calls (D-727). Studio speaks
+    #: on our Cartesia key, so a trial's Studio minutes cost us the voice-only rate plus the
+    #: synthesis; once reached, a Studio test call is refused and Clear ones go on. 0 refuses
+    #: every Studio test call.
+    trial_studio_minutes: int = Field(default=15, ge=0, le=1000)
     #: The free trial a business gets the moment it signs itself up (D-703); an operator
     #: still sets each managed client's trial by hand. Bounded like `billing/trials`.
     self_serve_trial_days: int = Field(default=7, ge=1, le=365)
@@ -1675,7 +1680,7 @@ class Settings(BaseSettings):
     # runway framing says "unlimited" and the top-up flow charges zero. Exclusive floor.
     # The ceiling is absurd on purpose — nobody sells a minute for ₹10,000 — and its job
     # is to catch a decimal point in the wrong place before it reaches a wallet.
-    self_serve_inr_per_min: Decimal = Field(default=Decimal("4.00"), gt=0, le=10_000)
+    self_serve_inr_per_min: Decimal = Field(default=Decimal("4.50"), gt=0, le=10_000)
 
     # THE MONTHLY PLATFORM FEE (D-707). One platform-wide switch and one amount: on, every
     # live client that is not on a free trial and has no operator waiver is raised a fee

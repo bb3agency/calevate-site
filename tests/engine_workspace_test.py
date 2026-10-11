@@ -461,3 +461,35 @@ async def test_charges_are_read_in_every_workspace(monkeypatch: pytest.MonkeyPat
     outcome = await engine_charges.reconcile_engine_charges({})
     assert read_in == [None, "org_c7"]
     assert "workspaces=2" in outcome
+
+
+# --- a trial an operator ends -------------------------------------------------------------
+
+
+async def _trial_ended_as(outcome: str) -> UUID:
+    from apps.api.billing.trials import end_trial, start_trial
+
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await start_trial(session, tenant_id=tenant_id, days=14, actor_user_id=None)
+    async with tenant_session(tenant_id) as session:
+        await end_trial(session, tenant_id=tenant_id, outcome=outcome, reason="operator")
+    return tenant_id
+
+
+async def test_a_trial_an_operator_converts_is_owed_its_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A converted account publishes Studio voices in its own workspace, so converting
+    without a payment owes one exactly as the first payment does."""
+    monkeypatch.setattr(get_settings(), "engine", "thinnest")
+    tenant_id = await _trial_ended_as("converted")
+    assert (await _state(tenant_id)).status == "pending"
+    assert await _outbox(resolver.PROVISION_JOB, tenant_id) == [{"tenant_id": str(tenant_id)}]
+
+
+async def test_a_trial_an_operator_stops_is_owed_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(get_settings(), "engine", "thinnest")
+    tenant_id = await _trial_ended_as("stopped")
+    assert (await _state(tenant_id)).status == "not_provisioned"
+    assert await _outbox(resolver.PROVISION_JOB, tenant_id) == []

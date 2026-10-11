@@ -170,7 +170,7 @@ export function RowMenu({
   const menu = (
     <AnimatePresence>
       {open ? (
-        <div key="menu" ref={wrapRef} className="fixed left-0 top-0 z-50">
+        <div key="menu" ref={wrapRef} className="fixed left-0 top-0 z-dropdown">
           <motion.div
             ref={panelRef}
             id={menuId}
@@ -259,7 +259,7 @@ export function RowMenu({
             openWith("last");
           }
         }}
-        className={`press relative z-[1] inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-muted hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:h-11 touch:w-11 ${
+        className={`press relative z-raised inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-muted hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:h-11 touch:w-11 ${
           open ? "bg-ink/[0.06] text-ink" : ""
         } ${className}`}
       >

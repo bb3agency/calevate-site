@@ -172,7 +172,7 @@ function DrawerPanel({
   }, [asking]);
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-drawer">
       {/* The scrim closes the drawer, as `NavDrawer`'s does — a button, so it is a real
           control rather than a clickable div. It sits outside the panel, so Tab never
           cycles onto it. */}

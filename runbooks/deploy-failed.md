@@ -365,6 +365,11 @@ Containers are already swapped and healthy; this is the tail of the deploy.
   un-reviewed dependency change. Fix it in a PR.
 - **`next build` was killed**: memory. DEPLOYMENT §7a's answer is to move this build into
   CI and ship the artifact; until that happens, confirm swap exists and retry.
+- **`next build` stopped with `JavaScript heap out of memory`**: it reached
+  `WEB_BUILD_HEAP_MB` (default 2048), the ceiling that keeps it from pushing the live api
+  into swap. Re-run with a larger value only if `free -m` shows the room for it, e.g.
+  `WEB_BUILD_HEAP_MB=2560 scripts/vps-deploy.sh web`. The build runs under `nice -n 19`
+  and `ionice -c 3` so the api is scheduled first; slower is expected.
 - **`nginx -t` failed**: nothing was reloaded — nginx keeps the previous config until a
   successful reload — **and the previous files have been put back on disk.** That second
   half is not cosmetic. `nginx -t` reads `/etc/nginx`, so a candidate config has to be

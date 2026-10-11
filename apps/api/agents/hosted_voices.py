@@ -11,11 +11,11 @@ their id, which is namespaced by where the voice comes from:
   `sold_hosted_band`) can be added and offered. Our clones are in the ThinnestAI Studio band, so
   they are offerable only while Clear is sold on that band. Metered at that band's rate.
 * `byok:<id>` — a voice of our Cartesia key, switched on as the voice-only own key (BYOK scope
-  `voice`) in the customer workspace of each client that uses Studio (D-717). Metered at
-  `byok_voice` plus Cartesia's own charge to our key, sold as STUDIO. Listed and previewed
-  through the first such workspace that answers ready (`studio_listing_workspace`): our
-  developer workspace holds the key with its switch off, where the vendor refuses both
-  (`list-byok-voices.md:7`, `preview-byok-voice.md:396-397`).
+  `voice`) in our developer workspace, where trial agents live (D-727), and in the customer
+  workspace of each paying client that uses Studio (D-717). Metered at `byok_voice` plus
+  Cartesia's own charge to our key, sold as STUDIO. Listed and previewed in the first of those
+  that answers ready (`studio_listing_workspace`); the vendor refuses both in a workspace not
+  on its own keys (`list-byok-voices.md:7`, `preview-byok-voice.md:396-397`).
 
 Every agent says whether it speaks on our own voice key (D-688): Clear agents `byok: off`,
 Studio agents `byok: workspace`.
@@ -487,11 +487,25 @@ STUDIO_KEY_OFF_REASON: Final = (
 )
 
 
-async def studio_listing_workspace(engine: HostsVoices) -> str | None:
-    """The first Studio client workspace (earliest switched on) that answers ready on our
-    Cartesia key, where Studio voices are listed and previewed, or None. Never the
-    developer workspace: its switch stays off, and there the vendor answers `409`
-    (`list-byok-voices.md:7`, `preview-byok-voice.md:396-397`; D-717)."""
+@dataclass(frozen=True, slots=True)
+class StudioListingWorkspace:
+    """Where Studio voices are listed and previewed: a customer workspace id, or None for
+    our developer workspace."""
+
+    workspace: str | None
+
+
+async def studio_listing_workspace(engine: HostsVoices) -> StudioListingWorkspace | None:
+    """The workspace that answers ready on our Cartesia key, where Studio voices are listed
+    and previewed: our developer workspace first (switched on since D-727), else the
+    earliest Studio client workspace. None when none is ready; the vendor answers `409` in
+    a workspace not on its own keys (`list-byok-voices.md:7`, `preview-byok-voice.md:396-397`).
+    """
+    try:
+        if own_voice_key_ready(await engine.own_key_state()):
+            return StudioListingWorkspace(workspace=None)
+    except ProblemError as exc:
+        log.warning("studio_listing_workspace_unreadable", extra={"reason": exc.code})
     for row in await studio_workspaces():
         try:
             with in_workspace(row.workspace_id):
@@ -500,18 +514,18 @@ async def studio_listing_workspace(engine: HostsVoices) -> str | None:
             log.warning("studio_listing_workspace_unreadable", extra={"reason": exc.code})
             continue
         if own_voice_key_ready(state):
-            return row.workspace_id
+            return StudioListingWorkspace(workspace=row.workspace_id)
     return None
 
 
 async def _studio_listing(engine: HostsVoices) -> HostedVoiceListing | None:
-    """Our own-key voices as a Studio client workspace lists them, or None when none is
-    ready (a set-up state, not an outage, so the hourly job does not alarm on it)."""
-    workspace = await studio_listing_workspace(engine)
-    if workspace is None:
+    """Our own-key voices as a ready workspace lists them, or None when none is ready (a
+    set-up state, not an outage, so the hourly job does not alarm on it)."""
+    found = await studio_listing_workspace(engine)
+    if found is None:
         return None
     try:
-        with in_workspace(workspace):
+        with in_workspace(found.workspace):
             return await engine.list_own_key_voices()
     except EngineRejectedError as exc:
         if exc.vendor_status != 409:
@@ -1236,6 +1250,7 @@ __all__ = [
     "HostedSyncResult",
     "HostedVoiceRef",
     "HostedVoiceRow",
+    "StudioListingWorkspace",
     "VoiceScope",
     "accent_name",
     "add_hosted_voice",

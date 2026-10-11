@@ -658,6 +658,13 @@ async def end_trial(
         await queue_live_apply(
             session, scope="tenant", tenant_id=tenant_id, reason="trial_converted"
         )
+        # A converted account is a paying one and is owed its own voice workspace, whether
+        # the trial ended by a first payment or by an operator. Idempotent, and the plan's
+        # customer cap is enforced where the workspace is created
+        # (`workers/engine_workspaces`), so a refusal there is alarmed, not lost.
+        from apps.api.tenancy.engine_workspace import queue_workspace_provisioning
+
+        await queue_workspace_provisioning(session, tenant_id=tenant_id)
     log.info(
         "trial_ended",
         extra={

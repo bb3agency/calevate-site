@@ -92,10 +92,9 @@ export default function ClientRealmLayout({
                   scheduled, which is every ordinary day. */}
               <MaintenanceBanner />
               <ViewAsBanner slug={slug} />
-              {/* A statement about the ACCOUNT on every screen, below the two about the
-                  window: while a trial runs every money sentence in the console means
-                  something different, and a client must not have to open billing to learn
-                  it. Renders nothing when no trial is running. */}
+              {/* The trial, only when it needs acting on (its last day, its free minutes
+                  nearly gone, or ended unpaid); on an ordinary trial day the chip in the top
+                  bar carries it. Renders nothing otherwise. */}
               <TrialBanner />
               <ClientTopHeader slug={slug} onMenuToggle={() => setIsMobileOpen(true)} />
               {/* `tabIndex={-1}` is what makes `SkipLink` actually skip: following a

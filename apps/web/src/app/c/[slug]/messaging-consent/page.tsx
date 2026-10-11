@@ -47,7 +47,7 @@ export default function MessagingConsentPage() {
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="max-w-4xl space-y-6 pb-12">
       <PageHeader
         description="Who has agreed to receive WhatsApp messages from you. Campaign follow-ups are only sent to people recorded here — and this is a separate permission from calling, which is governed by the do-not-call list."
         actions={

@@ -91,6 +91,11 @@ ACTION_AUDIT_JOB = "record_action_invocation"
 REQUEST_TIMEOUT_S: Final = 4.0
 #: The most of an external response we read before parsing it.
 MAX_RESPONSE_BYTES: Final = 64 * 1024
+#: Wall-clock ceiling on ONE request, connect to last byte. `REQUEST_TIMEOUT_S` is httpx's
+#: per-phase timeout, which a server dripping one byte every few seconds never trips; the
+#: Test button and the background/after-call runs pass no `budget_s`, so without this a
+#: client's endpoint could hold an API request (and its DB session) open for hours.
+SEND_DEADLINE_S: Final = 3 * REQUEST_TIMEOUT_S
 #: The most answer text handed to the model: what the voice platform reads (~4,000).
 MAX_ANSWER_CHARS: Final = 4000
 #: How many free slots a calendar check offers.
@@ -227,15 +232,16 @@ async def _send(request: PreparedRequest, *, client: httpx.AsyncClient) -> httpx
         data=request.form_body,
         timeout=REQUEST_TIMEOUT_S,
     )
-    response = await client.send(req, stream=True, follow_redirects=False)
-    try:
-        body = bytearray()
-        async for chunk in response.aiter_bytes():
-            body.extend(chunk[: MAX_RESPONSE_BYTES - len(body)])
-            if len(body) >= MAX_RESPONSE_BYTES:
-                break
-    finally:
-        await response.aclose()
+    body = bytearray()
+    async with asyncio.timeout(SEND_DEADLINE_S):
+        response = await client.send(req, stream=True, follow_redirects=False)
+        try:
+            async for chunk in response.aiter_bytes():
+                body.extend(chunk[: MAX_RESPONSE_BYTES - len(body)])
+                if len(body) >= MAX_RESPONSE_BYTES:
+                    break
+        finally:
+            await response.aclose()
     return httpx.Response(
         response.status_code, headers=response.headers, content=bytes(body), request=req
     )

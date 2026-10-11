@@ -8,7 +8,7 @@ import { BuildAgent } from "./BuildAgent";
 export default function NewAgentPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
   return (
-    <div className="mx-auto max-w-2xl pb-12">
+    <div className="max-w-2xl pb-12">
       <BuildAgent slug={slug} />
     </div>
   );

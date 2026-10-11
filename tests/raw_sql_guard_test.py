@@ -329,3 +329,33 @@ class TestTheDriverDoor:
             name = callee.id if isinstance(callee, ast.Name) else getattr(callee, "attr", None)
             if name != guard.SQL_SINK:
                 assert not isinstance(call.args[0], ast.Call), ast.unparse(call)
+
+
+def test_a_sink_imported_under_another_name_is_reported(modules: list[guard.Module]) -> None:
+    """Sites are found by NAME, so `text as t` made every statement through `t(...)`
+    invisible — and the report said OK."""
+    doctored = _doctored(
+        modules,
+        "apps/api/crm/service.py",
+        "from apps.api.db.like import contains_pattern, suffix_pattern",
+        "from apps.api.db.like import contains_pattern, suffix_pattern\n"
+        "from sqlalchemy import text as raw_text",
+    )
+    reported = guard.disguised_sink_uses(doctored)
+    assert any("raw_text" in line for line in reported), reported
+
+
+def test_a_statement_passed_as_a_keyword_is_reported(modules: list[guard.Module]) -> None:
+    doctored = _doctored(
+        modules,
+        "apps/api/crm/service.py",
+        "from apps.api.db.like import contains_pattern, suffix_pattern",
+        "from apps.api.db.like import contains_pattern, suffix_pattern\n"
+        "_HIDDEN = text(text=str(object()))",
+    )
+    reported = guard.disguised_sink_uses(doctored)
+    assert any("text(text=" in line for line in reported), reported
+
+
+def test_the_tree_has_no_disguised_sink(modules: list[guard.Module]) -> None:
+    assert guard.disguised_sink_uses(modules) == []

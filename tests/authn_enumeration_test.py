@@ -426,3 +426,24 @@ async def test_there_is_no_identifier_existence_endpoint() -> None:
         lowered = path.lower()
         for needle in banned:
             assert needle not in lowered, f"{path} looks like a user-enumeration oracle"
+
+
+async def test_every_refused_sign_in_answers_no_sooner_than_the_floor(
+    live_user: tuple[uuid.UUID, str],
+) -> None:
+    """The ratio above tolerates 4x because only the work was equalised; the audit append a
+    real account's wrong password pays was still visible. Both refusals now wait out
+    `SIGN_IN_FAILURE_FLOOR_S`, so the slower path's extra milliseconds sit under it."""
+    _, email = live_user
+    unknown = f"nobody-{uuid.uuid4().hex[:12]}@calevate-test.example"
+    real_id = await _resolve(email)
+    ghost = pseudo_subject(REALM, unknown)
+    for address, subject in ((email, real_id), (unknown, ghost)):
+        await clear(PASSWORD_BUDGET, realm=REALM, subject_id=subject)
+        started = time.perf_counter()
+        with pytest.raises(ProblemError):
+            await service.sign_in(
+                realm=REALM, email=address, password="wrong-but-long-enough", ip=None
+            )
+        assert time.perf_counter() - started >= service.SIGN_IN_FAILURE_FLOOR_S
+    await _forget_throttle(ghost)

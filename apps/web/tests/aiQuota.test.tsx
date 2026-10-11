@@ -457,13 +457,16 @@ describe("the money dialog (G-5)", () => {
     // An accessible NAME, not just a heading somewhere inside it: axe's `aria-dialog-name`
     // is exactly this, and a dialog a screen reader announces as "dialog" is one nobody
     // can decide from.
-    expect(dialog.getAttribute("aria-labelledby")).toBe("ai-extra-title");
-    expect(document.getElementById("ai-extra-title")?.textContent).toContain(
+    const titleId = dialog.getAttribute("aria-labelledby") ?? "";
+    expect(titleId).not.toBe("");
+    expect(document.getElementById(titleId)?.textContent).toContain(
       "Add more AI help this month",
     );
     expect(document.activeElement).toBe(dialog);
 
+    // The dialog is portalled into document.body, outside the page container.
     await expectNoA11yViolations(container, "c/[slug]/ai-assist (dialog open)");
+    await expectNoA11yViolations(dialog, "c/[slug]/ai-assist (the dialog)");
   });
 
   it("cancels on Escape without spending", async () => {

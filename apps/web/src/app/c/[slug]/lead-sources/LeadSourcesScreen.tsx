@@ -142,7 +142,7 @@ export function LeadSourcesScreen() {
   });
 
   return (
-    <div className="space-y-5 pb-12">
+    <div className="max-w-4xl space-y-5 pb-12">
       <PageHeader
         description="How new leads from your forms and ads are called, and every delivery accounted for."
         actions={

@@ -26,7 +26,6 @@ from pydantic import BaseModel, ConfigDict
 from apps.api.agents.engine_catalogue_offer import offered_models
 from apps.api.agents.engine_choice import (
     BYOK_CHOICE_NOTE,
-    STUDIO_AFTER_GO_LIVE_NOTE,
     byok_in_force,
     in_call_default_model,
 )
@@ -42,12 +41,11 @@ from apps.api.agents.llm_models import LlmReasonAudience
 from apps.api.agents.llm_tiers import engine_model_labels, engine_model_token
 from apps.api.agents.voice_offer import tts_price_is_billable
 from apps.api.billing.engine_minutes import attested_rate_keys
-from apps.api.compliance.trial_access import restricting_trial
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.catalogue import HoldsCatalogue, HostsVoices
 from apps.api.engine.hosted_platform import engine_platform_label
@@ -129,7 +127,7 @@ class EngineCatalogueOut(BaseModel):
     choosable: bool = True
     choice_note: str | None = None
     #: Can this reader put an agent on a Studio voice? False before Studio is ready on this
-    #: deployment, and for a free-trial account, whose agents speak Clear only (D-717).
+    #: deployment. A free-trial account may (D-727).
     studio_available: bool = False
     #: Why Studio cannot be chosen, in the reader's words; null when it can. Names no vendor.
     studio_note: str | None = None
@@ -145,12 +143,9 @@ class EngineCatalogueOut(BaseModel):
 STUDIO_NOT_READY_NOTE: Final = "Studio voices are not available yet."
 
 
-def _studio_note(*, studio_ready: bool, on_trial: bool) -> str | None:
-    """Why this reader cannot choose a Studio voice, or None. A trial account's agents live
-    in our developer workspace, whose own-keys switch stays off, so they are Clear only;
-    the Studio previews still play for it (D-697, D-717)."""
-    if on_trial:
-        return STUDIO_AFTER_GO_LIVE_NOTE
+def _studio_note(*, studio_ready: bool) -> str | None:
+    """Why a reader cannot choose a Studio voice, or None. A free-trial account may choose one
+    like any other (D-727): its agents speak Studio in our developer workspace."""
     return None if studio_ready else STUDIO_NOT_READY_NOTE
 
 
@@ -186,17 +181,11 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
         attested = await attested_rate_keys(session, engine=engine.name, at=datetime.now(UTC))
         rows = await offered_hosted_voices(session)
         studio_ready = await studio_voices_ready(session)
-    on_trial = False
-    if principal.tenant_id is not None and not principal.is_admin:
-        async with tenant_session(principal.tenant_id) as tenant:
-            on_trial = await restricting_trial(tenant, tenant_id=principal.tenant_id) is not None
-    studio_note = _studio_note(studio_ready=studio_ready, on_trial=on_trial)
+    studio_note = _studio_note(studio_ready=studio_ready)
     catalogue = await engine.read_catalogue()
     models = offered_models(catalogue, attested=attested, platform=platform, audience=audience)
     reasons = [
-        STUDIO_AFTER_GO_LIVE_NOTE
-        if on_trial and row.source == "byok"
-        else hosted_voice_unofferable_reason(
+        hosted_voice_unofferable_reason(
             row,
             attested=attested,
             voice_key_priced=voice_key_priced,
@@ -236,7 +225,7 @@ async def engine_catalogue(principal: CatalogueReader) -> EngineCatalogueOut:
         complete=catalogue.complete,
         choosable=not byok,
         choice_note=BYOK_CHOICE_NOTE if byok else None,
-        studio_available=studio_ready and not on_trial,
+        studio_available=studio_ready,
         studio_note=studio_note,
         default_model_label=default_label,
         note=(

@@ -97,6 +97,11 @@ SECURITY_HEADERS = {
     # line of code — adding the token without the submission would be a claim about the
     # preload list that is simply false.
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    # Every body here is one account's data (a transcript, a lead list, a session), so no
+    # shared or browser cache may keep it (OWASP ASVS 4.0.3 V8.2.1). Set only when the
+    # route set none: the public rate card, the healer status and the voice previews
+    # choose their own caching and keep it.
+    "Cache-Control": "no-store",
     # **NO `Permissions-Policy`, and it would be a header for show.** It is only honoured
     # for a DOCUMENT (or an embedded one): it governs what a browsing context may ask the
     # user's device for. This origin serves `application/json` and

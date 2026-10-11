@@ -301,15 +301,13 @@ async def test_our_own_accounts_calls_carry_no_header() -> None:
     assert [s for s in rec.seen if s[2] is not None] == []
 
 
-async def test_our_developer_workspace_byok_switch_is_never_turned_on() -> None:
-    """D-717: our developer workspace only HOLDS the Cartesia key; switching it on would let
-    every client without a key of its own inherit it (bring-your-own-keys.md:129-133). The
-    adapter refuses before any request; inside a client's workspace it is sent there."""
+async def test_the_byok_switch_goes_to_the_ambient_workspace() -> None:
+    """D-727: our developer workspace's switch is turned on too (trial agents speak Studio
+    there); D-717: a client's is sent with its own header. Each lands where it was opened."""
     rec = Recorder()
     engine = ThinnestEngine(api_key="ta_live_test", client=_http(rec))
-    with pytest.raises(WorkspaceScopeError):
+    with contextlib.suppress(ProblemError):
         await engine.enable_own_voice_key()
-    assert rec.seen == []
     with in_workspace(WS), contextlib.suppress(ProblemError):
         await engine.enable_own_voice_key()
-    assert ("PATCH", "/byok", WS) in rec.seen
+    assert ("PATCH", "/byok", None) in rec.seen and ("PATCH", "/byok", WS) in rec.seen

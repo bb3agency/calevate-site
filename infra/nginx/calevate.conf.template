@@ -552,6 +552,10 @@ server {
     http2 on;
     server_name api.${ROOT_DOMAIN};
 
+    # The redacted format here too: `GET /v1/ingest/meta/{id}?hub.verify_token=…` carries a
+    # per-endpoint credential, and the base config's `combined` would log it whole.
+    access_log /var/log/nginx/access.log calevate_redacted;
+
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
     include /etc/nginx/snippets/calevate-tls.conf;

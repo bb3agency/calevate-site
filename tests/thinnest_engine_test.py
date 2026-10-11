@@ -58,6 +58,9 @@ def _cfg(**update: Any) -> AgentConfig:
         system_prompt="You are the receptionist.",
         opening_line="Idi AI assistant. Ee call record avutundi.",
         engine_workspace=WS,
+        # Publish always states it (`agents/service._engine_voice_fields`); the adapter
+        # refuses a config that does not.
+        engine_own_voice_key=False,
     )
     return base.model_copy(update=update)
 
@@ -153,10 +156,12 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
         "ringSeconds": 30,
         "summariseCalls": True,
         "pastConversations": "fresh",
+        "voice": None,
     }
     assert body["collectFields"] == [] and body["captureLeads"] is False
-    # No per-agent switch stated (the workspace on its own keys): voice and model not sent.
-    assert "model" not in body and "voice" not in body["voice"]
+    # The switch is always stated (D-727); with no voice or model chosen both are sent as
+    # null, the vendor's default, which publish refuses before it gets here.
+    assert body["byok"] == "off" and body["model"] is None
     # The built-in tools were pinned after the write and read back.
     assert seen[-1].method == "PATCH" and seen[-1].url.path.endswith("/agents/ag_1/tools")
 

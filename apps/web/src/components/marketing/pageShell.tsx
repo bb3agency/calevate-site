@@ -186,7 +186,7 @@ export function PageIntro({
 }) {
   return (
     <section className="relative isolate overflow-hidden border-b border-line">
-      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+      <div aria-hidden className="pointer-events-none absolute inset-0 z-below">
         <div className="mk-grid-lines absolute inset-0" />
         <div className="mk-blob mk-blob--a mk-float absolute -top-24 -left-24 h-72 w-72" />
       </div>

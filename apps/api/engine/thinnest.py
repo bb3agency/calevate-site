@@ -121,7 +121,6 @@ from apps.api.engine.recording_source import EngineRecordingSource, RecordingFet
 from apps.api.engine.test_chat import TEST_CHAT_UNAVAILABLE, TestChatTool, TestChatTurn
 from apps.api.engine.text_split import split_for_text_cap
 from apps.api.engine.thinnest_workspace import (
-    refuse_developer_byok_on,
     trial_agent_allowed,
     workspace_headers,
     workspace_not_provisioned,
@@ -1307,20 +1306,32 @@ class ThinnestEngine:
             voice["voice"] = cfg.engine_voice_id
         if cfg.engine_model_id:
             body["model"] = cfg.engine_model_id
-        if cfg.engine_own_voice_key is not None:
-            # Always stated, never left to the vendor's `workspace` default: with voice-only
-            # BYOK on in the workspace, an agent that omitted it would speak Cartesia.
-            body["byok"] = _byok_value(cfg.engine_own_voice_key)
-            # A choice that was cleared is sent as `null`, which puts the agent back on the
-            # vendor's default (voice Kavya, model Prana [Voice]) (update-agent.md:536-545,
-            # :951-961). Kavya bills at the Premium band; publish refuses an agent with no
-            # voice chosen (`agents/engine_choice.VOICE_REQUIRED`), so a published agent never
-            # runs on it, and the drift sweep repairs one found there. Not sent while the
-            # workspace runs on all three of its own keys (`engine_own_voice_key` None), where
-            # no per-agent voice or model applies, nor for a voice of our own key.
-            if not cfg.engine_byok_voice_id:
-                voice.setdefault("voice", None)
-            body.setdefault("model", None)
+        if cfg.engine_own_voice_key is None:
+            # Never left to the vendor's default, `workspace` (bring-your-own-keys.md:304-306):
+            # in a workspace whose voice-only switch is on, an agent that omitted it would
+            # speak on our Cartesia key at the Clear price (:69-79, :128-133). Publish always
+            # resolves it (`agents/service._engine_voice_fields`, and `engine_choice`
+            # refuses the all-own-keys mode where it would not), so this is a config built
+            # some other way.
+            raise ProblemError(
+                kind="internal",
+                code="engine_agent_byok_unstated",
+                title="This agent's voice settings are incomplete",
+                detail=(
+                    "The agent was not published because its settings did not say whose "
+                    "voice key it speaks on. Nothing changed for its callers."
+                ),
+                remediation="Publish the agent again. If it keeps failing, contact us.",
+            )
+        body["byok"] = _byok_value(cfg.engine_own_voice_key)
+        # A choice that was cleared is sent as `null`, which puts the agent back on the
+        # vendor's default (voice Kavya, model Prana [Voice]) (update-agent.md:536-545,
+        # :951-961). Kavya bills at the Premium band; publish refuses an agent with no voice
+        # chosen (`agents/engine_choice.VOICE_REQUIRED`), so a published agent never runs on
+        # it, and the drift sweep repairs one found there. Not sent for a voice of our own key.
+        if not cfg.engine_byok_voice_id:
+            voice.setdefault("voice", None)
+        body.setdefault("model", None)
         return body
 
     @staticmethod
@@ -2404,10 +2415,10 @@ class ThinnestEngine:
     async def enable_own_voice_key(self) -> OwnVoiceKeyState:
         """`PATCH /byok {enabled: true, scope: "voice"}`, then the state as read back. `409`
         until the voice key is added, checked and has a model
-        (bring-your-own-keys.md:186-198). Only ever in a client's own workspace: our
-        developer workspace's switch stays off (D-717, `refuse_developer_byok_on`)."""
+        (bring-your-own-keys.md:186-198). In the ambient workspace: ours (D-727) or a Studio
+        client's (D-717); `agents/studio_voices` sets every agent that would follow the switch
+        `off` first."""
         workspace = workspace_of(None)
-        refuse_developer_byok_on(workspace)
         try:
             await self._request(
                 "PATCH",

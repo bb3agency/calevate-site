@@ -702,3 +702,156 @@ async def test_an_operator_can_run_the_smoke_call_path(
         )
     assert result.status == "blocked"
     assert result.blocked_rule == "trial_calling_not_ready"
+
+
+# --- Studio minutes on a trial (D-727) ----------------------------------------------------
+
+
+async def _on_studio(tenant_id: uuid.UUID, agent_id: uuid.UUID, *, studio: bool = True) -> None:
+    """Stamp the agent's live route with the Studio rate key, as a Studio publish does."""
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE engine_agent_routes SET engine_rate_key = :key "
+                "WHERE agent_id = :aid AND active"
+            ),
+            {"key": "byok_voice" if studio else None, "aid": agent_id},
+        )
+
+
+async def _end_open_trial_calls() -> None:
+    """The trial line is platform-wide: leave no test call holding it."""
+    from apps.api.db.session import untenanted_session
+
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET status = 'completed' WHERE trial_call "
+                "AND status IN ('queued', 'ringing', 'in_progress')"
+            )
+        )
+
+
+async def _refusal(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str | None:
+    from apps.api.compliance.trial_access import refuse_trial_studio_over_cap
+
+    async with tenant_session(tenant_id) as session:
+        try:
+            await refuse_trial_studio_over_cap(session, tenant_id=tenant_id, agent_id=agent_id)
+        except ProblemError as exc:
+            return exc.code
+    return None
+
+
+async def test_studio_test_calls_stop_at_the_trials_studio_minutes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "trial_studio_minutes", 2)
+    tenant_id, agent_id = await _trial_tenant()
+    await _on_studio(tenant_id, agent_id)
+    await _trial_call_row(tenant_id, agent_id, status="completed", seconds=60)
+    assert await _refusal(tenant_id, agent_id) is None
+    await _trial_call_row(tenant_id, agent_id, status="completed", seconds=60)
+    assert await _refusal(tenant_id, agent_id) == "trial_studio_minutes_used"
+    # A Clear agent of the same account is not asked.
+    await _on_studio(tenant_id, agent_id, studio=False)
+    assert await _refusal(tenant_id, agent_id) is None
+
+
+async def test_metered_studio_minutes_count_after_the_agent_moves_to_clear(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Metered minutes are counted by the rung stamped on the usage row, so a call made on
+    Studio still counts once the agent has moved to Clear and back."""
+    monkeypatch.setattr(get_settings(), "trial_studio_minutes", 1)
+    tenant_id, agent_id = await _trial_tenant()
+    await _trial_call_row(tenant_id, agent_id, status="completed", seconds=90)
+    async with tenant_session(tenant_id) as session:
+        call_id = (
+            await session.execute(
+                text("SELECT id FROM calls WHERE tenant_id = :t AND trial_call"), {"t": tenant_id}
+            )
+        ).scalar_one()
+        await session.execute(
+            text(
+                "INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, "
+                "unit_cost_paid, occurred_at, meta, created_at) VALUES (:id, :tid, :cid, "
+                "'platform_min', 1.5, 1.6500, now(), CAST(:meta AS jsonb), now())"
+            ),
+            {
+                "id": uuid7(),
+                "tid": tenant_id,
+                "cid": call_id,
+                "meta": json.dumps({"voice_tier": "studio"}),
+            },
+        )
+    await _on_studio(tenant_id, agent_id)
+    assert await _refusal(tenant_id, agent_id) == "trial_studio_minutes_used"
+
+
+async def test_a_studio_test_call_over_the_cap_is_refused_before_anything_is_written(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "trial_studio_minutes", 0)
+    tenant_id, agent_id = await _trial_tenant()
+    await _on_studio(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as caught:
+            await agents_service.dispatch_call(
+                session,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                lead_id=None,
+                phone_e164="+919876543210",
+                trial=TrialDial(from_e164=TRIAL_NUMBER, max_call_seconds=180),
+            )
+    assert caught.value.code == "trial_studio_minutes_used"
+    assert caught.value.title == "Your Studio minutes for the trial are used up"
+    assert caught.value.remediation == (
+        "Switch this agent to a Clear voice, or add credit to keep using Studio."
+    )
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text("SELECT count(*) FROM calls WHERE tenant_id = :t"), {"t": tenant_id}
+            )
+        ).scalar_one()
+    assert rows == 0
+
+
+async def test_two_studio_test_calls_at_once_cannot_both_pass_the_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The check runs under the platform's trial-line lock with the new call's row, as
+    `dispatch_call` runs it, so the second dial sees the first and cannot slip past."""
+    import asyncio
+
+    from apps.api.compliance.trial_access import refuse_trial_studio_over_cap
+
+    monkeypatch.setattr(get_settings(), "trial_studio_minutes", 1)
+    tenant_id, agent_id = await _trial_tenant()
+    await _on_studio(tenant_id, agent_id)
+    await _end_open_trial_calls()
+
+    async def dial() -> str:
+        try:
+            async with tenant_session(tenant_id) as session:
+                await agents_service._hold_trial_line(session)
+                await refuse_trial_studio_over_cap(session, tenant_id=tenant_id, agent_id=agent_id)
+                await session.execute(
+                    text(
+                        "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                        "to_e164, trial_call, status, created_at, updated_at) VALUES (:id, :tid, "
+                        ":aid, :ecid, 'outbound', '+919876543210', true, 'queued', now(), now())"
+                    ),
+                    {"id": uuid7(), "tid": tenant_id, "aid": agent_id, "ecid": uuid.uuid4().hex},
+                )
+        except ProblemError as exc:
+            return exc.code
+        return "placed"
+
+    try:
+        outcomes = sorted(await asyncio.gather(dial(), dial()))
+    finally:
+        await _end_open_trial_calls()
+    assert outcomes == ["placed", "trial_line_busy"]

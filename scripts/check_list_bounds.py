@@ -713,10 +713,6 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="the same `StudioVoicesOut` as `GET /v1/ops/voices/studio-voices`, re-read after "
         "the switch."
     ),
-    "POST /v1/ops/voices/studio-voices/disable": BoundedByConstruction(
-        by="the same `StudioVoicesOut` as `GET /v1/ops/voices/studio-voices`, re-read after "
-        "the switch."
-    ),
     "GET /v1/billing/topups/packs": BoundedByConstruction(
         by="`packs` is one row per member of `billing.credit_packs.PACK_CATALOGUE`, a static "
         "tuple whose size is a pricing decision, never a caller's row count."

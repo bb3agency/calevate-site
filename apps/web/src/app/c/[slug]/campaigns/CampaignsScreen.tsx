@@ -227,7 +227,7 @@ export function CampaignsScreen() {
   };
 
   return (
-    <div className="space-y-5 pb-12">
+    <div className="max-w-4xl space-y-5 pb-12">
       {!campaignId && !creating && (
         <PageHeader
           description="Call a list of people with one of your agents."

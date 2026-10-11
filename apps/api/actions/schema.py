@@ -27,7 +27,7 @@ from typing import Literal
 from uuid import UUID
 
 from calevate_shared.engine import ActionParamType
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 ParamSource = Literal["static", "lead_var", "ai"]
 
@@ -154,7 +154,16 @@ class WhatsAppConfig(BaseModel):
     # Meta Cloud / Interakt need the template language; AiSensy does not.
     language: str | None = Field(default=None, max_length=16)
     # Meta Cloud only: the WABA phone number id the send goes out on.
-    phone_number_id: str | None = Field(default=None, max_length=64)
+    # Digits only: it is spliced into the Graph API path, so `../` or `?` would reach a
+    # different Graph endpoint with the client's token.
+    phone_number_id: str | None = Field(default=None, max_length=64, pattern=r"^[0-9]+$")
+
+    @field_validator("phone_number_id", mode="before")
+    @classmethod
+    def _blank_number_id_is_none(cls, value: object) -> object:
+        # The console sends the box's text, which is "" when left empty.
+        return value.strip() or None if isinstance(value, str) else value
+
     # Optional header variable (Meta/Interakt), a binding name.
     header_param: str | None = Field(default=None, max_length=64)
     # Ordered body variables ({{1}}, {{2}}...), each a binding name.
@@ -271,7 +280,16 @@ class PaymentMessage(BaseModel):
     credential_id: UUID
     template: str = Field(min_length=1, max_length=512)
     language: str | None = Field(default=None, max_length=16)
-    phone_number_id: str | None = Field(default=None, max_length=64)
+    # Digits only: it is spliced into the Graph API path, so `../` or `?` would reach a
+    # different Graph endpoint with the client's token.
+    phone_number_id: str | None = Field(default=None, max_length=64, pattern=r"^[0-9]+$")
+
+    @field_validator("phone_number_id", mode="before")
+    @classmethod
+    def _blank_number_id_is_none(cls, value: object) -> object:
+        # The console sends the box's text, which is "" when left empty.
+        return value.strip() or None if isinstance(value, str) else value
+
     body_values: list[Literal["link", "amount", "description"]] = Field(min_length=1, max_length=3)
     country_code: str = Field(default="+91", max_length=8)
 

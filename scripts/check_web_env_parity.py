@@ -141,6 +141,8 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from scripts.tree_walk import walk_files
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # The package whose configuration this guards, and the file that declares it. Both
@@ -249,16 +251,14 @@ def source_files(root: Path | None = None) -> list[Path]:
     base = (root or REPO_ROOT) / WEB_PACKAGE
     if not base.exists():
         return []
-    return sorted(
+    return [
         path
-        for path in base.rglob("*")
-        if path.is_file()
-        and path.suffix in SOURCE_SUFFIXES
-        and not EXCLUDED_DIRECTORIES & set(path.relative_to(base).parts)
+        for path in walk_files(base, skip=EXCLUDED_DIRECTORIES)
+        if path.suffix in SOURCE_SUFFIXES
         # Only at the package root: a `next.config.ts` somewhere under `src/` would be an
         # ordinary module with an unfortunate name, and it stays in scope.
         and not (path.parent == base and path.stem in EXCLUDED_ROOT_STEMS)
-    )
+    ]
 
 
 def strip_comments(source: str) -> str:

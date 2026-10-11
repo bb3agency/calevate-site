@@ -238,6 +238,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_rejected": "attention",
     "engine_rate_limited": "attention",
     "engine_bad_response": "attention",
+    # A ThinnestAI agent config that did not state `byok` was refused before it was sent:
+    # left unstated it would follow a switched-on workspace onto our voice key.
+    "engine_agent_byok_unstated": "attention",
     # ThinnestAI (D-678). A paged list stopped short, so a publish was refused rather than
     # risk a second live agent, or a knowledge read could not be completed. Retryable and
     # nobody's line is down.
@@ -559,12 +562,16 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # `studio_workspace_drift` carry the alarm when it persists.
     "studio_account_not_ready": "record",
     "studio_workspace_not_ready": "record",
+    # D-727: Studio ready, or the hourly repair, did not read the developer workspace back
+    # on; the operator sees the refusal, and the sweep's `studio_developer_drift` carries it.
+    "studio_developer_not_ready": "record",
     # D-717: a Studio client workspace is off our key and could not be switched back on, so
     # its Studio calls speak the wrong voice at the wrong price, or none. Pages.
     "studio_workspace_drift": "page",
-    # D-717: our developer workspace's own-keys switch is on, so every client without a key
-    # of its own inherits it. A legacy to migrate off, not an outage: attention.
-    "studio_developer_switch_on": "attention",
+    # D-727: our developer workspace was found off our key and switched back on, or could
+    # not be. Only trial agents speak Studio there, so neither pages.
+    "studio_developer_repaired": "attention",
+    "studio_developer_drift": "attention",
     # D-688: a rotated Cartesia key did not reach the voice platform. If the old key was
     # revoked, every Studio call stops speaking, with no fallback, so it pages.
     "studio_voice_key_push_failed": "page",

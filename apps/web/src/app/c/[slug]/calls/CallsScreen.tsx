@@ -203,7 +203,6 @@ export function CallsScreen({ slug }: { slug: string }) {
                 label={o.label}
                 active={outcome === o.value}
                 onClick={() => setOutcome(outcome === o.value ? undefined : o.value)}
-                capitalize={false}
               />
             ))}
           </div>
@@ -265,7 +264,6 @@ export function CallsScreen({ slug }: { slug: string }) {
           <div className="flex flex-wrap items-center gap-2">
             <FilterChip
               label={`Agent: ${agentName ?? "the chosen agent"}`}
-              capitalize={false}
               active
               onClick={() => setAgentId(undefined)}
             />

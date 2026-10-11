@@ -18,8 +18,7 @@
  *   POST   /v1/ops/voices/hosted/preview           upload a preview clip
  *   POST   /v1/ops/voices/hosted/preview/fetch     store the platform's own preview
  *   GET    /v1/ops/voices/studio-voices           Studio readiness and its client workspaces
- *   POST   /v1/ops/voices/studio-voices/enable    Studio ready: hold our key (step-up, D-717)
- *   POST   /v1/ops/voices/studio-voices/disable   developer workspace off (step-up)
+ *   POST   /v1/ops/voices/studio-voices/enable    Studio ready: switch our key on (step-up, D-727)
  *
  * The Voices page reads the hosted list FIRST and branches on `available`: the Pipecat
  * catalogue (`opsVoices.ts`) is what an engine that does not host voices is curated with,
@@ -67,12 +66,10 @@ export const OPS_CLONE_CONSENT_PATH = "/v1/ops/voices/hosted/clone-consent";
 export const OPS_CLONE_CONSENT_DOCUMENT_PATH = "/v1/ops/voices/hosted/clone-consent/document";
 export const OPS_STUDIO_VOICES_PATH = "/v1/ops/voices/studio-voices";
 export const OPS_STUDIO_ENABLE_PATH = "/v1/ops/voices/studio-voices/enable";
-export const OPS_STUDIO_DISABLE_PATH = "/v1/ops/voices/studio-voices/disable";
 
 /** The confirmations the API names for its step-up writes. */
 export const CLONE_CONFIRMATION = "clone_voice";
 export const STUDIO_ENABLE_CONFIRMATION = "enable_studio_voices";
-export const STUDIO_DISABLE_CONFIRMATION = "disable_studio_voices";
 export const deleteCloneConfirmation = (voiceId: string) => `delete_voice_clone:${voiceId}`;
 export const consentConfirmation = (voiceId: string) => `record_voice_consent:${voiceId}`;
 export const personCloneConfirmation = (voiceId: string) => `set_voice_person_clone:${voiceId}`;
@@ -330,27 +327,6 @@ export function useEnableStudioVoices(): UseMutationResult<StudioVoices, Error, 
         method: "POST",
         body,
         confirmAction: STUDIO_ENABLE_CONFIRMATION,
-      }),
-    onSuccess: (data) => {
-      client.setQueryData(hostedVoiceKeys.studio, data);
-      return invalidate();
-    },
-  });
-}
-
-/**
- * Switch OUR developer workspace's own keys off: the last step of moving off the old
- * developer-workspace switch. Refused (`studio_clients_not_moved`) while any Studio agent still
- * depends on it.
- */
-export function useDisableStudioVoices(): UseMutationResult<StudioVoices, Error, void> {
-  const client = useQueryClient();
-  const invalidate = useInvalidateVoices();
-  return useMutation({
-    mutationFn: () =>
-      apiRequest<StudioVoices>(adminSession(), OPS_STUDIO_DISABLE_PATH, {
-        method: "POST",
-        confirmAction: STUDIO_DISABLE_CONFIRMATION,
       }),
     onSuccess: (data) => {
       client.setQueryData(hostedVoiceKeys.studio, data);

@@ -134,7 +134,7 @@ export function SegmentedControl({
                 onValueChange(option.value);
               }}
               onKeyDown={(e) => onKeyDown(e, i)}
-              className={`relative z-[1] flex items-center justify-center gap-1.5 whitespace-nowrap rounded-[7px] px-3 py-1.5 text-[13px] leading-[18px] transition-colors duration-(--duration-fast) ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand touch:min-h-11 ${
+              className={`relative z-raised flex items-center justify-center gap-1.5 whitespace-nowrap rounded-[7px] px-3 py-1.5 text-[13px] leading-[18px] transition-colors duration-(--duration-fast) ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand touch:min-h-11 ${
                 option.disabled
                   ? "cursor-not-allowed text-ink-faint/60"
                   : checked

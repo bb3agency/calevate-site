@@ -194,7 +194,7 @@ export function CallbacksScreen() {
   ];
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="max-w-4xl space-y-6 pb-12">
       <PageHeader description="Calls your agents promised, placed at the time the caller asked." />
       {/* Qualifies the compliance gate every call-back passes: visible and word for word. */}
       <p className="max-w-prose text-meta text-ink-muted">

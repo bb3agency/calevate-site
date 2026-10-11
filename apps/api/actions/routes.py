@@ -401,13 +401,15 @@ async def complete_oauth(
     never redeemed at all."""
     tenant_id = _owner_only(principal)
     assert principal.user_id is not None
-    oauth.verify_state(
+    refused = refusal or oauth.state_refused(kind)
+    jti = oauth.verify_state(
         kind,
         payload.state,
         tenant_id=tenant_id,
         user_id=principal.user_id,
-        refusal=refusal or oauth.state_refused(kind),
+        refusal=refused,
     )
+    await oauth.spend_state(kind, jti, refusal=refused)
     accounts = oauth.zoho_accounts_server(payload.accounts_server) if kind == "zoho_crm" else None
     if kind == "zoho_crm" and payload.accounts_server and accounts is None:
         raise ProblemError(

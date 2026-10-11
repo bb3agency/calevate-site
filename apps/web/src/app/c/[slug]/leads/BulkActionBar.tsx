@@ -229,7 +229,7 @@ export function BulkActionBar({
         // A selection toolbar that stays in reach: pinned to the bottom of the scrolling
         // console while rows are ticked, so the action is beside the rows wherever the
         // reader has scrolled to. Enters with the pane fade (reduced motion: none).
-        className="settings-enter sticky bottom-3 z-20 rounded-card border border-line bg-surface/95 px-4 py-3 shadow-overlay backdrop-blur supports-[backdrop-filter]:bg-surface/85"
+        className="settings-enter sticky bottom-3 z-sticky rounded-card border border-line bg-surface/95 px-4 py-3 shadow-overlay backdrop-blur supports-[backdrop-filter]:bg-surface/85"
       >
         {/* THE SCOPE, in words, above the controls — never a bare "N selected", which is
             the sentence that does not say WHICH n. */}

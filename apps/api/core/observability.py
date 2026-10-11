@@ -98,6 +98,16 @@ DROP_HEADERS = frozenset(
         "svix-signature",
     }
 )
+#: And any header whose NAME says it carries a credential: `X-Ingest-Secret` (lead-source
+#: intake), `X-Agent-Secret` (engine actions), and every webhook signature header
+#: (`x-thinnest-signature-v2`, `X-Razorpay-Signature`, `X-Hub-Signature-256`, Vobiz's). A
+#: list of exact names is the shape that missed those; a new vendor header fails closed.
+DROP_HEADER_FRAGMENTS: tuple[str, ...] = ("secret", "signature", "token", "api-key", "auth")
+
+
+def header_is_credential(name: str) -> bool:
+    lowered = name.lower()
+    return lowered in DROP_HEADERS or any(f in lowered for f in DROP_HEADER_FRAGMENTS)
 
 
 def scrub_event(
@@ -133,7 +143,7 @@ def scrub_event(
         headers = request.get("headers")
         if isinstance(headers, dict):
             request["headers"] = {
-                k: ("[redacted]" if k.lower() in DROP_HEADERS else v) for k, v in headers.items()
+                k: ("[redacted]" if header_is_credential(k) else v) for k, v in headers.items()
             }
         # The body can be a lead payload or a webhook full of transcript text.
         request.pop("data", None)
@@ -1511,6 +1521,7 @@ __all__ = [
     "ALLOWED_SPAN_ATTRIBUTES",
     "ALLOWED_SPAN_ATTRIBUTE_SUFFIXES",
     "DROP_HEADERS",
+    "DROP_HEADER_FRAGMENTS",
     "MAX_ATTRIBUTE_CHARS",
     "READINESS_MISCONFIGURED",
     "READINESS_READY",
@@ -1523,6 +1534,7 @@ __all__ = [
     "current_trace_id",
     "current_traceparent",
     "dropped_attribute_keys",
+    "header_is_credential",
     "init_observability",
     "init_tracing",
     "observability_readiness",

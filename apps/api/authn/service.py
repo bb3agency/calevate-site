@@ -154,6 +154,8 @@ LoginStatus = Literal["authenticated", "otp_required"]
 #: an account (`request_password_reset` argues the number's job). Roughly forty times the
 #: known path's measured cost, and short enough that nobody waiting on the form notices.
 RESET_RESPONSE_FLOOR_S: Final = 0.25
+#: The same floor on a refused sign-in (`_failure_floor`).
+SIGN_IN_FAILURE_FLOOR_S: Final = 0.25
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,6 +243,21 @@ async def _equalise(count: int) -> None:
         await asyncio.sleep(delay)
 
 
+async def _failure_floor(started: float) -> None:
+    """A refused sign-in answers no sooner than `SIGN_IN_FAILURE_FLOOR_S` after it began.
+
+    The dummy Argon2 check equalises the WORK; it cannot equalise the `auth.login_failed`
+    audit append, which only a real account's wrong password pays and which takes the
+    chain's advisory lock — the 5x gap `request_password_reset` measured. A parked
+    coroutine closes it without handing an unauthenticated caller any CPU, the argument
+    `RESET_RESPONSE_FLOOR_S` makes. Only failures wait: a success has already told the
+    caller the account exists.
+    """
+    remaining = SIGN_IN_FAILURE_FLOOR_S - (time.monotonic() - started)
+    if remaining > 0:
+        await asyncio.sleep(remaining)
+
+
 # ─────────────────────────────── sign in ────────────────────────────────────
 
 
@@ -266,6 +283,7 @@ async def sign_in(
     that the code looks right.
     """
     _refuse_unknown_realm(realm)
+    started = time.monotonic()
     at = now or datetime.now(UTC)
     subject = await resolve_by_email(realm, email)
 
@@ -275,6 +293,7 @@ async def sign_in(
         attempt = await reserve(PASSWORD_BUDGET, realm=realm, subject_id=ghost)
         await verify_password(password, None)
         await _equalise(attempt)
+        await _failure_floor(started)
         log.info("auth_login_unknown_subject", extra={"realm": realm})
         raise _invalid_credentials()
 
@@ -291,6 +310,7 @@ async def sign_in(
             ip=ip,
         )
         await _equalise(attempt)
+        await _failure_floor(started)
         raise _invalid_credentials()
 
     await clear(PASSWORD_BUDGET, realm=realm, subject_id=subject.subject_id)
@@ -392,6 +412,22 @@ async def complete_second_factor(
     return rotated
 
 
+async def _hold_resend_cooldown(
+    session: AsyncSession, *, purpose: str, realm: str, subject_id: UUID, at: datetime
+) -> None:
+    """One mailed code per `otp.OTP_RESEND_COOLDOWN` per subject and purpose, or 429.
+
+    Under the subject's credential lock so two racing requests cannot both read "no recent
+    code" (`resend_second_factor` argues it). Shared by every path that mails a code.
+    """
+    await lock_subject_credentials(session, realm=realm, subject_id=subject_id)
+    wait_s = await otp.resend_wait_s(
+        session, purpose=purpose, realm=realm, subject_id=subject_id, now=at
+    )
+    if wait_s > 0:
+        raise _resend_too_soon(wait_s)
+
+
 async def resend_second_factor(*, verified: VerifiedSession, now: datetime | None = None) -> None:
     """Mail a fresh challenge for a session that is waiting on one.
 
@@ -419,12 +455,9 @@ async def resend_second_factor(*, verified: VerifiedSession, now: datetime | Non
         # Under the subject's credential lock, so two resends racing inside the cooldown
         # cannot both read "no recent code" and both mail one. `issue_challenge` takes the
         # same transaction-scoped lock again, which Postgres grants re-entrantly.
-        await lock_subject_credentials(session, realm=realm, subject_id=subject_id)
-        wait_s = await otp.resend_wait_s(
-            session, purpose=LOGIN_CHALLENGE, realm=realm, subject_id=subject_id, now=at
+        await _hold_resend_cooldown(
+            session, purpose=LOGIN_CHALLENGE, realm=realm, subject_id=subject_id, at=at
         )
-        if wait_s > 0:
-            raise _resend_too_soon(wait_s)
         challenge = await otp.issue_challenge(
             session, purpose=LOGIN_CHALLENGE, realm=realm, subject_id=subject_id, now=at
         )
@@ -503,6 +536,11 @@ async def request_step_up(
         raise _invalid_credentials()
     at = now or datetime.now(UTC)
     async with credential_session() as session:
+        # The sign-in resend's cooldown, under the same lock: without it every request here
+        # mailed a code, bounded only by the 20/min `auth` profile.
+        await _hold_resend_cooldown(
+            session, purpose=STEP_UP, realm=realm, subject_id=subject_id, at=at
+        )
         challenge = await otp.issue_challenge(
             session, purpose=STEP_UP, realm=realm, subject_id=subject_id, now=at
         )
@@ -962,9 +1000,13 @@ async def request_otp(
     subject = await load_subject(realm, subject_id)
     if subject is None:
         raise _invalid_credentials()
+    at = now or datetime.now(UTC)
     async with credential_session() as session:
+        await _hold_resend_cooldown(
+            session, purpose=purpose, realm=realm, subject_id=subject_id, at=at
+        )
         issued = await otp.issue_challenge(
-            session, purpose=purpose, realm=realm, subject_id=subject_id, now=now
+            session, purpose=purpose, realm=realm, subject_id=subject_id, now=at
         )
         await _enqueue_auth_email(
             session, kind=f"otp_{purpose}", realm=realm, to=subject.email, secret=issued.code

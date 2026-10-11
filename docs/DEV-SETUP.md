@@ -90,7 +90,7 @@ deployment and useless for looking at a screen, so `scripts/seed_dev.py` is the 
 motion — `make seed-dev`, or the command above.
 
 It creates a superadmin, a client owner, a client staff member, an ACTIVE tenant
-(`Sunrise Dental Care`, `sunrise-dental`) with a LIVE agent, and six completed calls with
+(`Sunrise Homes`, `sunrise-homes`, a real estate office) with a LIVE agent, and six completed calls with
 transcripts, extractions, leads and usage rows behind them — so the calls list, the CRM,
 the needs-attention queue, the funnel and the usage panel all have something in them. It
 prints the credentials when it finishes. Re-running it is safe and is the supported way

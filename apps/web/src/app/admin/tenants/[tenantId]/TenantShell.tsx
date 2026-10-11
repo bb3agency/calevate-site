@@ -176,10 +176,21 @@ export function TenantSectionNav({ tenantId }: { tenantId: string }) {
   const current = currentTenantSection(tenantId, pathname);
   const activeRef = useRef<HTMLAnchorElement>(null);
 
-  // On a phone the active item can sit off the end of the row; bring it into view without
-  // moving the page vertically. No smooth scroll: it runs on every navigation.
+  // On a phone the active item can sit off the end of the row; scroll the ROW to it. Not
+  // `scrollIntoView`: with `block: "nearest"` it also scrolls the page whenever the item is
+  // below the fold, so on a short desktop window Activity or Closure opened half-way down.
+  // No smooth scroll: it runs on every navigation.
   useEffect(() => {
-    activeRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    const link = activeRef.current;
+    let row = link?.parentElement ?? null;
+    while (row && !(row.scrollWidth > row.clientWidth && /auto|scroll/.test(getComputedStyle(row).overflowX))) {
+      row = row.parentElement;
+    }
+    if (!link || !row) return;
+    const item = link.getBoundingClientRect();
+    const box = row.getBoundingClientRect();
+    if (item.left < box.left) row.scrollLeft += item.left - box.left - 8;
+    else if (item.right > box.right) row.scrollLeft += item.right - box.right + 8;
   }, [current]);
 
   return (

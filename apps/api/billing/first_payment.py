@@ -8,7 +8,8 @@ above the minimum top-up it, once:
 
 1. stamps `organizations.first_paid_at` / `first_paid_via` (`WHERE first_paid_at IS NULL`,
    so a replay or a second payment changes nothing);
-2. ends a running trial as `converted` (the counters restart, `trials.end_trial`), or keeps
+2. ends a running trial as `converted` (the counters restart and the account's workspace is
+   queued, `trials.end_trial`), or keeps
    the data of a trial that already ended without a sale (clears its pending `erase_after`);
 3. owes the account its own voice workspace (`queue_workspace_provisioning`, through the
    outbox, in this same transaction).
@@ -34,7 +35,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.billing.trials import PAID_REASON, TRIAL_ACTIVE, end_trial, read_trial
 from apps.api.compliance.audit import write_audit
 from apps.api.core.logging import get_logger
-from apps.api.tenancy.engine_workspace import queue_workspace_provisioning
+from apps.api.tenancy.engine_workspace import (
+    queue_workspace_provisioning,
+    read_workspace_state,
+)
 
 log = get_logger(__name__)
 
@@ -94,7 +98,9 @@ async def on_payment_credited(
         return False
 
     trial = await read_trial(session, tenant_id=tenant_id)
-    if trial is not None and trial.status == TRIAL_ACTIVE:
+    converting = trial is not None and trial.status == TRIAL_ACTIVE
+    if converting:
+        # Converting queues the account's workspace itself (`end_trial`).
         await end_trial(
             session, tenant_id=tenant_id, outcome="converted", reason=PAID_REASON, at=now
         )
@@ -112,7 +118,11 @@ async def on_payment_credited(
         from apps.api.agents.live_apply import queue_live_apply
 
         await queue_live_apply(session, scope="tenant", tenant_id=tenant_id, reason="first_payment")
-    workspace_owed = await queue_workspace_provisioning(session, tenant_id=tenant_id)
+    workspace_owed = (
+        (await read_workspace_state(session, tenant_id)).status == "pending"
+        if converting
+        else await queue_workspace_provisioning(session, tenant_id=tenant_id)
+    )
     await write_audit(
         session,
         action="account.first_payment",
@@ -123,7 +133,7 @@ async def on_payment_credited(
         summary={
             "via": via,
             "amount_inr": str(amount_inr),
-            "trial_converted": str(trial is not None and trial.status == TRIAL_ACTIVE),
+            "trial_converted": str(converting),
             "workspace_queued": str(workspace_owed),
         },
     )

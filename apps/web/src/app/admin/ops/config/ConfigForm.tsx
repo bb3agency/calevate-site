@@ -365,7 +365,7 @@ export function ConfigForm({
       )}
       </div>
 
-      <div className="sticky bottom-0 -mx-4 -mb-4 flex flex-wrap items-center gap-2 border-t border-line bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:-mx-5 sm:px-5 sm:pb-3">
+      <div className="sticky -bottom-4 z-sticky -mx-4 -mb-4 flex flex-wrap items-center gap-2 border-t border-line bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:-mx-5 sm:px-5 sm:pb-3 lg:-bottom-8">
         <button type="submit" disabled={!ready} className={PRIMARY_BUTTON}>
           {reverting ? <RotateCcw aria-hidden className="h-4 w-4" /> : <CheckCircle2 aria-hidden className="h-4 w-4" />}
           {pending ? "Saving…" : reverting ? "Revert to default" : "Save change"}

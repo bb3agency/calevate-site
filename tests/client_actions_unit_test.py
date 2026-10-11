@@ -512,3 +512,41 @@ async def test_the_dial_waits_for_no_lookup_when_the_agent_has_none(
         phone_e164=CALLER,
     )
     assert got == pre_dial.CallerPrefill()
+
+
+async def test_a_dripping_answer_is_cut_off_without_a_caller_budget(
+    public_dns: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Test button and the background runs pass no `budget_s`. A server that sends one
+    byte at a time, each inside httpx's per-phase timeout, must still be cut off by the
+    per-request wall clock rather than hold the request open until it reaches the cap."""
+    import asyncio
+
+    monkeypatch.setattr(execution, "SEND_DEADLINE_S", 0.3)
+
+    class _Drip(httpx.AsyncByteStream):
+        async def __aiter__(self) -> Any:
+            for _ in range(1000):
+                await asyncio.sleep(0.05)
+                yield b"x"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=_Drip())
+
+    tool = _tool(
+        config=CustomApiConfig(method="GET", url="https://api.shop.example/x").model_dump()
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await asyncio.wait_for(
+            execution.execute_action(
+                object(),  # type: ignore[arg-type]
+                tool=tool,
+                received={},
+                source="test",
+                client=client,
+                audit=False,
+            ),
+            timeout=5,
+        )
+    assert result.ok is False
+    assert result.status == "timeout"

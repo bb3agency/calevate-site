@@ -15,6 +15,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { FileDrop } from "@/components/fileDrop";
+import { ModalDialog } from "@/components/modalDialog";
 import { useFormValidation } from "@/components/formValidation";
 import { useAgents } from "@/lib/api/agents";
 import { useClientSession } from "@/lib/api/session";
@@ -172,6 +173,7 @@ export function TeachBox({
             <VoiceButton
               disabled={!allowed || start.isPending}
               onRecorded={(blob) => begin({ kind: "voice", file: blob, filename: "voice-note.webm" })}
+              onTypeInstead={() => boxRef.current?.focus()}
             />
             {saved ? <SavedTick at={saved.at} /> : null}
           </div>
@@ -279,16 +281,42 @@ function teachFileProblem(file: File): string | null {
   return null;
 }
 
-function VoiceButton({
+/** What the browser says about the microphone before we ask for it. */
+async function microphonePermission(): Promise<PermissionState | "unknown"> {
+  try {
+    const status = await navigator.permissions?.query({ name: "microphone" as PermissionName });
+    return status?.state ?? "unknown";
+  } catch {
+    // Safari and Firefox may not know the "microphone" name, or the API at all.
+    return "unknown";
+  }
+}
+
+function errorName(error: unknown): string {
+  return error instanceof Error || error instanceof DOMException ? error.name : "";
+}
+
+/**
+ * "Say it". The browser's own microphone prompt is easy to miss or dismiss, and once
+ * refused it never shows again, so we explain before it appears: already allowed records
+ * straight away; not yet asked opens our dialog, whose button triggers the browser's
+ * prompt; blocked opens the same dialog saying how to unblock it.
+ */
+export function VoiceButton({
   disabled,
   onRecorded,
+  onTypeInstead,
 }: {
   disabled: boolean;
   onRecorded: (blob: Blob) => void;
+  /** Close the question and put the cursor in the text box. */
+  onTypeInstead: () => void;
 }) {
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [asking, setAsking] = useState<"ask" | "blocked" | null>(null);
+  const [starting, setStarting] = useState(false);
   const recorder = useRef<MediaRecorder | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -301,14 +329,11 @@ function VoiceButton({
 
   useEffect(() => () => stop(), []);
 
-  const record = async () => {
-    setError(null);
-    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      setError("This browser cannot record. Type it instead.");
-      return;
-    }
+  const start = async () => {
+    setStarting(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setAsking(null);
       const type = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
       const media = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
       const chunks: Blob[] = [];
@@ -328,9 +353,41 @@ function VoiceButton({
           return s + 1;
         });
       }, 1000);
-    } catch {
-      setError("We could not use your microphone. Allow it in your browser, or type it.");
+    } catch (caught) {
+      const name = errorName(caught);
+      if (name === "NotAllowedError") {
+        setAsking("blocked");
+      } else {
+        setAsking(null);
+        setError(
+          name === "NotFoundError"
+            ? "No microphone found on this device."
+            : "We could not use your microphone. Allow it in your browser, or type it.",
+        );
+      }
+    } finally {
+      setStarting(false);
     }
+  };
+
+  const press = async () => {
+    setError(null);
+    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setError("This browser cannot record. Type it instead.");
+      return;
+    }
+    const state = await microphonePermission();
+    if (state === "granted") {
+      await start();
+      return;
+    }
+    setAsking(state === "denied" ? "blocked" : "ask");
+  };
+
+  const typeInstead = () => {
+    setAsking(null);
+    // After the dialog has handed focus back to "Say it", so the text box keeps it.
+    setTimeout(onTypeInstead, 0);
   };
 
   return (
@@ -341,7 +398,12 @@ function VoiceButton({
           Stop · <span className="tabular-nums">0:{String(seconds).padStart(2, "0")}</span>
         </button>
       ) : (
-        <button type="button" className={SECONDARY_BUTTON} onClick={() => void record()} disabled={disabled}>
+        <button
+          type="button"
+          className={SECONDARY_BUTTON}
+          onClick={() => void press()}
+          disabled={disabled || starting}
+        >
           <Mic aria-hidden className="h-4 w-4" />
           Say it
         </button>
@@ -355,6 +417,29 @@ function VoiceButton({
         <p role="alert" className="basis-full text-meta text-danger">
           {error}
         </p>
+      ) : null}
+      {asking ? (
+        <ModalDialog
+          title={asking === "blocked" ? "Your microphone is blocked" : "Allow your microphone"}
+          description={
+            <p>
+              {asking === "blocked"
+                ? "Turn it on for this site: click the icon at the left of the address bar, set Microphone to Allow, then press Try again."
+                : "Say what your agents should know. Your browser will ask to use the microphone; choose Allow."}
+            </p>
+          }
+          onClose={() => setAsking(null)}
+          actions={
+            <>
+              <button type="button" className={SECONDARY_BUTTON} onClick={typeInstead}>
+                Type it instead
+              </button>
+              <button type="button" className={PRIMARY_BUTTON} onClick={() => void start()} disabled={starting}>
+                {asking === "blocked" ? "Try again" : "Allow microphone"}
+              </button>
+            </>
+          }
+        />
       ) : null}
     </>
   );

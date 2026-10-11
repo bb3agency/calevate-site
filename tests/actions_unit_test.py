@@ -574,3 +574,22 @@ def _fake_consent(*, messageable: bool) -> Any:
         return MessagingConsent(status="none")
 
     return _read
+
+
+@pytest.mark.parametrize("hostile", ["123/../me", "123?fields=access_token", "123#x", "abc"])
+def test_a_meta_phone_number_id_is_digits_because_it_is_spliced_into_the_graph_path(
+    hostile: str,
+) -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        WhatsAppConfig(
+            recipient_param="caller", template="hello", phone_number_id=hostile, body_params=[]
+        )
+
+
+def test_an_empty_phone_number_id_box_is_no_number_id() -> None:
+    cfg = WhatsAppConfig(
+        recipient_param="caller", template="hello", phone_number_id="  ", body_params=[]
+    )
+    assert cfg.phone_number_id is None

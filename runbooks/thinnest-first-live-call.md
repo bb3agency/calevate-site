@@ -124,11 +124,11 @@ you add here AND enable, and can play a preview of each. Paths are under
       band's per-minute rate, then add and enable voices of that band only.
 - [ ] **Studio voices (only if Studio is to be offered; gates T-12, T-27).** Follow
       `runbooks/thinnest-studio-voices.md` §1-§2: on Voices press "Studio ready" (step-up),
-      naming the test client, which holds our Cartesia key in our developer workspace with its
-      switch OFF and switches voice-only BYOK on in the test client's own workspace only, its
-      Clear agents kept `off` first (D-717). Check: the card reads Ready; that client's
-      `GET /byok` reads enabled, scope `voice`, complete, `using: own`; ours reads
-      `enabled: false`; the Cartesia voices list; one plays a preview. Then add and enable the
+      naming the test client, which switches our Cartesia key on (voice only) in our developer
+      workspace (D-727) and in the test client's own workspace, other agents kept `off` first
+      (D-717). Check: the card reads Ready; that client's `GET /byok` and ours both read
+      enabled, scope `voice`, complete, `using: own`; the Cartesia voices list; one plays a
+      preview. Then add and enable the
       Cartesia voices clients may choose. Until this is done the rate card says Studio is not
       available.
 - [ ] Note for Studio agents: on voice-only BYOK the call runs on ThinnestAI's low-cost
@@ -284,7 +284,7 @@ client every one of these must be TRUE, not merely recorded:
       for the test client: call each; the Studio one speaks the Cartesia voice you chose,
       the Clear one the Clear band; each call's `costMicro` matches its rate (Studio at the
       voice-only BYOK rate, Clear at the band's); no `studio_workspace_drift` or
-      `studio_developer_switch_on` alarm. Record the result on gate T-15. A fail stops Studio for every client.
+      `studio_developer_drift` alarm. Record the result on gate T-15. A fail stops Studio for every client.
 
 ## 9. If something goes wrong
 

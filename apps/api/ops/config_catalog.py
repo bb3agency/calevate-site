@@ -401,6 +401,15 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Each trial test call is ended after this long, between 1 and 20 minutes.",
         _THINNEST,
     ),
+    "trial_studio_minutes": _m(
+        "calling-limits",
+        "trial",
+        "Studio minutes per trial account",
+        "How many minutes of test calls one trial account may make on Studio voices. Studio "
+        "speaks on our own voice key, so these minutes cost us more; once they are used, a "
+        "Studio test call is refused and Clear test calls go on. 0 allows none.",
+        _THINNEST,
+    ),
     "self_serve_trial_days": _m(
         "calling-limits",
         "trial",
@@ -1140,6 +1149,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "self_serve_trial_free_minutes": ControlHint(unit="minutes"),
     "razorpay_reconciliation_days": ControlHint(unit="days"),
     "trial_daily_call_cap": ControlHint(unit="calls a day"),
+    "trial_studio_minutes": ControlHint(unit="minutes"),
     "thinnest_max_concurrent_calls": ControlHint(unit="calls at once"),
     "carrier_concurrency": ControlHint(unit="calls at once"),
     "inbound_reserved_lines": ControlHint(

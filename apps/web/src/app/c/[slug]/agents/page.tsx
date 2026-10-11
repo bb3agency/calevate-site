@@ -95,7 +95,7 @@ export default function AgentsPage({
   const working = roster.filter((agent) => agentGroup(agent) === "active").length;
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="max-w-4xl space-y-6 pb-12">
       <PageHeader
         description="Open one to change what it says, teach it, or switch it on and off."
         status={

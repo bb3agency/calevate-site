@@ -115,7 +115,7 @@ export function SidebarSignOut({ authn, signInPath, isCollapsed }: SidebarSignOu
       // rail's centre line, the same one every other leading glyph in the panel sits on
       // (`components/sidebarCollapse.tsx`). It therefore does not move while the panel
       // animates; only the label beside it does.
-      className="flex w-full items-center gap-3 overflow-hidden rounded-lg px-4 py-2 text-sm font-medium text-ink-muted transition-colors hover:bg-black/5 hover:text-ink disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-white/5"
+      className="flex w-full items-center gap-3 overflow-hidden rounded-lg px-4 py-2 text-sm font-medium text-ink-muted transition-colors hover:bg-black/5 hover:text-ink disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-white/5 touch:min-h-11"
     >
       <LogOut aria-hidden className="h-4 w-4 shrink-0" />
       {/* Mounted in both states and faded, not unmounted: the only way out of the console

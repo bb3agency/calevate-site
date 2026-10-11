@@ -461,7 +461,7 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
   return (
     // Same rail as the client shell's header, for the same reason and in the same place —
     // see `SHELL_RAIL_CLASS`. The strip is the window's; its contents are the page's.
-    <header className="sticky top-0 z-10 flex h-[72px] shrink-0 items-center border-b border-line bg-surface px-4 lg:px-8">
+    <header className="sticky top-0 z-header flex h-[72px] shrink-0 items-center border-b border-line bg-surface px-4 lg:px-8">
       <div
         className={`${SHELL_RAIL_CLASS} flex items-center justify-between gap-3`}
       >

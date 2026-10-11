@@ -139,7 +139,12 @@ _ISO_DATE_RE = re.compile(r"\b\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])(?!
 # carries the query string, and a vendor error may echo a URL we registered, so masking it
 # by value here covers every one of them; masking by key cannot, because it is never an
 # extra. Runs before the phone pass, whose digit runs could otherwise split a hex secret.
-_URL_SECRET_RE = re.compile(rf"(\b{re.escape(CALLBACK_SECRET_PARAM)}=)[^&\s\"'#]*")
+#: `hub.verify_token` is the second: Meta's subscription check sends the endpoint's verify
+#: token as a query parameter (`ingest/routes.py`), so it lands in the same access line.
+_URL_SECRET_PARAMS: tuple[str, ...] = (CALLBACK_SECRET_PARAM, "hub.verify_token")
+_URL_SECRET_RE = re.compile(
+    r"(\b(?:" + "|".join(re.escape(p) for p in _URL_SECRET_PARAMS) + r")=)[^&\s\"'#]*"
+)
 _STASH = "\x00"
 _MAX_FREE_TEXT = 200
 

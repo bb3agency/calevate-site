@@ -349,7 +349,7 @@ export function Dropdown({
                 : { ...OPEN, opacity: { duration: 0.12, ease: EASE } }
             }
             style={{ transformOrigin: "top left" }}
-            className="absolute left-0 top-[calc(100%+6px)] z-50 sm:min-w-[224px] max-w-[calc(100vw-2rem)] whitespace-nowrap rounded-[11px] border border-line bg-surface p-[5px] shadow-[0_1px_2px_rgba(28,25,23,0.06),0_16px_36px_-18px_rgba(28,25,23,0.5)] dark:shadow-[0_2px_12px_rgba(0,0,0,0.6)]"
+            className="absolute left-0 top-[calc(100%+6px)] z-dropdown sm:min-w-[224px] max-w-[calc(100vw-2rem)] whitespace-nowrap rounded-[11px] border border-line bg-surface p-[5px] shadow-[0_1px_2px_rgba(28,25,23,0.06),0_16px_36px_-18px_rgba(28,25,23,0.5)] dark:shadow-[0_2px_12px_rgba(0,0,0,0.6)]"
           >
             <ul
               {...listProps}

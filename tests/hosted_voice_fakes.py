@@ -29,7 +29,7 @@ from apps.api.engine.catalogue import (
 )
 from apps.api.engine.fake import FakeEngine
 from apps.api.engine.thinnest import THINNEST_CAPABILITIES
-from apps.api.engine.thinnest_workspace import current_workspace, refuse_developer_byok_on
+from apps.api.engine.thinnest_workspace import current_workspace
 from apps.api.tenancy.engine_workspace import StudioWorkspace
 from calevate_shared.engine import AgentConfig, AgentSnapshot, EngineAgentRef
 from sqlalchemy import text
@@ -99,6 +99,7 @@ class HostingEngine(FakeEngine):
         #: Each customer workspace's own-keys state; one not here reads as `key_state`.
         self.workspace_keys: dict[str, OwnVoiceKeyState] = {}
         self.enabled = 0
+        self.enabled_in: list[str | None] = []
         self.disabled = 0
         self.previews: list[str] = []
         self.own_keys_listed = 0
@@ -205,9 +206,8 @@ class HostingEngine(FakeEngine):
         self._set_state(state.model_copy(update={"voice_provider": provider}))
 
     async def enable_own_voice_key(self) -> OwnVoiceKeyState:
-        # The adapter refuses our developer workspace's switch (D-717); so does the fake.
-        refuse_developer_byok_on(current_workspace())
         self.enabled += 1
+        self.enabled_in.append(current_workspace())
         state = await self.own_key_state()
         self._set_state(READY_KEY.model_copy(update={"voice_provider": state.voice_provider}))
         return await self.own_key_state()

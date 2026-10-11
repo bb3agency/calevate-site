@@ -78,6 +78,8 @@ from apps.api.core.alarm_severity import ALARM_SEVERITY_FAMILIES as _FAMILIES
 from apps.api.core.alarm_severity import REPEAT_WHILE_OPEN_S as _REPEAT_WHILE_OPEN_S
 from apps.api.core.alarm_severity import SEVERITIES
 
+from scripts.tree_walk import walk_files
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PY_ROOTS = (REPO_ROOT / "apps", REPO_ROOT / "packages", REPO_ROOT / "scripts")
 SHELL_ROOT = REPO_ROOT / "scripts" / "backup"
@@ -212,16 +214,13 @@ def _literal_anywhere(code: str) -> bool:
     return any(
         needle in path.read_text(encoding="utf-8")
         for root in PY_ROOTS
-        for path in root.rglob("*.py")
-        if "__pycache__" not in path.as_posix()
+        for path in walk_files(root, "*.py")
     )
 
 
 def _python_files() -> Iterator[Path]:
     for root in PY_ROOTS:
-        for path in sorted(root.rglob("*.py")):
-            if "__pycache__" not in path.parts:
-                yield path
+        yield from walk_files(root, "*.py")
 
 
 def _module_constants(tree: ast.Module) -> dict[str, str]:
@@ -674,8 +673,8 @@ def dangling_names(known: Iterable[str]) -> list[str]:
     """
     corpus: list[str] = []
     for root in CODE_ROOTS:
-        for path in sorted(root.rglob("*")):
-            if path.is_file() and path.suffix not in {".pyc", ".png", ".jpg", ".lock"}:
+        for path in walk_files(root):
+            if path.suffix not in {".pyc", ".png", ".jpg", ".lock"}:
                 try:
                     corpus.append(path.read_text(encoding="utf-8"))
                 except (UnicodeDecodeError, OSError):

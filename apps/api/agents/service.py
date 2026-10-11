@@ -135,7 +135,6 @@ from apps.api.agents.engine_choice import (
     byok_in_force,
     engine_rate_key_for,
     in_call_default_model,
-    refuse_studio_on_trial,
 )
 from apps.api.agents.engine_facts import sync_business_facts
 from apps.api.agents.engine_limits import refuse_over_engine_limits, refuse_unpriced_engine
@@ -175,6 +174,7 @@ from apps.api.compliance.platform_dnc import PLATFORM_DNC_BLOCK_CODE, platform_d
 from apps.api.compliance.trial_access import (
     refuse_on_trial,
     refuse_trial_numbers,
+    refuse_trial_studio_over_cap,
     restricting_trial,
     trial_line_horizon,
 )
@@ -2569,15 +2569,19 @@ async def _studio_in_client_workspace(
     config: AgentConfig,
     trial: bool,
 ) -> None:
-    """A Studio voice speaks on our Cartesia key, which is switched on only in the client's
-    own workspace (D-717). Done before the vendor write, because `PUT /agents/{id}/byok-voice`
-    answers `409` in a workspace not on its own keys, and idempotent, so every Studio publish
-    also re-reads that workspace's switch live. A free-trial agent lives in our developer
-    workspace, whose switch stays off, so it is Clear only (D-697)."""
+    """A Studio voice speaks on our Cartesia key, switched on in the workspace the agent lives
+    in. Checked before the vendor write, because `PUT /agents/{id}/byok-voice` answers `409`
+    in a workspace not on its own keys, and re-read live on every Studio publish. A paying
+    client's workspace is switched on here, idempotently (D-717). A free-trial agent lives in
+    our developer workspace (D-697), which the operator's Studio ready switches on (D-727); a
+    trial publish only verifies it."""
     if rate_key != BYOK_VOICE_RATE_KEY or not isinstance(engine, HostsVoices):
         return
     if trial:
-        raise refuse_studio_on_trial()
+        from apps.api.agents.studio_voices import require_developer_studio
+
+        await require_developer_studio(engine)
+        return
     if config.engine_workspace is None:
         raise workspace_not_provisioned()
     from apps.api.agents.studio_voices import ensure_studio_in
@@ -4010,6 +4014,7 @@ async def dispatch_call(
     async with tenant_session(tenant_id) as intent:
         if trial is not None:
             await _hold_trial_line(intent)
+            await refuse_trial_studio_over_cap(intent, tenant_id=tenant_id, agent_id=agent_id)
         if carrier is not None:
             await _hold_carrier_line(intent, carrier=carrier)
         elif engine_capped:

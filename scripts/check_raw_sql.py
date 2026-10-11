@@ -763,6 +763,37 @@ def forbidden_sink_uses(modules: list[Module]) -> list[str]:
     return offenders
 
 
+#: Every name that can turn a string into SQL. Matching is BY NAME, so a sink that is
+#: imported under another name (`from sqlalchemy import text as t`) or called with its
+#: statement as a keyword (`text(text=...)`) would produce no site and a clean report;
+#: both spellings are refused outright instead of being taught to the resolver.
+_SINK_NAMES: frozenset[str] = frozenset({SQL_SINK, *FORBIDDEN_SINKS})
+
+
+def disguised_sink_uses(modules: list[Module]) -> list[str]:
+    """Spellings of a sink that `sql_sites` cannot see."""
+    offenders: list[str] = []
+    for module in modules:
+        for node in ast.walk(module.tree):
+            if isinstance(node, (ast.ImportFrom, ast.Import)):
+                for alias in node.names:
+                    original = alias.name.rsplit(".", 1)[-1]
+                    if original in _SINK_NAMES and alias.asname not in (None, original):
+                        offenders.append(
+                            f"{module.rel}:{node.lineno}: `{original}` imported as "
+                            f"`{alias.asname}`, which this check cannot follow"
+                        )
+            elif isinstance(node, ast.Call) and not node.args and node.keywords:
+                callee = node.func
+                name = callee.id if isinstance(callee, ast.Name) else getattr(callee, "attr", None)
+                if name == SQL_SINK and any(k.arg == "text" for k in node.keywords):
+                    offenders.append(
+                        f"{module.rel}:{node.lineno}: `text(text=...)` hides the statement "
+                        "from this check; pass it positionally"
+                    )
+    return offenders
+
+
 def audit(modules: list[Module] | None = None) -> list[Finding]:
     """Every SQL string whose text this check cannot trace back to our own source."""
     modules = modules if modules is not None else load_modules()
@@ -814,6 +845,7 @@ def main() -> int:
 
     problems: list[str] = []
     problems.extend(forbidden_sink_uses(modules))
+    problems.extend(disguised_sink_uses(modules))
 
     findings = audit(modules)
     if not sql_sites_exist(modules):

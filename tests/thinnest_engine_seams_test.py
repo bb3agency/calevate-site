@@ -201,11 +201,12 @@ def _cfg(**update: Any) -> AgentConfig:
         direction="inbound",
         system_prompt="You are the receptionist.",
         opening_line="Idi AI assistant.",
+        engine_own_voice_key=False,
     )
     return base.model_copy(update=update)
 
 
-async def test_the_chosen_voice_and_model_are_sent_and_nothing_when_none_is_chosen() -> None:
+async def test_the_chosen_voice_and_model_are_sent_and_null_when_none_is_chosen() -> None:
     bodies: list[dict[str, Any]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -219,7 +220,10 @@ async def test_the_chosen_voice_and_model_are_sent_and_nothing_when_none_is_chos
     await engine.update_agent("ag_1", _cfg())
     chosen, default = bodies
     assert chosen["voice"]["voice"] == "priya" and chosen["model"] == "prana-voice"
-    assert "voice" not in default["voice"] and "model" not in default
+    # A cleared choice is sent as null, which puts the agent back on the vendor's default
+    # (update-agent.md:536-545); publish refuses an agent with no voice first.
+    assert default["voice"]["voice"] is None and default["model"] is None
+    assert chosen["byok"] == default["byok"] == "off"
 
 
 async def test_a_studio_voice_is_set_through_the_own_key_route() -> None:
@@ -591,22 +595,36 @@ async def test_a_studio_publish_that_cannot_switch_studio_on_is_refused_naming_n
     assert engine.sent == [] and engine.enabled == 0
 
 
-async def test_a_trial_agent_speaks_clear_only() -> None:
-    """D-697, D-717: a trial agent lives in our developer workspace, whose switch is off."""
+async def test_a_trial_agent_speaks_studio_once_our_developer_workspace_is_on() -> None:
+    """D-727: a trial agent lives in our developer workspace (D-697). Its Studio publish only
+    verifies that workspace's switch; it never switches it on, and never touches a client's."""
     from apps.api.agents.service import _studio_in_client_workspace
     from tests.thinnest_engine_test import _cfg
 
+    ready = HostingEngine()
+    await _studio_in_client_workspace(
+        None,  # type: ignore[arg-type]  # a trial publish reads no session
+        ready,
+        tenant_id=uuid.uuid4(),
+        rate_key="byok_voice",
+        config=_cfg(engine_workspace=None),
+        trial=True,
+    )
+    assert (ready.enabled, ready.installed) == (0, [])
+
+    off = HostingEngine(key_state=OFF_KEY)
     with pytest.raises(ProblemError) as caught:
         await _studio_in_client_workspace(
-            None,  # type: ignore[arg-type]  # refused before any read
-            HostingEngine(),
+            None,  # type: ignore[arg-type]
+            off,
             tenant_id=uuid.uuid4(),
             rate_key="byok_voice",
-            config=_cfg(),
+            config=_cfg(engine_workspace=None),
             trial=True,
         )
-    assert caught.value.code == engine_choice.STUDIO_AFTER_GO_LIVE
-    assert caught.value.title == "Studio voices are available once you go live"
+    assert caught.value.code == "studio_account_not_ready"
+    assert "Cartesia" not in (caught.value.detail or "")
+    assert (off.enabled, off.installed) == (0, [])
 
 
 async def test_a_rung_switch_is_a_field_change_on_the_same_agent(

@@ -77,6 +77,13 @@ HEALTH_INTERVAL_S=${HEALTH_INTERVAL_S:-2}
 # window must show the SAME container running with RestartCount 0.
 SETTLE_S=${SETTLE_S:-30}
 
+# V8 heap ceiling, in MB, for each Node process of the web build. The production host has one
+# vCPU and 3.8GB, and the build runs beside the live api; a build that grows without bound
+# pushes the api into swap, and an api worker that stops answering is killed and replaced by
+# its supervisor. A build that hits this ceiling fails loudly with a heap error and can be
+# re-run with a larger value; DEPLOYMENT §2 records that `next build` peaks over 2GB.
+WEB_BUILD_HEAP_MB=${WEB_BUILD_HEAP_MB:-2048}
+
 # Disk is not a constant in this file any more. It is a LADDER, and it lives in
 # `scripts/deploy/docker-reclaim.sh` because the daily hygiene job needs the same
 # primitives and two copies of "how this host reclaims Docker disk" would drift. Both
@@ -1098,14 +1105,21 @@ deploy_web() {
   # `--frozen-lockfile` is the supply-chain line, not a speed flag: it makes the install
   # reproduce the reviewed lockfile exactly and FAIL if the manifest and the lock
   # disagree, which is what a tampered or drifted dependency looks like (hard rule 9).
-  pnpm install --frozen-lockfile
+  #
+  # Both run at the lowest CPU and I/O priority, so on a one-vCPU host the api answering
+  # live traffic is scheduled first and the build takes whatever is left.
+  local -a yield_to_live=(nice -n 19)
+  if command -v ionice >/dev/null 2>&1; then yield_to_live+=(ionice -c 3); fi
+  "${yield_to_live[@]}" pnpm install --frozen-lockfile
   # STATED, never inferred. `apps/web/next.config.ts` refuses to build when this is set
   # and the browser tier's three build-time values are empty — which is the only moment
   # anyone can catch it, because `next build` inlines `NEXT_PUBLIC_*` and an absent key
   # compiles to "" rather than throwing. It is a flag rather than an unconditional check
   # because CI builds this package as a COMPILE check with no environment at all, and
   # that is a legitimate build; see the config's comment for the full argument.
-  CALEVATE_DEPLOY_BUILD=1 pnpm -C apps/web build
+  CALEVATE_DEPLOY_BUILD=1 \
+    NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=${WEB_BUILD_HEAP_MB}" \
+    "${yield_to_live[@]}" pnpm -C apps/web build
 
   # START IF ABSENT, RELOAD IF PRESENT.
   #

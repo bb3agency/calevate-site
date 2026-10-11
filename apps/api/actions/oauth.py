@@ -241,8 +241,9 @@ def mint_state(
 
 def verify_state(
     kind: OAuthKind, raw: str, *, tenant_id: UUID, user_id: UUID, refusal: ProblemError
-) -> None:
-    """Refuse a `state` this deployment did not mint for this provider, account and person."""
+) -> str:
+    """Refuse a `state` this deployment did not mint for this provider, account and person.
+    Returns its `jti`, which `spend_state` then consumes."""
     try:
         claims = jwt.decode(
             raw,
@@ -256,6 +257,29 @@ def verify_state(
         raise refusal from exc
     if claims.get("sub") != str(tenant_id) or claims.get("act") != str(user_id):
         log.warning("oauth_state_mismatch", extra={"kind": kind})
+        raise refusal
+    return str(claims["jti"])
+
+
+async def spend_state(kind: OAuthKind, jti: str, *, refusal: ProblemError) -> None:
+    """A `state` answers ONE callback (RFC 9700 §4.7.1: a one-time CSRF token).
+
+    The signature and expiry bound it to this person for ten minutes; this makes a second
+    redemption inside those ten minutes — a replayed callback URL from a log, a history
+    entry or a shoulder — a refusal before any code is exchanged. Fails CLOSED: with Redis
+    down a connection cannot be completed, and starting it again is the remedy.
+    """
+    from apps.api.core.redis import get_redis
+
+    key = f"oauth:state:{kind}:{jti}"
+    ttl = int(STATE_TTL.total_seconds()) + 60
+    try:
+        first = await get_redis().set(key, "1", nx=True, ex=ttl)
+    except Exception as exc:
+        log.warning("oauth_state_guard_unavailable", extra={"kind": kind})
+        raise refusal from exc
+    if not first:
+        log.warning("oauth_state_replayed", extra={"kind": kind})
         raise refusal
 
 
@@ -442,6 +466,7 @@ __all__ = [
     "refresh_request",
     "require_configured",
     "revoke_request",
+    "spend_state",
     "state_refused",
     "unavailable",
     "verify_state",

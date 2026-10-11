@@ -148,7 +148,7 @@ export function VoiceChoice({ agentId, state }: { agentId: string; state: Pendin
       {(changed || save.isPending) && (
         // The negative offset cancels the shell's bottom padding (`SHELL_MAIN_CLASS`), so
         // the bar sits on the window's edge instead of above a strip of scrolling cards.
-        <div className="settings-enter sticky -bottom-4 z-10 -mx-1 flex flex-wrap items-center gap-3 border-t border-line bg-surface px-1 py-3 lg:-bottom-8">
+        <div className="settings-enter sticky -bottom-4 z-sticky -mx-1 flex flex-wrap items-center gap-3 border-t border-line bg-surface px-1 py-3 lg:-bottom-8">
           <button type="submit" disabled={save.isPending} className={PRIMARY_BUTTON_SM}>
             {save.isPending ? "Saving…" : "Use this voice"}
           </button>

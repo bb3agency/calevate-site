@@ -102,7 +102,7 @@ export function StepFlow({
     <div
       className={`${
         fullScreen
-          ? "fixed inset-0 z-40 flex flex-col overflow-y-auto bg-surface sm:static sm:z-auto sm:overflow-visible"
+          ? "fixed inset-0 z-drawer flex flex-col overflow-y-auto bg-surface sm:static sm:z-auto sm:overflow-visible"
           : ""
       } sm:rounded-card sm:border sm:border-line sm:bg-surface ${className}`}
     >

@@ -769,7 +769,7 @@ export function TermGloss({
         // so it reads plainly even when the term sits inside an uppercase or bold label;
         // `whitespace-normal` + a max width so a long gloss wraps instead of running off-screen.
         // `fixed` + the three custom properties are the anti-clipping mechanism, also above.
-        "after:pointer-events-none after:fixed after:z-50",
+        "after:pointer-events-none after:fixed after:z-dropdown",
         "after:[left:var(--gloss-left,auto)] after:[top:var(--gloss-top,auto)]",
         "after:[bottom:var(--gloss-bottom,auto)]",
         "after:hidden after:w-max after:max-w-[16rem] after:whitespace-normal after:rounded-md",
@@ -1108,7 +1108,7 @@ export const DANGER_BUTTON =
  * pads past the home indicator. The actions stack full width there, primary on top.
  */
 export const MODAL_SCRIM =
-  "scrim-enter fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4";
+  "scrim-enter fixed inset-0 z-modal flex items-end justify-center bg-black/40 sm:items-center sm:p-4";
 export const MODAL_PANEL =
   "modal-enter w-full max-w-md max-h-[calc(100dvh-1.5rem)] overflow-y-auto overscroll-contain rounded-t-2xl border border-line bg-surface p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] shadow-overlay outline-none sm:max-h-[calc(100dvh-2rem)] sm:rounded-card sm:p-6";
 export const MODAL_ACTIONS =
@@ -1276,7 +1276,7 @@ export function SkipLink() {
   return (
     <a
       href={`#${MAIN_CONTENT_ID}`}
-      className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:border focus:border-line focus:bg-surface focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-ink focus:shadow-raised"
+      className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-toast focus:rounded-md focus:border focus:border-line focus:bg-surface focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-ink focus:shadow-raised"
     >
       Skip to main content
     </a>
@@ -1362,14 +1362,11 @@ export function FilterChip({
   label,
   active,
   onClick,
-  capitalize = true,
 }: {
+  /** In sentence case, as written: the chip does not change its case. */
   label: string;
   active: boolean;
   onClick: () => void;
-  /** Off for a label already written in sentence case ("Call back booked"), which
-   *  `capitalize` would turn into title case. */
-  capitalize?: boolean;
 }) {
   return (
     <button
@@ -1378,7 +1375,6 @@ export function FilterChip({
       aria-pressed={active}
       className={clsx(
         "press rounded-full px-3 py-1.5 text-xs touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2",
-        capitalize && "capitalize",
         active
           ? "border border-ink bg-ink/[0.06] font-medium text-ink"
           : "border border-line bg-surface font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5",

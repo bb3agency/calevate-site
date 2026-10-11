@@ -18,7 +18,6 @@ import {
   OPS_HOSTED_PATH,
   OPS_PERSON_CLONE_PATH,
   OPS_PREVIEW_FETCH_PATH,
-  OPS_STUDIO_DISABLE_PATH,
   OPS_STUDIO_ENABLE_PATH,
   OPS_STUDIO_VOICES_PATH,
   type HostedVoice,
@@ -48,8 +47,8 @@ import { problem, renderAdminPage, type Routes } from "./harness";
  *    and the record carries its step-up confirmation.
  * 5. **A clone carries both consents and the step-up confirmation**; deleting one with live
  *    agents on it is a second, informed decision.
- * 6. **Studio is a checklist** with the next step as the primary action, and the developer
- *    workspace warning appears only when that switch is on.
+ * 6. **Studio is a checklist** with the next step as the primary action; our developer
+ *    workspace's switch is expected ON (D-727), so nothing offers to switch it off.
  */
 
 const SUPERADMIN: AdminMe = {
@@ -168,13 +167,13 @@ function hosted(over: Partial<HostedVoices> = {}): HostedVoices {
 }
 
 const EXPLANATION =
-  "Studio voices are our Cartesia key, switched on for the voice only in the voice platform workspace of each client that publishes a Studio agent. Our developer workspace only holds the key with its switch off.";
+  "Studio voices are our Cartesia key, switched on for the voice only. Studio ready switches it on in our developer workspace, where free-trial agents speak Studio.";
 
 const STUDIO_ON: StudioVoices = {
   ready: true,
   cartesia_key_configured: true,
   developer_holds_key: true,
-  developer_switch_on: false,
+  developer_switch_on: true,
   minute_attested: true,
   synthesis_priced: true,
   voices_listed: true,
@@ -190,14 +189,14 @@ const STUDIO_ON: StudioVoices = {
   ],
   live_studio_agents: 2,
   explanation: EXPLANATION,
-  note: "Ready: Studio is on in 1 client workspace(s), and switches on in a client's workspace at its first Studio publish.",
+  note: "Ready: Studio is on in our developer workspace for trial agents and in 1 client workspace(s).",
   key: {
-    enabled: false,
-    scope: null,
+    enabled: true,
+    scope: "voice",
     complete: true,
-    using: "none",
+    using: "own",
     voice_provider: "cartesia",
-    speaks_on_own_voice: false,
+    speaks_on_own_voice: true,
   },
 };
 
@@ -205,11 +204,12 @@ const STUDIO_OFF: StudioVoices = {
   ...STUDIO_ON,
   ready: false,
   developer_holds_key: false,
+  developer_switch_on: false,
   voices_listed: false,
-  missing: ["Run Studio ready to hold the key in our developer workspace."],
+  missing: ["Run Studio ready to switch our key on in the developer workspace."],
   workspaces: [],
   live_studio_agents: 0,
-  note: "Not ready: Run Studio ready to hold the key in our developer workspace.",
+  note: "Not ready: Run Studio ready to switch our key on in the developer workspace.",
   key: {
     enabled: false,
     scope: null,
@@ -218,13 +218,6 @@ const STUDIO_OFF: StudioVoices = {
     voice_provider: null,
     speaks_on_own_voice: false,
   },
-};
-
-const STUDIO_LEGACY: StudioVoices = {
-  ...STUDIO_ON,
-  developer_switch_on: true,
-  note: "Our developer workspace's own-keys switch is ON.",
-  key: { ...STUDIO_ON.key, enabled: true, scope: "voice", using: "own", speaks_on_own_voice: true },
 };
 
 const ALL_PATH = `${OPS_HOSTED_PATH}?scope=all`;
@@ -608,7 +601,7 @@ describe("one voice's detail", () => {
     );
 
     let drawer = await openVoice("Ravi");
-    expect(within(drawer).queryByLabelText("Upload a preview")).toBeNull();
+    expect(within(drawer).getByLabelText("Upload a preview")).toBeTruthy();
     fireEvent.click(within(drawer).getByRole("button", { name: "Generate preview" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === OPS_PREVIEW_FETCH_PATH)).toBe(true));
     expect(JSON.parse(calls.find((c) => c.path === OPS_PREVIEW_FETCH_PATH)!.body!)).toEqual({ voice_id: "engine:clone-ravi" });
@@ -830,19 +823,19 @@ describe("Studio setup", () => {
     expect(JSON.parse(write.body!)).toEqual({});
   });
 
-  it("names the first Studio client when one is typed", async () => {
+  it("names a paying client to switch on now when one is typed", async () => {
     const tenant = "7f0c2b1e-0000-4000-8000-000000000002";
     const { calls } = renderAdminPage(
       <VoicesPage />,
       routes({
-        [`GET ${OPS_STUDIO_VOICES_PATH}`]: { ...STUDIO_OFF, developer_holds_key: true },
+        [`GET ${OPS_STUDIO_VOICES_PATH}`]: { ...STUDIO_OFF, developer_holds_key: true, developer_switch_on: true },
         [`POST ${OPS_STUDIO_ENABLE_PATH}`]: STUDIO_ON,
       }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Name the first client" }));
+    fireEvent.click(await screen.findByRole("button", { name: "List the voices" }));
     const dialog = await screen.findByRole("dialog", { name: "Make Studio ready?" });
-    fireEvent.change(within(dialog).getByLabelText(/First Studio client/), { target: { value: tenant } });
+    fireEvent.change(within(dialog).getByLabelText(/Paying client/), { target: { value: tenant } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Studio ready" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === OPS_STUDIO_ENABLE_PATH)).toBe(true));
     const write = calls.find((c) => c.method === "POST" && c.path === OPS_STUDIO_ENABLE_PATH)!;
@@ -869,31 +862,7 @@ describe("Studio setup", () => {
     expect(await within(dialog).findByText(/could not be confirmed as staying/)).toBeTruthy();
   });
 
-  it("shows the developer workspace warning only while it is on, with its button beside it", async () => {
-    const notMoved = problem(409, {
-      type: "urn:calevate:conflict/studio_clients_not_moved",
-      title: "Some Studio agents still depend on the developer workspace",
-      detail: "1 published Studio agent(s) would stop speaking their voice: agent lives in the developer workspace.",
-      kind: "conflict",
-    });
-    const { calls } = renderAdminPage(
-      <VoicesPage />,
-      routes({
-        [`GET ${OPS_STUDIO_VOICES_PATH}`]: STUDIO_LEGACY,
-        [`POST ${OPS_STUDIO_DISABLE_PATH}`]: notMoved,
-      }),
-    );
-
-    expect(await screen.findByText(/developer workspace.s own keys are on/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Switch developer workspace off" }));
-    const dialog = await screen.findByRole("dialog", { name: "Switch our developer workspace's own keys off?" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Switch it off" }));
-    expect(await within(dialog).findByText(/would stop speaking their voice/)).toBeTruthy();
-    const write = calls.find((c) => c.method === "POST" && c.path === OPS_STUDIO_DISABLE_PATH)!;
-    expect(write.headers["X-Confirm-Action"]).toBe("disable_studio_voices");
-  });
-
-  it("never offers switching the developer workspace off while it is already off", async () => {
+  it("never offers to switch our developer workspace off", async () => {
     renderAdminPage(<VoicesPage />, routes({ [`GET ${OPS_STUDIO_VOICES_PATH}`]: STUDIO_ON }));
     await screen.findByText("Ready");
     expect(screen.queryByText(/developer workspace.s own keys are on/)).toBeNull();

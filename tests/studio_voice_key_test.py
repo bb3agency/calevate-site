@@ -212,19 +212,77 @@ async def test_a_workspace_that_cannot_be_repaired_pages(
     assert [code for code, _ in alarms] == ["studio_workspace_drift"]
 
 
-async def test_our_developer_switch_found_on_is_alarmed_and_never_switched_off_here(
-    alarms: list[tuple[str, str]], monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _no_client_workspaces(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _none(*, limit: int = 1000) -> list[Any]:
         return []
 
     monkeypatch.setattr(studio_voice_key, "studio_workspaces", _none)
+
+
+def _no_routes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The route table is global and other tests leave rows in it."""
+    from apps.api.agents import studio_voices
+
+    async def _none(session: Any, *, engine: str) -> list[Any]:
+        return []
+
+    monkeypatch.setattr(studio_voices, "published_routes", _none)
+
+
+async def test_our_developer_workspace_on_is_left_alone(
+    alarms: list[tuple[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-727: the developer workspace's switch is expected ON, so ON is quiet."""
+    _no_client_workspaces(monkeypatch)
     engine = HostingEngine(key_state=READY_KEY)
     with selected(engine):
         summary = await studio_voice_key.sweep_studio_workspaces({})
-    assert summary.startswith("developer_on=True")
-    assert [code for code, _ in alarms] == ["studio_developer_switch_on"]
-    assert engine.disabled == 0
+    assert summary.startswith("developer=ok")
+    assert alarms == [] and (engine.enabled, engine.disabled) == (0, 0)
+
+
+async def test_our_developer_workspace_found_off_is_switched_back_on_and_alarmed(
+    alarms: list[tuple[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _no_client_workspaces(monkeypatch)
+    _no_routes(monkeypatch)
+    engine = HostingEngine(key_state=OFF_KEY.model_copy(update={"voice_provider": "cartesia"}))
+    with selected(engine):
+        summary = await studio_voice_key.sweep_studio_workspaces({})
+    assert summary.startswith("developer=repaired")
+    assert [code for code, _ in alarms] == ["studio_developer_repaired"]
+    assert engine.enabled_in == [None] and engine.key_state.speaks_on_own_voice
+
+
+async def test_a_developer_workspace_that_cannot_be_switched_back_on_is_alarmed(
+    alarms: list[tuple[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from apps.api.agents import studio_voices
+
+    _no_client_workspaces(monkeypatch)
+
+    async def _refused(session: Any, engine: Any, *, model: str | None = None) -> Any:
+        raise ProblemError(
+            kind="conflict", code="studio_agents_not_kept_off", title="t", detail="d"
+        )
+
+    monkeypatch.setattr(studio_voices, "ensure_developer_studio", _refused)
+    engine = HostingEngine(key_state=OFF_KEY.model_copy(update={"voice_provider": "cartesia"}))
+    with selected(engine):
+        summary = await studio_voice_key.sweep_studio_workspaces({})
+    assert summary.startswith("developer=failed")
+    assert [code for code, _ in alarms] == ["studio_developer_drift"]
+
+
+async def test_a_deployment_that_never_set_studio_up_is_not_drift(
+    alarms: list[tuple[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _no_client_workspaces(monkeypatch)
+    engine = HostingEngine(key_state=OFF_KEY)
+    with selected(engine):
+        summary = await studio_voice_key.sweep_studio_workspaces({})
+    assert summary.startswith("developer=not_set_up")
+    assert alarms == [] and engine.enabled == 0
 
 
 async def test_the_key_is_read_from_the_store_and_falls_back_to_settings(

@@ -22,15 +22,20 @@ D-681's "Clear = Premium band" and its "Studio on hold", and D-687's Studio work
   Agent `byok: "off"`.
 - **Studio** = Cartesia on OUR key through ThinnestAI BYOK `scope: "voice"`, with ThinnestAI's
   STT, LLM and telephony (`api-reference/bring-your-own-keys.md:13-24`), ₹1.50/min plus
-  Cartesia's charge. Agent `byok: "workspace"`. **Our key is switched on ONLY in the customer
-  workspace of a client that uses Studio (D-717, founder 10 Oct 2026, superseding D-688/D-693's
-  developer-workspace switch)**: the client's first Studio publish installs it, switches
-  `scope: voice` on there and reads it back (`agents/studio_voices.ensure_studio_workspace`),
-  after keeping that client's Clear agents `off`. Our developer workspace only HOLDS the key
-  with its switch OFF, so nothing inherits it; it cannot list or preview Cartesia voices then
-  (`409`), so the catalogue reads them through a Studio client's workspace. Voices, "Studio
-  ready" holds the key (and can switch the first client on); rotation fans out to every Studio
-  workspace; an hourly check repairs drift. Trials are Clear only. Studio agents also get the
+  Cartesia's charge. Agent `byok: "workspace"`. **Our key is switched on (voice only) in our
+  developer workspace, where free-trial agents live, and in the customer workspace of each
+  paying client that uses Studio** (D-727, founder 11 Oct 2026, over D-717): Voices, "Studio
+  ready" switches the developer workspace on (`agents/studio_voices.ensure_developer_studio`)
+  after setting every published non-Studio agent that would follow it `off` and reading it back
+  (customer workspaces with no key of their own inherit ours, `bring-your-own-keys.md:128-133`);
+  a paying client's first Studio publish installs the key in its own workspace, switches
+  `scope: voice` on there and reads it back (`ensure_studio_workspace`), after keeping that
+  client's Clear agents `off`. Every agent states `byok`; the adapter refuses one that does not
+  (`engine_agent_byok_unstated`), because the vendor default is `workspace` (:304-306).
+  Rotation fans out to every Studio workspace; an hourly check repairs drift in the developer
+  workspace and each client one. Trial accounts may choose Studio: a trial publish only
+  verifies the developer switch, and Studio test calls stop at `trial_studio_minutes`
+  (console, default 15; `trial_studio_minutes_used`). Studio agents also get the
   in-call default model, which must be `voiceOnlyByok`. Admin screens call ThinnestAI's own
   bands "ThinnestAI Premium band" / "ThinnestAI Studio band"; clients see only Clear and Studio.
 - **Knowledge belongs to the client** and every agent of that client carries it, on both

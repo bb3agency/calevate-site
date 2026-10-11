@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useId, useState } from "react";
-import { PowerOff } from "lucide-react";
 
 import { StatusPill } from "@/components/admin/kit";
 import { ConfirmDialog } from "@/components/confirmDialog";
@@ -13,15 +12,12 @@ import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
-  NOTICE_TONES,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
 } from "@/components/ui";
 import {
-  useDisableStudioVoices,
   useEnableStudioVoices,
   useStudioVoices,
   type StudioVoices,
@@ -55,9 +51,9 @@ export function studioSteps(data: StudioVoices): Step[] {
     },
     {
       id: "held",
-      label: "Hold the key in our developer workspace",
-      done: data.developer_holds_key,
-      detail: "Its own-keys switch stays off, so no client inherits it.",
+      label: "Switch the key on in our developer workspace",
+      done: data.developer_holds_key && data.developer_switch_on,
+      detail: "Free-trial agents speak Studio there. Agents not on Studio are kept off it first.",
       go: { dialog: "key", label: "Studio ready" },
     },
     {
@@ -78,27 +74,25 @@ export function studioSteps(data: StudioVoices): Step[] {
       id: "listed",
       label: "List the Studio voices",
       done: data.voices_listed,
-      detail: "Switch Studio on for the first Studio client, then refresh.",
-      go: { dialog: "client", label: "Name the first client" },
+      detail: "Studio ready lists them once our key is on; refresh the voices if they are missing.",
+      go: { dialog: "key", label: "List the voices" },
     },
   ];
 }
 
 /**
- * Studio (D-717): our Cartesia key, switched on only in the workspace of each client that
- * publishes a Studio agent. A checklist with the one next step as the primary button, two
- * small stats, and — only when it applies — the one-line warning about our developer
- * workspace's own keys being on.
+ * Studio: our Cartesia key, switched on in our developer workspace where free-trial agents live
+ * (D-727) and in the workspace of each paying client that publishes a Studio agent (D-717). A
+ * checklist with the one next step as the primary button, and two small stats.
  */
 export function StudioVoicesCard() {
   const studio = useStudioVoices(true);
   const enable = useEnableStudioVoices();
-  const disable = useDisableStudioVoices();
-  const [confirming, setConfirming] = useState<"enable" | "disable" | null>(null);
+  const [confirming, setConfirming] = useState<"enable" | null>(null);
   const [askClient, setAskClient] = useState(false);
   const [tenantId, setTenantId] = useState("");
   const tenantField = useId();
-  const last = enable.data ?? disable.data;
+  const last = enable.data;
   const tenantValid = tenantId.trim() === "" || UUID_SHAPE.test(tenantId.trim());
 
   const openEnable = (withClient: boolean) => {
@@ -150,27 +144,6 @@ export function StudioVoicesCard() {
         </p>
       </div>
 
-      {data.developer_switch_on && (
-        <div
-          className={`flex flex-wrap items-center justify-between gap-3 rounded-md border px-4 py-2.5 text-body ${NOTICE_TONES.warn}`}
-        >
-          <p className="min-w-0 grow basis-60">
-            Our developer workspace&rsquo;s own keys are on, so clients inherit our key. Switch it off.
-          </p>
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            onClick={() => {
-              disable.reset();
-              setConfirming("disable");
-            }}
-          >
-            <PowerOff aria-hidden className="h-4 w-4" />
-            Switch developer workspace off
-          </button>
-        </div>
-      )}
-
       <Checklist
         label="Before clients can choose Studio voices"
         items={items}
@@ -218,11 +191,12 @@ export function StudioVoicesCard() {
           }}
         >
           <p>
-            This holds our Cartesia key in our developer workspace with its own keys left off. It
+            This switches our Cartesia key on, for the voice only, in our developer workspace, where
+            free-trial agents speak Studio. Every agent not on a Studio voice is kept off it first. It
             installs a credential, so you may be asked to confirm it is still you.
           </p>
           <label htmlFor={tenantField} className={`mt-3 ${FIELD_LABEL}`}>
-            First Studio client{askClient ? "" : " (optional)"}, account id
+            Paying client to switch on now{askClient ? "" : " (optional)"}, account id
           </label>
           <input
             id={tenantField}
@@ -230,29 +204,13 @@ export function StudioVoicesCard() {
             value={tenantId}
             onChange={(event) => setTenantId(event.target.value)}
             aria-invalid={!tenantValid}
-            placeholder="Leave empty once a client runs Studio"
+            placeholder="Leave empty: a client is switched on at its first Studio publish"
           />
           <p className={FIELD_HINT}>
             Studio is switched on in this client&rsquo;s own workspace, its Clear agents kept off
-            first, so the Studio voices can be listed. The id is on the client&rsquo;s admin page.
+            first. The id is on the client&rsquo;s admin page.
           </p>
           {!tenantValid && <p className="mt-1 text-meta text-warn">That is not an account id.</p>}
-        </ConfirmDialog>
-      )}
-      {confirming === "disable" && (
-        <ConfirmDialog
-          title="Switch our developer workspace's own keys off?"
-          confirmLabel="Switch it off"
-          pendingLabel="Switching off…"
-          pending={disable.isPending}
-          error={disable.error}
-          onCancel={() => setConfirming(null)}
-          onConfirm={() => disable.mutate(undefined, { onSuccess: () => setConfirming(null) })}
-        >
-          <p>
-            Clients stop inheriting our key. The server refuses while any published Studio agent still
-            depends on it, and names why.
-          </p>
         </ConfirmDialog>
       )}
     </section>

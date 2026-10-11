@@ -52,7 +52,7 @@ export function BackToTop() {
       href="#top"
       inert={!shown}
       aria-label="Back to top"
-      className={`press fixed right-5 bottom-[calc(1.25rem+env(safe-area-inset-bottom,0px))] z-20 inline-flex h-11 w-11 items-center justify-center rounded-full border border-line bg-surface text-ink shadow-raised transition-[opacity,translate] duration-(--duration-base) ease-out hover:text-brand-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 sm:right-6 print:hidden ${
+      className={`press fixed right-5 bottom-[calc(1.25rem+env(safe-area-inset-bottom,0px))] z-sticky inline-flex h-11 w-11 items-center justify-center rounded-full border border-line bg-surface text-ink shadow-raised transition-[opacity,translate] duration-(--duration-base) ease-out hover:text-brand-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 sm:right-6 print:hidden ${
         shown ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"
       }`}
     >

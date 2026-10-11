@@ -10,22 +10,19 @@
  * change made somewhere else in between is refused rather than overwritten.
  */
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 
+import { ModalDialog } from "@/components/modalDialog";
 import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
-  MODAL_ACTIONS,
-  MODAL_PANEL,
-  MODAL_SCRIM,
   PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
 } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { useApplyScript, usePublishScript, type CallScript, type ScriptOut } from "@/lib/api/script";
-import { useFocusTrap } from "@/lib/focusTrap";
 
 import { changeSummary } from "./scriptDiff";
 import { sameScript } from "./scriptDraft";
@@ -82,48 +79,21 @@ export function PutLiveDialog({
   onCancel: () => void;
   onConfirm: (summary: string) => void;
 }) {
-  const panel = useRef<HTMLDivElement>(null);
   const [summary, setSummary] = useState(() => changeSummary(live, draft));
-  useFocusTrap(panel, true, onCancel);
   return (
-    <div className={MODAL_SCRIM}>
-      <div
-        ref={panel}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="put-live-title"
-        aria-describedby="put-live-body"
-        tabIndex={-1}
-        className={MODAL_PANEL}
-      >
-        <h2 id="put-live-title" className="text-heading text-ink">
-          Put these changes live?
-        </h2>
-        <p id="put-live-body" className="mt-2 text-body text-ink-muted">
+    <ModalDialog
+      title="Put these changes live?"
+      onClose={onCancel}
+      initialFocus="first-tabbable"
+      description={
+        <p>
           {agentOn
             ? "Callers hear the new script from their next call. Calls already going keep the old one."
             : "It becomes the script the agent uses. Callers hear it once you switch the agent on."}
         </p>
-        {voiceLine && <p className="mt-2 text-meta text-ink-muted">Voice: {voiceLine}</p>}
-        <div className="mt-4">
-          <label className={FIELD_LABEL} htmlFor="put-live-summary">
-            What changed
-          </label>
-          <span className={FIELD_HINT}>A short note for History, so you can find this later.</span>
-          <input
-            id="put-live-summary"
-            className={FIELD}
-            value={summary}
-            maxLength={200}
-            onChange={(e) => setSummary(e.target.value)}
-          />
-        </div>
-        {error != null && (
-          <div className="mt-3">
-            <ProblemNotice error={error} />
-          </div>
-        )}
-        <div className={MODAL_ACTIONS}>
+      }
+      actions={
+        <>
           <button type="button" className={SECONDARY_BUTTON} onClick={onCancel} disabled={pending}>
             Not yet
           </button>
@@ -135,8 +105,28 @@ export function PutLiveDialog({
           >
             {pending ? "Putting it live…" : "Put it live"}
           </button>
-        </div>
+        </>
+      }
+    >
+      {voiceLine && <p className="mt-2 text-meta text-ink-muted">Voice: {voiceLine}</p>}
+      <div className="mt-4">
+        <label className={FIELD_LABEL} htmlFor="put-live-summary">
+          What changed
+        </label>
+        <span className={FIELD_HINT}>A short note for History, so you can find this later.</span>
+        <input
+          id="put-live-summary"
+          className={FIELD}
+          value={summary}
+          maxLength={200}
+          onChange={(e) => setSummary(e.target.value)}
+        />
       </div>
-    </div>
+      {error != null && (
+        <div className="mt-3">
+          <ProblemNotice error={error} />
+        </div>
+      )}
+    </ModalDialog>
   );
 }

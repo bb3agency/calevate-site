@@ -10,8 +10,9 @@ ids and counts only (hard rule 6).
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
@@ -20,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.script_builder import assert_agent_visible
 from apps.api.agents.test_conversations import readiness
+from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
@@ -28,7 +30,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.base import uuid7
 from apps.api.kb.curation import goes_live_without_review, requires_kb_curation
-from apps.api.kb.uploads import classify_upload, file_extension
+from apps.api.kb.uploads import classify_upload, file_extension, stored_content_type
 from apps.api.teach import facts as fact_store
 from apps.api.teach import knows, rules, struggles, teaching, test_cases, try_chat
 from apps.api.teach import pinned as pinned_store
@@ -374,6 +376,25 @@ async def _read_bounded(file: UploadFile, limit: int) -> bytes:
 #: A photo is read by the OCR leg, whose own ceiling this is
 #: (`calevate_shared.document_ingest.MAX_IMAGE_BYTES`).
 _PHOTO_LIMIT = 12 * 1024 * 1024
+#: The photo types a teaching accepts, each with the suffix its object key carries: the
+#: image formats the OCR leg documents (`apps/workers/document_ocr.py`).
+PHOTO_SUFFIXES: Final[dict[str, str]] = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/heic": "heic",
+    "image/heif": "heif",
+    "image/avif": "avif",
+}
+_KEY_SUFFIX = re.compile(r"[a-z0-9]{1,8}")
+
+
+def safe_key_suffix(extension: str) -> str:
+    """An object-key suffix from a client's filename, or `bin`. The extension is the
+    client's text, and a `/` or `..` in it would add a segment to the key."""
+    return extension if _KEY_SUFFIX.fullmatch(extension) else "bin"
+
+
 _FILE_LIMIT = 20 * 1024 * 1024
 
 
@@ -419,10 +440,20 @@ async def teach_upload(
                 "teach_pdf",
                 "A PDF goes to your agents as it is, so add it under Files instead.",
             )
-        if source_kind == "image" and not content_type.startswith("image/"):
+        if source_kind == "image" and content_type not in PHOTO_SUFFIXES:
+            # A named set, not `image/*`: the type is stored with the object and handed
+            # to the reader, and `image/svg+xml` is a script-bearing document, not a photo.
             raise ProblemError.business_rule("teach_photo_kind", "That is not a photo.")
         data = await _read_bounded(file, _PHOTO_LIMIT if source_kind == "image" else _FILE_LIMIT)
-        suffix = file_extension(filename) or ("jpg" if source_kind == "image" else "bin")
+        suffix = (
+            PHOTO_SUFFIXES[content_type]
+            if source_kind == "image"
+            else safe_key_suffix(file_extension(filename))
+        )
+        if source_kind != "image":
+            # The type a document is stored and read under is OURS, from the extension
+            # `classify_upload` accepted, never the multipart header (`kb/uploads`).
+            content_type = stored_content_type(filename)
     # Local import: `apps.workers.storage` holds the object-store client.
     from apps.workers.storage import kb_object_key, store_kb_object
 
@@ -850,6 +881,12 @@ async def run_test_cases(
     principal: Principal = Depends(requires("agents:write")),
 ) -> TestCasesOut:
     assert principal.tenant_id is not None
+    # A run is up to 20 tests of six caller lines each against the live agent, so it
+    # spends the way a try-chat does: withheld from view-as and gated on the AI allowance.
+    # The agent is resolved first so a neighbour's id is a 404, never a quota answer.
+    assert_view_as_may(principal, "billing.ai_assist")
+    await assert_agent_visible(session, agent_id)
+    await require_ai_assist(session, tenant_id=principal.tenant_id)
     await test_cases.request_run(session, tenant_id=principal.tenant_id, agent_id=agent_id)
     return await _cases_out(session, agent_id)
 

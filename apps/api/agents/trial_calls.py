@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import check_dispatch
-from apps.api.compliance.trial_access import read_trial_access
+from apps.api.compliance.trial_access import TRIAL_STUDIO_MINUTES_USED_RULE, read_trial_access
 from apps.api.core.alerting import record_compliance_block
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
@@ -54,7 +54,9 @@ NOT_READY_RULE: Final = "trial_calling_not_ready"
 NOT_READY_REASON: Final = "Test calls are not available yet. Please try again later."
 
 #: Refusals raised before anything rang, after which the client's retry must be allowed.
-_NOT_PLACED: Final = frozenset({"trial_line_busy", "trial_line_unavailable"})
+_NOT_PLACED: Final = frozenset(
+    {"trial_line_busy", "trial_line_unavailable", TRIAL_STUDIO_MINUTES_USED_RULE}
+)
 
 
 @dataclass(frozen=True, slots=True)

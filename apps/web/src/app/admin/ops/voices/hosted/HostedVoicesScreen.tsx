@@ -175,7 +175,6 @@ export function HostedVoicesScreen({ added }: { added: HostedVoices }) {
                     key={tier}
                     label={`${tier === "all" ? "All" : tier === "clear" ? "Clear" : "Studio"} ${formatCount(tierCount(tier))}`}
                     active={filters.tier === tier}
-                    capitalize={false}
                     onClick={() => set({ tier })}
                   />
                 ))}

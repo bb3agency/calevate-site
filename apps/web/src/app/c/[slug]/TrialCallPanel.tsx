@@ -11,6 +11,7 @@ import {
   NoticeBox,
   PRIMARY_BUTTON,
   ProblemNotice,
+  formatIST,
 } from "@/components/ui";
 import { canDialOut } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
@@ -89,6 +90,9 @@ export function TrialCallCard({
                 ? "Ended"
                 : `${trial.days_remaining} ${trial.days_remaining === 1 ? "day" : "days"}`}
             </dd>
+            {trial.ends_at ? (
+              <dd className="text-xs text-ink-muted">Ends {formatIST(trial.ends_at)} IST</dd>
+            ) : null}
           </div>
           <div>
             <dt className={FIELD_LABEL}>Free minutes left</dt>
@@ -208,9 +212,8 @@ export function TrialCallCard({
 
         <NoticeBox tone="neutral" title="Ready to go live?">
           <p>
-            Adding credit ends the trial and opens, in order: verifying your business, your own
-            phone number, then live calls, with your agents answering your customers and
-            calling your leads.
+            Adding credit ends the trial and opens business verification, your own phone
+            number, answering calls and campaigns.
           </p>
           <Link
             href={creditsHref}

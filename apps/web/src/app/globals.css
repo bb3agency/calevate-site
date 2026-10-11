@@ -249,6 +249,61 @@
 }
 
 /*
+ * THE LAYER SCALE — the only z-index values in the app (guarded by tests/zIndex.test.ts).
+ * Use the `z-<layer>` utilities below; a raw numeric z-index class fails the guard.
+ *
+ * Overlays that must beat the page (assistant panel, dialogs, drawers, popovers, menus)
+ * render through a portal into `document.body`. A layer number only orders siblings in
+ * ONE stacking context; rendered inside the page, a `z-assistant` panel was trapped in the
+ * sticky header's context and the call transcript painted over it.
+ *
+ * below/base/raised order things inside one component (a decoration behind text, a row
+ * link under its buttons). The rest are app-wide, in the order they must stack.
+ */
+:root {
+  --z-below: -1;
+  --z-base: 0;
+  --z-raised: 1;
+  --z-sticky: 10; /* sticky page bars, table headers, the player over a transcript */
+  --z-header: 20; /* the shells' top bars and the nav rail */
+  --z-dropdown: 30; /* menus, popovers, tooltips */
+  --z-drawer: 40; /* side drawers and sheets */
+  --z-assistant: 50; /* the assistant panel and its launcher */
+  --z-modal: 60; /* dialogs and their scrim: above the assistant, which can open one */
+  --z-toast: 70;
+}
+@utility z-below {
+  z-index: var(--z-below);
+}
+@utility z-base {
+  z-index: var(--z-base);
+}
+@utility z-raised {
+  z-index: var(--z-raised);
+}
+@utility z-sticky {
+  z-index: var(--z-sticky);
+}
+@utility z-header {
+  z-index: var(--z-header);
+}
+@utility z-dropdown {
+  z-index: var(--z-dropdown);
+}
+@utility z-drawer {
+  z-index: var(--z-drawer);
+}
+@utility z-assistant {
+  z-index: var(--z-assistant);
+}
+@utility z-modal {
+  z-index: var(--z-modal);
+}
+@utility z-toast {
+  z-index: var(--z-toast);
+}
+
+/*
  * PRESS FEEDBACK for anything pressable. Opt-in rather than a rule on every `button`,
  * because full-width row buttons and summaries scaling by 3% would read as the layout
  * wobbling. The scale is gated behind `prefers-reduced-motion: no-preference`; the colour
@@ -687,7 +742,7 @@ html:has([data-marketing-root]) body {
 [data-marketing-root] {
   /*
    * ⚠ THESE TWO WERE 26% AND 20% AND WERE NEVER ONCE RENDERED, WHICH IS WHY THEY WERE
-   * TOO STRONG. The layer that carries them sat at `-z-10` inside a section that was not
+   * TOO STRONG. The layer that carries them sat below the text (`z-below`) inside a section that was not
    * a stacking context, so it escaped to the root and painted BEHIND the marketing
    * root's own `bg-app` — the hero's whole decorative layer, grid and glows alike, has
    * been invisible for as long as it has existed. `isolate` on the three call sites
@@ -746,7 +801,7 @@ html:has([data-marketing-root]) body {
   border-radius: 9999px;
   filter: blur(64px);
   pointer-events: none;
-  z-index: 0;
+  z-index: var(--z-base);
 }
 [data-marketing-root] .mk-blob--a {
   background: var(--mk-glow-a);

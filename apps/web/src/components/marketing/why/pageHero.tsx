@@ -32,9 +32,9 @@ export function PageHero({
 }) {
   return (
     <section className="relative isolate overflow-hidden border-b border-line">
-      {/* Decorative ground, a sibling at -z-10 so the text over it has a resolvable
+      {/* Decorative ground, a sibling at z-below so the text over it has a resolvable
           background for the contrast checks (same arrangement as the homepage hero). */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+      <div aria-hidden className="pointer-events-none absolute inset-0 z-below">
         <div className="mk-grid-lines absolute inset-0" />
         <div className="mk-blob mk-blob--a mk-float absolute -top-24 left-[8%] h-56 w-56 sm:h-96 sm:w-96" />
       </div>

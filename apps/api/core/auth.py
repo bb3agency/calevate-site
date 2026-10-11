@@ -1073,6 +1073,44 @@ class PermissionDependency(Protocol):
     def __call__(self, request: Request) -> Awaitable[Principal]: ...
 
 
+async def enforce_write_rules(
+    request: Request, principal: Principal, permission: Permission
+) -> None:
+    """What every authorised request must also pass once its role holds `permission`: the
+    view-as ruling, the attribution of a view-as write, and the deleted-agent refusal.
+
+    ONE function because a dependency that authorises without `requires()` (the knowledge
+    curation gate, `kb/curation.requires_kb_curation`) has to apply the same rules, and a
+    copy is how it came to apply none of them.
+    """
+    if principal.impersonating:
+        # D-587, in the one place a route is authorised. D-22 refused every mutation
+        # here; what replaced it is a ruling per permission plus a REQUIREMENT that the
+        # write be attributable, and the order matters — the attribution check is not a
+        # defence against a caller (nothing can forge this flag without forging a
+        # grant), it is a defence against US: a future code path that manufactures an
+        # impersonating principal without one would otherwise write rows saying a
+        # tenant changed its own settings.
+        withheld = withheld_from_view_as(permission)
+        if withheld is not None:
+            raise ProblemError.forbidden(withheld)
+        if permission in MUTATING_PERMISSIONS and principal.impersonation_grant_id is None:
+            log.error("view_as_write_without_grant", extra={"permission": permission})
+            raise ProblemError.forbidden(
+                "This view-as session cannot be attributed to an operator, so it may "
+                "not change anything. Start the session again from the client's page "
+                "in the operator console."
+            )
+    if permission in MUTATING_PERMISSIONS:
+        # THE ONE PLACE A WRITE TO A DELETED AGENT IS REFUSED (D-527's archive, the
+        # console's Delete). This dependency is the only way a non-public route is
+        # authorised — `rbac.assert_policy_registry_complete` refuses to boot a process
+        # where that is not true — so putting the check here gives every agent endpoint
+        # the same refusal, in both realms, including the ones nobody has written yet.
+        # It costs three in-memory tests on a request whose path names no agent.
+        await guard_agent_write(request, tenant_id=principal.tenant_id)
+
+
 def requires(
     permission: Permission, *, realm: Literal["client", "admin", "any"] = "any"
 ) -> PermissionDependency:
@@ -1089,32 +1127,7 @@ def requires(
         )
         if principal.role is None or not role_has(principal.role, permission):
             raise ProblemError.forbidden("You do not have permission to do this.")
-        if principal.impersonating:
-            # D-587, in the one place a route is authorised. D-22 refused every mutation
-            # here; what replaced it is a ruling per permission plus a REQUIREMENT that the
-            # write be attributable, and the order matters — the attribution check is not a
-            # defence against a caller (nothing can forge this flag without forging a
-            # grant), it is a defence against US: a future code path that manufactures an
-            # impersonating principal without one would otherwise write rows saying a
-            # tenant changed its own settings.
-            withheld = withheld_from_view_as(permission)
-            if withheld is not None:
-                raise ProblemError.forbidden(withheld)
-            if permission in MUTATING_PERMISSIONS and principal.impersonation_grant_id is None:
-                log.error("view_as_write_without_grant", extra={"permission": permission})
-                raise ProblemError.forbidden(
-                    "This view-as session cannot be attributed to an operator, so it may "
-                    "not change anything. Start the session again from the client's page "
-                    "in the operator console."
-                )
-        if permission in MUTATING_PERMISSIONS:
-            # THE ONE PLACE A WRITE TO A DELETED AGENT IS REFUSED (D-527's archive, the
-            # console's Delete). This dependency is the only way a non-public route is
-            # authorised — `rbac.assert_policy_registry_complete` refuses to boot a process
-            # where that is not true — so putting the check here gives every agent endpoint
-            # the same refusal, in both realms, including the ones nobody has written yet.
-            # It costs three in-memory tests on a request whose path names no agent.
-            await guard_agent_write(request, tenant_id=principal.tenant_id)
+        await enforce_write_rules(request, principal, permission)
         return principal
 
     dep = cast(PermissionDependency, _dep)
@@ -1179,6 +1192,7 @@ __all__ = [
     # a deployment where a credential-less admin request is legitimate?" — and a second
     # copy of the predicate is exactly the drift that would let the two answers diverge.
     "dev_tokens_permitted",
+    "enforce_write_rules",
     "requires",
     "tenant_of",
     "verify_token",

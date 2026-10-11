@@ -663,6 +663,33 @@ function withToken(
 }
 
 /**
+ * The URL for an API path, refusing one whose PATH carries a dot segment or a backslash.
+ *
+ * Call sites build paths from route params (`/v1/calls/${callId}/translation`), and a
+ * param is whatever the address bar said. A crafted link such as
+ * `/c/acme/calls/..%2Fagents%2F<id>%2Fdeactivate%3F` would otherwise have the browser
+ * normalise the dot segment and send this person's credentialed, same-origin request to a
+ * different route than the screen meant — which neither the CSRF Origin check nor
+ * SameSite can stop, because it IS same-origin. `%2e` is a dot to the URL parser, so it
+ * is checked decoded too.
+ */
+export function apiUrl(path: string): string {
+  const pathname = path.split(/[?#]/, 1)[0] ?? "";
+  let decoded = pathname;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    // A malformed escape is checked as written.
+  }
+  const segments = [...pathname.split("/"), ...decoded.split(/[\\/]/)];
+  const leaves = segments.some((segment) => segment === "." || segment === "..");
+  if (!path.startsWith("/") || pathname.includes("\\") || leaves) {
+    throw new Error("Refused an API path that would leave its route.");
+  }
+  return `${API_BASE}${path}`;
+}
+
+/**
  * THE `identity_mirror_pending` RETRY RUNG WAS HERE, AND IT IS GONE (D-177).
  *
  * It waited out a race that no longer exists: Clerk minted a session the instant an
@@ -760,7 +787,7 @@ export async function openEventStream(
   try {
     let response: Response;
     try {
-      response = await fetch(`${API_BASE}${path}`, {
+      response = await fetch(apiUrl(path), {
         method,
         headers,
         credentials: "include",
@@ -882,7 +909,7 @@ export async function apiUpload<T>(
     (deadlineSignal) =>
       new Promise<T>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open("POST", `${API_BASE}${path}`);
+        xhr.open("POST", apiUrl(path));
         // The session cookie, for the reason `credentials: "include"` is set on every
         // `fetch` here: the console and the API are different origins and the browser
         // omits cookies cross-origin unless asked.
@@ -965,7 +992,7 @@ async function sendRequest<T>(
   return withDeadline(async (deadlineSignal) => {
     let response: Response;
     try {
-      response = await fetch(`${API_BASE}${path}`, {
+      response = await fetch(apiUrl(path), {
         method,
         headers,
         // THE CREDENTIAL, in the deployed case (D-177). The realm's session is an HttpOnly,

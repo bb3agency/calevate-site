@@ -89,9 +89,14 @@ function Row({ item }: { item: ChecklistItem }) {
     ) : !disabled && item.action ? (
       item.action
     ) : null;
+  // One line of text: centre the marker on the row, because a touch-sized action (44px)
+  // makes the row taller than the text and a top-aligned marker then sits above it.
+  const oneLine = !(disabled ? item.disabledReason : item.detail);
   return (
-    <li className={`flex items-start gap-3 py-3 first:pt-0 last:pb-0 ${disabled ? "opacity-70" : ""}`}>
-      <span className="mt-0.5">
+    <li
+      className={`flex gap-3 py-3 first:pt-0 last:pb-0 ${oneLine ? "items-center" : "items-start"} ${disabled ? "opacity-70" : ""}`}
+    >
+      <span className={oneLine ? "flex" : "mt-0.5"}>
         <Marker state={item.state} />
       </span>
       {/* The text and the action WRAP rather than share a line at any cost: the text asks

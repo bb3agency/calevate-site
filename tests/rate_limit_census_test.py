@@ -132,6 +132,20 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         ("/v1/ops/secrets/{key}/test", "POST", "costly"),
         # A credentialled vendor call per click, like the candidate test above it.
         ("/v1/ops/carrier/probe", "POST", "costly"),
+        # Every one-click LLM or engine round trip a client can start (security pass,
+        # 11 Oct 2026): these sat at `client_api`, 240/min.
+        ("/v1/calls/{call_id}/translation", "POST", "costly"),
+        ("/v1/agents/{agent_id}/script/assist", "POST", "costly"),
+        ("/v1/agents/{agent_id}/script/convert", "POST", "costly"),
+        ("/v1/agents/{agent_id}/script/tests", "POST", "costly"),
+        ("/v1/agents/{agent_id}/script/tests/{run_id}/improve", "POST", "costly"),
+        ("/v1/agents/{agent_id}/script/tests", "GET", "client_api"),
+        ("/v1/agents/{agent_id}/try-chat", "POST", "costly"),
+        ("/v1/agents/{agent_id}/test-cases/run", "POST", "costly"),
+        ("/v1/kb/teach", "POST", "costly"),
+        ("/v1/kb/teach/upload", "POST", "costly"),
+        ("/v1/kb/teach/{teaching_id}/words", "POST", "costly"),
+        ("/v1/copilot/routines/{routine_id}/run", "POST", "costly"),
         ("/v1/auth/signup", "POST", "auth"),
         ("/healthz/ready", "GET", "exempt"),
         # The public rate card must NOT fall into `client_api`: its one caller is the

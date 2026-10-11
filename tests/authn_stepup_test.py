@@ -491,7 +491,7 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # THE FIFTY-FOURTH AND FIFTY-FIFTH are a cloned voice of a real person (D-721,
     # `ops/hosted_voice_routes.py`): recording the speaker's consent is a legal attestation
     # about one voice, and unmarking a voice deletes that record. Both bound to the voice.
-    assert sites == 55, f"found {sites} step-up call sites, expected 55; the census went stale"
+    assert sites == 54, f"found {sites} step-up call sites, expected 54; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.
@@ -815,3 +815,19 @@ def test_a_route_that_declares_the_gate_cannot_forget_to_ask_it_anything() -> No
         "the gate reads the admin session and refuses nothing; the mutation ships "
         "ungated while both the declaration and the sibling census still look right."
     )
+
+
+async def test_a_second_step_up_code_inside_the_cooldown_is_refused_not_mailed(
+    operator: uuid.UUID,
+) -> None:
+    """Every request mailed a code, bounded only by the 20/min `auth` profile. It now has
+    the sign-in resend's one-a-minute cooldown, as a 429 with `Retry-After`."""
+    from apps.api.core.errors import ProblemError
+
+    issued = await _session_with_factor_aged(operator, REAUTH_MAX_AGE + timedelta(minutes=5))
+    stale = (await verify_session(token=issued.token, realm="admin")).require_live()
+    await service.request_step_up(verified=stale, ip=None)
+    with pytest.raises(ProblemError) as refused:
+        await service.request_step_up(verified=stale, ip=None)
+    assert refused.value.code == "resend_too_soon"
+    assert refused.value.headers.get("Retry-After")

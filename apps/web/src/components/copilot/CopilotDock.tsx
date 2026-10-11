@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation";
 import { BotMessageSquare, MessageCircleQuestion } from "lucide-react";
 import { AnimatePresence } from "motion/react";
+import { createPortal } from "react-dom";
 
 import { MAIN_CONTENT_ID } from "@/components/ui";
 import { adminSession } from "@/lib/api/admin";
@@ -53,13 +54,11 @@ import { ViewAsPanel } from "./ViewAsPanel";
  *
  * ## Position, and the one collision it accepts
  *
- * Bottom-right, the conventional corner, at `z-[70]`. `components/interior/toaster.tsx`
- * puts the toast lane in the same corner at `z-[60]` and 360px wide, so a toast fires
- * BEHIND the 44px launcher and its bottom-right corner is covered. That is the accepted
- * trade rather than an oversight: moving the launcher left would put it over the
- * sidebar's account block above `lg`, and lowering it under the toasts would make the
- * control unclickable exactly while a toast is showing — a dead button is a worse defect
- * than a clipped corner of a notification that also says its text on the left.
+ * Bottom-right, the conventional corner, on the `z-assistant` layer. The toast lane
+ * (`components/interior/toaster.tsx`, `z-toast`) shares the corner and sits above it:
+ * a toast is short-lived and says its text on the left, so it may cover the launcher's
+ * corner for a few seconds. Moving the launcher left would put it over the sidebar's
+ * account block above `lg`.
  *
  * ## Realm
  *
@@ -114,6 +113,10 @@ export function CopilotDock({
   }, [pathname, realm]);
   const holder = declared ?? fallback;
   const [isOpen, setIsOpen] = useState(false);
+  // The portal target exists only in the browser; mounting it after hydration keeps the
+  // server and first client render identical.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const launcher = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   // Set while the panel is closing, so focus is returned to the launcher — the modal
@@ -225,7 +228,7 @@ export function CopilotDock({
             : `${
                 placement === "header"
                   ? "flex h-9 w-9 items-center justify-center rounded-md touch:h-11 touch:w-11"
-                  : "fixed bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] right-4 z-[70] flex h-11 w-11 items-center justify-center rounded-full border border-line shadow-raised"
+                  : "fixed bottom-[calc(1rem+env(safe-area-inset-bottom,0px))] right-4 z-assistant flex h-11 w-11 items-center justify-center rounded-full border border-line shadow-raised"
               } text-white press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${
                 realm === "admin"
                   ? "bg-slate-900 hover:bg-slate-700 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-slate-400"
@@ -262,31 +265,37 @@ export function CopilotDock({
           `X-Impersonate-Org`, so this branch is true precisely when the request would be
           refused, and cannot drift from it. The admin realm never sets it. */}
       {/* THE SIDE PANEL (D-694): every screen, both realms, whichever corner the launcher
-          sits in. `AnimatePresence` lets it leave the way it came in. */}
-      <AnimatePresence>
-        {isOpen &&
-          !onWorkspace &&
-          (session.impersonateOrg ? (
-            <ViewAsPanel
-              key="view-as"
-              labelledBy={titleId}
-              onClose={closePanel}
-              placement="side"
-            />
-          ) : (
-            <CopilotPanel
-              key="panel"
-              session={session}
-              holder={holder}
-              realm={realm}
-              labelledBy={titleId}
-              onNavigate={navigation === undefined ? undefined : navigateTo}
-              onClose={closePanel}
-              placement="side"
-              request={request}
-            />
-          ))}
-      </AnimatePresence>
+          sits in. `AnimatePresence` lets it leave the way it came in. Portalled into
+          `document.body`: the launcher lives in the sticky top bar, whose stacking context
+          would otherwise hold the panel under the page's own sticky bars. */}
+      {mounted &&
+        createPortal(
+          <AnimatePresence>
+            {isOpen &&
+              !onWorkspace &&
+              (session.impersonateOrg ? (
+                <ViewAsPanel
+                  key="view-as"
+                  labelledBy={titleId}
+                  onClose={closePanel}
+                  placement="side"
+                />
+              ) : (
+                <CopilotPanel
+                  key="panel"
+                  session={session}
+                  holder={holder}
+                  realm={realm}
+                  labelledBy={titleId}
+                  onNavigate={navigation === undefined ? undefined : navigateTo}
+                  onClose={closePanel}
+                  placement="side"
+                  request={request}
+                />
+              ))}
+          </AnimatePresence>,
+          document.body,
+        )}
     </>
   );
 }

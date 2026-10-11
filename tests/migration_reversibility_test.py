@@ -107,6 +107,11 @@ DATA_ONLY_REPAIRS: dict[str, str] = {
         "downgrade removes both categories if D-179 itself is reversed, which is where "
         "that deletion belongs"
     ),
+    "f3c9a1d5e7b2": (
+        "deletes the one platform_settings row stored under a key no Settings field has "
+        "declared since D-642; no DDL, the DELETE is a no-op once done, and restoring the "
+        "row would only bring back the platform_config_row_unmanaged log line"
+    ),
 }
 
 #: What a schema change looks like in a migration's source. A revision claiming to be a

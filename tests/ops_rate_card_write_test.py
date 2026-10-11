@@ -171,9 +171,8 @@ async def test_the_approved_card_is_written_and_every_margin_is_previewed(
     assert len(previews) == len(PACK_CATALOGUE) * 2
     # WARNING exactly on the cells the margin guard calls thin, derived from the same card
     # the console previewed. The COUNT is pinned beside it so a card that quietly stopped
-    # being the thin one is still a red test: on the founder's 14 Sep card it is eight of
-    # twelve — the whole Clear column at 17.2%, plus Studio's `pro` (18.8%) and `max`
-    # (14.4%).
+    # being the thin one is still a red test: on the 11 Oct card (D-728) it is none of
+    # twelve: Clear 30.0% and Studio 21.5% on every rung.
     thin = [r for r in previews if r.levelno == logging.WARNING]
     expected_thin = {
         (pack_id, voice)
@@ -181,7 +180,7 @@ async def test_the_approved_card_is_written_and_every_margin_is_previewed(
         if verdict.below_target
     }
     assert {(r.pack_id, r.voice_tier) for r in thin} == expected_thin
-    assert len(expected_thin) == 2, "only the two dearest Studio rungs are under target"
+    assert len(expected_thin) == 0, "no cell of the D-728 card is under target"
     # Money in a log line is a STRING (hard rule 7): a float here is a float somebody
     # quotes back.
     assert all(isinstance(r.inr_per_min, str) for r in previews)

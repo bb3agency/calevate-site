@@ -45,11 +45,11 @@ a screen and a test cannot disagree about what "thin" means:
 
 * **below cost is a REFUSAL** — `card_refusals` names it, `tests/credit_packs_test.py`
   fails on it, and the ops console will not write a card containing it.
-* **below `MIN_GROSS_MARGIN` is a WARNING.** The founder's card of 14 Sep 2026 (Clear flat
-  ₹4.00, Studio 7.00 → 5.50) earns, per engine:
+* **below `MIN_GROSS_MARGIN` is a WARNING.** The founder's card of 11 Oct 2026 (D-728:
+  Clear ₹4.50, Studio ₹6.00, flat) earns against each engine's floor:
 
-      ThinnestAI  Clear 31.3% (₹2.75)    Studio 32.7% → 14.4% (₹4.7099; not sold there yet)
-      Pipecat     Clear  7.8% (₹3.6891)  Studio 25.0% →  4.5% (₹5.2499, carrier included)
+      ThinnestAI  Clear 38.9% (₹2.75)    Studio 21.5% (₹4.7099)
+      Pipecat     Clear 18.0% (₹3.6891)  Studio 12.5% (₹5.2499, carrier included)
 
   Nothing is below COST. The thin cells are a deliberate opening price, not a defect.
   ⚠ **DO NOT "FIX" A THIN CELL BY MOVING A RATE** — that is a pricing decision, not a test
@@ -57,7 +57,7 @@ a screen and a test cannot disagree about what "thin" means:
 
 Invariant 6 (plan §2.3) is checked here too: on every pack `cartesia >= sarvam`, and
 neither column RISES as `amount_inr` rises. ⚠ It is "never rises", not "always falls": the
-Clear column is FLAT at ₹4.00 across all six rungs since 14 Sep 2026, and a guard written
+Clear and Studio columns are FLAT across all six rungs since 11 Oct 2026, and a guard written
 as strict descent would refuse the card that is on sale. A card that inverts either is
 refused.
 """
@@ -185,29 +185,21 @@ class CreditPack:
         return self.paid_credits + self.bonus_credits
 
 
-#: THE RATE CARD (founder sign-off, 14 Sep 2026 — `docs/PIPECAT-MIGRATION.md` §12). Six
-#: rungs from ₹2,000 to ₹50,000, each with a Clear and a Studio ₹/min.
-#: Three properties are deliberate:
+#: THE RATE CARD (D-728, founder 11 Oct 2026, replacing the 14 Sep card of Clear ₹4.00 and
+#: Studio ₹7.00 → ₹5.50). Six rungs from ₹2,000 to ₹50,000, every one at **Clear ₹4.50** and
+#: **Studio ₹6.00** a minute.
 #:
-#: * **The Clear column is FLAT at ₹4.00** across all six rungs. It used to fall 5.00 →
-#:   4.50; the founder replaced the ladder with one number (14 Sep 2026 — the decision is
-#:   recorded, its rationale is not, so none is invented here). What the code can say is
-#:   that the Clear floor does not amortise the way the Studio one does: every Clear leg is
-#:   a per-minute or per-character published price, with no monthly allotment to spread, so
-#:   a falling Clear rate would have been a discount against a cost that never fell. The
-#:   `starter` rung's Clear rate is what `CreditPacksOut.list_rate_inr_per_min` publishes;
-#:   flat means that number now describes every rung.
-#: * **The Studio column still falls**, 7.00 → 5.50 in even ₹0.30 steps, a 21.4% fall.
-#:   Cartesia's cost is a monthly SUBSCRIPTION with an included allotment, so the
-#:   per-minute cost of a Cartesia minute really does fall as volume amortises the fee
-#:   (`rates.cartesia_cost_inr_per_call_minute`), and the card passes that shape on. ⚠ It
-#:   does not fall for ever: past the allotment the vendor's overage rate applies and the
-#:   curve turns back up towards `rates.CARTESIA_COST_FLOOR_INR_PER_MIN`, which is why
-#:   every rung carries a break-even volume
-#:   (`rates.cartesia_rung_breakeven_call_minutes`) and the ops console prints it.
-#: * **SEVERAL CELLS EARN UNDER 20%, ON PURPOSE** — which ones depends on the engine's
-#:   floors (module docstring). Nothing is below COST, so the console warns rather than
-#:   refuses. It is the founder's opening price to win the first clients.
+#: * **Both columns are flat.** Clear has no monthly allotment to amortise, so a falling
+#:   Clear rate would be a discount against a cost that never falls. Studio's Cartesia leg
+#:   IS a monthly plan whose per-minute cost falls with volume, but with no paying client
+#:   yet the volume is unknown; the founder's rule is that Studio may come down towards
+#:   ₹5.00 only once Studio volume fills a Cartesia plan (about 14,000 Studio minutes a
+#:   month on Scale), through the ops console's scheduled card with its 30-day notice.
+#: * **The margins, before fixed costs** (D-728 has the working): Clear about 36% on
+#:   ThinnestAI's Premium band and about 25% on its Studio band before the Pro plan fee;
+#:   Studio about 28% at the measured 571 agent characters a minute when Cartesia is
+#:   charged per character, but negative just after each Cartesia plan upgrade.
+#: * Nothing is below COST (`card_refusals` refuses that); a cell under 20% warns only.
 #:
 #: ⚠ **THE BONUS PERCENTAGES ARE GONE, NOT SET TO ZERO BY OVERSIGHT.** They were the margin
 #: model until D-547 (`effective = list / (1 + bonus)`); the rates below ARE the margin
@@ -217,38 +209,38 @@ PACK_CATALOGUE: Final[tuple[CreditPack, ...]] = (
     CreditPack(
         pack_id="starter",
         amount_inr=Decimal("2000"),
-        clear_inr_per_min=Decimal("4.00"),
-        studio_inr_per_min=Decimal("7.00"),
+        clear_inr_per_min=Decimal("4.50"),
+        studio_inr_per_min=Decimal("6.00"),
     ),
     CreditPack(
         pack_id="growth",
         amount_inr=Decimal("5000"),
-        clear_inr_per_min=Decimal("4.00"),
-        studio_inr_per_min=Decimal("6.70"),
+        clear_inr_per_min=Decimal("4.50"),
+        studio_inr_per_min=Decimal("6.00"),
     ),
     CreditPack(
         pack_id="scale",
         amount_inr=Decimal("10000"),
-        clear_inr_per_min=Decimal("4.00"),
-        studio_inr_per_min=Decimal("6.40"),
+        clear_inr_per_min=Decimal("4.50"),
+        studio_inr_per_min=Decimal("6.00"),
     ),
     CreditPack(
         pack_id="plus",
         amount_inr=Decimal("15000"),
-        clear_inr_per_min=Decimal("4.00"),
-        studio_inr_per_min=Decimal("6.10"),
+        clear_inr_per_min=Decimal("4.50"),
+        studio_inr_per_min=Decimal("6.00"),
     ),
     CreditPack(
         pack_id="pro",
         amount_inr=Decimal("25000"),
-        clear_inr_per_min=Decimal("4.00"),
-        studio_inr_per_min=Decimal("5.80"),
+        clear_inr_per_min=Decimal("4.50"),
+        studio_inr_per_min=Decimal("6.00"),
     ),
     CreditPack(
         pack_id="max",
         amount_inr=Decimal("50000"),
-        clear_inr_per_min=Decimal("4.00"),
-        studio_inr_per_min=Decimal("5.50"),
+        clear_inr_per_min=Decimal("4.50"),
+        studio_inr_per_min=Decimal("6.00"),
         best_value=True,
     ),
 )

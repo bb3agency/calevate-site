@@ -68,7 +68,7 @@ export function PhoneNumberScreen() {
   );
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="max-w-4xl space-y-6 pb-12">
       <PageHeader description="The numbers your agents answer and call from." />
       <TrialLockNotice lock="numbers" />
 

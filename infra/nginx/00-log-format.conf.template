@@ -80,6 +80,10 @@ map $request_uri $calevate_logged_uri {
     default                                                   $request_uri;
     "~^(?<calevate_log_path>[^?]*)\?(?:.*&)?token="           "$calevate_log_path?token=[redacted]";
     "~^(?<calevate_log_cbpath>[^?]*)\?(?:.*&)?callback_key="  "$calevate_log_cbpath?callback_key=[redacted]";
+    # An OAuth return (`/oauth/callback/<provider>`, `/auth/google/callback`) carries the
+    # authorization `code` and a `state` naming the tenant and user; Meta's subscription
+    # check carries the endpoint's `hub.verify_token` on `api.`. Each is a credential.
+    "~^(?<calevate_log_oapath>[^?]*)\?(?:.*&)?(?:code|state|hub\.verify_token)="  "$calevate_log_oapath?[credential-redacted]";
 }
 
 # THE SAME SECRET ARRIVES THROUGH THE FIELD BESIDE IT, AND THIS FILE USED TO LOG THAT ONE
@@ -114,6 +118,8 @@ map $request_uri $calevate_logged_uri {
 map $http_referer $calevate_logged_referer {
     default                                           $http_referer;
     "~^(?<calevate_log_ref>[^?]*)\?(?:.*&)?token="    "$calevate_log_ref?token=[redacted]";
+    # The OAuth return page's subresources carry its `?code=&state=` the same way.
+    "~^(?<calevate_log_oaref>[^?]*)\?(?:.*&)?(?:code|state)="  "$calevate_log_oaref?[credential-redacted]";
 }
 
 # `combined`, with `$request` decomposed so the URI can be the redacted one.

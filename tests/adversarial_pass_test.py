@@ -133,8 +133,12 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             (
                 "call_id",
                 "calls",
-                "(id, tenant_id, agent_id, engine_call_id, direction, status) "
-                "VALUES (:i, :t, :a, :engine_call, 'outbound', 'completed')",
+                # A stored recording and a failed translation, so the download and the
+                # retranslate rows below would SUCCEED for the owner: a refusal of the
+                # neighbour is then the row's RLS and not "nothing to download/translate".
+                "(id, tenant_id, agent_id, engine_call_id, direction, status, recording_url, "
+                " translation_state) VALUES (:i, :t, :a, :engine_call, 'outbound', "
+                " 'completed', 'recordings/adversarial.wav', 'failed')",
                 {"engine_call": f"eng-{uuid.uuid4().hex[:10]}"},
             ),
             (
@@ -435,6 +439,21 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
                 "VALUES (:i, :t, :l, :a, 'manual')",
                 {"a": agent_id, "l": uuid.UUID(ids["lead_id"])},
             ),
+            # A finished test run on the agent, the subject of "Improve my agent", which
+            # spends the owner's AI allowance — so a neighbour must not reach it.
+            (
+                "run_id",
+                "INSERT INTO agent_test_runs (id, tenant_id, agent_id, status, results) "
+                "VALUES (:i, :t, :a, 'done', '[]'::jsonb)",
+                {"a": agent_id},
+            ),
+            # One spoken turn, so the call has something to put into English.
+            (
+                "turn_id",
+                "INSERT INTO transcript_turns (id, tenant_id, call_id, idx, speaker, text) "
+                "VALUES (:i, :t, :c, 0, 'caller', 'Hello')",
+                {"c": uuid.UUID(ids["call_id"])},
+            ),
         )
         for key, sql, extra in teach_rows:
             row_id = uuid.uuid4()
@@ -512,6 +531,11 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/calls/{call_id}/callback", {}, {}),
     ("POST", "/v1/calls/{call_id}/callback", {}, {}),
     ("GET", "/v1/calls/{call_id}/recording", {}, {}),
+    # Saving the recording is a presigned URL to the audio itself: the neighbour's call
+    # must be invisible before any key is read or any link is signed.
+    ("GET", "/v1/calls/{call_id}/recording/download", {}, {}),
+    # Retranslating spends the owner's AI allowance; the state read is under RLS.
+    ("POST", "/v1/calls/{call_id}/translation", {}, {}),
     # D-656. An SSE stream, so the 404 must come from the dependency that resolves the call
     # under RLS before the headers are sent; inside the generator it would be a 200.
     ("GET", "/v1/calls/{call_id}/speaking", {}, {}),
@@ -685,6 +709,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # neighbour's agent under the caller's tenant session.
     ("GET", "/v1/agents/{agent_id}/script/tests", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/tests", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/script/tests/{run_id}/improve", {}, {}),
     ("PUT", "/v1/agents/{agent_id}/script/draft", {"script": {}}, {}),
     ("POST", "/v1/agents/{agent_id}/script/publish", {"summary": "Changed the greeting"}, {}),
     ("GET", "/v1/agents/{agent_id}/script/versions", {}, {}),

@@ -14,6 +14,7 @@ import { clientNavigation } from "@/lib/clientNav";
 import { useDesktopAlerts } from "@/lib/desktopAlerts";
 
 import { currentItem } from "./ClientSidebar";
+import { TrialChip, trialView } from "./TrialBanner";
 
 export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuToggle: () => void }) {
   const pathname = usePathname();
@@ -38,7 +39,7 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
     // The header spans the window (its border and background are the shell's, not the
     // page's) while its CONTENTS ride the same rail as the content below — see
     // `SHELL_RAIL_CLASS`. Padding is unchanged and was never the defect.
-    <header className="sticky top-0 z-10 flex h-[72px] shrink-0 items-center border-b border-line bg-surface px-4 lg:px-8">
+    <header className="sticky top-0 z-header flex h-[72px] shrink-0 items-center border-b border-line bg-surface px-4 lg:px-8">
       <div className={`${SHELL_RAIL_CLASS} flex items-center justify-between gap-3`}>
         <div className="flex min-w-0 items-center gap-3">
           <button
@@ -56,6 +57,9 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
           {/* Calls in progress now, from the existing 20-second call poll. Renders
               nothing unless at least one call is live. */}
           <LiveCallsPill slug={slug} />
+          {/* While a trial runs (or a test-calls trial has run out unpaid) the trial chip
+              stands in for the credit chip: the trial is what the balance means then. */}
+          <TrialChip slug={slug} />
           <CreditChip slug={slug} />
           <Link
             href={href(`/c/${slug}/attention`)}
@@ -106,6 +110,7 @@ function CreditChip({ slug }: { slug: string }) {
   const { session, href } = useClientRealm();
   const wallet = useWallet(session);
   if (!wallet.data) return null;
+  if (trialView(wallet.data) !== null) return null;
   const state = walletState(wallet.data);
   if (state !== "low" && state !== "stopped") return null;
   const text = state === "stopped" ? "Calls stopped" : creditLeftPhrase(wallet.data);

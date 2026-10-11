@@ -253,7 +253,7 @@ export function Popover({
         <div
           key="popover"
           ref={wrapRef}
-          className="fixed left-0 top-0 z-50"
+          className="fixed left-0 top-0 z-dropdown"
           onBlurCapture={(event) => {
             const next = event.relatedTarget as Node | null;
             if (!next) return;

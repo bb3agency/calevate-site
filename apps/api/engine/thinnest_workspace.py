@@ -23,13 +23,11 @@ Three classes of route, enforced here rather than at each call site:
 * DEVELOPER-ONLY — our account itself: customers, the model catalogue and the workspace
   read. A header there is refused before the request is built (the vendor refuses
   `/customers/*` with one, `customers.md:102`).
-* The BYOK routes are NOT developer-only (D-717). Our Cartesia key is installed and switched
-  on in the customer workspace of each client that uses Studio, and the developer
-  workspace's switch stays off so nothing inherits it; every BYOK request "also works for a
-  customer, with the `Thinnest-Workspace` header" (`bring-your-own-keys.md:137`). They follow
-  the ambient workspace like any handle-less call. Switching the developer workspace's BYOK
-  ON is refused by the adapter (`refuse_developer_byok_on`), not here: the header cannot see
-  the body.
+* The BYOK routes are NOT developer-only. Our Cartesia key is switched on, for the voice
+  only, in our developer workspace (D-727) and in the customer workspace of each paying client
+  that uses Studio (D-717); every BYOK request "also works for a customer, with the
+  `Thinnest-Workspace` header" (`bring-your-own-keys.md:137`). They follow the ambient
+  workspace like any handle-less call.
 * TENANT-ONLY — writes that must never land in the developer workspace, which holds every
   legacy client's data: creating an agent, renting a number, sending business details,
   adding to the do-not-call list, finding or erasing a contact. Without a customer workspace
@@ -76,15 +74,6 @@ WORKSPACE_BYOK_ROUTES: Final[frozenset[tuple[str, str]]] = frozenset(
         ("POST", "/byok/voices/preview"),
     }
 )
-
-
-def refuse_developer_byok_on(workspace: str | None) -> None:
-    """Our developer workspace's BYOK switch stays OFF (D-717): a customer that brings no key
-    of its own inherits the developer's keys and scope while it is on, and every Clear agent
-    of every client would then follow it unless set `off` (`bring-your-own-keys.md:129-133`).
-    Switching it on is a programming error, refused before anything is sent."""
-    if workspace is None or is_developer_workspace(workspace):
-        raise WorkspaceScopeError("the developer workspace's own-keys switch stays off")
 
 
 #: Writes that act on a client's own name or a person's data. Refused without a customer
@@ -228,7 +217,6 @@ __all__ = [
     "current_workspace",
     "in_workspace",
     "is_developer_workspace",
-    "refuse_developer_byok_on",
     "remember_developer_workspace",
     "trial_agent_allowed",
     "trial_agent_in_developer_workspace",

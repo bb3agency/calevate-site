@@ -106,7 +106,7 @@ export function SectionList({
               }}
               style={dragging ? { transform: `translateY(${drag.dy}px)` } : undefined}
               className={`relative flex rounded-card border bg-surface transition-transform duration-(--duration-fast) ease-out ${
-                dragging ? "z-10 border-brand shadow-overlay" : selected === section.id ? "border-brand" : "border-line"
+                dragging ? "z-raised border-brand shadow-overlay" : selected === section.id ? "border-brand" : "border-line"
               } ${shift}`}
             >
               <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-line py-3">

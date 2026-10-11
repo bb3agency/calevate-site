@@ -80,7 +80,7 @@ export default function VerifyBusinessPage() {
   const record = kyc.data;
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="max-w-3xl space-y-6 pb-12">
       <PageHeader
         description={
           <>

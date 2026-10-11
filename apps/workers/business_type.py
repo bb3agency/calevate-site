@@ -10,10 +10,12 @@ Raghava Organics). Three steps, each idempotent, so a redelivery repeats nothing
    treated as carrying the old default and gets the type's set instead (the neutral core
    alone for an unconfirmed account). Fields somebody chose are never touched. Each write
    is a new schema version (`agents/lead_fields.replace_business_fields`).
-2. **Scripts.** Every agent's script is recompiled so "what to collect" matches, and a live
-   agent is republished through the one publish path (`script_builder.recompile_collect`).
-   One transaction per agent, so one agent the voice platform refuses does not hold back
-   the others.
+2. **Scripts.** An agent still carrying another business type's ready-made starter, exactly
+   as written, gets the confirmed type's starter (`agents/starters.replace_unedited_starter`);
+   a script anybody changed is left alone. Every agent's script is then recompiled so "what
+   to collect" matches, and a live agent is republished through the one publish path
+   (`script_builder.recompile_collect`). One transaction per agent, so one agent the voice
+   platform refuses does not hold back the others.
 3. **Suggestion.** For an account still unconfirmed, the dashboard AI chain
    (`workers/script_assist.ask_json`: Azure, then the disclosed Sarvam fallback) reads the
    business's own description of itself, redacted (D-127 G-1/G-2), and suggests ONE type
@@ -38,6 +40,7 @@ from apps.api.agents.lead_fields import (
     starting_business_fields,
 )
 from apps.api.agents.script_builder import recompile_collect
+from apps.api.agents.starters import replace_unedited_starter
 from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.billing.models import ASSIST_FEATURE_BUSINESS_TYPE
 from apps.api.core.errors import ProblemError
@@ -137,8 +140,8 @@ async def _refit_fields(tenant_id: UUID, *, replace_clinic_default: bool) -> tup
         return unconfirmed and org[2] is None, written
 
 
-async def _recompile_scripts(tenant_id: UUID) -> tuple[int, int]:
-    """Step 2. Returns (agents recompiled, agents the voice platform refused)."""
+async def _recompile_scripts(tenant_id: UUID) -> tuple[int, int, int]:
+    """Step 2. Returns (starters replaced, agents recompiled, agents the platform refused)."""
     async with tenant_session(tenant_id) as session:
         agent_ids = [
             UUID(str(r[0]))
@@ -151,11 +154,13 @@ async def _recompile_scripts(tenant_id: UUID) -> tuple[int, int]:
                 )
             ).all()
         ]
-    changed = refused = 0
+    replaced = changed = refused = 0
     for agent_id in agent_ids:
         try:
             async with tenant_session(tenant_id) as session:
-                if await recompile_collect(session, tenant_id=tenant_id, agent_id=agent_id):
+                if await replace_unedited_starter(session, tenant_id=tenant_id, agent_id=agent_id):
+                    replaced += 1
+                elif await recompile_collect(session, tenant_id=tenant_id, agent_id=agent_id):
                     changed += 1
         except ProblemError as exc:
             refused += 1
@@ -163,7 +168,7 @@ async def _recompile_scripts(tenant_id: UUID) -> tuple[int, int]:
                 "business_type_recompile_refused",
                 extra={"agent_id": str(agent_id), "reason": exc.code},
             )
-    return changed, refused
+    return replaced, changed, refused
 
 
 async def _suggest(tenant_id: UUID) -> str | None:
@@ -202,13 +207,14 @@ async def apply_business_type(ctx: dict[str, Any], payload: dict[str, Any]) -> s
     needs_suggestion, written = await _refit_fields(
         tenant_id, replace_clinic_default=bool(payload.get("replace_clinic_default"))
     )
-    recompiled, refused = await _recompile_scripts(tenant_id)
+    replaced, recompiled, refused = await _recompile_scripts(tenant_id)
     suggested = await _suggest(tenant_id) if needs_suggestion else None
     log.info(
         "business_type_applied",
         extra={
             "tenant_id": str(tenant_id),
             "fields_written": written,
+            "starters_replaced": replaced,
             "scripts_recompiled": recompiled,
             "scripts_refused": refused,
             "suggested": suggested,

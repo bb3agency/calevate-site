@@ -591,6 +591,29 @@ describe("the leads table on a phone", () => {
   it("pins the Name column, beside a fixed-width select column when there is one", () => {
     expect(tableSource).toMatch(/pin: column\.key === "name" \? \(maySelect \? "left-12" : "left-0"\)/);
     expect(tableSource).toMatch(/className: "w-12 min-w-12 max-w-12"/);
-    expect(dataTable).toMatch(/"left-12": "sticky left-12 z-\[1\] bg-surface"/);
+    expect(dataTable).toMatch(/"left-12": "sticky left-12 z-raised bg-surface"/);
+  });
+});
+
+describe("console pages sit on the rail's left edge", () => {
+  /**
+   * Every console page starts at the content rail's left edge, under the page title in
+   * the top bar; a page narrows itself with a `max-w-*` and stays left. A page that centred
+   * itself (`mx-auto max-w-2xl`) put its content a different distance from the title on
+   * every width, which read as "the padding is off". The MFA refusal is a standalone
+   * screen with no shell and is the one exemption.
+   */
+  const EXEMPT = new Set(["app/admin/layout.tsx"]);
+
+  it("no console page centres its own content", () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles()) {
+      const key = relPosix(SRC, file);
+      if (!(key.startsWith("app/c/") || key.startsWith("app/admin/")) || EXEMPT.has(key)) continue;
+      blankComments(readFileSync(file, "utf8").split("\n")).forEach((line, i) => {
+        if (/className="mx-auto (?:grid )?max-w-/.test(line)) offenders.push(`${key}:${i + 1}`);
+      });
+    }
+    expect(offenders).toEqual([]);
   });
 });

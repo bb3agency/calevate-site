@@ -347,3 +347,29 @@ def test_the_frame_locals_control_is_the_option_and_not_the_scrubber() -> None:
     # And these two are what it cannot see, which is the whole finding.
     assert "Ravi Kumar" in variables["name"]
     assert "callback" in variables["summary"]
+
+
+def test_every_credential_shaped_header_is_withheld_from_the_tracker() -> None:
+    """Exact names missed the shared secrets and the webhook signatures: a crash on the
+    lead-source intake would have sent its `X-Ingest-Secret` to Sentry verbatim."""
+    sent = {
+        "X-Ingest-Secret": "s3cr3t-intake",
+        "X-Agent-Secret": "s3cr3t-agent",
+        "x-thinnest-signature-v2": "sha256=abc",
+        "X-Razorpay-Signature": "abc",
+        "X-Hub-Signature-256": "sha256=abc",
+        "X-Api-Key": "k",
+        "Accept": "application/json",
+    }
+    scrubbed = scrub_event({"request": {"headers": dict(sent)}})
+    assert scrubbed is not None
+    headers = scrubbed["request"]["headers"]
+    assert headers["Accept"] == "application/json"
+    assert all(headers[name] == "[redacted]" for name in sent if name != "Accept")
+
+
+def test_a_meta_verify_token_in_the_query_string_is_masked() -> None:
+    event = {"request": {"query_string": "hub.mode=subscribe&hub.verify_token=VTOKEN123&x=1"}}
+    scrubbed = scrub_event(event)
+    assert scrubbed is not None
+    assert "VTOKEN123" not in scrubbed["request"]["query_string"]

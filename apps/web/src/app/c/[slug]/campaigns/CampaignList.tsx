@@ -167,7 +167,7 @@ function NameCell({
         <ReachBar reached={campaign.connected} total={campaign.contacts} />
       </div>
       {note && (
-        <p className="relative z-[1] mt-1 max-w-md text-xs text-ink-muted">
+        <p className="relative z-raised mt-1 max-w-md text-xs text-ink-muted">
           <span
             className={`mr-1.5 inline-flex rounded-full border px-1.5 py-0.5 text-[11px] font-medium ${note.badgeClass}`}
           >
@@ -215,7 +215,7 @@ function RowActions({
   }, [setStatus.error, onError]);
 
   return (
-    <div className="relative z-[1] flex items-center justify-end gap-1">
+    <div className="relative z-raised flex items-center justify-end gap-1">
       {toggle ? (
         <button
           type="button"

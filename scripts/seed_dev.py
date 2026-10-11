@@ -85,7 +85,7 @@ from sqlalchemy import text
 # while passing validation. **`.test` is NOT the fix**: it is reserved by the same RFC 2606
 # and rejected by `email-validator` for exactly the reason `.local` is, so it would have
 # reproduced this bug under a different name. A real TLD like `.dev` validates but is
-# registrable — `sunrise-dental.dev` may belong to somebody — which trades a login bug for
+# registrable — `sunrise-homes.dev` may belong to somebody — which trades a login bug for
 # a mail-a-stranger bug.
 #
 # `test_every_seeded_login_is_one_the_api_would_accept` pins this against the same validator
@@ -95,17 +95,19 @@ ADMIN_EMAIL = "ops@calevate.example.com"
 ADMIN_NAME = "Dev Operator"
 ADMIN_PASSWORD = "CalevateDev!2026"
 
-OWNER_EMAIL = "owner@sunrise-dental.example.com"
+OWNER_EMAIL = "owner@sunrise-homes.example.com"
 OWNER_NAME = "Padma Rao"
 OWNER_PASSWORD = "CalevateDev!2026"
 
-STAFF_EMAIL = "staff@sunrise-dental.example.com"
+STAFF_EMAIL = "staff@sunrise-homes.example.com"
 STAFF_NAME = "Kiran Kumar"
 STAFF_PASSWORD = "CalevateDev!2026"
 
-TENANT_NAME = "Sunrise Dental Care"
-TENANT_SLUG = "sunrise-dental"
-TENANT_VERTICAL = "clinic"
+TENANT_NAME = "Sunrise Homes"
+TENANT_SLUG = "sunrise-homes"
+#: Not a clinic: a clinic is one business type among eight, and the demo should show the
+#: product as most clients see it (D-722).
+TENANT_VERTICAL = "real_estate"
 TENANT_LANGUAGE = "en-IN"
 
 #: ⚠ **`prepaid`, AND THIS SAID `managed` UNTIL D-521.** The old note argued that a
@@ -152,7 +154,8 @@ class DemoCall:
 
 # Six calls: two hot leads, one resolved, one follow-up, one transfer, one dropped — so the
 # "needs attention" queue, the funnel and the outcome breakdown all have something in them
-# rather than each needing its own hand-made row later.
+# rather than each needing its own hand-made row later. The extraction keys are the real
+# estate type's lead fields (`scripts/seed.py` VERTICAL_TEMPLATES).
 DEMO_CALLS: tuple[DemoCall, ...] = (
     DemoCall(
         minutes_ago=35,
@@ -161,22 +164,24 @@ DEMO_CALLS: tuple[DemoCall, ...] = (
         duration_s=142,
         outcome_tag="needs_you",
         sentiment="positive",
-        summary="Asked about clear aligners and pricing; wants a consultation this week.",
+        summary="Asked about 3BHK flats in Kondapur under 90 lakhs; wants a visit this week.",
         caller_name="Anitha Reddy",
         lead_status="hot",
         turns=(
-            ("agent", "Sunrise Dental, this is an AI assistant. How can I help you today?"),
-            ("caller", "Hi, I wanted to ask about the clear aligner treatment."),
-            ("agent", "Of course. Aligner treatment starts at forty thousand rupees."),
-            ("caller", "That works. Can I come in on Thursday morning?"),
-            ("agent", "Thursday at eleven is free. May I take your name?"),
+            ("agent", "Sunrise Homes, this is an AI assistant. How can I help you today?"),
+            ("caller", "Hi, I am looking for a 3BHK in Kondapur."),
+            ("agent", "We have 3BHK flats there from eighty-five lakhs. What is your budget?"),
+            ("caller", "Up to ninety lakhs. Can I see one on Thursday morning?"),
+            ("agent", "Thursday at eleven is free for a site visit. May I take your name?"),
             ("caller", "Anitha Reddy."),
         ),
         extraction={
-            "intent": "appointment",
+            "intent": "site_visit",
             "urgency": "high",
-            "preferred_time": "Thursday 11:00",
-            "treatment": "clear aligners",
+            "budget_lakhs": 90,
+            "preferred_location": "Kondapur",
+            "bhk_size": "3BHK",
+            "site_visit_interest": True,
         },
     ),
     DemoCall(
@@ -186,16 +191,16 @@ DEMO_CALLS: tuple[DemoCall, ...] = (
         duration_s=68,
         outcome_tag="answered",
         sentiment="neutral",
-        summary="Confirmed clinic timings and parking. No booking needed.",
+        summary="Confirmed office timings and parking. No visit needed.",
         caller_name="Suresh Babu",
         lead_status="contacted",
         turns=(
-            ("agent", "Sunrise Dental, this is an AI assistant. How can I help you?"),
-            ("caller", "What time do you close today?"),
+            ("agent", "Sunrise Homes, this is an AI assistant. How can I help you?"),
+            ("caller", "What time does your office close today?"),
             ("agent", "We are open until eight in the evening, seven days a week."),
             ("caller", "Great, thank you."),
         ),
-        extraction={"intent": "information", "urgency": "low", "treatment": None},
+        extraction={"intent": "information", "urgency": "low"},
     ),
     DemoCall(
         minutes_ago=190,
@@ -204,16 +209,22 @@ DEMO_CALLS: tuple[DemoCall, ...] = (
         duration_s=203,
         outcome_tag="needs_you",
         sentiment="positive",
-        summary="Recall call for a six-month cleaning; asked to be called back after Diwali.",
+        summary="Follow-up on a Gachibowli enquiry; asked to be called back after Diwali.",
         caller_name="Lakshmi Prasad",
         lead_status="interested",
         turns=(
-            ("agent", "Good afternoon, calling from Sunrise Dental. This call is recorded."),
+            ("agent", "Good afternoon, calling from Sunrise Homes. This call is recorded."),
             ("caller", "Yes, go ahead."),
-            ("agent", "Your six-month cleaning is due. Shall I book a slot?"),
+            ("agent", "You asked about 2BHK flats in Gachibowli. Shall I set up a visit?"),
             ("caller", "Call me after Diwali, I will be travelling."),
         ),
-        extraction={"intent": "recall", "urgency": "medium", "callback_after": "Diwali"},
+        extraction={
+            "intent": "follow_up",
+            "urgency": "medium",
+            "preferred_location": "Gachibowli",
+            "bhk_size": "2BHK",
+            "timeline": "after Diwali",
+        },
     ),
     DemoCall(
         minutes_ago=310,
@@ -222,15 +233,15 @@ DEMO_CALLS: tuple[DemoCall, ...] = (
         duration_s=88,
         outcome_tag="transferred",
         sentiment="negative",
-        summary="Complaint about a crown fitted last month; transferred to the front desk.",
+        summary="Complaint about a delayed possession date; transferred to the front desk.",
         caller_name="Ravi Teja",
         lead_status="contacted",
         turns=(
-            ("agent", "Sunrise Dental, this is an AI assistant."),
-            ("caller", "The crown you fitted last month is hurting."),
+            ("agent", "Sunrise Homes, this is an AI assistant."),
+            ("caller", "My possession date has been pushed back again."),
             ("agent", "I am sorry to hear that. Let me put you through to the front desk."),
         ),
-        extraction={"intent": "complaint", "urgency": "high", "treatment": "crown"},
+        extraction={"intent": "complaint", "urgency": "high"},
     ),
     DemoCall(
         minutes_ago=420,
@@ -242,7 +253,7 @@ DEMO_CALLS: tuple[DemoCall, ...] = (
         summary="Caller hung up during the greeting.",
         caller_name="Unknown caller",
         lead_status="new",
-        turns=(("agent", "Sunrise Dental, this is an AI assistant. How can I help you?"),),
+        turns=(("agent", "Sunrise Homes, this is an AI assistant. How can I help you?"),),
         extraction={"intent": None, "urgency": "low"},
     ),
     DemoCall(
@@ -252,16 +263,21 @@ DEMO_CALLS: tuple[DemoCall, ...] = (
         duration_s=176,
         outcome_tag="answered",
         sentiment="positive",
-        summary="Booked a root canal consultation for Monday morning.",
+        summary="Booked a site visit to the Tellapur project for Monday morning.",
         caller_name="Meena Joseph",
         lead_status="won",
         turns=(
-            ("agent", "Good morning, calling from Sunrise Dental. This call is recorded."),
+            ("agent", "Good morning, calling from Sunrise Homes. This call is recorded."),
             ("caller", "Yes, I was expecting your call."),
-            ("agent", "Monday at ten works for the consultation. Shall I confirm?"),
+            ("agent", "Monday at ten works for the site visit. Shall I confirm?"),
             ("caller", "Please do."),
         ),
-        extraction={"intent": "appointment", "urgency": "medium", "treatment": "root canal"},
+        extraction={
+            "intent": "site_visit",
+            "urgency": "medium",
+            "preferred_location": "Tellapur",
+            "site_visit_interest": True,
+        },
     ),
 )
 
@@ -664,14 +680,14 @@ async def _seed_calls(*, tenant_id: UUID, agent_id: UUID, owner_user_id: UUID) -
 #: compliance sentences are NOT in it — `compose_engine_prompt` appends the AI disclosure
 #: and the recording notice server-side on every publish (hard rule 5), and writing them
 #: here would be a second copy that a client edit could silently drop.
-DEMO_PROMPT = """You are the receptionist for Sunrise Dental Care in Hyderabad.
+DEMO_PROMPT = """You are the front desk for Sunrise Homes, a property office in Hyderabad.
 
-Answer questions about treatments, timings and pricing. The clinic is open 9am to 8pm,
-seven days a week. A consultation is 500 rupees; clear aligner treatment starts at 40,000
-rupees; a root canal is 6,000 to 12,000 rupees depending on the tooth.
+Answer questions about projects, locations, flat sizes and prices. The office is open 9am to
+8pm, seven days a week. 2BHK flats in Gachibowli start at 65 lakhs; 3BHK flats in Kondapur
+start at 85 lakhs; plots in Tellapur start at 40 lakhs.
 
-Book appointments by taking the caller's name, phone number and preferred time. If the
-caller has a complaint about work already done, transfer them to the front desk.
+Book site visits by taking the caller's name, phone number, budget and preferred time. If
+the caller has a complaint about a flat already bought, transfer them to the front desk.
 
 Speak in the caller's language — English or Telugu. Keep answers short."""
 
